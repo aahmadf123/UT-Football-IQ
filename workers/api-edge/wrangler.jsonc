@@ -44,16 +44,20 @@
   // and not exist yet; a worker would claim a job a cached read still shows as
   // queued.
   //
-  // src/container.ts derives the container's DATABASE_URL from this binding's
-  // connectionString. See the note there about BACKEND_DATABASE_URL, which
-  // overrides it — Cloudflare documents the Hyperdrive string as resolvable
-  // only inside the Workers runtime, so that override is the recovery path if
-  // the container cannot dial it.
+  // This binding serves Worker-side code. It is NOT how the FastAPI container
+  // reaches Postgres: Cloudflare documents the Hyperdrive connectionString as
+  // accessible only from within the Workers runtime, and the container is a
+  // separate sandbox whose egress goes to the public internet. The container
+  // dials the BACKEND_DATABASE_URL secret instead — set it, or the container
+  // refuses to start. See `resolveDatabaseUrl` in src/container.ts.
   "hyperdrive": [
     {
+      // `id` binds the deployed Worker to the Hyperdrive config; it is what
+      // production uses.
       "binding": "HYPERDRIVE",
       "id": "149ffd9184e74ec2a9c2d73d3688355d",
-      // Used only by `wrangler dev`; never in a deployed Worker.
+      // `localConnectionString`, by contrast, is read only by `wrangler dev`
+      // and is ignored once deployed.
       "localConnectionString": "postgresql://footiq:footiq@localhost:5432/footiq"
     }
   ],

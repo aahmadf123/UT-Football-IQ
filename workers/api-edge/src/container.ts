@@ -27,15 +27,7 @@ import type { Env } from "./env";
  * Exported so a test can assert the mapping without starting a container.
  */
 export function buildContainerEnv(env: Env): Record<string, string> {
-  // Hyperdrive is the default source; BACKEND_DATABASE_URL overrides it.
-  //
-  // The override exists because Cloudflare documents the Hyperdrive connection
-  // string as resolvable only from inside the Workers runtime, and the
-  // container is a separate sandbox -- container-to-Worker outbound is HTTP
-  // only, which a Postgres TCP connection cannot use. If the container fails to
-  // connect, the symptom looks like a database outage; setting this secret to
-  // the origin Postgres URL restores service without a code change or redeploy.
-  const databaseUrl = env.BACKEND_DATABASE_URL || env.HYPERDRIVE?.connectionString;
+  const databaseUrl = resolveDatabaseUrl(env);
 
   const vars: Record<string, string | undefined> = {
     // ── Database ────────────────────────────────────────────────────────
@@ -100,6 +92,61 @@ export function buildContainerEnv(env: Env): Record<string, string> {
 }
 
 /**
+ * Pick the Postgres URL the container will dial, or fail loudly.
+ *
+ * `BACKEND_DATABASE_URL` is the supported source, not a fallback. Cloudflare
+ * documents the Hyperdrive connection string as "only accessible from your
+ * Worker": the hostname is resolved inside the Workers runtime, and a container
+ * is a separate sandbox whose egress goes to the public internet. So the
+ * Hyperdrive string, handed to the container, points at nothing it can reach.
+ *
+ * The binding is still read as a last resort rather than ignored -- if that
+ * ever changes, or the config is fronted by a reachable address, this keeps
+ * working -- but taking that branch is warned about, because the failure it
+ * produces (asyncpg timing out at startup) reads like a database outage rather
+ * than a misconfiguration.
+ *
+ * Throwing here surfaces at container construction, which is the point: the
+ * alternative is a backend that boots, serves 500s on every route that touches
+ * Postgres, and gives no clue which of a dozen settings is missing.
+ */
+function resolveDatabaseUrl(env: Env): string {
+  if (env.BACKEND_DATABASE_URL) return env.BACKEND_DATABASE_URL;
+
+  const hyperdrive = env.HYPERDRIVE?.connectionString;
+  if (hyperdrive) {
+    // Deliberately no URL in the payload -- it carries the database password,
+    // and `wrangler tail` output is retained.
+    console.warn(
+      JSON.stringify({
+        event: "container_db_url_from_hyperdrive",
+        detail:
+          "Falling back to the Hyperdrive binding. Its connection string is " +
+          "documented as resolvable only inside the Workers runtime, so the " +
+          "container is likely to fail to connect. Set the " +
+          "BACKEND_DATABASE_URL secret to the origin Postgres URL.",
+      }),
+    );
+    return hyperdrive;
+  }
+
+  throw new Error(
+    "No database URL configured for the backend container. Run " +
+      "`wrangler secret put BACKEND_DATABASE_URL` with the origin Postgres URL.",
+  );
+}
+
+/**
+ * A URL whose scheme already names a driver, e.g. `postgresql+asyncpg://`.
+ *
+ * Anchored to the scheme on purpose. Testing the whole URL for `+` misreads a
+ * password containing one -- common in generated credentials -- as an
+ * already-qualified scheme, skips normalisation, and leaves SQLAlchemy to pick
+ * psycopg2 and fail the async engine at startup.
+ */
+const DRIVER_SCHEME_RE = /^[a-z][a-z0-9.-]*\+[a-z0-9_]+:\/\//i;
+
+/**
  * Normalise any Postgres URL to the async driver SQLAlchemy expects.
  *
  * Hyperdrive emits `postgresql://` (and `postgres://` is equally valid), while
@@ -107,15 +154,13 @@ export function buildContainerEnv(env: Env): Record<string, string> {
  * async engine fails at startup. Already-qualified URLs pass through untouched
  * so an operator override can name its own driver.
  */
-function toAsyncUrl(url: string | undefined): string | undefined {
-  if (!url) return undefined;
-  if (url.includes("+")) return url;
+function toAsyncUrl(url: string): string {
+  if (DRIVER_SCHEME_RE.test(url)) return url;
   return url.replace(/^postgres(ql)?:\/\//, "postgresql+asyncpg://");
 }
 
 /** Normalise to the plain psycopg2 form Alembic wants. */
-function toSyncUrl(url: string | undefined): string | undefined {
-  if (!url) return undefined;
+function toSyncUrl(url: string): string {
   return url.replace(/^postgres(ql)?(\+\w+)?:\/\//, "postgresql://");
 }
 

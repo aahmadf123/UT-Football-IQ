@@ -15,9 +15,10 @@ export interface Env {
   /**
    * Pooled Postgres connection, with query caching disabled on the config.
    *
-   * Its `connectionString` is the container's default database URL — see
-   * `buildContainerEnv` in `container.ts` for the driver-scheme conversion and
-   * for `BACKEND_DATABASE_URL`, which overrides it.
+   * Available to Worker-side code. It is **not** the container's database URL:
+   * Cloudflare documents the `connectionString` as accessible only from within
+   * the Workers runtime, and the container is a separate sandbox. See
+   * `resolveDatabaseUrl` in `container.ts`.
    */
   HYPERDRIVE?: Hyperdrive;
 
@@ -27,10 +28,12 @@ export interface Env {
   /** Bearer token the cron handler presents to the internal scheduler route. */
   SCHEDULER_TOKEN: string;
   /**
-   * Direct Postgres URL, overriding the Hyperdrive binding.
+   * Direct Postgres URL for the container. **Required in a real deployment** —
+   * the container cannot reach the Hyperdrive connection string.
    *
-   * Optional. Set it to bypass Hyperdrive entirely — see the note in
-   * `container.ts`.
+   * Typed optional because a Worker's env is only checked at runtime; absent it,
+   * `buildContainerEnv` throws rather than starting a backend that cannot reach
+   * its database. See `resolveDatabaseUrl` in `container.ts`.
    */
   BACKEND_DATABASE_URL?: string;
   /** Direct Postgres URL for Alembic (psycopg2). Derived when unset. */
