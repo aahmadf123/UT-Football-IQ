@@ -154,15 +154,24 @@ export function draftToMetadata(draft: UploadMetadataDraft): {
   };
 }
 
-/** Split a comma/enter-separated tag input into clean, de-duplicated tags. */
+/**
+ * Split a comma/newline-separated tag input into clean, de-duplicated tags.
+ *
+ * Keep the client-side cap aligned with backend/app/routers/videos.py:MAX_TAGS_PER_VIDEO.
+ */
+const MAX_TAGS = 20;
+const MAX_TAG_LENGTH = 60;
+
 export function parseTags(input: string): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
-  for (const raw of input.split(",")) {
-    const tag = raw.trim().toLowerCase();
+  for (const raw of input.split(/[,
+]/)) {
+    const tag = raw.trim().toLowerCase().slice(0, MAX_TAG_LENGTH);
     if (!tag || seen.has(tag)) continue;
     seen.add(tag);
     out.push(tag);
+    if (out.length >= MAX_TAGS) break;
   }
   return out;
 }
