@@ -19,7 +19,6 @@ afterEach(() => {
 beforeEach(() => {
   vi.stubEnv("NEXT_PUBLIC_USE_MOCKS", "");
   vi.stubEnv("NEXT_PUBLIC_API_URL", "https://api.test");
-  vi.stubEnv("NEXT_PUBLIC_WORKER_URL", "https://worker.test");
 });
 
 async function importSpotlight() {
@@ -64,7 +63,7 @@ const READY_VIDEO = {
   id: "v-ready",
   filename: "PR_20260722_DRONEA.mp4",
   status: "ready",
-  storage_uri: "r2://raw-video/PR_20260722_DRONEA.mp4",
+  storage_uri: "s3://raw-video/PR_20260722_DRONEA.mp4",
   duration_seconds: 120,
   fps: 30,
   width: 1920,
@@ -80,7 +79,7 @@ const CLIP = {
   play_number: 1,
   confidence: 0.9,
   is_reviewed: false,
-  storage_uri: "r2://clips/c-1.mp4",
+  storage_uri: "s3://clips/c-1.mp4",
   created_at: "2026-07-22T10:05:00Z",
 };
 

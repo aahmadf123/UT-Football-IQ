@@ -1,15 +1,15 @@
-"""Storage facade for the GPU worker — R2 (S3-compatible) or local filesystem.
+"""Storage facade for the GPU worker — S3-compatible object storage or local filesystem.
 
 Accepted references:
-    ``r2://bucket/key``     — Cloudflare R2 via boto3
+    ``s3://bucket/key``     — S3-compatible object store via boto3
     ``local://bucket/key``  — files under ``LOCAL_STORAGE_ROOT`` (shared with
                               the backend in single-box deployments)
     ``file:///abs/path``    — plain filesystem path
     bare key                — legacy form: resolved against the default
-                              backend and the ``R2_BUCKET_NAME`` bucket
+                              backend and the ``S3_BUCKET_NAME`` bucket
 
-The active backend for *writes* comes from ``STORAGE_BACKEND`` (``r2`` |
-``local``); when unset it is auto-detected (R2 credentials present → r2,
+The active backend for *writes* comes from ``STORAGE_BACKEND`` (``s3`` |
+``local``); when unset it is auto-detected (object-store credentials present → s3,
 else local). *Reads* dispatch on the reference's scheme so mixed databases
 keep working.
 
@@ -32,10 +32,10 @@ import structlog
 
 log = structlog.get_logger(__name__)
 
-R2_ENDPOINT = os.environ.get("R2_ENDPOINT_URL", "")
-R2_ACCESS_KEY = os.environ.get("R2_ACCESS_KEY_ID", "")
-R2_SECRET_KEY = os.environ.get("R2_SECRET_ACCESS_KEY", "")
-R2_BUCKET = os.environ.get("R2_BUCKET_NAME", "football-iq")
+S3_ENDPOINT = os.environ.get("S3_ENDPOINT_URL", "")
+S3_ACCESS_KEY = os.environ.get("S3_ACCESS_KEY_ID", "")
+S3_SECRET_KEY = os.environ.get("S3_SECRET_ACCESS_KEY", "")
+S3_BUCKET = os.environ.get("S3_BUCKET_NAME", "football-iq")
 
 LOCAL_STORAGE_ROOT = os.environ.get("LOCAL_STORAGE_ROOT", "./data/storage")
 
@@ -46,11 +46,11 @@ _OVERLAY_PREFIXES = ("overlays/", "period_overlays/", "hls/")
 
 
 def active_backend() -> str:
-    """Return the backend new writes go to: ``"r2"`` or ``"local"``."""
+    """Return the backend new writes go to: ``"s3"`` or ``"local"``."""
     configured = os.environ.get("STORAGE_BACKEND", "")
-    if configured in ("r2", "local"):
+    if configured in ("s3", "local"):
         return configured
-    return "r2" if (R2_ENDPOINT and R2_ACCESS_KEY and R2_SECRET_KEY) else "local"
+    return "s3" if (S3_ENDPOINT and S3_ACCESS_KEY and S3_SECRET_KEY) else "local"
 
 
 def parse_ref(ref: str) -> tuple[str, str, str]:
@@ -61,7 +61,7 @@ def parse_ref(ref: str) -> tuple[str, str, str]:
     """
     if ref.startswith("file://"):
         return "file", "", ref[len("file://") :]
-    for scheme in ("r2", "local"):
+    for scheme in ("s3", "local"):
         prefix = f"{scheme}://"
         if ref.startswith(prefix):
             rest = ref[len(prefix) :]
@@ -69,7 +69,7 @@ def parse_ref(ref: str) -> tuple[str, str, str]:
                 raise ValueError(f"Malformed {scheme}:// reference (no key): {ref!r}")
             bucket, key = rest.split("/", 1)
             return scheme, bucket, key
-    return "", R2_BUCKET, ref
+    return "", S3_BUCKET, ref
 
 
 def bucket_for_key(key: str) -> str:
@@ -92,18 +92,18 @@ def _s3_client() -> Any:
 
     return boto3.client(
         "s3",
-        endpoint_url=R2_ENDPOINT,
-        aws_access_key_id=R2_ACCESS_KEY,
-        aws_secret_access_key=R2_SECRET_KEY,
+        endpoint_url=S3_ENDPOINT,
+        aws_access_key_id=S3_ACCESS_KEY,
+        aws_secret_access_key=S3_SECRET_KEY,
     )
 
 
 def _record(operation: str, bucket: str, outcome: str, duration: float) -> None:
     """Best-effort metrics emission — never raises."""
     try:
-        from worker.observability import record_r2_operation
+        from worker.observability import record_s3_operation
 
-        record_r2_operation(operation, bucket, outcome, duration)
+        record_s3_operation(operation, bucket, outcome, duration)
     except Exception:
         pass
 
@@ -212,7 +212,7 @@ def upload_file(
                 key,
                 ExtraArgs={"ContentType": content_type},
             )
-        uri = f"r2://{target_bucket}/{key}"
+        uri = f"s3://{target_bucket}/{key}"
         duration = time.monotonic() - start
         _record("upload", target_bucket, "success", duration)
         log.info("storage_upload_done", key=key, uri=uri,
@@ -252,7 +252,7 @@ def upload_bytes(
             key,
             ExtraArgs={"ContentType": content_type},
         )
-        uri = f"r2://{target_bucket}/{key}"
+        uri = f"s3://{target_bucket}/{key}"
         duration = time.monotonic() - start
         _record("upload_bytes", target_bucket, "success", duration)
         log.info("storage_upload_bytes_done", key=key, uri=uri,

@@ -220,7 +220,7 @@ async def create_video(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(require_any_staff)],
 ) -> VideoResponse:
-    """Register a new video record after the file has been uploaded to R2."""
+    """Register a new video record after the file has been uploaded to the object store."""
     video = Video(
         id=uuid.uuid4(),
         filename=body.filename,

@@ -23,22 +23,22 @@ class Settings(BaseSettings):
     database_url: str  # asyncpg URL for the app
     database_sync_url: str = ""  # psycopg2 URL for Alembic (derived if empty)
 
-    # ── Cloudflare R2 ─────────────────────────────────────────────────────
-    r2_access_key_id: str = ""
-    r2_secret_access_key: str = ""
-    r2_endpoint_url: str = ""
-    r2_bucket_raw: str = "raw-video"
-    r2_bucket_clips: str = "clips"
-    r2_bucket_overlays: str = "overlays"
-    r2_bucket_artifacts: str = "artifacts"
-    r2_presign_ttl: int = 3600
+    # ── Object storage (any S3-compatible provider) ───────────────────────
+    s3_access_key_id: str = ""
+    s3_secret_access_key: str = ""
+    s3_endpoint_url: str = ""
+    s3_bucket_raw: str = "raw-video"
+    s3_bucket_clips: str = "clips"
+    s3_bucket_overlays: str = "overlays"
+    s3_bucket_artifacts: str = "artifacts"
+    s3_presign_ttl: int = 3600
 
     # ── Storage backend selection ─────────────────────────────────────────
-    # "r2" | "local" | "" (auto: r2 when R2 credentials are configured,
-    # otherwise local). "local" stores objects under ``local_storage_root``
-    # as ``{root}/{bucket}/{key}`` with ``local://bucket/key`` URIs and
-    # serves them through the HMAC-signed /api/v1/storage route, so the
-    # whole platform runs without any Cloudflare account.
+    # "s3" | "local" | "" (auto: s3 when object-store credentials are
+    # configured, otherwise local). "local" stores objects under
+    # ``local_storage_root`` as ``{root}/{bucket}/{key}`` with
+    # ``local://bucket/key`` URIs and serves them through the HMAC-signed
+    # /api/v1/storage route, so the whole platform runs with no cloud account.
     storage_backend: str = ""
     local_storage_root: str = "./data/storage"
     # Absolute base used when minting signed local download URLs (the
@@ -55,16 +55,16 @@ class Settings(BaseSettings):
     jwt_refresh_token_expire_days: int = 30
 
     # ── CORS ──────────────────────────────────────────────────────────────
-    # Comma-separated exact allowed origins. A deployed frontend (Cloudflare
-    # Pages / Vercel / custom domain) MUST be listed here or every browser
-    # call to the API — including login/register — is blocked by CORS.
-    cors_origins: str = "http://localhost:3000,https://football-iq.pages.dev"
-    # Optional regex for origins that vary per deploy (e.g. Vercel/CF Pages
-    # preview URLs). Example: r"https://football-iq-.*\.vercel\.app".
-    cors_origin_regex: str = (
-        r"^https://football-iq(?:-[a-z0-9]+(?:-[a-z0-9]+)*)?\.pages\.dev$"
-        r"|^https://football-iq(?:-[a-z0-9]+(?:-[a-z0-9]+)*)?\.vercel\.app$"
-    )
+    # Comma-separated exact allowed origins. Defaults cover local development
+    # only. Any deployed frontend origin MUST be added here (via CORS_ORIGINS)
+    # or every browser call to the API — including login/register — is blocked
+    # by CORS.
+    cors_origins: str = "http://localhost:3000"
+    # Optional regex for origins that vary per deploy (e.g. per-branch preview
+    # URLs). Empty by default: a deployment opts in explicitly rather than
+    # inheriting a pattern that matches somebody else's hosting.
+    # Example: r"^https://myapp-[a-z0-9-]+\.example\.com$"
+    cors_origin_regex: str = ""
 
     # ── Same-session feedback loop (Issue #147) ───────────────────────────
     # Clip ``confidence`` at or below this value is surfaced to coaches as

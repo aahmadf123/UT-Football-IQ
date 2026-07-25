@@ -10,7 +10,7 @@ from worker.observability import (
     record_job_succeeded,
     record_job_timed_out,
     record_queue_poll,
-    record_r2_operation,
+    record_s3_operation,
     set_worker_up,
 )
 
@@ -38,13 +38,13 @@ def test_queue_poll_metrics() -> None:
     assert "gpu_queue_messages_received_total" in output
 
 
-def test_r2_operation_metrics() -> None:
-    record_r2_operation("download", "football-iq", "success", 1.5)
-    record_r2_operation("upload", "football-iq", "error", 0.3)
+def test_s3_operation_metrics() -> None:
+    record_s3_operation("download", "football-iq", "success", 1.5)
+    record_s3_operation("upload", "football-iq", "error", 0.3)
 
     output = generate_latest(REGISTRY).decode()
-    assert "gpu_r2_operations_total" in output
-    assert "gpu_r2_operation_duration_seconds" in output
+    assert "gpu_s3_operations_total" in output
+    assert "gpu_s3_operation_duration_seconds" in output
 
 
 def test_heartbeat_and_worker_up() -> None:

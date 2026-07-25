@@ -48,7 +48,7 @@ def _make_video(video_id: uuid.UUID | None = None) -> Video:
     v = MagicMock(spec=Video)
     v.id = video_id or uuid.uuid4()
     v.filename = "t.mp4"
-    v.storage_uri = "r2://x/t.mp4"
+    v.storage_uri = "s3://x/t.mp4"
     v.status = VideoStatus.ready
     v.session_kind = SessionKind.practice
     v.our_possession = SideOfBall.offense

@@ -27,7 +27,6 @@ import os
 import signal
 import threading
 from collections.abc import Callable
-from queue.same_session_queue import push_nightly_job
 from typing import Any
 
 import httpx
@@ -64,7 +63,7 @@ def run_with_timeout(
         args:            Positional arguments forwarded to *fn*.
         kwargs:          Keyword arguments forwarded to *fn*.
         job_id:          Backend job UUID used for status callbacks.
-        job_payload:     Original CF Queue payload to requeue if timeout fires.
+        job_payload:     Original job payload to requeue if the timeout fires.
         timeout_seconds: Deadline in seconds (default: PERIOD_BREAK_TIMEOUT_SECONDS).
 
     Returns:
@@ -166,13 +165,35 @@ def _update_job_failed(job_id: str, error_message: str) -> None:
 
 
 def _requeue_for_nightly(job_id: str, job_payload: dict[str, Any]) -> None:
-    """Push the job onto the nightly queue with NIGHTLY_PRIORITY."""
-    from queue.same_session_queue import NIGHTLY_PRIORITY
+    """Insert a fresh nightly-priority job row so the work is retried in batch.
 
-    nightly_payload = {**job_payload, "priority": NIGHTLY_PRIORITY, "_requeuedFrom": job_id}
+    The processing_jobs table is the queue, so requeuing is a plain job insert
+    at NIGHTLY_PRIORITY carrying the original payload.
+    """
+    from queue.job_dispatch import dispatch_on_upload
+
+    video_id = str(job_payload.get("videoId") or "")
+    if not video_id:
+        log.error("nightly_requeue_skipped_no_video_id", job_id=job_id)
+        return
+
+    artifacts = dict(job_payload.get("inputArtifacts") or {})
+    artifacts["_requeued_from_job"] = job_id
+
     try:
-        msg_id = push_nightly_job(nightly_payload)
-        log.info("job_requeued_for_nightly", original_job_id=job_id, message_id=msg_id)
+        result = dispatch_on_upload(
+            video_id=video_id,
+            storage_uri=str(job_payload.get("inputUri") or ""),
+            job_type=str(job_payload.get("jobType") or "ingest"),
+            is_same_session=False,
+            clip_id=job_payload.get("clipId"),
+            input_artifacts=artifacts,
+        )
+        log.info(
+            "job_requeued_for_nightly",
+            original_job_id=job_id,
+            nightly_job_id=result["job_id"],
+        )
     except Exception as exc:
         log.error("nightly_requeue_failed", job_id=job_id, error=str(exc))
 

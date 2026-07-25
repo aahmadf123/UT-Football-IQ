@@ -2,7 +2,7 @@
 
 This document describes the production observability layer added in Issue #115.
 It covers structured logging, Prometheus metrics, health endpoints, recommended
-dashboards, and alerting rules for the API, GPU worker, R2 storage, and job
+dashboards, and alerting rules for the API, GPU worker, object storage, and job
 processing subsystems.
 
 ---
@@ -96,8 +96,8 @@ cycle and after every processed job, providing a reliable liveness signal.
 | `jobs_succeeded_total` | Counter | `job_type`, `pipeline_mode`, `service`, `env` | Jobs succeeded |
 | `jobs_failed_total` | Counter | `job_type`, `pipeline_mode`, `service`, `env` | Jobs failed |
 | `job_duration_seconds` | Histogram | `job_type`, `pipeline_mode`, `service`, `env` | Job latency |
-| `r2_operations_total` | Counter | `operation`, `outcome`, `bucket`, `service`, `env` | R2 operations |
-| `r2_operation_duration_seconds` | Histogram | `operation`, `bucket`, `service`, `env` | R2 latency |
+| `s3_operations_total` | Counter | `operation`, `outcome`, `bucket`, `service`, `env` | Object-store operations |
+| `s3_operation_duration_seconds` | Histogram | `operation`, `bucket`, `service`, `env` | Object-store latency |
 
 ### GPU Worker metrics (exposed on `:9090/metrics`)
 
@@ -110,8 +110,8 @@ cycle and after every processed job, providing a reliable liveness signal.
 | `gpu_job_duration_seconds` | Histogram | `job_type`, `pipeline_mode`, `service`, `env` | GPU job latency |
 | `gpu_queue_poll_total` | Counter | `outcome`, `service`, `env` | Queue poll attempts |
 | `gpu_queue_messages_received_total` | Counter | `service`, `env` | Messages received |
-| `gpu_r2_operations_total` | Counter | `operation`, `outcome`, `bucket`, `service`, `env` | R2 operations |
-| `gpu_r2_operation_duration_seconds` | Histogram | `operation`, `bucket`, `service`, `env` | R2 latency |
+| `gpu_s3_operations_total` | Counter | `operation`, `outcome`, `bucket`, `service`, `env` | Object-store operations |
+| `gpu_s3_operation_duration_seconds` | Histogram | `operation`, `bucket`, `service`, `env` | Object-store latency |
 | `gpu_worker_heartbeat_timestamp` | Gauge | `service`, `env` | Last heartbeat unix ts |
 | `gpu_worker_up` | Gauge | `service`, `env` | 1 if worker loop running |
 
@@ -146,13 +146,13 @@ cycle and after every processed job, providing a reliable liveness signal.
 | Timeout count        | `increase(gpu_jobs_timed_out_total[1h])`                           |
 | Queue messages/min   | `rate(gpu_queue_messages_received_total[5m]) * 60`                 |
 
-### 3. R2 / Storage Dashboard
+### 3. Object Storage Dashboard
 
 | Panel              | Query (PromQL)                                                        |
 |--------------------|-----------------------------------------------------------------------|
-| Operations/min     | `rate(gpu_r2_operations_total[5m]) * 60`                              |
-| Failure rate       | `rate(gpu_r2_operations_total{outcome="error"}[5m])`                  |
-| Latency P95        | `histogram_quantile(0.95, rate(gpu_r2_operation_duration_seconds_bucket[5m]))` |
+| Operations/min     | `rate(gpu_s3_operations_total[5m]) * 60`                              |
+| Failure rate       | `rate(gpu_s3_operations_total{outcome="error"}[5m])`                  |
+| Latency P95        | `histogram_quantile(0.95, rate(gpu_s3_operation_duration_seconds_bucket[5m]))` |
 
 ### 4. GPU Worker Health Dashboard
 
@@ -238,18 +238,18 @@ groups:
         annotations:
           summary: "GPU worker heartbeat missing for more than 5 minutes"
 
-      # ── R2 / Storage ──────────────────────────────────────────────
+      # ── Object storage ────────────────────────────────────────────
       - alert: R2HighErrorRate
         expr: >
           (
-            rate(gpu_r2_operations_total{outcome="error"}[5m])
-            / rate(gpu_r2_operations_total[5m])
+            rate(gpu_s3_operations_total{outcome="error"}[5m])
+            / rate(gpu_s3_operations_total[5m])
           ) > 0.05
         for: 10m
         labels:
           severity: warning
         annotations:
-          summary: "R2 storage error rate above 5% for 10 minutes"
+          summary: "Object-store error rate above 5% for 10 minutes"
 ```
 
 ---
@@ -271,7 +271,7 @@ These are documented in `.env.example`.
 
 ## Running observability locally
 
-1. Start the backend normally (`docker-compose up backend` or `uvicorn`).
+1. Start the backend normally (`uvicorn app.main:app --port 8000`).
 2. Visit `http://localhost:8000/metrics` to see Prometheus text output.
 3. Visit `http://localhost:8000/health` and `/ready` for health checks.
 4. For the GPU worker, metrics are on port `9090` by default:

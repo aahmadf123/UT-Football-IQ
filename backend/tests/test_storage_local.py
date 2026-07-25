@@ -98,9 +98,9 @@ def test_stream_route_404_for_missing_object(local_storage: Path, client: TestCl
 def test_active_backend_auto_detects(monkeypatch: pytest.MonkeyPatch) -> None:
     settings = get_settings()
     monkeypatch.setattr(settings, "storage_backend", "")
-    monkeypatch.setattr(settings, "r2_endpoint_url", "")
+    monkeypatch.setattr(settings, "s3_endpoint_url", "")
     assert storage.active_storage_backend() == "local"
-    monkeypatch.setattr(settings, "r2_endpoint_url", "https://acct.r2.cloudflarestorage.com")
-    monkeypatch.setattr(settings, "r2_access_key_id", "k")
-    monkeypatch.setattr(settings, "r2_secret_access_key", "s")
-    assert storage.active_storage_backend() == "r2"
+    monkeypatch.setattr(settings, "s3_endpoint_url", "https://s3.example.com")
+    monkeypatch.setattr(settings, "s3_access_key_id", "k")
+    monkeypatch.setattr(settings, "s3_secret_access_key", "s")
+    assert storage.active_storage_backend() == "s3"

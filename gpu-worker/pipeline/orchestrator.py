@@ -4,7 +4,7 @@ This is the missing spine between "a raw video file / storage URI" and
 "clips with detections, tracklets, events, labels, metrics, and rendered
 overlays". Historically each stage ran as its own queue message and nothing
 chained them; artifacts were expected to ride inside queue payloads (which
-breaks Cloudflare's 128 KB message cap on real footage). Here the stages run
+would blow past any message-broker payload cap on real footage). Here the stages run
 **in-process**: artifacts pass by reference in memory, and JSON snapshots of
 each stage's outputs are written through an :class:`ArtifactSink` as a
 resume ledger and a debugging record.
@@ -133,7 +133,7 @@ class DirArtifactSink(ArtifactSink):
 
 
 class StorageArtifactSink(ArtifactSink):
-    """Writes ledger JSON through the storage facade (r2:// or local://)."""
+    """Writes ledger JSON through the storage facade (s3:// or local://)."""
 
     def __init__(self, video_id: str) -> None:
         self.video_id = video_id
@@ -495,7 +495,7 @@ def run_pipeline(
 
     Args:
         video_id: Backend video id (or any identifier for local runs).
-        input_uri: ``r2://`` / ``local://`` / ``file://`` reference or plain
+        input_uri: ``s3://`` / ``local://`` / ``file://`` reference or plain
             path to the source video.
         priority: Routing priority — ≥ 10 selects the same-session
             (fast/preliminary) path, otherwise nightly (full quality).

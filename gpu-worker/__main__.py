@@ -1,23 +1,17 @@
 """GPU Worker — claims processing jobs and runs the video pipeline.
 
-Two queue backends (``QUEUE_BACKEND``):
-
-  ``db`` (default) — the backend's ``processing_jobs`` table IS the queue.
-      The worker claims runnable rows via ``POST /api/v1/jobs/claim``
-      (FOR UPDATE SKIP LOCKED server-side), heartbeats its lease, and runs
-      ``pipeline`` jobs through :mod:`pipeline.orchestrator` with per-stage
-      progress reported into the job row. No Cloudflare account needed.
-  ``cf`` — legacy: long-poll the Cloudflare Queues HTTP API, one stage per
-      message. Kept for existing deployments during the migration window.
+The backend's ``processing_jobs`` table IS the queue. The worker claims
+runnable rows via ``POST /api/v1/jobs/claim`` (FOR UPDATE SKIP LOCKED
+server-side), heartbeats its lease, and runs ``pipeline`` jobs through
+:mod:`pipeline.orchestrator` with per-stage progress reported into the job row.
 
 Environment variables:
-  QUEUE_BACKEND             — "db" (default) or "cf"
-  BACKEND_API_URL           — backend base URL (required for db backend)
+  BACKEND_API_URL           — backend base URL (required)
   WORKER_EMAIL / WORKER_PASSWORD — seeded service-account credentials
   WORKER_ID                 — claim identity (default: hostname-pid)
   GPU_WORKER_POLL_INTERVAL  — seconds between queue polls (default: 10)
   STORAGE_BACKEND / LOCAL_STORAGE_ROOT — see pipeline.storage
-  R2_* / CLOUDFLARE_*       — cloud credentials (cf/r2 modes only)
+  S3_* / OBJECT_STORE_*     — object-store credentials (s3 backend only)
   MODEL_DETECT_PATH         — path to YOLO weights (default: yolov8n.pt)
   MODEL_POSE_PATH           — path to RTMPose .pth weights (optional; stub used when absent)
 """
@@ -61,8 +55,6 @@ logging.basicConfig(level=logging.INFO)
 log = structlog.get_logger(__name__)
 
 # ── Configuration ─────────────────────────────────────────────────────────────
-QUEUE_BACKEND = os.environ.get("QUEUE_BACKEND", "db").strip().lower()
-QUEUE_NAME = os.environ.get("CF_QUEUE_VIDEO_PROCESSING", "video-processing-jobs")
 POLL_INTERVAL = int(os.environ.get("GPU_WORKER_POLL_INTERVAL", "10"))
 BACKEND_API_URL = os.environ.get("BACKEND_API_URL", "")
 HEARTBEAT_INTERVAL = int(os.environ.get("GPU_WORKER_HEARTBEAT_INTERVAL", "60"))
@@ -74,16 +66,6 @@ def _worker_id() -> str:
 
     return worker_id()
 
-
-def _cf_config() -> tuple[str, str, str]:
-    """Cloudflare Queue credentials — only the cf backend requires them."""
-    account_id = os.environ["CLOUDFLARE_ACCOUNT_ID"]
-    api_token = os.environ["CLOUDFLARE_API_TOKEN"]
-    pull_url = (
-        f"https://api.cloudflare.com/client/v4/accounts/{account_id}"
-        f"/queues/{QUEUE_NAME}/messages/pull"
-    )
-    return account_id, api_token, pull_url
 
 # ── Graceful shutdown ─────────────────────────────────────────────────────────
 _shutdown = False
@@ -99,40 +81,7 @@ signal.signal(signal.SIGTERM, _handle_signal)
 signal.signal(signal.SIGINT, _handle_signal)
 
 
-# ── Cloudflare queue polling (cf backend only) ────────────────────────────────
-
-
-def pull_messages(client: httpx.Client, batch_size: int = 5) -> list[dict[str, Any]]:
-    """Pull up to `batch_size` messages from the Cloudflare Queue."""
-    _account_id, api_token, pull_url = _cf_config()
-    resp = client.post(
-        pull_url,
-        headers={"Authorization": f"Bearer {api_token}"},
-        json={"batch_size": batch_size, "visibility_timeout_ms": 60_000},
-        timeout=30,
-    )
-    resp.raise_for_status()
-    data: dict[str, Any] = resp.json()
-    return data.get("result", {}).get("messages", [])
-
-
-def ack_message(client: httpx.Client, lease_id: str) -> None:
-    """Acknowledge (delete) a processed message from the queue."""
-    account_id, api_token, _pull_url = _cf_config()
-    ack_url = (
-        f"https://api.cloudflare.com/client/v4/accounts/{account_id}"
-        f"/queues/{QUEUE_NAME}/messages/ack"
-    )
-    resp = client.post(
-        ack_url,
-        headers={"Authorization": f"Bearer {api_token}"},
-        json={"acks": [{"lease_id": lease_id}]},
-        timeout=15,
-    )
-    resp.raise_for_status()
-
-
-# ── DB queue (default backend) ────────────────────────────────────────────────
+# ── DB queue ──────────────────────────────────────────────────────────────────
 
 
 def _auth_headers() -> dict[str, str]:
@@ -210,9 +159,9 @@ def _fetch_video(video_id: str) -> dict[str, Any] | None:
 
 
 def _db_row_to_job(row: dict[str, Any]) -> dict[str, Any]:
-    """Map a claimed processing_jobs row onto the legacy job-dict shape."""
+    """Map a claimed processing_jobs row onto the job-dict shape stages expect."""
     input_artifacts = dict(row.get("input_artifacts") or {})
-    # cf_trigger-created rows carry the camelCase queue payload in
+    # job_dispatch-created rows carry the camelCase payload in
     # input_artifacts; backend-created rows may use snake_case.
     input_uri = str(input_artifacts.get("input_uri") or input_artifacts.get("inputUri") or "")
     video_id = str(row.get("video_id") or "")
@@ -478,7 +427,7 @@ def _dispatch(
         stage_track,
     )
     from pipeline import (
-        r2 as r2_mod,
+        object_store as object_store_mod,
     )
 
     if job_type == "ingest":
@@ -523,7 +472,7 @@ def _dispatch(
         tracklets: list[dict[str, Any]] = input_artifacts.get("tracklets", [])
         roster: list[dict[str, Any]] = input_artifacts.get("roster", [])
         reid_variant = model_router.select_model("reid", priority)
-        video_path = r2_mod.download_to_temp(_uri_to_r2_key(input_uri))
+        video_path = object_store_mod.download_to_temp(_uri_to_object_key(input_uri))
         try:
             return stage_reid.run(
                 clip_id,
@@ -592,10 +541,10 @@ def _dispatch(
         )
 
     elif job_type == "workload_rollup":
-        # Nightly per-player workload rollup (Issue #149). Dispatched by the
-        # Cloudflare cron trigger; reads its inputs from the backend API, so
-        # there is no input_uri. Defaults to yesterday (UTC) when the cron
-        # payload somehow lacks a date.
+        # Nightly per-player workload rollup (Issue #149). Enqueued by the
+        # backend scheduler; reads its inputs from the backend API, so there
+        # is no input_uri. Defaults to yesterday (UTC) when the job payload
+        # somehow lacks a date.
         from datetime import UTC, datetime, timedelta
 
         from pipeline import stage_workload_rollup
@@ -764,7 +713,7 @@ def _dispatch(
         metrics_list: list[dict[str, Any]] = input_artifacts.get("metrics", [])
         analytics_safe = bool(input_artifacts.get("analytics_safe", False))
         fps = float(input_artifacts.get("fps", 30))
-        video_path = r2_mod.download_to_temp(_uri_to_r2_key(input_uri))
+        video_path = object_store_mod.download_to_temp(_uri_to_object_key(input_uri))
         try:
             if use_period_renderer(priority):
                 return period_renderer.run(
@@ -798,7 +747,7 @@ def _dispatch(
         if not overlay_uri:
             log.warning("render_hls_missing_overlay_uri", job_id=job_id)
             return {"hls_skipped": True, "reason": "no_overlay_uri"}
-        overlay_path = r2_mod.download_to_temp(_uri_to_r2_key(overlay_uri))
+        overlay_path = object_store_mod.download_to_temp(_uri_to_object_key(overlay_uri))
         try:
             return hls_encoder.run(clip_id, overlay_path, fps)
         finally:
@@ -833,7 +782,7 @@ def _dispatch(
         return {}
 
 
-def _uri_to_r2_key(uri: str) -> str:
+def _uri_to_object_key(uri: str) -> str:
     """Pass storage references through — pipeline.storage parses scheme + bucket."""
     return uri
 
@@ -844,7 +793,7 @@ def _queue_nightly_hls_followup(
 ) -> None:
     """Queue a nightly follow-up render_hls job after same-session render."""
     import uuid as _uuid
-    from queue.same_session_queue import NIGHTLY_PRIORITY, push_nightly_job
+    from queue.same_session_queue import NIGHTLY_PRIORITY
 
     clip_id = original_job.get("clipId", "")
     video_id = original_job.get("videoId", "")
@@ -868,42 +817,38 @@ def _queue_nightly_hls_followup(
         },
     }
 
+    # The processing_jobs row IS the queue entry — inserting it is what makes
+    # the follow-up claimable by a worker on the nightly pass.
+    if not BACKEND_API_URL:
+        log.warning("nightly_hls_followup_skipped_no_backend", clip_id=clip_id)
+        return
+
     try:
-        msg_id = push_nightly_job(followup_payload)
+        with httpx.Client(base_url=BACKEND_API_URL, timeout=10, headers=_auth_headers()) as c:
+            resp = c.post(
+                "/api/v1/jobs",
+                json={
+                    "id": followup_job_id,
+                    "video_id": video_id,
+                    "job_type": "render_hls",
+                    "priority": NIGHTLY_PRIORITY,
+                    "pipeline_mode": "nightly",
+                    "input_artifacts": followup_payload["inputArtifacts"],
+                },
+            )
+            resp.raise_for_status()
         log.info(
             "nightly_hls_followup_queued",
             followup_job_id=followup_job_id,
             clip_id=clip_id,
-            message_id=msg_id,
         )
     except Exception as exc:
         log.error(
             "nightly_hls_followup_queue_failed",
+            followup_job_id=followup_job_id,
             clip_id=clip_id,
             error=str(exc),
         )
-
-    # Best-effort: create a backend job record for the follow-up.
-    if BACKEND_API_URL:
-        try:
-            with httpx.Client(base_url=BACKEND_API_URL, timeout=10, headers=_auth_headers()) as c:
-                c.post(
-                    "/api/v1/jobs",
-                    json={
-                        "id": followup_job_id,
-                        "video_id": video_id,
-                        "job_type": "render_hls",
-                        "priority": NIGHTLY_PRIORITY,
-                        "pipeline_mode": "nightly",
-                        "input_artifacts": followup_payload["inputArtifacts"],
-                    },
-                )
-        except Exception as exc:
-            log.warning(
-                "nightly_hls_followup_backend_create_failed",
-                followup_job_id=followup_job_id,
-                error=str(exc),
-            )
 
 
 def _finalize_nightly_clips(video_id: str) -> None:
@@ -949,49 +894,14 @@ def _update_job_status(
 # ── Main loop ─────────────────────────────────────────────────────────────────
 
 
-def _run_cf_loop() -> None:
-    """Legacy loop: long-poll Cloudflare Queues, one stage per message."""
-    from worker.observability import record_heartbeat, record_queue_poll
-
-    with httpx.Client() as client:
-        while not _shutdown:
-            try:
-                messages = pull_messages(client)
-                record_queue_poll("success", len(messages))
-                record_heartbeat()
-                for msg in messages:
-                    if _shutdown:
-                        break
-                    body: dict[str, Any] = msg.get("body", {})
-                    lease_id: str = msg.get("lease_id", "")
-                    process_job(body)
-                    if lease_id:
-                        ack_message(client, lease_id)
-
-            except httpx.HTTPStatusError as exc:
-                record_queue_poll("error")
-                log.error(
-                    "queue_pull_error", status=exc.response.status_code, error=str(exc)
-                )
-            except Exception as exc:
-                record_queue_poll("error")
-                log.error("worker_loop_error", error=str(exc))
-
-            if not _shutdown:
-                record_heartbeat()
-                time.sleep(POLL_INTERVAL)
-
-
 def _run_db_loop() -> None:
-    """Default loop: claim jobs from the backend's processing_jobs table."""
+    """Claim jobs from the backend's processing_jobs table and run them."""
     import random
 
     from worker.observability import record_heartbeat, record_queue_poll
 
     if not BACKEND_API_URL:
-        raise SystemExit(
-            "QUEUE_BACKEND=db requires BACKEND_API_URL (set QUEUE_BACKEND=cf for the legacy queue)"
-        )
+        raise SystemExit("BACKEND_API_URL is required — it is where jobs are claimed from.")
 
     with httpx.Client() as client:
         while not _shutdown:
@@ -1032,17 +942,13 @@ def main() -> None:
 
     log.info(
         "gpu_worker_starting",
-        queue_backend=QUEUE_BACKEND,
         worker_id=_worker_id(),
         poll_interval=POLL_INTERVAL,
     )
     set_worker_up(True)
     record_heartbeat()
 
-    if QUEUE_BACKEND == "cf":
-        _run_cf_loop()
-    else:
-        _run_db_loop()
+    _run_db_loop()
 
     set_worker_up(False)
     log.info("gpu_worker_stopped")

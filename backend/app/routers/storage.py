@@ -1,6 +1,6 @@
 """Storage router — serves local-backend objects through HMAC-signed URLs.
 
-This is the local-mode counterpart of the Cloudflare Worker's ``/dl/*``
+This is the local-mode counterpart of the presigned object-store ``/dl/*``
 streaming route: ``<video>`` tags cannot send Authorization headers, so
 access is granted by a short-lived HMAC signature minted by
 :func:`app.storage.signed_local_url` instead of a Bearer token.

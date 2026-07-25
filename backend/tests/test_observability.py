@@ -5,7 +5,7 @@ from app.observability import (
     record_job_failed,
     record_job_started,
     record_job_succeeded,
-    record_r2_operation,
+    record_s3_operation,
 )
 from fastapi.testclient import TestClient
 from prometheus_client import generate_latest
@@ -32,10 +32,10 @@ def test_record_job_lifecycle() -> None:
     assert "jobs_failed_total" in output
 
 
-def test_record_r2_operation() -> None:
-    record_r2_operation("upload", "test-bucket", "success", 0.5)
-    record_r2_operation("download", "test-bucket", "error", 1.2)
+def test_record_s3_operation() -> None:
+    record_s3_operation("upload", "test-bucket", "success", 0.5)
+    record_s3_operation("download", "test-bucket", "error", 1.2)
 
     output = generate_latest(REGISTRY).decode()
-    assert "r2_operations_total" in output
-    assert "r2_operation_duration_seconds" in output
+    assert "s3_operations_total" in output
+    assert "s3_operation_duration_seconds" in output

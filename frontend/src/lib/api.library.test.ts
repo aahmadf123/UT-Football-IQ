@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 beforeEach(() => {
-  vi.stubEnv("NEXT_PUBLIC_WORKER_URL", "https://worker.test");
   vi.stubEnv("NEXT_PUBLIC_API_URL", "https://api.test");
 });
 
@@ -140,22 +139,22 @@ describe("fetchVideoDownloadUrl", () => {
     const fetchMock = vi.fn(async () => ({
       ok: true,
       status: 200,
-      json: async () => ({ downloadUrl: "https://worker.test/dl/raw-video/raw/123.mp4?exp=999&sig=abc" }),
-      text: async () => '{"downloadUrl":"https://worker.test/dl/raw-video/raw/123.mp4?exp=999&sig=abc"}',
+      json: async () => ({ downloadUrl: "https://api.test/api/v1/storage/raw-video/raw/123.mp4?exp=999&sig=abc" }),
+      text: async () => '{"downloadUrl":"https://api.test/api/v1/storage/raw-video/raw/123.mp4?exp=999&sig=abc"}',
     }));
     vi.stubGlobal("fetch", fetchMock);
 
     const { fetchVideoDownloadUrl } = await freshImport();
     const url = await fetchVideoDownloadUrl("raw-video", "raw/123.mp4");
-    expect(url).toBe("https://worker.test/dl/raw-video/raw/123.mp4?exp=999&sig=abc");
+    expect(url).toBe("https://api.test/api/v1/storage/raw-video/raw/123.mp4?exp=999&sig=abc");
     const [reqUrl] = fetchMock.mock.calls[0] as unknown as [string];
     expect(reqUrl).toContain("/api/v1/videos/download-url");
     expect(reqUrl).toContain("bucket=raw-video");
     expect(reqUrl).toContain("key=raw%2F123.mp4");
   });
 
-  test("returns null when Worker URL not configured", async () => {
-    vi.stubEnv("NEXT_PUBLIC_WORKER_URL", "");
+  test("returns null when the API base is not configured", async () => {
+    vi.stubEnv("NEXT_PUBLIC_API_URL", "");
     const { fetchVideoDownloadUrl } = await freshImport();
     const url = await fetchVideoDownloadUrl("raw-video", "raw/test.mp4");
     expect(url).toBeNull();
@@ -177,17 +176,17 @@ describe("fetchVideoDownloadUrl", () => {
 });
 
 describe("parseStorageUri", () => {
-  test("parses r2://raw-video/raw/123-file.mp4", async () => {
+  test("parses s3://raw-video/raw/123-file.mp4", async () => {
     const { parseStorageUri } = await freshImport();
-    expect(parseStorageUri("r2://raw-video/raw/123-file.mp4")).toEqual({
+    expect(parseStorageUri("s3://raw-video/raw/123-file.mp4")).toEqual({
       bucket: "raw-video",
       key: "raw/123-file.mp4",
     });
   });
 
-  test("parses r2://clips/processed/abc.mp4", async () => {
+  test("parses s3://clips/processed/abc.mp4", async () => {
     const { parseStorageUri } = await freshImport();
-    expect(parseStorageUri("r2://clips/processed/abc.mp4")).toEqual({
+    expect(parseStorageUri("s3://clips/processed/abc.mp4")).toEqual({
       bucket: "clips",
       key: "processed/abc.mp4",
     });

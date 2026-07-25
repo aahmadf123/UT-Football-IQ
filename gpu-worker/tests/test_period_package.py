@@ -34,7 +34,7 @@ def _sprint_metric(player_id: str, speed: float, clip_id: str = "clip-1") -> dic
         "player_id": player_id,
         "clip_id": clip_id,
         "metric_value": {"max_speed_yps": speed, "confidence": 0.7},
-        "evidence_uri": f"r2://clips/{clip_id}.mp4",
+        "evidence_uri": f"s3://clips/{clip_id}.mp4",
     }
 
 

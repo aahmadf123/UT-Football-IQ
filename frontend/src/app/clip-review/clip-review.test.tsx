@@ -26,7 +26,6 @@ afterEach(() => {
 beforeEach(() => {
   vi.stubEnv("NEXT_PUBLIC_USE_MOCKS", "");
   vi.stubEnv("NEXT_PUBLIC_API_URL", "https://api.test");
-  vi.stubEnv("NEXT_PUBLIC_WORKER_URL", "https://worker.test");
 });
 
 async function importPage() {
@@ -45,7 +44,7 @@ const SAMPLE_CLIP = {
   end_time: 18,
   play_number: 7,
   is_reviewed: false,
-  storage_uri: "r2://clips/c-1.mp4",
+  storage_uri: "s3://clips/c-1.mp4",
 };
 
 const SAMPLE_VIDEO = {
@@ -55,7 +54,7 @@ const SAMPLE_VIDEO = {
   fps: 30,
   width: 1920,
   height: 1080,
-  storage_uri: "r2://raw/v-1.mp4",
+  storage_uri: "s3://raw/v-1.mp4",
   session_kind: "practice",
 };
 

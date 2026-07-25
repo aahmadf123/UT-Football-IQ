@@ -13,19 +13,18 @@ Library/Clip Review → coach correction stay wired across releases.
 | `e2e/library.spec.ts`             | Seeded video appears in Practice Library                   | mocked   |
 | `e2e/inbox.spec.ts`               | Seeded video appears in Practice Inbox with status         | mocked   |
 | `e2e/clip-review.spec.ts`         | Clip Review opens, signed download URL path is invoked     | mocked   |
-| `e2e/upload.spec.ts`              | Sample MP4 → Worker upload-url → R2 PUT → backend register | mocked   |
+| `e2e/upload.spec.ts`              | Sample MP4 → upload-url → PUT → backend register            | mocked   |
 | `e2e/correction.spec.ts`          | Coach correction POST is accepted by backend contract      | mocked   |
 
 All specs are **deterministic and offline**. They run the app via
-`next dev` and intercept every backend/Worker fetch with `page.route()`
-against the fake hosts configured in `playwright.config.ts`:
+`next dev` and intercept every backend fetch with `page.route()` against
+the fake host configured in `playwright.config.ts`:
 
 - `NEXT_PUBLIC_API_URL=http://api.e2e.local`
-- `NEXT_PUBLIC_WORKER_URL=http://worker.e2e.local`
 
-Any request that escapes the mocks will fail because those hostnames
-are not resolvable. This is intentional: it surfaces regressions where
-new code paths hit the network unexpectedly.
+Any request that escapes the mocks will fail because that hostname is
+not resolvable. This is intentional: it surfaces regressions where new
+code paths hit the network unexpectedly.
 
 ## Running locally
 
@@ -57,8 +56,8 @@ reporter writes a `playwright-report/` artifact on failure; the suite's
 ## Fixtures
 
 `e2e/fixtures/sample.mp4` is a 32-byte placeholder that satisfies the
-`accept="video/*"` file input. It never reaches a real R2 bucket because
-all HTTP calls to the Worker host are intercepted by `page.route()`.
+`accept="video/*"` file input. It never reaches real storage because all
+HTTP calls to the fake API host are intercepted by `page.route()`.
 
 To create a richer test fixture (for example to test playback duration),
 replace `sample.mp4` with another `<10kB MP4>` — anything Chromium accepts
@@ -67,14 +66,12 @@ as `video/mp4` works.
 ## Mocked vs. real integration
 
 This suite is intentionally **all mocked** so that CI does not depend
-on Cloudflare R2, Fly.io, or live auth tokens. Real end-to-end
-verification against the production-style stack (real Worker, real
-backend) is a separate manual exercise:
+on a running backend, object storage, or live auth tokens. Real
+end-to-end verification against a live backend is a separate manual
+exercise — point the app at it and drive the UI:
 
 ```bash
-NEXT_PUBLIC_API_URL=https://football-iq-backend.fly.dev \
-NEXT_PUBLIC_WORKER_URL=https://football-iq.firas-azfar.workers.dev \
-npm run dev
+NEXT_PUBLIC_API_URL=http://localhost:8000 npm run dev
 ```
 
 Manually upload a tiny MP4 and verify the Practice Inbox row appears

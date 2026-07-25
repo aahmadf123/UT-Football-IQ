@@ -12,16 +12,14 @@ RUN npm ci
 FROM deps AS builder
 COPY . .
 # NEXT_PUBLIC_* values are inlined into the static export at build time —
-# runtime environment on the serve stage has no effect. Without these args the
-# bundle falls back to the production Fly.io URL (see src/lib/endpoints.ts),
-# which rejects CORS from localhost.
+# runtime environment on the serve stage has no effect. Pass the deployed
+# backend's origin here when building for a real environment; the default
+# targets a local backend.
 ARG NEXT_PUBLIC_API_URL=http://localhost:8000
-ARG NEXT_PUBLIC_WORKER_URL=""
-ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL \
-    NEXT_PUBLIC_WORKER_URL=$NEXT_PUBLIC_WORKER_URL
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 RUN npm run build
 
-# ── Serve (for local preview — Cloudflare Pages serves in production) ─────────
+# ── Serve (any static host works in production; this stage is for preview) ────
 FROM node:20-alpine AS runner
 WORKDIR /app
 RUN addgroup --system nextgroup && adduser --system --ingroup nextgroup nextuser

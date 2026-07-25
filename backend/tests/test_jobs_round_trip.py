@@ -67,7 +67,7 @@ def _make_video(**overrides: Any) -> Video:
     v = MagicMock(spec=Video)
     v.id = overrides.get("id", uuid.uuid4())
     v.filename = overrides.get("filename", "t.mp4")
-    v.storage_uri = overrides.get("storage_uri", "r2://x/t.mp4")
+    v.storage_uri = overrides.get("storage_uri", "s3://x/t.mp4")
     v.status = overrides.get("status", VideoStatus.uploaded)
     v.created_at = overrides.get("created_at", datetime.now(UTC))
     return v
@@ -166,7 +166,7 @@ def test_get_job_returns_full_detail() -> None:
         status=JobStatus.failed,
         error_stage="detect",
         error_message="cuda OOM",
-        input_artifacts={"src": "r2://x/in.mp4"},
+        input_artifacts={"src": "s3://x/in.mp4"},
         output_artifacts=None,
     )
 
@@ -191,7 +191,7 @@ def test_get_job_returns_full_detail() -> None:
     assert body["status"] == "failed"
     assert body["error_stage"] == "detect"
     assert body["error_message"] == "cuda OOM"
-    assert body["input_artifacts"] == {"src": "r2://x/in.mp4"}
+    assert body["input_artifacts"] == {"src": "s3://x/in.mp4"}
 
 
 def test_get_job_returns_404_when_missing() -> None:
@@ -248,7 +248,7 @@ def test_create_job_persists_input_artifacts_and_pipeline_mode() -> None:
                     "video_id": str(video.id),
                     "job_type": "detect",
                     "priority": 10,  # → same_session mode
-                    "input_artifacts": {"src": "r2://x/in.mp4"},
+                    "input_artifacts": {"src": "s3://x/in.mp4"},
                 },
             )
     finally:
@@ -262,7 +262,7 @@ def test_create_job_persists_input_artifacts_and_pipeline_mode() -> None:
     assert body["priority"] == 10
     assert body["is_same_session"] is True
     assert body["pipeline_mode"] == PipelineMode.same_session.value
-    assert body["input_artifacts"] == {"src": "r2://x/in.mp4"}
+    assert body["input_artifacts"] == {"src": "s3://x/in.mp4"}
 
     assert len(captured) == 1
     persisted = captured[0]
@@ -271,7 +271,7 @@ def test_create_job_persists_input_artifacts_and_pipeline_mode() -> None:
     assert persisted.status == JobStatus.queued
     assert persisted.priority == 10
     assert persisted.pipeline_mode == PipelineMode.same_session
-    assert persisted.input_artifacts == {"src": "r2://x/in.mp4"}
+    assert persisted.input_artifacts == {"src": "s3://x/in.mp4"}
 
 
 def test_create_job_returns_404_when_video_missing() -> None:
@@ -347,7 +347,7 @@ def test_update_job_status_to_failed_stamps_finished_at_and_error() -> None:
                     "status": "failed",
                     "error_stage": "track",
                     "error_message": "nan in homography",
-                    "output_artifacts": {"log": "r2://x/log.txt"},
+                    "output_artifacts": {"log": "s3://x/log.txt"},
                 },
             )
     finally:
@@ -358,7 +358,7 @@ def test_update_job_status_to_failed_stamps_finished_at_and_error() -> None:
     assert body["status"] == "failed"
     assert body["error_stage"] == "track"
     assert body["error_message"] == "nan in homography"
-    assert body["output_artifacts"] == {"log": "r2://x/log.txt"}
+    assert body["output_artifacts"] == {"log": "s3://x/log.txt"}
     assert job.finished_at is not None
 
 
@@ -431,7 +431,7 @@ def test_retry_failed_job_creates_new_queued_copy() -> None:
         job_type=JobType.detect,
         priority=5,
         pipeline_mode=PipelineMode.nightly,
-        input_artifacts={"src": "r2://x/in.mp4"},
+        input_artifacts={"src": "s3://x/in.mp4"},
     )
     captured: list[ProcessingJob] = []
 
@@ -463,7 +463,7 @@ def test_retry_failed_job_creates_new_queued_copy() -> None:
     assert body["status"] == "queued"
     assert body["job_type"] == "detect"
     assert body["priority"] == 5
-    assert body["input_artifacts"] == {"src": "r2://x/in.mp4"}
+    assert body["input_artifacts"] == {"src": "s3://x/in.mp4"}
     assert body["id"] != str(original.id)
 
     assert len(captured) == 1

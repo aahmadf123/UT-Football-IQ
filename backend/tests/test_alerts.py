@@ -51,7 +51,7 @@ def _make_alert(
     a.metric_name = "sprint_to_ball"
     a.metric_value = {"max_speed_yps": 4.2, "confidence": 0.75}
     a.deviation_sd = 2.3
-    a.clip_uri = "r2://clips/test.mp4"
+    a.clip_uri = "s3://clips/test.mp4"
     a.period_name = "Period 2"
     a.session_id = "2026-05-08-practice"
     a.job_id = None

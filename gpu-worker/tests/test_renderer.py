@@ -1,10 +1,10 @@
 """Unit tests for gpu-worker/renderer/period_renderer.py and hls_encoder.py.
 
-All tests run without GPU hardware, real video files, or R2 storage.
+All tests run without GPU hardware, real video files, or object storage.
 cv2 and ffmpeg are mocked so the tests are fast and hermetic.
 
 period_renderer covers:
-  - Happy path: run() uploads to R2 and returns period_overlay_uri
+  - Happy path: run() uploads to the object store and returns period_overlay_uri
   - Happy path: _label_value extracts formation correctly
   - Happy path: _label_value returns default when label absent
   - Failure: cv2.VideoCapture failure propagates
@@ -73,7 +73,7 @@ class TestPeriodRendererRun:
         return cap
 
     def test_happy_path_returns_period_overlay_uri(self) -> None:
-        """run() returns dict with period_overlay_uri from R2 upload."""
+        """run() returns dict with period_overlay_uri from object upload."""
         from renderer.period_renderer import run
 
         with (
@@ -82,7 +82,7 @@ class TestPeriodRendererRun:
             patch("cv2.rectangle"),
             patch("cv2.putText"),
             patch("cv2.resize", side_effect=lambda f, *a, **kw: f),
-            patch("pipeline.r2.upload_file", return_value="r2://football-iq/period_overlays/c1/period_overlay.mp4"),
+            patch("pipeline.object_store.upload_file", return_value="s3://football-iq/period_overlays/c1/period_overlay.mp4"),
         ):
             mock_writer = MagicMock()
             mock_writer_cls.return_value = mock_writer
@@ -96,10 +96,10 @@ class TestPeriodRendererRun:
                 fps=30.0,
             )
 
-        assert result["period_overlay_uri"] == "r2://football-iq/period_overlays/c1/period_overlay.mp4"
+        assert result["period_overlay_uri"] == "s3://football-iq/period_overlays/c1/period_overlay.mp4"
 
-    def test_r2_upload_called_with_correct_key(self) -> None:
-        """R2 is called with the expected key path."""
+    def test_object_upload_called_with_correct_key(self) -> None:
+        """the object store is called with the expected key path."""
         from renderer.period_renderer import run
 
         with (
@@ -108,7 +108,7 @@ class TestPeriodRendererRun:
             patch("cv2.rectangle"),
             patch("cv2.putText"),
             patch("cv2.resize", side_effect=lambda f, *a, **kw: f),
-            patch("pipeline.r2.upload_file", return_value="r2://x/y") as mock_upload,
+            patch("pipeline.object_store.upload_file", return_value="s3://x/y") as mock_upload,
         ):
             run(
                 clip_id="clip-abc",
@@ -119,8 +119,8 @@ class TestPeriodRendererRun:
                 fps=25.0,
             )
 
-        r2_key = mock_upload.call_args.args[1]
-        assert r2_key == "period_overlays/clip-abc/period_overlay.mp4"
+        object_key = mock_upload.call_args.args[1]
+        assert object_key == "period_overlays/clip-abc/period_overlay.mp4"
 
     def test_analytics_unsafe_draws_warning(self) -> None:
         """analytics_safe=False triggers a cv2.rectangle call for the banner."""
@@ -132,7 +132,7 @@ class TestPeriodRendererRun:
             patch("cv2.rectangle") as mock_rect,
             patch("cv2.putText"),
             patch("cv2.resize", side_effect=lambda f, *a, **kw: f),
-            patch("pipeline.r2.upload_file", return_value="r2://x"),
+            patch("pipeline.object_store.upload_file", return_value="s3://x"),
         ):
             run(
                 clip_id="c2",
@@ -209,11 +209,11 @@ class TestHlsEncoder:
 
         def fake_upload(path: Path, key: str, **_kwargs: Any) -> str:
             upload_calls.append(key)
-            return f"r2://football-iq/{key}"
+            return f"s3://football-iq/{key}"
 
         with (
             patch("subprocess.run", side_effect=self._fake_ffmpeg_ok),
-            patch("pipeline.r2.upload_file", side_effect=fake_upload),
+            patch("pipeline.object_store.upload_file", side_effect=fake_upload),
         ):
             result = run(
                 clip_id="clip-hls-1",
@@ -233,9 +233,9 @@ class TestHlsEncoder:
 
         def fake_upload(path: Path, key: str, **_kwargs: Any) -> str:
             uploaded_content.append(path.read_text())
-            return f"r2://x/{key}"
+            return f"s3://x/{key}"
 
-        with patch("pipeline.r2.upload_file", side_effect=fake_upload):
+        with patch("pipeline.object_store.upload_file", side_effect=fake_upload):
             _write_and_upload_master("clip-hls-2", 29.97)
 
         assert any("FRAME-RATE=29.970" in c for c in uploaded_content)
@@ -249,7 +249,7 @@ class TestHlsEncoder:
 
         with (
             patch("subprocess.run", side_effect=fake_ffmpeg_fail),
-            patch("pipeline.r2.upload_file"),
+            patch("pipeline.object_store.upload_file"),
         ):
             with pytest.raises(RuntimeError, match="ffmpeg"):
                 run(
@@ -263,7 +263,7 @@ class TestHlsEncoder:
 
         with (
             patch("subprocess.run", side_effect=FileNotFoundError("ffmpeg not found")),
-            patch("pipeline.r2.upload_file"),
+            patch("pipeline.object_store.upload_file"),
         ):
             with pytest.raises(FileNotFoundError):
                 run(

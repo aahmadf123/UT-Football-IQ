@@ -2,91 +2,74 @@
 
 Football-IQ is the Toledo Rockets' video intelligence platform. Coaches upload practice and game film — **from any camera, any angle, any height** — and the system tracks players, detects formations and coverages, generates analytics, and surfaces clips for review, all without manual tagging. Occasional one-click corrections feed a nightly learning loop that improves the models over time.
 
-It runs **fully locally with no cloud accounts and no GPU** (CPU works; a GPU is a speed upgrade). Cloudflare R2 + Workers remain the storage/edge path for cloud deployments.
+It runs **fully locally with no cloud accounts and no GPU** (CPU works; a GPU is a speed upgrade).
+
+> **Deployment is intentionally unconfigured.** This repo ships application code
+> and no hosting wiring: no deploy manifests, no provider credentials, no
+> baked-in hostnames. Every connection point — database, object storage,
+> frontend origin, CORS — is an environment variable with a local default. Pick
+> your own providers and fill them in. See [Deploying](#deploying).
 
 ## Service map
 
 | Service | Role | Tech |
 |---------|------|------|
 | **Frontend** | Coach-facing web UI: dashboard, film room, clip review with overlays, scouting, analytics | Next.js 16 (static export), React 19, TypeScript |
-| **Backend API** | REST API: auth (JWT), videos, clips, the job queue (claim/lease/heartbeat), corrections, storage facade + signed local streaming, nightly scheduler | FastAPI, Python 3.12, SQLAlchemy |
+| **Backend API** | REST API: auth (JWT), videos, clips, the job queue (claim/lease/heartbeat), corrections, storage facade + signed streaming, nightly scheduler | FastAPI, Python 3.12, SQLAlchemy |
 | **Database** | Primary data store, pgvector similarity index, and the **job queue** (`processing_jobs` with `FOR UPDATE SKIP LOCKED` leases) | PostgreSQL 16 + pgvector |
 | **Pipeline worker** | Claims jobs, runs the full stage chain in-process (detect → track → re-ID → pose → events → metrics → render), writes results back through the API | Python; YOLOv8 + SAHI, RTMPose; CPU-capable, CUDA optional |
-| **Cloudflare Worker** *(cloud only)* | Edge upload proxy to R2, signed `/dl/*` downloads, HLS | Cloudflare Workers, TypeScript |
-| **Storage** | `local://` disk (default) or R2 buckets `raw-video` / `clips` / `overlays` / `artifacts` — one `STORAGE_BACKEND` switch | Local volume or Cloudflare R2 |
+| **Storage** | `local://` disk (default) or `s3://` buckets `raw-video` / `clips` / `overlays` / `artifacts` — one `STORAGE_BACKEND` switch | Local volume or any S3-compatible object store |
 
-## Quick start (local, turnkey)
+There is no message broker and no edge service. The backend's `processing_jobs`
+table *is* the queue, and the backend's nightly scheduler owns recurring work.
 
-The full guide lives in **[docs/runbook-local.md](docs/runbook-local.md)**.
+## Quick start (local)
 
-One-command startup (Windows PowerShell):
-
-```powershell
-./scripts/dev-up.ps1 -WithCloudflare
-```
-
-One-click startup + verification (recommended):
-
-```powershell
-./scripts/dev-go.ps1 -WithCloudflare
-```
-
-Double-click launcher (Windows):
-
-```text
-run-football-iq.cmd
-```
-
-Without Cloudflare Worker (backend/frontend/gpu-worker only):
-
-```powershell
-./scripts/dev-up.ps1
-```
-
-Stop local services:
-
-```powershell
-./scripts/dev-down.ps1
-```
-
-Verify everything is connected and healthy:
-
-```powershell
-./scripts/dev-doctor.ps1 -WithCloudflare
-```
-
-One-command production repair (deploy + migrate + CORS/API checks):
-
-```powershell
-./scripts/prod-go.ps1
-```
-
-Double-click production launcher (Windows):
-
-```text
-run-prod-fix.cmd
-```
-
-GitHub Actions option (one-click in repo UI):
-
-1. Add repository secret `FLY_API_TOKEN` (Settings → Secrets and variables → Actions).
-2. Open Actions → `Production Repair Check`.
-3. Click `Run workflow` and choose whether to deploy/migrate.
-
-The workflow runs `scripts/prod-go.ps1` in CI and verifies:
-- production health endpoint
-- auth CORS preflight for frontend origins
-- login + core API endpoint smoke checks
+Prerequisites: Python 3.12, Node 20+, PostgreSQL 16 with the `pgvector`
+extension, and `ffmpeg` on `PATH`.
 
 ```bash
-cp .env.example .env      # defaults work for local
-
-docker compose up -d db
-docker compose --profile migrate up migrate seed
-docker compose --profile pipeline up backend frontend gpu-worker
+cp .env.example .env      # defaults target a local Postgres + local disk
 ```
 
-Open `http://localhost:3000`, sign in (seeded `admin@example.com` / `change-me-admin`, or register — the first user becomes admin), upload a clip, and watch it process: per-stage progress on the dashboard, then clips with bounding-box overlays in Clip Review. Uploads auto-process by default (Settings → "Process film automatically on upload" turns it off).
+**1. Database**
+
+```bash
+createdb footiq
+psql footiq -c 'CREATE EXTENSION IF NOT EXISTS vector;'
+```
+
+**2. Backend**
+
+```bash
+cd backend
+pip install -r requirements.txt
+alembic upgrade head
+python -m scripts.seed_users        # admin + gpu-worker service account
+uvicorn app.main:app --reload --port 8000
+```
+
+**3. Pipeline worker** (separate shell)
+
+```bash
+cd gpu-worker
+pip install -r requirements.txt
+BACKEND_API_URL=http://localhost:8000 python __main__.py
+```
+
+**4. Frontend** (separate shell)
+
+```bash
+cd frontend
+npm ci
+npm run dev
+```
+
+Open `http://localhost:3000`, sign in (seeded `admin@example.com` /
+`change-me-admin`, or register — the first user becomes admin), upload a clip,
+and watch it process: per-stage progress on the dashboard, then clips with
+bounding-box overlays in Clip Review. Uploads auto-process by default
+(Settings → "Process film automatically on upload" turns it off).
 
 **No services at all** — run the pipeline directly on any video file:
 
@@ -102,15 +85,48 @@ Football-IQ/
 ├── backend/          # FastAPI app, DB job queue, storage facade, scheduler, Alembic, tests
 ├── frontend/         # Next.js static-export app, Vitest unit tests, Playwright E2E
 ├── gpu-worker/       # Pipeline: orchestrator, stages, turnkey CLI, DB-queue worker (CPU-capable)
-├── workers/          # Cloudflare Worker (cloud upload proxy + signed downloads + HLS)
-├── docs/             # Architecture docs, ADRs, local runbook
-├── docker-compose.yml  # Profiles: migrate, pipeline, cloud-sim (MinIO)
+├── docs/             # Architecture docs and ADRs
+├── reports/          # Spike write-ups and evaluation reports
 └── .env.example
 ```
 
 ## Environment variables
 
-Copy `.env.example` to `.env`. Local defaults just work; see [docs/runbook-local.md §Environment variables](docs/runbook-local.md#environment-variables) for the per-service breakdown including the `STORAGE_BACKEND` local/R2 switch and the seed accounts.
+Copy `.env.example` to `.env`. It is the single source of truth for every knob:
+the local defaults work as-is, and each cloud-facing value is blank so nothing
+silently points at infrastructure you do not own. The backend's typed settings
+live in [`backend/app/config.py`](backend/app/config.py).
+
+The connection points worth knowing:
+
+| Variable | What it controls |
+|---|---|
+| `DATABASE_URL` / `DATABASE_SYNC_URL` | Postgres (app / Alembic). Any Postgres 16+ with pgvector. |
+| `STORAGE_BACKEND` | `local` (disk, default) or `s3` (any S3-compatible endpoint). |
+| `S3_*` | Object-store endpoint, credentials, and bucket names. Only read when `STORAGE_BACKEND=s3`. |
+| `NEXT_PUBLIC_API_URL` | Backend origin, **baked into the frontend bundle at build time** (static export). |
+| `CORS_ORIGINS` | Exact frontend origins the API accepts. A deployed origin missing here shows up as "login doesn't work". |
+| `BACKEND_API_URL` | Where the pipeline worker claims jobs from. |
+
+## Deploying
+
+Nothing here is prescribed — the app is three ordinary processes plus a
+database, and each is a normal deployment target:
+
+- **Backend** — any container host. `backend/Dockerfile` builds it; it needs
+  `DATABASE_URL`, `SECRET_KEY`, and `CORS_ORIGINS` set to the frontend's real
+  origin. Run `alembic upgrade head` on deploy.
+- **Frontend** — a static export (`npm run build` → `out/`), servable by any
+  static host or CDN. `NEXT_PUBLIC_API_URL` must be set **at build time**.
+- **Pipeline worker** — any host that can reach the backend; `gpu-worker/Dockerfile`
+  builds it. CUDA is optional.
+- **Database** — any managed or self-hosted Postgres 16+ with pgvector.
+- **Object storage** — optional. Local disk is the default; set `S3_*` and
+  `STORAGE_BACKEND=s3` to move objects to an S3-compatible bucket.
+
+`.github/workflows/ci.yml` runs lint, typecheck, tests, and the migration
+round-trip. There is no deploy workflow — add one that matches whatever hosting
+you choose.
 
 ## Settings & Reports
 
@@ -125,8 +141,8 @@ Coaching reports are generated by `POST /api/v1/reports` (PDF/CSV/JSON), stored 
 ## Running tests
 
 ```bash
-# Backend (some suites need a scratch Postgres with pgvector — see the runbook)
-cd backend && pytest -v
+# Backend (needs a scratch Postgres with pgvector for some suites)
+cd backend && pip install -r requirements-dev.txt && pytest -v
 
 # Pipeline worker unit suite (stub mode, no torch needed)
 cd gpu-worker && pip install -r requirements-ci.txt && pytest -v

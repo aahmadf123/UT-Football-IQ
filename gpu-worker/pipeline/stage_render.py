@@ -29,7 +29,7 @@ from typing import Any
 import cv2
 import structlog
 
-from pipeline import r2
+from pipeline import object_store
 
 log = structlog.get_logger(__name__)
 
@@ -93,15 +93,15 @@ def run(
     fps: float,
     backend_api_url: str,
 ) -> dict[str, Any]:
-    """Render overlay video and upload to R2."""
+    """Render overlay video and upload to the object store."""
     log.info("stage_render_start", clip_id=clip_id)
 
     with tempfile.TemporaryDirectory() as tmp_dir:
         out_path = Path(tmp_dir) / "overlay.mp4"
         _render(video_path, out_path, tracklets, labels, metrics, analytics_safe, fps)
 
-        r2_key = f"overlays/{clip_id}/overlay.mp4"
-        overlay_uri = r2.upload_file(out_path, r2_key, content_type="video/mp4")
+        object_key = f"overlays/{clip_id}/overlay.mp4"
+        overlay_uri = object_store.upload_file(out_path, object_key, content_type="video/mp4")
 
     # Update clip with overlay URI and dashboard-ready flag
     _update_clip_overlay(clip_id, overlay_uri, backend_api_url)

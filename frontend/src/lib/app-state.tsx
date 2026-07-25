@@ -13,7 +13,7 @@ import {
   fetchVideos,
   registerVideo,
   requestUploadUrl,
-  uploadToR2,
+  uploadToObjectStore,
 } from "./api";
 import type { VideoInboxItem } from "./api";
 import type {
@@ -468,27 +468,26 @@ export function AppStateProvider({
   }
 
   async function executeUpload(clip: UploadedClip, file: File, metadata?: UploadMetadata) {
-    const workerUrl = process.env.NEXT_PUBLIC_WORKER_URL;
     const apiUrl = process.env.NEXT_PUBLIC_API_URL;
 
-    // In mock mode or when Worker/API is not configured, fall back to local-only
-    if (mockMode || !workerUrl || !apiUrl) {
+    // In mock mode or when the API is not configured, fall back to local-only
+    if (mockMode || !apiUrl) {
       updateUpload(clip.id, { phase: "done", progress: 100 });
       mergeUploadsIntoData([clip]);
       return;
     }
 
     try {
-      // Step 1: Request upload URL from Worker
+      // Step 1: Request a presigned upload URL from the backend
       updateUpload(clip.id, { phase: "requesting-url", progress: 0 });
       const token = await resolveToken();
       const { uploadUrl } = await requestUploadUrl(file.name, token);
 
-      // Step 2: Upload file to R2 via Worker proxy
+      // Step 2: PUT the file to the presigned upload URL
       updateUpload(clip.id, { phase: "uploading", progress: 0 });
-      let r2Result;
+      let uploadResult;
       try {
-        r2Result = await uploadToR2(uploadUrl, file, token, (loaded, total) => {
+        uploadResult = await uploadToObjectStore(uploadUrl, file, token, (loaded, total) => {
           const pct = Math.round((loaded / total) * 100);
           updateUpload(clip.id, { progress: pct });
         });
@@ -500,7 +499,7 @@ export function AppStateProvider({
         const retriedToken = await resolveToken();
         if (!retriedToken || retriedToken === token) throw err;
 
-        r2Result = await uploadToR2(uploadUrl, file, retriedToken, (loaded, total) => {
+        uploadResult = await uploadToObjectStore(uploadUrl, file, retriedToken, (loaded, total) => {
           const pct = Math.round((loaded / total) * 100);
           updateUpload(clip.id, { progress: pct });
         });
@@ -511,7 +510,7 @@ export function AppStateProvider({
       const registerToken = tokenRef.current;
       const video = await registerVideo({
         filename: file.name,
-        storage_uri: r2Result.storageUri,
+        storage_uri: uploadResult.storageUri,
         recorded_at: metadata?.recorded_at,
         session_kind: metadata?.session_kind,
         source_type: metadata?.source_type,
@@ -522,7 +521,7 @@ export function AppStateProvider({
       updateUpload(clip.id, {
         phase: "done",
         progress: 100,
-        storageUri: r2Result.storageUri,
+        storageUri: uploadResult.storageUri,
         videoId: video.id,
       });
       mergeUploadsIntoData([{ ...clip, videoId: video.id }]);

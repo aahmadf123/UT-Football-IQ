@@ -88,7 +88,7 @@ endpoint re-checks the floor as defense in depth.
 
 ### Nightly rollup + alerts
 
-A Cloudflare cron trigger (`workers/wrangler.toml` `[triggers]`, 08:00 UTC)
+The backend's nightly scheduler (`backend/app/scheduler.py`, 08:00 UTC by default)
 enqueues a `workload_rollup` job on the nightly queue. The gpu-worker stage
 (`pipeline/stage_workload_rollup.py`) recomputes each player's trailing 28-day
 daily loads from persisted `workload_fusion` metrics, computes

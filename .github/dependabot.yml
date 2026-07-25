@@ -11,16 +11,16 @@ updates:
       - dependencies
       - backend
 
-  # Node.js workers dependencies
-  - package-ecosystem: npm
-    directory: /workers
+  # Python GPU-worker dependencies
+  - package-ecosystem: pip
+    directory: /gpu-worker
     schedule:
       interval: weekly
       day: monday
     open-pull-requests-limit: 5
     labels:
       - dependencies
-      - workers
+      - gpu-worker
 
   # Node.js frontend dependencies
   - package-ecosystem: npm

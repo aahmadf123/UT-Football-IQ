@@ -2,13 +2,13 @@
 
 Provides a clean `VideoSource` protocol so downstream stages never reference file
 paths directly.  This is the DJI drone .mp4 readiness layer — when real footage is
-available, replace `MockVideoSource` with `LocalFileVideoSource` or `R2VideoSource`.
+available, replace `MockVideoSource` with `LocalFileVideoSource` or `ObjectStoreVideoSource`.
 
 Supported sources:
     LocalFileVideoSource  — any OpenCV-readable video file (mp4, avi, mov, …).
                             Extracts DJI drone metadata (GPS, altitude) via ffprobe
                             when available; gracefully omits metadata if absent.
-    R2VideoSource         — downloads from Cloudflare R2 to a temp file then delegates
+    ObjectStoreVideoSource         — downloads from the object store to a temp file then delegates
                             to LocalFileVideoSource.  Cleans up on exit.
     MockVideoSource       — deterministic synthetic frames for unit tests and CI.
                             Never requires real video footage.
@@ -172,29 +172,29 @@ class LocalFileVideoSource(VideoSource):
             cap.release()
 
 
-# ── R2 source ─────────────────────────────────────────────────────────────────
+# ── Object store source ─────────────────────────────────────────────────────────────────
 
 
-class R2VideoSource(VideoSource):
-    """Download a video from Cloudflare R2 and read it via LocalFileVideoSource.
+class ObjectStoreVideoSource(VideoSource):
+    """Download a video from the object store and read it via LocalFileVideoSource.
 
     The temp file is cleaned up when the context manager exits or when the
     object is garbage-collected.
 
     Args:
-        r2_key: R2 object key (e.g. ``raw-video/TOL_20260901_P1.mp4``).
+        object_key: object key (e.g. ``raw-video/TOL_20260901_P1.mp4``).
     """
 
-    def __init__(self, r2_key: str) -> None:
-        from pipeline import r2 as r2_mod
+    def __init__(self, object_key: str) -> None:
+        from pipeline import object_store as object_store_mod
 
-        self._r2_key = r2_key
+        self._object_key = object_key
         self._temp_path: Path | None = None
         self._inner: LocalFileVideoSource | None = None
-        self._download(r2_mod)
+        self._download(object_store_mod)
 
-    def _download(self, r2_mod: Any) -> None:
-        self._temp_path = r2_mod.download_to_temp(self._r2_key)
+    def _download(self, object_store_mod: Any) -> None:
+        self._temp_path = object_store_mod.download_to_temp(self._object_key)
         self._inner = LocalFileVideoSource(self._temp_path)
         self.fps = self._inner.fps
         self.total_frames = self._inner.total_frames
@@ -208,7 +208,7 @@ class R2VideoSource(VideoSource):
     def cleanup(self) -> None:
         if self._temp_path and self._temp_path.exists():
             self._temp_path.unlink(missing_ok=True)
-            log.debug("r2_temp_cleaned", path=str(self._temp_path))
+            log.debug("object_temp_cleaned", path=str(self._temp_path))
 
     def __del__(self) -> None:
         self.cleanup()
@@ -270,7 +270,7 @@ def open_video(uri: str | Path | None, *, fps_fallback: float = 30.0) -> Iterato
     """Context manager that returns the right VideoSource for a given URI.
 
     - ``None`` or empty string → ``MockVideoSource`` (no-op, safe for tests)
-    - ``r2://…``               → ``R2VideoSource`` (downloads from R2, cleans up)
+    - ``s3://…``               → ``ObjectStoreVideoSource`` (downloads from the object store, cleans up)
     - ``local://…``/``file://…`` → ``LocalFileVideoSource`` on the resolved path
     - Anything else            → ``LocalFileVideoSource`` (local .mp4 path)
 
@@ -285,11 +285,11 @@ def open_video(uri: str | Path | None, *, fps_fallback: float = 30.0) -> Iterato
         return
 
     uri_str = str(uri)
-    if uri_str.startswith("r2://"):
+    if uri_str.startswith("s3://"):
         # Pass the full URI through — the storage facade parses the bucket,
         # so multi-bucket references are honoured (a bare key would silently
         # fall back to the single default bucket).
-        source = R2VideoSource(uri_str)
+        source = ObjectStoreVideoSource(uri_str)
         try:
             yield source
         finally:

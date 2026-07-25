@@ -102,7 +102,7 @@ python -m training.cross_regime_distill \
 
 > The real fine-tune cannot run in the cloud Claude session (no GPU/torch, and a
 > local Windows footage path is not reachable from the sandbox). It runs on the
-> GPU-worker host or after the footage is uploaded to R2 for the deployed nightly
+> GPU-worker host or after the footage is uploaded to the object store for the deployed nightly
 > worker; the nightly invocation rides the existing `nightly-training-exports`
 > queue / cron.
 

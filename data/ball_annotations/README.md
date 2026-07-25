@@ -39,5 +39,5 @@ See `gpu-worker/tests/test_ball_detector.py` for schema-validation tests.
 
 ## What is intentionally NOT here
 
-- Real frames or annotations (privacy + size; kept in R2 `artifacts`).
+- Real frames or annotations (privacy + size; kept in the `artifacts` bucket).
 - Model weights (`*.pt`) — see `MODEL_BALL_PATH` in `.env.example`.

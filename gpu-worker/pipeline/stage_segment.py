@@ -34,7 +34,7 @@ from typing import Any
 import cv2
 import structlog
 
-from pipeline import backend, r2
+from pipeline import backend, object_store
 from pipeline.segment_models import (
     OPTICAL_FLOW,
     SegmenterBase,
@@ -66,15 +66,15 @@ def run(video_id: str, input_uri: str, job_id: str, *, priority: int = 0) -> dic
         priority=priority,
     )
 
-    r2_key = _uri_to_r2_key(input_uri)
-    video_path = r2.download_to_temp(r2_key)
+    object_key = _uri_to_object_key(input_uri)
+    video_path = object_store.download_to_temp(object_key)
     try:
         return _segment(video_id, video_path, job_id, segmenter, priority)
     finally:
         video_path.unlink(missing_ok=True)
 
 
-def _uri_to_r2_key(uri: str) -> str:
+def _uri_to_object_key(uri: str) -> str:
     """Pass storage references through — pipeline.storage parses scheme + bucket."""
     return uri
 

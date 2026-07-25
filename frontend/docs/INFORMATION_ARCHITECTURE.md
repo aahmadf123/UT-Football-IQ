@@ -48,7 +48,7 @@ client-side (`src/components/route-redirect.tsx`).
 Uploading film **never auto-enqueues processing**. Uploaded film appears in
 Film Room → Upload / Process Film with a **Process Film** CTA. The CTA calls the
 backend job API (`POST /api/v1/jobs`, workload-gated) to create an `ingest`
-job — it does not bypass the backend or the Worker/R2 flow. The lifecycle is
+job — it does not bypass the backend or the upload flow. The lifecycle is
 surfaced in coach language:
 
 ```

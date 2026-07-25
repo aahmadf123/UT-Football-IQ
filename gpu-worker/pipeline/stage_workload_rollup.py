@@ -1,8 +1,7 @@
 """Nightly per-player workload rollup stage (Issue #149).
 
-Dispatched by the Cloudflare cron trigger (``workers/wrangler.toml``
-``[triggers]``) as a ``workload_rollup`` job on the nightly queue. For the
-target day it:
+Enqueued by the backend's nightly scheduler as a ``workload_rollup`` job at
+nightly priority. For the target day it:
 
 1. Fetches per-player daily CV loads from the backend for the trailing
    28-day window (recomputed from persisted ``workload_fusion`` metric rows

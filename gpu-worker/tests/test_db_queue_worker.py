@@ -93,10 +93,10 @@ def test_row_mapping_accepts_camel_case_uri() -> None:
             "id": "j1",
             "job_type": "ingest",
             "video_id": "v1",
-            "input_artifacts": {"inputUri": "r2://raw-video/raw/b.mp4"},
+            "input_artifacts": {"inputUri": "s3://raw-video/raw/b.mp4"},
         }
     )
-    assert job["inputUri"] == "r2://raw-video/raw/b.mp4"
+    assert job["inputUri"] == "s3://raw-video/raw/b.mp4"
 
 
 def test_row_mapping_falls_back_to_video_storage_uri() -> None:
@@ -158,16 +158,3 @@ def test_process_job_routes_pipeline_type() -> None:
     with patch.object(worker_main, "process_pipeline_job") as handler:
         worker_main.process_job(_pipeline_job())
     handler.assert_called_once()
-
-
-# ── CF publish default-off ────────────────────────────────────────────────────
-
-
-def test_cf_push_skipped_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("CF_QUEUES_ENABLED", raising=False)
-    from queue import same_session_queue
-
-    with patch("httpx.Client") as client_cls:
-        msg_id = same_session_queue.push_nightly_job({"jobId": "j1"})
-    assert msg_id == "db-only"
-    client_cls.assert_not_called()

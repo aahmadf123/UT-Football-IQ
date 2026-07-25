@@ -1,15 +1,15 @@
 /**
  * Shared helpers for the Football-IQ E2E suite.
  *
- * The suite intercepts every request to the fake API/Worker hosts declared
- * in `playwright.config.ts`. Helpers here keep individual specs small and
+ * The suite intercepts every request to the fake API host declared in
+ * `playwright.config.ts`. Helpers here keep individual specs small and
  * make it obvious which backend endpoints each test exercises.
  */
 import type { Page, Route } from "@playwright/test";
-import { FAKE_API_URL, FAKE_WORKER_URL } from "../playwright.config";
+import { FAKE_API_URL } from "../playwright.config";
 
 export type { Route };
-export { FAKE_API_URL, FAKE_WORKER_URL };
+export { FAKE_API_URL };
 
 export type JsonHandler = (route: Route) => unknown | Promise<unknown>;
 
@@ -78,14 +78,6 @@ export async function mockBackend(page: Page, routes: RouteMap): Promise<void> {
  */
 export async function mockBackendNoAuth(page: Page, routes: RouteMap): Promise<void> {
   await mockHost(page, "api.e2e.local", routes);
-}
-
-/**
- * Register responders for the Cloudflare Worker host (upload-url + signed
- * download URLs + the simulated PUT to R2).
- */
-export async function mockWorker(page: Page, routes: RouteMap): Promise<void> {
-  await mockHost(page, "worker.e2e.local", routes);
 }
 
 async function mockHost(page: Page, hostname: string, routes: RouteMap): Promise<void> {
@@ -168,7 +160,7 @@ export function sampleVideo(overrides: Record<string, unknown> = {}) {
     opponent_team: null,
     practice_session_id: "ps-1",
     our_possession: "offense",
-    storage_uri: "r2://raw-video/raw/v-1",
+    storage_uri: "s3://raw-video/raw/v-1",
     ...overrides,
   };
 }
@@ -181,7 +173,7 @@ export function sampleClip(overrides: Record<string, unknown> = {}) {
     start_time: 12.0,
     end_time: 18.5,
     play_number: 1,
-    storage_uri: "r2://clips/clips/c-1.mp4",
+    storage_uri: "s3://clips/clips/c-1.mp4",
     confidence: 0.92,
     is_reviewed: false,
     our_possession: "offense",

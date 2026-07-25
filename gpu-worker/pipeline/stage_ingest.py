@@ -1,17 +1,17 @@
 """Stage 1 — Video Ingestion.
 
 Responsibilities:
-  - Download the source video from R2 to a local temp file.
+  - Download the source video from the object store to a local temp file.
   - Probe FPS, resolution, codec, duration, and detect corruption via ffprobe.
   - Reject or warn on: resolution < 480p, fps < 10, missing metadata,
     unsupported codec (not h264/hevc/vp9/av1).
-  - Generate a thumbnail contact sheet (one frame per ~10 s) and upload to R2.
+  - Generate a thumbnail contact sheet (one frame per ~10 s) and upload to the object store.
   - Patch the video record with probed metadata.
   - Queue a segment job by updating job output_artifacts.
 
 Output:
   - Video record updated (status=processing, fps, width, height, codec, duration).
-  - Thumbnail contact sheet uploaded to R2.
+  - Thumbnail contact sheet uploaded to the object store.
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ from typing import Any
 
 import structlog
 
-from pipeline import backend, r2
+from pipeline import backend, object_store
 from pipeline.homography.regime_detector import (
     UNKNOWN as REGIME_UNKNOWN,
 )
@@ -44,15 +44,15 @@ def run(video_id: str, input_uri: str, job_id: str) -> dict[str, Any]:
     log.info("stage_ingest_start", video_id=video_id)
 
     # ── Download ──────────────────────────────────────────────────────────
-    r2_key = _uri_to_r2_key(input_uri)
-    video_path = r2.download_to_temp(r2_key)
+    object_key = _uri_to_object_key(input_uri)
+    video_path = object_store.download_to_temp(object_key)
     try:
         return _process(video_id, video_path, job_id, input_uri)
     finally:
         video_path.unlink(missing_ok=True)
 
 
-def _uri_to_r2_key(uri: str) -> str:
+def _uri_to_object_key(uri: str) -> str:
     """Pass storage references through — pipeline.storage parses scheme + bucket."""
     return uri
 
@@ -193,7 +193,7 @@ def _ffprobe(path: Path) -> dict[str, Any]:
 
 
 def _generate_contact_sheet(video_id: str, path: Path, duration: float) -> str:
-    """Extract ~10 thumbnails spread across the video, tile them, upload to R2."""
+    """Extract ~10 thumbnails spread across the video, tile them, upload to the object store."""
     if duration <= 0:
         duration = 60.0  # fallback guess
     interval = max(10.0, duration / 10)
@@ -262,5 +262,5 @@ def _generate_contact_sheet(video_id: str, path: Path, duration: float) -> str:
             else:
                 return ""
 
-        r2_key = f"thumbnails/{video_id}/contact_sheet.jpg"
-        return r2.upload_file(sheet_path, r2_key, content_type="image/jpeg")
+        object_key = f"thumbnails/{video_id}/contact_sheet.jpg"
+        return object_store.upload_file(sheet_path, object_key, content_type="image/jpeg")

@@ -2,7 +2,7 @@
 
 Exercises the create / list / get / download endpoints plus the rendering
 helpers in :mod:`app.reports`.  Storage and the background task are stubbed
-so tests are hermetic and do not require R2 credentials.
+so tests are hermetic and do not require object-store credentials.
 """
 
 from __future__ import annotations
@@ -112,7 +112,7 @@ def test_create_report_returns_queued_job(monkeypatch: pytest.MonkeyPatch) -> No
     app.dependency_overrides[get_current_user] = lambda: coach
     app.dependency_overrides[require_coach_or_above] = lambda: coach
 
-    # Prevent the actual background task from running (it would hit R2).
+    # Prevent the actual background task from running (it would hit the object store).
     monkeypatch.setattr(
         "app.routers.reports._run_report_job",
         lambda *args, **kwargs: None,
@@ -259,7 +259,7 @@ def test_download_returns_presigned_url(monkeypatch: pytest.MonkeyPatch) -> None
     job = _make_job(
         requested_by=coach.id,
         status=JobStatus.succeeded,
-        output_uri="r2://artifacts/reports/abc.pdf",
+        output_uri="s3://artifacts/reports/abc.pdf",
     )
     fake = _CapturingDB(detail_row=job)
     _install_db(fake)
