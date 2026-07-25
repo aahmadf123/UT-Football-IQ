@@ -255,6 +255,8 @@ ALL_ENUMS = (
 
 def upgrade() -> None:
     bind = op.get_bind()
+    # gen_random_uuid() server defaults (used by CFBD cache tables) require pgcrypto.
+    op.execute("CREATE EXTENSION IF NOT EXISTS pgcrypto")
     # pgvector must exist before any Vector(...) column DDL is emitted.
     op.execute("CREATE EXTENSION IF NOT EXISTS vector")
     for enum_type in ALL_ENUMS:
