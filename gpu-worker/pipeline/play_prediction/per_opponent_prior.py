@@ -124,7 +124,7 @@ class DirichletPrior:
         }
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "DirichletPrior":
+    def from_dict(cls, d: dict[str, Any]) -> DirichletPrior:
         return cls(
             alpha_pass=float(d.get("alpha_pass", DEFAULT_ALPHA_PASS)),
             alpha_run=float(d.get("alpha_run", DEFAULT_ALPHA_RUN)),
@@ -191,7 +191,7 @@ class OpponentPriorStore:
         return rows
 
     @classmethod
-    def from_rows(cls, rows: list[dict[str, Any]]) -> "OpponentPriorStore":
+    def from_rows(cls, rows: list[dict[str, Any]]) -> OpponentPriorStore:
         store = cls()
         for row in rows:
             down = row.get("down")

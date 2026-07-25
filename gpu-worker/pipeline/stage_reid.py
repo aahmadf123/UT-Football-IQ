@@ -23,13 +23,13 @@ from __future__ import annotations
 import os
 import re
 from pathlib import Path
+from queue.same_session_queue import SAME_SESSION_PRIORITY
 from typing import Any
 
 import cv2
 import numpy as np
 import structlog
 
-from pipeline import r2
 from pipeline.model_router import PARSEQ_OCR
 from pipeline.tracking.min_cost_flow_stitcher import (
     MinCostFlowStitcher,
@@ -40,7 +40,6 @@ from pipeline.tracking.trajectory_prior_reid import (
     TrajectoryPriorReID,
     UnknownTrack,
 )
-from queue.same_session_queue import SAME_SESSION_PRIORITY
 
 log = structlog.get_logger(__name__)
 
@@ -284,8 +283,8 @@ def _stitch_and_propagate(
 def _extract_tracklet_embedding(
     tracklet: dict[str, Any],
     cap: Any,
-    adapter: "NvidiaReIDAdapter",
-) -> "np.ndarray | None":
+    adapter: NvidiaReIDAdapter,
+) -> np.ndarray | None:
     """Extract a representative L2-normalised embedding for a tracklet."""
     points = tracklet.get("track_points", [])
     if not points:
@@ -324,9 +323,9 @@ def _identify_tracklet(
     tracklet: dict[str, Any],
     cap: Any,
     jersey_map: dict[int, str],
-    adapter: "NvidiaReIDAdapter | None" = None,
-    gallery: "list[tuple[np.ndarray, str]] | None" = None,
-    ocr_adapter: "Any | None" = None,
+    adapter: NvidiaReIDAdapter | None = None,
+    gallery: list[tuple[np.ndarray, str]] | None = None,
+    ocr_adapter: Any | None = None,
 ) -> str | None:
     """Return a player_id UUID string if we can identify this tracklet, else None."""
     points = tracklet.get("track_points", [])
@@ -521,11 +520,10 @@ def _get_reid_adapter() -> NvidiaReIDAdapter | None:
 
 
 def _patch_tracklet(tracklet_id: str, player_id: str, backend_api_url: str) -> None:
-    import httpx
+    # Route through pipeline.backend so the worker's service-account token is
+    # attached (a bare client here would 401 silently).
     if not backend_api_url:
         return
-    try:
-        with httpx.Client(base_url=backend_api_url, timeout=10) as c:
-            c.patch(f"/api/v1/tracklets/{tracklet_id}", json={"player_id": player_id})
-    except Exception as exc:
-        log.warning("tracklet_patch_failed", tracklet_id=tracklet_id, error=str(exc))
+    from pipeline import backend as backend_mod
+
+    backend_mod.patch_tracklet_player(tracklet_id, player_id)

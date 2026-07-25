@@ -104,8 +104,8 @@ def _predict_for_clip(clip: dict[str, Any], video_uri: str | None) -> dict[str, 
     Falls back to ``unknown`` if R2 is unreachable or the detector raises
     — the CLI is for offline review, not a gate.
     """
-    from pipeline.homography.regime_detector import UNKNOWN, CaptureRegimeDetector
     from pipeline import r2
+    from pipeline.homography.regime_detector import UNKNOWN, CaptureRegimeDetector
 
     if not video_uri:
         return {"regime": UNKNOWN, "confidence": 0.0, "features": {}}

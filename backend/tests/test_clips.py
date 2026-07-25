@@ -9,7 +9,7 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 from app.database import get_db
-from app.deps import get_current_user
+from app.deps import get_current_user, require_coach_or_above
 from app.main import app
 from app.models import (
     Clip,
@@ -228,3 +228,74 @@ def test_create_practice_clip_may_omit_our_possession() -> None:
     body = resp.json()
     assert body["our_possession"] is None
     assert body["side_of_ball"] is None
+
+
+# ── play_call_id round-trip (Issue #150 cross-regime pairing) ─────────────────
+
+
+def test_create_clip_persists_play_call_id() -> None:
+    """A coach-tagged play-call code is persisted and returned on create."""
+    captured: list[Clip] = []
+    video = _make_video(session_kind=SessionKind.game, our_possession=SideOfBall.offense)
+    _override(video, captured)
+    try:
+        resp = _post_clip(
+            video.id,
+            {
+                "start_time": 0.0,
+                "end_time": 5.0,
+                "our_possession": "offense",
+                "play_call_id": "Gun-Trips-Rt-22-Z",
+            },
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["play_call_id"] == "Gun-Trips-Rt-22-Z"
+    assert captured[0].play_call_id == "Gun-Trips-Rt-22-Z"
+
+
+def test_create_clip_defaults_play_call_id_to_none() -> None:
+    captured: list[Clip] = []
+    video = _make_video(session_kind=SessionKind.practice, our_possession=SideOfBall.offense)
+    _override(video, captured)
+    try:
+        resp = _post_clip(video.id, {"start_time": 0.0, "end_time": 5.0})
+    finally:
+        app.dependency_overrides.clear()
+
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["play_call_id"] is None
+
+
+def test_update_clip_sets_play_call_id() -> None:
+    """Coaches tag matched practice<->game plays by PATCHing play_call_id."""
+    clip = Clip(id=uuid.uuid4(), video_id=uuid.uuid4(), start_time=0.0, end_time=5.0)
+    clip.is_reviewed = False
+    clip.uncertainty_calibrated = False
+    clip.created_at = datetime.now(UTC)
+
+    async def _db() -> AsyncGenerator[Any, None]:
+        session = AsyncMock()
+
+        async def _execute(_stmt: Any) -> Any:
+            result = MagicMock()
+            result.scalar_one_or_none.return_value = clip
+            return result
+
+        session.execute = AsyncMock(side_effect=_execute)
+        session.flush = AsyncMock()
+        yield session
+
+    app.dependency_overrides[require_coach_or_above] = lambda: _make_user()
+    app.dependency_overrides[get_db] = _db
+    try:
+        with TestClient(app) as c:
+            resp = c.patch(f"/api/v1/clips/{clip.id}", json={"play_call_id": "PLAY-Z"})
+    finally:
+        app.dependency_overrides.clear()
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["play_call_id"] == "PLAY-Z"
+    assert clip.play_call_id == "PLAY-Z"

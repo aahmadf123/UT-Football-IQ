@@ -1,5 +1,10 @@
-import { PageRenderer } from "@/components/page-renderer";
+import { FootballShell } from "@/components/shell/app-shell";
+import { DashboardView } from "@/components/dashboard-view";
 
 export default function DashboardPage() {
-  return <PageRenderer page="dashboard" />;
+  return (
+    <FootballShell activePage="dashboard">
+      <DashboardView />
+    </FootballShell>
+  );
 }

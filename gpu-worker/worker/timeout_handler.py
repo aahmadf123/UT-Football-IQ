@@ -27,12 +27,11 @@ import os
 import signal
 import threading
 from collections.abc import Callable
+from queue.same_session_queue import push_nightly_job
 from typing import Any
 
 import httpx
 import structlog
-
-from queue.same_session_queue import push_nightly_job
 
 log = structlog.get_logger(__name__)
 
@@ -144,13 +143,22 @@ def _handle_timeout(
 def _update_job_failed(job_id: str, error_message: str) -> None:
     if not BACKEND_API_URL:
         return
+    from worker.auth import worker_id
+
     payload: dict[str, Any] = {
         "status": "failed",
         "error_stage": "timeout",
         "error_message": error_message,
+        "worker_id": worker_id(),
     }
     try:
-        with httpx.Client(base_url=BACKEND_API_URL, timeout=10) as c:
+        from worker import auth as worker_auth
+
+        headers: dict[str, str] = {}
+        bearer = worker_auth.token()
+        if bearer:
+            headers["Authorization"] = f"Bearer {bearer}"
+        with httpx.Client(base_url=BACKEND_API_URL, timeout=10, headers=headers) as c:
             c.patch(f"/api/v1/jobs/{job_id}", json=payload)
         log.info("timeout_job_marked_failed", job_id=job_id)
     except Exception as exc:

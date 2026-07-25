@@ -27,6 +27,7 @@ from typing import Any
 from sqlalchemy import (
     JSON,
     Boolean,
+    Date,
     DateTime,
     Enum,
     Float,
@@ -35,7 +36,9 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    false,
     func,
+    true,
 )
 from sqlalchemy.dialects.postgresql import ARRAY, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -64,14 +67,20 @@ class JobStatus(enum.StrEnum):
 
 
 class JobType(enum.StrEnum):
+    #: Full chain: ingest → … → render, orchestrated in-process by the GPU
+    #: worker (pipeline.orchestrator). The normal coach-facing job type.
+    pipeline = "pipeline"
     ingest = "ingest"
     segment = "segment"
     calibrate = "calibrate"
     detect = "detect"
     track = "track"
+    reid = "reid"
     pose = "pose"
+    events = "events"
     labels = "labels"
     metrics = "metrics"
+    pressure = "pressure"
     render = "render"
     render_hls = "render_hls"
     routes = "routes"
@@ -79,11 +88,35 @@ class JobType(enum.StrEnum):
     oline = "oline"
     self_scout = "self_scout"
     embeddings = "embeddings"
+    workload_rollup = "workload_rollup"
+    #: Scheduled model retraining from exported coach corrections (P3).
+    train = "train"
 
 
 class PipelineMode(enum.StrEnum):
     same_session = "same_session"
     nightly = "nightly"
+
+
+class ClipResultState(enum.StrEnum):
+    """Quality tier of a clip's analysis results (Issue #147).
+
+    ``preliminary`` — produced by the same-session lightweight path during the
+        period-break window. Detections / tracks / labels exist but the clip has
+        not yet been through nightly full-quality post-processing, so the coach
+        sees a "Preliminary" badge.
+    ``final`` — produced or upgraded by the nightly full-quality path. The
+        nightly run replaces the preliminary results in place (see the
+        ``/clips/finalize`` endpoint), flipping the clip to ``final``.
+
+    Stored as a plain ``String`` (mirrors ``ProcessingJob.pipeline_mode``) rather
+    than a DB enum so the column is additive and migrations stay simple. A NULL
+    value means "legacy / unknown" — such clips predate the same-session split
+    and are not treated as preliminary.
+    """
+
+    preliminary = "preliminary"
+    final = "final"
 
 
 class ModelStage(enum.StrEnum):
@@ -162,6 +195,10 @@ class AlertType(enum.StrEnum):
     # coaching-actionable (season tendency), or an in-game pattern break where
     # the current game diverges sharply from the season baseline.
     formation_tendency = "formation_tendency"
+    # Workload-risk alerts (Issue #149): ACWR > 1.5 or gait asymmetry > 1.3.
+    # Sports-performance staff only — never surfaced to coaches, players, or
+    # viewers (see RESTRICTED_ALERT_TYPES in the alerts router).
+    workload_risk = "workload_risk"
 
 
 class AlertSeverity(enum.StrEnum):
@@ -174,13 +211,16 @@ class CaptureRegime(enum.StrEnum):
     """Source-capture regime inferred from pixels at ingest (Issue #126).
 
     Toledo film arrives without SRT/GPS/IMU, so every Phase-CV stage routes on
-    whichever of these the ingest-time detector picked. ``unknown`` is the safe
-    fallback for low-confidence or feature-extraction failures and is also the
-    backfill value for rows that existed before this column was added.
+    whichever of these the ingest-time detector picked. ``unconstrained`` is
+    the first-class "any camera / any angle / any height" regime — analyzed
+    footage that matches neither special regime takes the generic pipeline
+    path (ADR 0005). ``unknown`` is reserved for hard analysis failures and
+    is the backfill value for rows that predate this column.
     """
 
     drone_follow = "drone_follow"
     fixed_sideline = "fixed_sideline"
+    unconstrained = "unconstrained"
     unknown = "unknown"
 
 
@@ -206,6 +246,49 @@ class ReportFormat(enum.StrEnum):
     pdf = "pdf"
     csv = "csv"
     json = "json"
+
+
+class ProfileGenerationSource(enum.StrEnum):
+    """How a player profile / development snapshot was produced (Issue #7).
+
+    Recorded as ``generated_by`` so a coach always knows whether a snapshot was
+    hand-authored, derived from model outputs, or imported from an external
+    record before it is approved for player-facing use.
+    """
+
+    manual = "manual"
+    model_assisted = "model_assisted"
+    imported = "imported"
+
+
+class PlayerIdentityState(enum.StrEnum):
+    """Confidence-scored identity state for a development snapshot (Issue #7).
+
+    Jersey OCR is never treated as ground truth — practice clips include
+    temporary/non-assigned jerseys, pinnies, wrong numbers, or unreadable
+    numbers, so the resolved identity carries an explicit state alongside its
+    confidence. Low-confidence states (everything other than ``known`` /
+    ``probable``) can never be silently attached to a player-facing profile.
+    """
+
+    known = "known"
+    probable = "probable"
+    unknown = "unknown"
+    conflicting = "conflicting"
+    needs_review = "needs_review"
+
+
+class SnapshotApprovalStatus(enum.StrEnum):
+    """Approval lifecycle for a weekly development snapshot (Issue #7).
+
+    A snapshot starts ``pending`` and must be explicitly ``approved`` by a
+    coach/analyst before it participates in any player-facing or recruiting
+    projection. ``rejected`` keeps the row for audit without surfacing it.
+    """
+
+    pending = "pending"
+    approved = "approved"
+    rejected = "rejected"
 
 
 # ── Models ────────────────────────────────────────────────────────────────────
@@ -342,6 +425,14 @@ class Clip(Base):
     start_time: Mapped[float] = mapped_column(Float, nullable=False)  # seconds
     end_time: Mapped[float] = mapped_column(Float, nullable=False)  # seconds
     play_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # ── Cross-regime pairing (Issue #150) ─────────────────────────────────────
+    # Coach-tagged play-call code shared verbatim between the practice
+    # (``drone_follow``) clip and the game (``fixed_sideline``) clip of the same
+    # play. Two clips form a "paired play" when they carry the same non-null
+    # ``play_call_id``; the cross-regime self-distillation trainer aligns the
+    # game pseudo-labels onto the practice clip via this key. Indexed because the
+    # aligner groups clips by it.
+    play_call_id: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
     label_data: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     is_reviewed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
@@ -396,6 +487,26 @@ class Clip(Base):
         index=True,
     )
     regime_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    # ── Active-learning uncertainty (Issues #145 / #146) ──────────────────────
+    # Clip-level calibrated uncertainty (normalized entropy, in [0, 1]) of the
+    # Phase-2 ensemble for this play; higher = the model is less sure, so it is
+    # prioritized in the coach-correction annotation queue. NULL means "not yet
+    # scored". ``uncertainty_calibrated`` records whether the contributing model
+    # outputs were calibrated (Issue #146) — an uncalibrated score must never be
+    # presented to a coach as a trusted confidence. Indexed because the
+    # annotation queue orders by it.
+    uncertainty_score: Mapped[float | None] = mapped_column(Float, nullable=True, index=True)
+    uncertainty_calibrated: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=false()
+    )
+
+    # ── Same-session result tier (Issue #147) ─────────────────────────────────
+    # Whether this clip's analysis is a same-session ``preliminary`` first pass
+    # or a nightly-upgraded ``final`` result. NULL = legacy/unknown (predates the
+    # same-session split). Indexed so the Practice Inbox can count/filter clips
+    # still awaiting their nightly upgrade. See ``ClipResultState``.
+    result_state: Mapped[str | None] = mapped_column(String(20), nullable=True, index=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
@@ -452,6 +563,20 @@ class ProcessingJob(Base):
     pipeline_mode: Mapped[str | None] = mapped_column(
         String(20), nullable=True, default=None, index=True
     )
+    # ── DB-as-queue lease fields ──────────────────────────────────────────
+    # The GPU worker claims queued rows via POST /jobs/claim (FOR UPDATE
+    # SKIP LOCKED) and keeps its lease alive via POST /jobs/{id}/heartbeat.
+    # An expired lease makes the row claimable again until attempt_count
+    # reaches max_attempts, at which point the claim sweep fails it.
+    leased_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    max_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=3)
+    #: Per-stage progress map maintained by the orchestrator via heartbeat:
+    #: ``{stage[:clip] : {"status": ..., "at": ..., ...headline numbers}}``.
+    progress: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     error_stage: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -757,6 +882,17 @@ class Metric(Base):
     analytics_safe: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     # 0.0–1.0 model confidence for this specific metric value
     confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # Effort-review scalar fields from issue #142. These duplicate the JSON
+    # payload for indexed/queryable access while the full review context stays
+    # in metric_value.
+    effort_zscore: Mapped[float | None] = mapped_column(Float, nullable=True)
+    loaf_flag: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    # Workload-fusion scalar fields from Issue #149. Like the effort fields
+    # above these duplicate metric_value keys for indexed/queryable access;
+    # they are experimental sports-performance signals, never a diagnosis.
+    sprint_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    asymmetry_index: Mapped[float | None] = mapped_column(Float, nullable=True)
+    injury_risk_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     # URI to the evidence artifact (e.g. annotated frame, track overlay)
     evidence_uri: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Full version lineage for every metric
@@ -1004,6 +1140,12 @@ class ActiveLearningQueueItem(Base):
 PLAY_EMBEDDING_DIM: int = 256
 PLAY_EMBEDDING_VISUAL_DIM: int = 192
 PLAY_EMBEDDING_STRUCTURED_DIM: int = 64
+# Raw CLIP ViT-B/32 image embedding, in CLIP's shared text-image space
+# (Issue #195). Stored *unprojected* so a CLIP text-tower query can be
+# cosine-compared against it — the fused ``vector`` above is not in CLIP
+# space (its visual half is a random-init projection per
+# ``docs/embeddings-architecture.md`` §7), so it cannot serve text search.
+PLAY_EMBEDDING_CLIP_DIM: int = 512
 
 
 class PlayEmbedding(Base):
@@ -1036,6 +1178,14 @@ class PlayEmbedding(Base):
     )
     structured_vector: Mapped[list[float] | None] = mapped_column(
         Vector(PLAY_EMBEDDING_STRUCTURED_DIM), nullable=True
+    )
+    # Raw CLIP ViT-B/32 image embedding (512-d, CLIP shared text-image
+    # space) retained for genuine CLIP text-tower zero-shot search
+    # (Issue #195). Nullable: populated only when a real CLIP visual
+    # encoder ran (the default ``ZeroVisualEncoder`` leaves it NULL), and
+    # backfilled incrementally by the nightly embed stage.
+    clip_vector: Mapped[list[float] | None] = mapped_column(
+        Vector(PLAY_EMBEDDING_CLIP_DIM), nullable=True
     )
 
     # Lineage
@@ -1162,6 +1312,365 @@ class PlayerVisibilityAudit(Base):
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+# ── Player development passport (Issue #7) ─────────────────────────────────────
+
+
+class PlayerProfile(Base):
+    """Per-player, per-season development profile — the passport home record.
+
+    One row per ``(player, season)``. The outward-facing visibility lifecycle
+    is governed entirely by the parent :class:`Player.visibility_state`
+    (Issue #114); this table deliberately does **not** duplicate that state so
+    there is a single source of truth. ``coach_notes`` is private staff content
+    and is stripped from every non-staff projection by
+    :func:`app.governance.shape_player_profile` — never serialize it directly.
+    """
+
+    __tablename__ = "player_profiles"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    player_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("players.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    # Season label, e.g. "2026". Free-form string so spring/fall splits or
+    # custom training blocks can reuse the table without a schema change.
+    season: Mapped[str] = mapped_column(String(16), nullable=False)
+    # Staff-facing role description (e.g. "slot receiver / gunner").
+    role_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Position-specific development goals, configurable per position group.
+    development_goals: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    # PRIVATE — coaches/analysts only. Never exposed to player/recruiting views.
+    coach_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Player-facing summary, written/approved by staff.
+    player_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Benchmark cohort: "position_group" | "class_year" | "role".
+    benchmark_group: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    # Curated best teaching / recruiting clip ids (list of uuid strings).
+    favorite_clip_ids: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    generated_by: Mapped[ProfileGenerationSource] = mapped_column(
+        Enum(ProfileGenerationSource, name="profile_generation_source"),
+        nullable=False,
+        default=ProfileGenerationSource.manual,
+        server_default=ProfileGenerationSource.manual.value,
+    )
+    approved_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Per-player overrides of the canonical health-context field→tier mapping
+    # (Issue #9): {"field_or_category": "workload" | "rehab" | "medical"}.
+    # Overrides may only ESCALATE a field to a stricter tier — they can never
+    # widen access (enforced by app.governance.effective_field_tier).
+    restricted_context_flags: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        UniqueConstraint("player_id", "season", name="player_profiles_player_season_uq"),
+    )
+
+    player: Mapped["Player"] = relationship("Player")
+    snapshots: Mapped[list["PlayerProfileSnapshot"]] = relationship(
+        "PlayerProfileSnapshot", back_populates="profile", cascade="all, delete-orphan"
+    )
+
+
+class PlayerProfileSnapshot(Base):
+    """Weekly development snapshot for a player profile (Issue #7).
+
+    Captures the longitudinal record: per-week summary metrics, strengths,
+    development focus, and evidence clips, alongside a confidence-scored
+    identity resolution. A snapshot only participates in player-facing or
+    recruiting projections once ``approval_status == approved``; low-confidence
+    or unknown identities are forced ``experimental_flag = True`` and cannot be
+    approved (see ``app.routers.player_profiles``).
+    """
+
+    __tablename__ = "player_profile_snapshots"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    profile_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("player_profiles.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    # Denormalized parent player id so snapshot queries don't have to JOIN
+    # player_profiles to filter/authorize by player.
+    player_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("players.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    # The Monday (or chosen anchor) of the snapshot week.
+    week_start: Mapped[Any] = mapped_column(Date, nullable=False, index=True)
+    summary_metrics: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    strengths: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    development_focus: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    evidence_clip_ids: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    # ── Confidence-scored identity (Issue #7 — MP4-only, no face recognition) ──
+    identity_state: Mapped[PlayerIdentityState] = mapped_column(
+        Enum(PlayerIdentityState, name="player_identity_state"),
+        nullable=False,
+        default=PlayerIdentityState.needs_review,
+        server_default=PlayerIdentityState.needs_review.value,
+    )
+    identity_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # Source signals that produced the identity, e.g.
+    # {"jersey_ocr": 0.4, "appearance": 0.6, "trajectory": 0.7,
+    #  "roster_mapping": true, "manual_correction": true}. Never face data.
+    identity_signals: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    generated_by: Mapped[ProfileGenerationSource] = mapped_column(
+        Enum(ProfileGenerationSource, name="profile_generation_source", create_type=False),
+        nullable=False,
+        default=ProfileGenerationSource.model_assisted,
+        server_default=ProfileGenerationSource.model_assisted.value,
+    )
+    approval_status: Mapped[SnapshotApprovalStatus] = mapped_column(
+        Enum(SnapshotApprovalStatus, name="snapshot_approval_status"),
+        nullable=False,
+        default=SnapshotApprovalStatus.pending,
+        server_default=SnapshotApprovalStatus.pending.value,
+    )
+    approved_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Forced True when identity confidence is below threshold or the identity
+    # state is not known/probable — such a snapshot is never silently attached
+    # to a player-facing profile.
+    experimental_flag: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=true()
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    profile: Mapped["PlayerProfile"] = relationship("PlayerProfile", back_populates="snapshots")
+
+
+# ── Player workload rollups (Issue #149) ─────────────────────────────────────
+
+
+class PlayerWorkloadDaily(Base):
+    """Nightly per-player workload rollup for the health/workload surface.
+
+    One row per (player, day), written by the nightly ``workload_rollup``
+    job: summed CV daily load, sprint count, max speed, confidence-weighted
+    gait asymmetry, the trailing 7d/28d acute:chronic workload ratio, and the
+    experimental heuristic risk score. Rows are only ever written for
+    identity-confident tracklets (>= 0.70); low-confidence contributions stay
+    per-clip as anonymous-track metric rows and never roll into a named
+    player-day. All values are experimental sports-performance indicators —
+    never a diagnosis — and are read exclusively through the RBAC-gated,
+    audit-logged ``/api/v1/health-workload/*`` endpoints.
+    """
+
+    __tablename__ = "player_workload_daily"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    player_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("players.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    date: Mapped[Any] = mapped_column(Date, nullable=False, index=True)
+    # Summed CV distance_traveled (yards) across the day's clips.
+    daily_load: Mapped[float | None] = mapped_column(Float, nullable=True)
+    sprint_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    max_speed_yps: Mapped[float | None] = mapped_column(Float, nullable=True)
+    asymmetry_index: Mapped[float | None] = mapped_column(Float, nullable=True)
+    acute_load_7d: Mapped[float | None] = mapped_column(Float, nullable=True)
+    chronic_load_28d: Mapped[float | None] = mapped_column(Float, nullable=True)
+    acwr: Mapped[float | None] = mapped_column(Float, nullable=True)
+    injury_risk_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    risk_reason_codes: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    clip_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    attribution: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="player", server_default="player"
+    )
+    confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # Model-router variant that produced the risk score (#73 audit trail).
+    model_variant: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    computed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    player: Mapped["Player"] = relationship("Player")
+
+    __table_args__ = (UniqueConstraint("player_id", "date", name="player_workload_daily_unique"),)
+
+
+# ── Health data-fusion tables (Issue #9) ─────────────────────────────────────
+# UT-source joins for the athlete health/workload dashboard. All reads go
+# through the RBAC-gated, audit-logged /api/v1/health-workload/* endpoints;
+# writes go through the sportsperformance-gated ingest endpoints. Data is
+# sports-performance context — never a clinical record.
+
+
+class WellnessEntry(Base):
+    """Daily athlete wellness self-report (workload tier).
+
+    Self-reported context only — never a clinical assessment. One row per
+    (player, day); 1–10 subjective scales plus sleep hours.
+    """
+
+    __tablename__ = "wellness_entries"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    player_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("players.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    date: Mapped[Any] = mapped_column(Date, nullable=False, index=True)
+    soreness: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    sleep_hours: Mapped[float | None] = mapped_column(Float, nullable=True)
+    sleep_quality: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    energy: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    stress: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    source: Mapped[str] = mapped_column(
+        String(50), nullable=False, default="manual_csv", server_default="manual_csv"
+    )
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    __table_args__ = (UniqueConstraint("player_id", "date", name="wellness_entries_unique"),)
+
+
+class GpsWorkloadDaily(Base):
+    """Daily GPS/wearable movement load (Catapult-style; workload tier)."""
+
+    __tablename__ = "gps_workload_daily"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    player_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("players.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    date: Mapped[Any] = mapped_column(Date, nullable=False, index=True)
+    session_type: Mapped[str] = mapped_column(
+        String(30), nullable=False, default="practice", server_default="practice"
+    )
+    total_distance_m: Mapped[float | None] = mapped_column(Float, nullable=True)
+    high_speed_distance_m: Mapped[float | None] = mapped_column(Float, nullable=True)
+    sprint_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    max_speed_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
+    accel_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    decel_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    player_load: Mapped[float | None] = mapped_column(Float, nullable=True)
+    source: Mapped[str] = mapped_column(
+        String(50), nullable=False, default="manual_csv", server_default="manual_csv"
+    )
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint("player_id", "date", "session_type", name="gps_workload_daily_unique"),
+    )
+
+
+class ScSession(Base):
+    """Strength & conditioning session load (workload tier)."""
+
+    __tablename__ = "sc_sessions"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    player_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("players.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    date: Mapped[Any] = mapped_column(Date, nullable=False, index=True)
+    session_volume: Mapped[float | None] = mapped_column(Float, nullable=True)
+    tonnage_kg: Mapped[float | None] = mapped_column(Float, nullable=True)
+    session_rpe: Mapped[float | None] = mapped_column(Float, nullable=True)
+    duration_min: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    source: Mapped[str] = mapped_column(
+        String(50), nullable=False, default="manual_csv", server_default="manual_csv"
+    )
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    __table_args__ = (UniqueConstraint("player_id", "date", name="sc_sessions_unique"),)
+
+
+class AcademicCalendarEvent(Base):
+    """Team-level academic-stress overlay (exams, midterms, breaks, travel).
+
+    Deliberately has NO per-player academic data — only calendar context that
+    the dashboard overlays on workload trends.
+    """
+
+    __tablename__ = "academic_calendar_events"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    date: Mapped[Any] = mapped_column(Date, nullable=False, index=True)
+    end_date: Mapped[Any | None] = mapped_column(Date, nullable=True)
+    event_type: Mapped[str] = mapped_column(String(30), nullable=False)
+    label: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    source: Mapped[str] = mapped_column(
+        String(50), nullable=False, default="manual_csv", server_default="manual_csv"
+    )
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class InjuryHistory(Base):
+    """Coarse injury-history rows (rehab tier — restricted by default).
+
+    NO diagnosis free-text by design: body region, side, coarse status, and
+    days missed only. Restricted to the rehab tier's roles (admin +
+    sportsperformance) at every read path.
+    """
+
+    __tablename__ = "injury_history"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    player_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("players.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    reported_date: Mapped[Any] = mapped_column(Date, nullable=False, index=True)
+    body_region: Mapped[str] = mapped_column(String(50), nullable=False)
+    side: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="active", server_default="active"
+    )
+    days_missed: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    restricted: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=true()
+    )
+    source: Mapped[str] = mapped_column(
+        String(50), nullable=False, default="manual_csv", server_default="manual_csv"
+    )
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -1371,3 +1880,149 @@ CfbdDrive = CFBDDrive
 CfbdPlay = CFBDPlay
 CfbdTeamGameStat = CFBDTeamGameStat
 CfbdWinProbability = CFBDWinProbability
+
+
+# ── Phase 4: playbook overlays & assignment scoring (Issue #15) ────────────────
+
+
+class PlaybookConcept(Base):
+    """A coach-authored call-sheet concept and its assignment definitions.
+
+    ``side`` is "offense" or "defense"; ``assignments`` is the JSON list of
+    assignment dicts (key, role, intent, coaching_point, intended_route, rule)
+    that drive both the Film Room overlay and rule-based execution scoring. The
+    table is intentionally light and coach-edited — see ``app.playbook_seed``
+    for the two starter concepts and ``docs/playbook-overlays.md`` for the
+    contract.
+    """
+
+    __tablename__ = "playbook_concepts"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(128), nullable=False, unique=True, index=True)
+    side: Mapped[str] = mapped_column(String(16), nullable=False)
+    structure_kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # List of assignment definition dicts (see app.analytics.assignment_scoring).
+    assignments: Mapped[list[dict[str, Any]]] = mapped_column(JSON, nullable=False)
+    coaching_points: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=true()
+    )
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class PlayConcept(Base):
+    """Links a concept to the clip (play) on which it was called.
+
+    ``source`` is "coach" (coach confirmed the call) or "model" (auto-identified
+    and therefore unvalidated). ``assignment_player_map`` maps each assignment
+    key to ``{"tracklet_id": ..., "identity_state": ..., "identity_confidence": ...}``
+    so scoring can resolve which tracklet ran each assignment without requiring
+    face recognition. ``validated`` records whether a coach confirmed the
+    concept identification.
+    """
+
+    __tablename__ = "play_concepts"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    clip_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("clips.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    concept_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("playbook_concepts.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    source: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="coach", server_default="coach"
+    )
+    confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    assignment_player_map: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    validated: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=false()
+    )
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint("clip_id", "concept_id", name="play_concepts_clip_concept_uq"),
+    )
+
+    concept: Mapped["PlaybookConcept"] = relationship("PlaybookConcept")
+
+
+class AssignmentScore(Base):
+    """A rule-based execution grade for one assignment on one play (Issue #15).
+
+    ``grade`` is on_assignment / off_assignment / needs_review. A low-confidence
+    identity or missing substrate yields ``needs_review`` (never a negative
+    grade). ``coach_grade`` + ``coach_comment`` capture a coach override, which
+    also writes an ``assignment_execution`` Label so corrections feed the
+    training flywheel. ``experimental`` defaults true until validated.
+    """
+
+    __tablename__ = "assignment_scores"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    clip_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("clips.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    concept_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("playbook_concepts.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    assignment_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    grade: Mapped[str] = mapped_column(String(24), nullable=False)
+    score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    confidence: Mapped[float] = mapped_column(
+        Float, nullable=False, default=0.0, server_default="0"
+    )
+    uncertainty: Mapped[float] = mapped_column(
+        Float, nullable=False, default=1.0, server_default="1"
+    )
+    reason_codes: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    # Snapshot of the signal confidences that produced the grade.
+    inputs: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    experimental: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=true()
+    )
+    status: Mapped[str] = mapped_column(
+        String(24), nullable=False, default="auto", server_default="auto"
+    )
+    coach_grade: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    coach_comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    overridden_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    overridden_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "clip_id", "concept_id", "assignment_key", name="assignment_scores_unique"
+        ),
+    )

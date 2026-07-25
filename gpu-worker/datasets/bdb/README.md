@@ -26,7 +26,7 @@ counterfactual models, and only that, until Toledo validation proves transfer:
 | [#139](https://github.com/aahmadf123/Football-IQ/issues/139) coverage GNN | formation distribution, nearest-defender separation |
 | [#140](https://github.com/aahmadf123/Football-IQ/issues/140) pre-snap pressure | pre-snap spacing (width / depth / on-LOS), motion flags |
 | [#141](https://github.com/aahmadf123/Football-IQ/issues/141) counterfactual sim | route distribution, per-frame kinematics |
-| [#150](https://github.com/aahmadf123/Football-IQ/issues/150) self-distillation | coverage separation, normalized tracking |
+| [#150](https://github.com/aahmadf123/Football-IQ/issues/150) self-distillation | coverage separation, normalized tracking — **offline movement prior only**; the real cross-regime signal is paired Toledo practice/game clips ([`docs/cross-regime-distillation.md`](../../../docs/cross-regime-distillation.md)) |
 
 ## Hard rules
 

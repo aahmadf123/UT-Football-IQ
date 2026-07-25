@@ -29,6 +29,7 @@ state, ``is_game_anchor``, and ``analytics_safe``.
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 from typing import Any
 
@@ -36,6 +37,7 @@ import numpy as np
 import structlog
 
 from pipeline import backend, r2
+from pipeline.homography import camera_motion_ecc as ecc
 from pipeline.homography import confidence_scorer as cs
 from pipeline.homography import dlt_ransac, kalman_smoother
 from pipeline.homography import yardline_keypoints as yk
@@ -47,6 +49,13 @@ RANSAC_THRESHOLD_PX = 3.0     # Issue #127 §7.1 re-projection threshold
 SAMPLE_INTERVAL_S = 5.0
 N_SAMPLE_FRAMES_FIXED = 6     # fixed camera: pick the single cleanest frame
 N_SAMPLE_FRAMES_DRONE = 12    # drone: sample more for a per-window series
+
+# Chained-ECC drift (Issue #138 §5.1): for DRONE_FOLLOW we additionally pull a
+# *consecutive* window of frames and compose inter-frame ECC warps onto the
+# sparsely-refit anchors. The mean chained-vs-direct drift over this window is
+# the temporal-stability signal (target < 2 px over ~5 s).
+ECC_WINDOW_S = 5.0            # length of the consecutive ECC window (seconds)
+ECC_MAX_FRAMES = 30           # cap frames read for ECC (subsample if needed)
 
 # Routing variants registered for the ``calibrate`` stage (model_router).
 VARIANT_LITE = "calib-hough-dlt"          # same-session: Hough + DLT, no Kalman
@@ -92,8 +101,7 @@ def run(
 
 
 def _uri_to_r2_key(uri: str) -> str:
-    if uri.startswith("r2://"):
-        return "/".join(uri.split("/")[3:])
+    """Pass storage references through — pipeline.storage parses scheme + bucket."""
     return uri
 
 
@@ -117,7 +125,9 @@ def _calibrate(
 
     if regime == FIXED_SIDELINE:
         return _calibrate_fixed_sideline(video_id, job_id, frames, regime)
-    return _calibrate_drone(video_id, job_id, frames, regime, variant)
+    return _calibrate_drone(
+        video_id, job_id, frames, regime, variant, video_path=video_path
+    )
 
 
 # ── FIXED_SIDELINE: one anchor homography for the whole clip ───────────────────
@@ -160,9 +170,19 @@ def _calibrate_fixed_sideline(
 
 
 def _calibrate_drone(
-    video_id: str, job_id: str, frames: list[np.ndarray], regime: str, variant: str
+    video_id: str,
+    job_id: str,
+    frames: list[np.ndarray],
+    regime: str,
+    variant: str,
+    *,
+    video_path: Path | None = None,
 ) -> dict[str, Any]:
-    """Per-window calibration; nightly variant adds Kalman temporal smoothing."""
+    """Per-window calibration; nightly variant adds Kalman temporal smoothing.
+
+    ``video_path`` is optional: when omitted, chained-ECC is treated as
+    unavailable and the temporal-stability signal falls back to ``series_drift``.
+    """
     fits: list[tuple[np.ndarray, yk.KeypointResult, float] | None] = []
     for frame in frames:
         best = _best_frame_fit([frame])
@@ -184,11 +204,20 @@ def _calibrate_drone(
 
     homographies = [f[0] for f in valid]
     confidences = [f[2] for f in valid]
-    # Temporal drift = mean pairwise re-projection gap (px) between
-    # consecutive per-window homographies over the frame corners.
-    # Low drift ⇒ stable.
-    temporal_drift = _series_drift(homographies, frames[0].shape[:2])
+    shape = frames[0].shape[:2]
+    # Temporal drift: prefer the chained-ECC signal over a *consecutive* window
+    # (Issue #138 §5.1) — it tracks pan/zoom drift between sparse anchors. Fall
+    # back to the per-window pairwise re-projection gap when ECC is unavailable
+    # (no OpenCV / too-short clip). Low drift ⇒ stable.
+    series_drift = _series_drift(homographies, shape)
+    if video_path is not None:
+        ecc_drift, ecc_diag = _chained_ecc_drift(video_path, regime, shape)
+    else:
+        # No clip on disk ⇒ ECC unavailable; fall back to the series drift.
+        ecc_drift, ecc_diag = None, {}
+    temporal_drift = ecc_drift if ecc_drift is not None else series_drift
     temporal_stability = cs.temporal_stability_from_drift(temporal_drift)
+    ecc_diag = {"series_drift_px": round(float(series_drift), 4), **ecc_diag}
 
     kalman_state: list[float] | None = None
     chosen_H = homographies[len(homographies) // 2]  # median-index window
@@ -223,6 +252,7 @@ def _calibrate_drone(
         parallel_variance=_variance(best_kp.yardline_angles),
         temporal_drift=temporal_drift, kalman_state=kalman_state,
         is_game_anchor=False, reason_codes=list(best_kp.reason_codes),
+        extra_diagnostics=ecc_diag,
     )
 
 
@@ -295,6 +325,113 @@ def _variance(angles: list[float]) -> float | None:
     return float(np.var([float(a) for a in angles]))
 
 
+# ── Chained-ECC temporal drift (Issue #138 §5.1) ──────────────────────────────
+
+
+def _chained_ecc_drift(
+    video_path: Path, regime: str, shape: tuple[int, int]
+) -> tuple[float | None, dict[str, Any]]:
+    """Mean chained-vs-direct re-projection drift over a consecutive window.
+
+    Pulls a ~5 s consecutive window, composes inter-frame ECC warps onto the
+    sparsely-refit anchors (:func:`camera_motion_ecc.compensate_sequence`), and
+    returns the mean checkpoint drift plus diagnostics. Returns ``(None, …)``
+    when ECC can't run (no OpenCV / too-short window / no anchorable frame), so
+    the caller falls back to the per-window series drift.
+    """
+    window, eff_fps = _sample_window_frames(video_path, ECC_WINDOW_S, ECC_MAX_FRAMES)
+    if len(window) < 3:
+        return None, {}
+
+    grays = [ecc.to_gray(f) for f in window]
+    masks = [ecc.field_background_mask(f) for f in window]
+    h, w = shape
+    corners = np.array([[0, 0], [w, 0], [w, h], [0, h]], dtype=np.float64)
+
+    def warp_at(i: int) -> tuple[np.ndarray, bool]:
+        # ECC template is the previous frame, so mask the previous frame too.
+        return ecc.estimate_warp(grays[i - 1], grays[i], mask=masks[i - 1])
+
+    anchor_cache: dict[int, tuple[np.ndarray, float] | None] = {}
+
+    def anchor_fit(i: int) -> tuple[np.ndarray, float] | None:
+        # compensate_sequence may request the same index repeatedly (seed scan,
+        # checkpoints, re-anchors); cache the keypoint/RANSAC fit per frame.
+        if i in anchor_cache:
+            return anchor_cache[i]
+        best = _best_frame_fit([window[i]])
+        if best is None:
+            anchor_cache[i] = None
+            return None
+        H, _kp, inlier_ratio, _ = best
+        fit = (H, float(inlier_ratio))
+        anchor_cache[i] = fit
+        return fit
+
+    result = ecc.compensate_sequence(
+        n_frames=len(window),
+        regime=regime,
+        fps=eff_fps,
+        anchor_fit=anchor_fit,
+        warp_at=warp_at,
+        sample_pts=corners,
+    )
+    diag: dict[str, Any] = {
+        "ecc_anchored": result.anchored,
+        "ecc_reanchors": result.reanchor_count,
+        "ecc_zoom_breach": result.zoom_breach,
+        "ecc_window_frames": result.n_frames,
+        "ecc_fps": round(float(eff_fps), 3),
+    }
+    if not result.anchored or result.n_checks == 0:
+        return None, diag
+    diag["ecc_mean_drift_px"] = round(result.mean_drift_px, 4)
+    diag["ecc_max_drift_px"] = round(result.max_drift_px, 4)
+    diag["ecc_checks"] = result.n_checks
+    return result.mean_drift_px, diag
+
+
+def _sample_window_frames(
+    video_path: Path, window_s: float, max_frames: int
+) -> tuple[list[np.ndarray], float]:
+    """Read a *consecutive* run of BGR frames over a centered ``window_s`` span.
+
+    Subsamples by a stride so at most ``max_frames`` are returned, and reports
+    the *effective* fps (native / stride) so per-second zoom math stays correct.
+    Returns ``([], fps)`` on any failure (treated as "ECC unavailable").
+    """
+    try:
+        import cv2
+    except Exception:
+        return [], 30.0
+    cap = cv2.VideoCapture(str(video_path))
+    if not cap.isOpened():
+        return [], 30.0
+    try:
+        total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+        fps = float(cap.get(cv2.CAP_PROP_FPS) or 30.0)
+        if total <= 0 or fps <= 0:
+            return [], 30.0
+        window_n = min(int(round(window_s * fps)), total)
+        if window_n <= 1:
+            return [], fps
+        start = max(0, (total - window_n) // 2)
+        stride = max(1, math.ceil(window_n / max_frames))
+        cap.set(cv2.CAP_PROP_POS_FRAMES, float(start))
+        frames: list[np.ndarray] = []
+        for grabbed in range(window_n):
+            ok, frame = cap.read()
+            if not ok or frame is None:
+                break
+            if grabbed % stride == 0:
+                frames.append(frame)
+                if len(frames) >= max_frames:
+                    break
+        return frames, fps / stride
+    finally:
+        cap.release()
+
+
 def _sample_frames(video_path: Path, n: int) -> list[np.ndarray]:
     """Extract up to ``n`` evenly spaced BGR frames; empty list on failure."""
     try:
@@ -338,6 +475,7 @@ def _persist_and_return(
     kalman_state: list[float] | None,
     is_game_anchor: bool,
     reason_codes: list[str],
+    extra_diagnostics: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Write the calibration record and return the stage output artifacts."""
     confidence = breakdown.confidence if breakdown is not None else 0.0
@@ -360,6 +498,8 @@ def _persist_and_return(
         "capture_regime": regime,
         "confidence_components": components,
     }
+    if extra_diagnostics:
+        calibration_points["motion_compensation"] = extra_diagnostics
 
     try:
         backend.create_calibration(

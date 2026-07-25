@@ -191,15 +191,12 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_index(
-        "embedding_cluster_proposals_status_idx",
-        table_name="embedding_cluster_proposals",
-    )
-    op.drop_table("embedding_cluster_proposals")
+    op.execute("DROP INDEX IF EXISTS embedding_cluster_proposals_status_idx")
+    op.execute("DROP TABLE IF EXISTS embedding_cluster_proposals")
     op.execute("DROP INDEX IF EXISTS playembeddings_vector_ivfflat")
-    op.drop_index("playembeddings_model_version_id_idx", table_name="playembeddings")
-    op.drop_index("playembeddings_clip_id_idx", table_name="playembeddings")
-    op.drop_table("playembeddings")
+    op.execute("DROP INDEX IF EXISTS playembeddings_model_version_id_idx")
+    op.execute("DROP INDEX IF EXISTS playembeddings_clip_id_idx")
+    op.execute("DROP TABLE IF EXISTS playembeddings")
     # NOTE: we intentionally do not remove ``embeddings`` from the job_type
     # enum. Postgres ALTER TYPE ... DROP VALUE has no first-class support
     # and the value is safe to leave behind even if no rows reference it.

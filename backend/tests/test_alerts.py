@@ -280,6 +280,93 @@ def test_get_alert_not_found() -> None:
     assert resp.status_code == 404
 
 
+# ── Restricted workload-risk alerts (Issue #149 / #9) ────────────────────────
+
+
+@pytest.mark.parametrize("role", [UserRole.coach, UserRole.analyst])
+def test_list_alerts_explicit_workload_risk_filter_blocked(role: UserRole) -> None:
+    from app.database import get_db
+    from app.deps import get_current_user
+    from app.position_filter import position_group_filter
+
+    user = _make_user(role, "OL" if role is UserRole.coach else None)
+    app.dependency_overrides[get_current_user] = lambda: user
+    app.dependency_overrides[get_db] = _mock_db(all_result=[])
+    app.dependency_overrides[position_group_filter] = lambda: None
+
+    with TestClient(app) as c:
+        resp = c.get("/api/v1/alerts", params={"alert_type": "workload_risk"})
+    app.dependency_overrides.clear()
+    assert resp.status_code == 403
+
+
+def test_list_alerts_workload_risk_filter_allowed_for_sportsperformance() -> None:
+    from app.database import get_db
+    from app.deps import get_current_user
+    from app.position_filter import position_group_filter
+
+    sp = _make_user(UserRole.sportsperformance, "OL")
+    wr_alert = _make_alert(position_group="OL", alert_type=AlertType.workload_risk)
+    wr_alert.metric_name = "workload_fusion"
+    app.dependency_overrides[get_current_user] = lambda: sp
+    app.dependency_overrides[get_db] = _mock_db(all_result=[wr_alert])
+    app.dependency_overrides[position_group_filter] = lambda: None
+
+    with TestClient(app) as c:
+        resp = c.get("/api/v1/alerts", params={"alert_type": "workload_risk"})
+    app.dependency_overrides.clear()
+    assert resp.status_code == 200
+    assert resp.json()[0]["alert_type"] == "workload_risk"
+
+
+@pytest.mark.parametrize("role", [UserRole.coach, UserRole.analyst])
+def test_get_workload_risk_alert_hidden_as_404(role: UserRole) -> None:
+    from app.database import get_db
+    from app.deps import get_current_user
+
+    user = _make_user(role, "OL" if role is UserRole.coach else None)
+    wr_alert = _make_alert(position_group="OL", alert_type=AlertType.workload_risk)
+    app.dependency_overrides[get_current_user] = lambda: user
+    app.dependency_overrides[get_db] = _mock_db(scalar_result=wr_alert)
+
+    with TestClient(app) as c:
+        resp = c.get(f"/api/v1/alerts/{wr_alert.id}")
+    app.dependency_overrides.clear()
+    # 404, not 403 — the alert's existence must not leak to excluded roles.
+    assert resp.status_code == 404
+
+
+def test_get_workload_risk_alert_visible_to_sportsperformance() -> None:
+    from app.database import get_db
+    from app.deps import get_current_user
+
+    sp = _make_user(UserRole.sportsperformance, "OL")
+    wr_alert = _make_alert(position_group="OL", alert_type=AlertType.workload_risk)
+    app.dependency_overrides[get_current_user] = lambda: sp
+    app.dependency_overrides[get_db] = _mock_db(scalar_result=wr_alert)
+
+    with TestClient(app) as c:
+        resp = c.get(f"/api/v1/alerts/{wr_alert.id}")
+    app.dependency_overrides.clear()
+    assert resp.status_code == 200
+    assert resp.json()["alert_type"] == "workload_risk"
+
+
+def test_ack_workload_risk_alert_hidden_from_coach() -> None:
+    from app.database import get_db
+    from app.deps import get_current_user
+
+    coach = _make_user(UserRole.coach, "OL")
+    wr_alert = _make_alert(position_group="OL", alert_type=AlertType.workload_risk)
+    app.dependency_overrides[get_current_user] = lambda: coach
+    app.dependency_overrides[get_db] = _mock_db(scalar_result=wr_alert)
+
+    with TestClient(app) as c:
+        resp = c.patch(f"/api/v1/alerts/{wr_alert.id}/ack")
+    app.dependency_overrides.clear()
+    assert resp.status_code == 404
+
+
 def test_acknowledge_alert_coach_allowed() -> None:
     from app.database import get_db
     from app.deps import get_current_user

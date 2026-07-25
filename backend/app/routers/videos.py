@@ -14,17 +14,67 @@ from app.database import get_db
 from app.deps import get_current_user, require_any_staff
 from app.models import (
     CaptureRegime,
+    JobStatus,
+    JobType,
+    PipelineMode,
     ProcessingJob,
     SessionKind,
     SideOfBall,
     SourceType,
+    SystemSetting,
     User,
     Video,
     VideoStatus,
 )
+from app.schemas.settings import SYSTEM_CONFIG_KEY, SystemConfig
+from app.workload import WorkloadStatus, assess_workload
 
 log = structlog.get_logger(__name__)
 router = APIRouter(prefix="/api/v1/videos", tags=["videos"])
+
+
+async def _auto_process_enabled(db: AsyncSession) -> bool:
+    """Read the set-and-forget toggle (defaults ON when no row exists)."""
+    row = (
+        await db.execute(select(SystemSetting).where(SystemSetting.key == SYSTEM_CONFIG_KEY))
+    ).scalar_one_or_none()
+    try:
+        config = SystemConfig(**(row.value if row else {}))
+    except Exception:
+        config = SystemConfig()
+    return config.auto_process_on_upload
+
+
+async def _maybe_auto_enqueue_pipeline(db: AsyncSession, video: Video) -> ProcessingJob | None:
+    """Create the video's pipeline job when auto-process is on.
+
+    Best-effort: saturation or any failure leaves the video ``uploaded`` (the
+    coach can still press Process Film) rather than failing the registration.
+    """
+    if not await _auto_process_enabled(db):
+        return None
+    snapshot = await assess_workload(db)
+    if snapshot.status == WorkloadStatus.saturated:
+        log.warning(
+            "auto_process_deferred_saturated",
+            video_id=str(video.id),
+            queued=snapshot.queued,
+            running=snapshot.running,
+        )
+        return None
+    job = ProcessingJob(
+        id=uuid.uuid4(),
+        video_id=video.id,
+        job_type=JobType.pipeline,
+        status=JobStatus.queued,
+        priority=0,
+        pipeline_mode=PipelineMode.nightly,
+        input_artifacts={"auto_enqueued": True},
+    )
+    db.add(job)
+    await db.flush()
+    log.info("auto_process_enqueued", video_id=str(video.id), job_id=str(job.id))
+    return job
 
 
 # ── Schemas ───────────────────────────────────────────────────────────────────
@@ -193,6 +243,10 @@ async def create_video(
         session_kind=str(video.session_kind) if video.session_kind else None,
         source_type=str(video.source_type) if video.source_type else None,
     )
+    try:
+        await _maybe_auto_enqueue_pipeline(db, video)
+    except Exception as exc:
+        log.warning("auto_process_enqueue_failed", video_id=str(video.id), error=str(exc))
     return VideoResponse.from_orm_video(video)
 
 

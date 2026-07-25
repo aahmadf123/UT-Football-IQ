@@ -26,13 +26,15 @@ beforeEach(() => {
   vi.stubEnv("NEXT_PUBLIC_USE_MOCKS", "");
 });
 
+// /library is now a thin redirect into Film Room → Browse Film (ADR 0003);
+// the behavior under test lives in the shared LibraryView the hub renders.
 async function importPage() {
   vi.resetModules();
-  const [{ default: LibraryPage }, { AppStateProvider }] = await Promise.all([
-    import("./page"),
+  const [{ LibraryView }, { AppStateProvider }] = await Promise.all([
+    import("./library-view"),
     import("@/lib/app-state"),
   ]);
-  return { LibraryPage, AppStateProvider };
+  return { LibraryPage: LibraryView, AppStateProvider };
 }
 
 describe("LibraryPage", () => {

@@ -27,7 +27,6 @@ from pipeline.homography.confidence_scorer import (
 )
 from pipeline.homography.field_template import default_template
 
-
 # ── Field template ────────────────────────────────────────────────────────────
 
 
@@ -151,7 +150,7 @@ def test_detect_keypoints_five_frames_yield_homography():
     from pipeline.homography.dlt_ransac import ransac_homography
 
     successes = 0
-    for jitter in range(5):
+    for _ in range(5):
         frame = _synthetic_field_frame()
         result = yk.detect_keypoints(frame)
         if not result.has_enough():

@@ -1,7 +1,7 @@
 services:
   # ── Postgres ─────────────────────────────────────────────────────────────
   db:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg16
     restart: unless-stopped
     environment:
       POSTGRES_USER: footiq
@@ -27,16 +27,27 @@ services:
       db:
         condition: service_healthy
     environment:
+      # ⚠ LOCAL DEVELOPMENT ONLY. This compose publishes a fixed SECRET_KEY
+      # and enables credential-less admin dev-login — anyone who can reach
+      # the port owns the instance. Any real deployment must set
+      # ENVIRONMENT=production, a per-deploy SECRET_KEY, and no DEV_AUTOLOGIN.
       ENVIRONMENT: development
       SECRET_KEY: dev-secret-key-not-for-production
       DATABASE_URL: postgresql+asyncpg://footiq:footiq_dev@db:5432/footiq
       DATABASE_SYNC_URL: postgresql://footiq:footiq_dev@db:5432/footiq
       LOG_LEVEL: DEBUG
       CORS_ORIGINS: "http://localhost:3000"
+      # Local no-cloud mode: objects live on the shared volume; signed
+      # download URLs point back at this API (PUBLIC_API_BASE_URL).
+      STORAGE_BACKEND: local
+      LOCAL_STORAGE_ROOT: /data/storage
+      PUBLIC_API_BASE_URL: http://localhost:8000
+      DEV_AUTOLOGIN: "1"
     ports:
       - "8000:8000"
     volumes:
       - ./backend:/app
+      - storage_data:/data/storage
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
   # ── Alembic migrations (run once then exit) ───────────────────────────────
@@ -55,19 +66,108 @@ services:
     profiles:
       - migrate
 
+  # ── Seed users (admin + GPU-worker service account; idempotent) ───────────
+  seed:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+asyncpg://footiq:footiq_dev@db:5432/footiq
+      SECRET_KEY: dev-secret-key-not-for-production
+      SEED_ADMIN_EMAIL: ${SEED_ADMIN_EMAIL:-admin@example.com}
+      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-change-me-admin}
+      SEED_WORKER_EMAIL: ${SEED_WORKER_EMAIL:-worker@example.com}
+      SEED_WORKER_PASSWORD: ${SEED_WORKER_PASSWORD:-change-me-worker}
+    command: python -m scripts.seed_users
+    profiles:
+      - migrate
+      - pipeline
+
+  # ── GPU worker (DB-as-queue; CPU-capable, GPU optional) ───────────────────
+  gpu-worker:
+    build:
+      context: ./gpu-worker
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_started
+    environment:
+      QUEUE_BACKEND: db
+      BACKEND_API_URL: http://backend:8000
+      WORKER_EMAIL: ${SEED_WORKER_EMAIL:-worker@example.com}
+      WORKER_PASSWORD: ${SEED_WORKER_PASSWORD:-change-me-worker}
+      STORAGE_BACKEND: local
+      LOCAL_STORAGE_ROOT: /data/storage
+      GPU_WORKER_POLL_INTERVAL: "5"
+      # PIPELINE_STUB=1 swaps real models for deterministic stubs (fast
+      # wiring checks); default runs true YOLO on CPU.
+      PIPELINE_STUB: ${PIPELINE_STUB:-0}
+    volumes:
+      - ./gpu-worker:/app
+      - storage_data:/data/storage
+    profiles:
+      - pipeline
+
   # ── Frontend ──────────────────────────────────────────────────────────────
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      # The frontend is a static export: NEXT_PUBLIC_* must be baked in at
+      # image build time. Runtime `environment:` cannot affect the bundle.
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+        # Empty → the app routes upload/download through the backend's
+        # Worker-parity endpoints (no Cloudflare needed locally). Deliberately
+        # NOT read from .env: its example value points at a wrangler dev
+        # Worker (localhost:8787) that compose does not run.
+        NEXT_PUBLIC_WORKER_URL: ""
     restart: unless-stopped
-    environment:
-      NEXT_PUBLIC_API_URL: http://localhost:8000
-      NEXT_PUBLIC_WORKER_URL: http://localhost:8787
     ports:
       - "3000:3000"
     depends_on:
       - backend
 
+  # ── Cloud-sim (verify the r2 storage driver without a Cloudflare account) ─
+  # MinIO speaks the same S3 API surface boto3 uses against R2, so running
+  # `docker compose --profile cloud-sim up` plus STORAGE_BACKEND=r2 +
+  # R2_ENDPOINT_URL=http://minio:9000 on backend/gpu-worker exercises the
+  # exact cloud code path. Pair with `wrangler dev` in workers/ for the edge
+  # upload contract.
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${R2_ACCESS_KEY_ID:-minio-local}
+      MINIO_ROOT_PASSWORD: ${R2_SECRET_ACCESS_KEY:-minio-local-secret}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    profiles:
+      - cloud-sim
+
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 $${MINIO_ROOT_USER:-minio-local} $${MINIO_ROOT_PASSWORD:-minio-local-secret} &&
+      mc mb -p local/raw-video local/clips local/overlays local/artifacts || true
+      "
+    environment:
+      MINIO_ROOT_USER: ${R2_ACCESS_KEY_ID:-minio-local}
+      MINIO_ROOT_PASSWORD: ${R2_SECRET_ACCESS_KEY:-minio-local-secret}
+    profiles:
+      - cloud-sim
+
 volumes:
   postgres_data:
+  storage_data:
+  minio_data:

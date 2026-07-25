@@ -16,6 +16,7 @@ single implementation rather than a fork. New cross-cutting helpers
 
 from __future__ import annotations
 
+from pipeline.calibration.active_learning import ClipUncertainty, clip_uncertainty
 from pipeline.calibration.calibrated_output import (
     CalibratedOutput,
     TemperatureScaler,
@@ -36,7 +37,9 @@ from pipeline.play_prediction.calibration import (
 
 __all__ = [
     "CalibratedOutput",
+    "ClipUncertainty",
     "TemperatureScaler",
+    "clip_uncertainty",
     "multiclass_ece",
     "IsotonicCalibrator",
     "PlattScaler",

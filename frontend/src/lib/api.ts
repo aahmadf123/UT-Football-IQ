@@ -8,12 +8,14 @@
 
 import type {
   ApiClip,
+  ApiJob,
   ApiPlayer,
   ApiPracticeSessionGroup,
   ApiVideo,
   CfbdMacBenchmarkResponse,
   CfbdScheduleResponse,
   CfbdTeamResponse,
+  ConceptSearchResponse,
   ClipOverlayPayload,
   OpponentSummary,
   ReportCreateRequest,
@@ -28,16 +30,9 @@ import type {
   OurPossession,
   WorkloadGatedDetail,
 } from "./types";
+import { apiBase } from "./endpoints";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
-
-function workerBase(): string {
-  return process.env.NEXT_PUBLIC_WORKER_URL ?? "";
-}
-
-function apiBase(): string {
-  return process.env.NEXT_PUBLIC_API_URL ?? "";
-}
 
 function authHeaders(token?: string): Record<string, string> {
   const h: Record<string, string> = { "Content-Type": "application/json" };
@@ -65,12 +60,11 @@ export interface UploadUrlResponse {
   key: string;
 }
 
-export async function requestUploadUrl(
+async function _requestUploadUrlFrom(
+  base: string,
   filename: string,
   token?: string,
 ): Promise<UploadUrlResponse> {
-  const base = workerBase();
-  if (!base) throw new Error("NEXT_PUBLIC_WORKER_URL is not configured");
   const res = await fetch(`${base}/api/v1/videos/upload-url`, {
     method: "POST",
     headers: authHeaders(token),
@@ -81,6 +75,37 @@ export async function requestUploadUrl(
     throw new Error(`Failed to get upload URL (${res.status}): ${body}`);
   }
   return res.json() as Promise<UploadUrlResponse>;
+}
+
+export async function requestUploadUrl(
+  filename: string,
+  token?: string,
+): Promise<UploadUrlResponse> {
+  const workerUrl = process.env.NEXT_PUBLIC_WORKER_URL;
+  const apiUrl = apiBase();
+
+  // Try the Worker first when one is explicitly configured (this is the
+  // E2E/prod path). If the Worker rejects the token (JWT secret mismatch) or
+  // is unreachable, fall back to the backend, which exposes the same contract.
+  if (workerUrl) {
+    try {
+      return await _requestUploadUrlFrom(workerUrl, filename, token);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (!apiUrl || (!message.includes("401") && !message.includes("403"))) {
+        throw err;
+      }
+      // Fall through to backend on auth failure.
+    }
+  }
+
+  if (!apiUrl) {
+    throw new Error(
+      "No upload endpoint configured: set NEXT_PUBLIC_WORKER_URL (edge Worker) " +
+        "or NEXT_PUBLIC_API_URL (backend fallback).",
+    );
+  }
+  return _requestUploadUrlFrom(apiUrl, filename, token);
 }
 
 // ── R2 Upload ────────────────────────────────────────────────────────────────
@@ -194,6 +219,9 @@ export interface VideoInboxItem {
   succeeded_jobs: number;
   failed_jobs: number;
   clip_count: number;
+  // Clips still on the same-session first pass, awaiting nightly upgrade
+  // (Issue #147). Optional so older backends/mocks stay valid.
+  preliminary_clip_count?: number;
   calibration_safe_pct: number | null;
   latest_error_stage: string | null;
   latest_error_message: string | null;
@@ -280,6 +308,24 @@ export async function fetchVideo(videoId: string, token?: string): Promise<ApiVi
   const base = apiBase();
   if (!base) throw new Error("NEXT_PUBLIC_API_URL is not configured");
   return getJSON<ApiVideo>(`${base}/api/v1/videos/${videoId}`, token);
+}
+
+export interface JobFilters {
+  status?: string;
+  job_type?: string;
+  video_id?: string;
+  limit?: number;
+}
+
+export async function fetchJobs(filters: JobFilters = {}, token?: string): Promise<ApiJob[]> {
+  const base = apiBase();
+  if (!base) throw new Error("NEXT_PUBLIC_API_URL is not configured");
+  const params = new URLSearchParams();
+  for (const [k, v] of Object.entries(filters)) {
+    if (v !== undefined && v !== null && v !== "") params.set(k, String(v));
+  }
+  const qs = params.toString();
+  return getJSON<ApiJob[]>(`${base}/api/v1/jobs${qs ? `?${qs}` : ""}`, token);
 }
 
 export async function fetchClipsForVideo(
@@ -386,6 +432,142 @@ export async function fetchPlayer(playerId: string, token?: string): Promise<Api
   return getJSON<ApiPlayer>(`${base}/api/v1/players/${playerId}`, token);
 }
 
+// ── Metrics + coach corrections ──────────────────────────────────────────────
+
+export interface ApiMetric {
+  id: string;
+  clip_id: string;
+  tracklet_id: string | null;
+  metric_name: string;
+  metric_value: Record<string, unknown>;
+  unit: string | null;
+  is_suppressed: boolean;
+  suppression_reason: string | null;
+  experimental_flag: boolean;
+  analytics_safe: boolean;
+  confidence: number | null;
+  effort_zscore: number | null;
+  loaf_flag: boolean | null;
+  evidence_uri: string | null;
+  model_version_id: string | null;
+  calibration_version_id: string | null;
+  job_id: string | null;
+  created_at: string;
+}
+
+export interface MetricFilters {
+  clip_id?: string;
+  tracklet_id?: string;
+  metric_name?: string;
+  experimental?: boolean;
+  analytics_safe?: boolean;
+  player_id?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export async function fetchMetrics(
+  filters: MetricFilters = {},
+  token?: string,
+): Promise<ApiMetric[]> {
+  const base = apiBase();
+  if (!base) throw new Error("NEXT_PUBLIC_API_URL is not configured");
+  const params = new URLSearchParams();
+  for (const [k, v] of Object.entries(filters)) {
+    if (v !== undefined && v !== null && v !== "") params.set(k, String(v));
+  }
+  const qs = params.toString();
+  return getJSON<ApiMetric[]>(
+    `${base}/api/v1/metrics${qs ? `?${qs}` : ""}`,
+    token,
+  );
+}
+
+// ── Workload risk (Issue #149) ───────────────────────────────────────────────
+
+export interface InjuryRiskFilters {
+  date?: string;
+  days?: number;
+  position_group?: string;
+}
+
+export async function fetchInjuryRisk(
+  filters: InjuryRiskFilters = {},
+  token?: string,
+): Promise<import("./health-workload").InjuryRiskResponse> {
+  const base = apiBase();
+  if (!base) throw new Error("NEXT_PUBLIC_API_URL is not configured");
+  const params = new URLSearchParams();
+  for (const [k, v] of Object.entries(filters)) {
+    if (v !== undefined && v !== null && v !== "") params.set(k, String(v));
+  }
+  const qs = params.toString();
+  return getJSON(`${base}/api/v1/health-workload/injury-risk${qs ? `?${qs}` : ""}`, token);
+}
+
+export async function fetchHealthDashboard(
+  filters: InjuryRiskFilters = {},
+  token?: string,
+): Promise<import("./health-workload").HealthDashboardResponse> {
+  const base = apiBase();
+  if (!base) throw new Error("NEXT_PUBLIC_API_URL is not configured");
+  const params = new URLSearchParams();
+  for (const [k, v] of Object.entries(filters)) {
+    if (v !== undefined && v !== null && v !== "") params.set(k, String(v));
+  }
+  const qs = params.toString();
+  return getJSON(`${base}/api/v1/health-workload/dashboard${qs ? `?${qs}` : ""}`, token);
+}
+
+export type CorrectionType =
+  | "clip_boundary"
+  | "player_identity"
+  | "event_tag"
+  | "formation_tag"
+  | "route_tag"
+  | "coverage_tag"
+  | "personnel_tag"
+  | "leverage_tag"
+  | "effort_tag"
+  | "pose_biomechanics_tag";
+
+export interface CorrectionCreate {
+  clip_id: string;
+  correction_type: CorrectionType;
+  original_value?: Record<string, unknown> | null;
+  corrected_value: Record<string, unknown>;
+  notes?: string | null;
+  training_eligible?: boolean;
+}
+
+export interface CorrectionResponse extends CorrectionCreate {
+  id: string;
+  corrected_by: string;
+  exported_as_label: boolean;
+  created_at: string;
+  original_value: Record<string, unknown> | null;
+  notes: string | null;
+  training_eligible: boolean;
+}
+
+export async function createCorrection(
+  body: CorrectionCreate,
+  token?: string,
+): Promise<CorrectionResponse> {
+  const base = apiBase();
+  if (!base) throw new Error("NEXT_PUBLIC_API_URL is not configured");
+  const res = await fetch(`${base}/api/v1/corrections`, {
+    method: "POST",
+    headers: authHeaders(token),
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const errorBody = await res.text();
+    throw new Error(`Correction request failed (${res.status}): ${errorBody}`);
+  }
+  return res.json() as Promise<CorrectionResponse>;
+}
+
 // ── Jobs ─────────────────────────────────────────────────────────────────────
 
 export async function retryJob(jobId: string, token?: string): Promise<unknown> {
@@ -426,7 +608,8 @@ export class WorkloadGatedError extends Error {
 }
 
 /**
- * Request processing for an uploaded video by creating an ``ingest`` job
+ * Request processing for an uploaded video by creating a ``pipeline`` job
+ * (the full orchestrated chain: ingest → detect → track → … → render)
  * through the **backend** job API (``POST /api/v1/jobs``). This is the
  * sanctioned, workload-gated entry point — it does not bypass the backend job
  * API or the Worker/R2 flow, and it never calls an external API. Defaults to
@@ -447,7 +630,7 @@ export async function requestVideoProcessing(
     headers: authHeaders(token),
     body: JSON.stringify({
       video_id: videoId,
-      job_type: "ingest",
+      job_type: "pipeline",
       priority,
       pipeline_mode: mode,
     }),
@@ -677,6 +860,38 @@ export async function fetchFrontierMetrics(
   );
 }
 
+// ── Zero-shot concept search (Issue #144) ────────────────────────────────────
+
+export interface ConceptSearchFilters {
+  k?: number;
+  include_experimental?: boolean;
+  opponent?: string;
+  side_of_ball?: string;
+}
+
+/**
+ * Zero-shot concept search: resolve a free-text football concept query
+ * ("mesh", "cover 3 trips") against the structured labels the backend already
+ * trusts, optionally expanded with EXPERIMENTAL play-embedding similarity.
+ * Results are always approximate — the caller must label them as such.
+ */
+export async function searchConcepts(
+  query: string,
+  filters: ConceptSearchFilters = {},
+  token?: string,
+): Promise<ConceptSearchResponse> {
+  const base = apiBase();
+  if (!base) throw new Error("NEXT_PUBLIC_API_URL is not configured");
+  const params = new URLSearchParams({ q: query });
+  for (const [k, v] of Object.entries(filters)) {
+    if (v !== undefined && v !== null && v !== "") params.set(k, String(v));
+  }
+  return getJSON<ConceptSearchResponse>(
+    `${base}/api/v1/concept-search?${params.toString()}`,
+    token,
+  );
+}
+
 export type AlertStreamEvent =
   | { type: "alert"; alert: ApiAlert }
   | { type: "connected"; connection_id?: string }
@@ -774,25 +989,16 @@ export function subscribeAlerts(
 // ── Worker download URL ──────────────────────────────────────────────────────
 
 /**
- * Parse a storage URI of the form `r2://<bucket>/<key>` into its parts.
- * Returns null if the URI is missing or malformed.
+ * Parse a storage URI of the form `r2://<bucket>/<key>` or
+ * `local://<bucket>/<key>` into its parts. Returns null if the URI is missing
+ * or malformed.
  */
 export function parseStorageUri(
   uri: string | null | undefined,
 ): { bucket: string; key: string } | null {
   if (!uri) return null;
-  const m = /^r2:\/\/([^/]+)\/(.+)$/.exec(uri);
+  const m = /^(?:r2|local):\/\/([^/]+)\/(.+)$/.exec(uri);
   return m ? { bucket: m[1], key: m[2] } : null;
-}
-
-/**
- * Extract the R2 key suffix from a backend `storage_uri` of the form
- * `r2://raw-video/raw/<suffix>`. Kept for backward compatibility.
- */
-export function r2KeySuffixFromStorageUri(uri: string | null | undefined): string | null {
-  if (!uri) return null;
-  const m = /^r2:\/\/raw-video\/raw\/(.+)$/.exec(uri);
-  return m ? m[1] : null;
 }
 
 // ── Settings (Issue #112) ────────────────────────────────────────────────────
@@ -896,6 +1102,22 @@ export async function getReportDownloadUrl(
   );
 }
 
+async function _fetchVideoDownloadUrlFrom(
+  base: string,
+  bucket: string,
+  key: string,
+  token?: string,
+): Promise<string | null> {
+  const params = new URLSearchParams({ bucket, key });
+  const res = await fetch(
+    `${base}/api/v1/videos/download-url?${params.toString()}`,
+    { headers: getHeaders(token) },
+  );
+  if (!res.ok) return null;
+  const body = (await res.json()) as { downloadUrl?: string };
+  return body.downloadUrl ?? null;
+}
+
 /**
  * Fetch a signed download/streaming URL for an R2-backed video object.
  * The returned URL can be used directly as a `<video src>`.
@@ -905,17 +1127,24 @@ export async function fetchVideoDownloadUrl(
   key: string,
   token?: string,
 ): Promise<string | null> {
-  const base = workerBase();
-  if (!base) return null;
+  const workerUrl = process.env.NEXT_PUBLIC_WORKER_URL;
+  const apiUrl = apiBase();
+
+  // Try the Worker first when one is explicitly configured. If the Worker
+  // rejects the token (wrong JWT secret) or is unreachable, fall back to the
+  // backend's identical endpoint.
+  if (workerUrl) {
+    try {
+      const url = await _fetchVideoDownloadUrlFrom(workerUrl, bucket, key, token);
+      if (url) return url;
+    } catch {
+      // Fall through to API.
+    }
+  }
+
+  if (!apiUrl) return null;
   try {
-    const params = new URLSearchParams({ bucket, key });
-    const res = await fetch(
-      `${base}/api/v1/videos/download-url?${params.toString()}`,
-      { headers: getHeaders(token) },
-    );
-    if (!res.ok) return null;
-    const body = (await res.json()) as { downloadUrl?: string };
-    return body.downloadUrl ?? null;
+    return await _fetchVideoDownloadUrlFrom(apiUrl, bucket, key, token);
   } catch {
     return null;
   }

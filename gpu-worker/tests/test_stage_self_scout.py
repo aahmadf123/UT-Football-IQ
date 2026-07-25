@@ -14,23 +14,20 @@ Tests cover:
   - Evidence clip IDs
 """
 
-import sys
 import os
-
-import pytest
+import sys
 
 # Add gpu-worker to sys.path so pipeline imports work
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from pipeline.stage_self_scout import (  # noqa: E402
-    run,
-    _get_play_type,
-    _get_formation,
-    _get_motion_detected,
     _get_concept_family,
     _get_distance_bucket,
+    _get_formation,
+    _get_motion_detected,
+    _get_play_type,
+    run,
 )
-
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 

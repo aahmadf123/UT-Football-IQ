@@ -220,6 +220,21 @@ window in well under a second on the same hardware as `stage_pose`.
 This stays inside the issue #76 ceilings without contention with
 detect/track/pose stages because `stage_embed` runs nightly.
 
+**Retaining the raw 512-d CLIP image embedding (Issue #195).** The 192-d
+projection above is fused into the play vector, but the *unprojected* 512-d
+CLIP image embedding — which **is** in CLIP's shared text-image space — is also
+persisted, to `playembeddings.clip_vector(512)` (nullable; cosine `ivfflat`
+index). A CLIP-aware visual encoder surfaces both in a single forward pass via
+`stage_embed.VisualEncoding(projected, clip_image)`; the default
+`ZeroVisualEncoder` produces no CLIP embedding, so its rows keep
+`clip_vector = NULL` and are simply invisible to text search. This is what lets
+`POST /api/v1/search/text` cosine-compare a CLIP text-tower query against the
+image embedding (the fused `vector` cannot serve that — its visual half is the
+random-init projection in §7.1). Backfill is the existing incremental nightly
+re-embed: a re-run upserts `clip_vector` for clips embedded before a real CLIP
+encoder was mounted. **No second vector store** is introduced — `clip_vector`
+is another column on the existing `playembeddings` table.
+
 ### 7.2 Structured sub-embedding (variable → fixed 64-d)
 
 A hand-designed feature vector derived directly from existing tables.
@@ -268,10 +283,21 @@ encoder.
   positive pairs from coach corrections (same logic as the torchreid
   recommendation in `docs/reid-research-note.md`). Defer to a follow-up
   issue.
-- **Natural-language text encoder for `/search/text`:** v1 ships the
-  endpoint behind an experimental flag using CLIP's text tower for
-  rough query-by-text. Outputs are flagged `experimental = true` and
-  do not promote to labels.
+- **Natural-language text encoder for `/search/text`:** the endpoint ships
+  behind `ENABLE_EMBEDDING_TEXT_SEARCH` and is now wired (Issue #195) — it
+  cosine-matches a CLIP text-tower query against the raw `clip_vector(512)`
+  (§7.1). The backend gets the query vector either from a deployment-injected
+  CLIP text tower or, with **no CLIP weights in the container**, from the
+  precomputed concept catalog (`app.concept_catalog`): the query is grounded to
+  American-football concepts lexically, then their committed CLIP text vectors
+  are averaged. Outputs are always `experimental = true` / `approximate = true`
+  and do not promote to labels. The *zero-shot-first* concept search that ships
+  for coaches today (Issue #144) does **not** require this path — it grounds on
+  structured labels and expands via the image-derived fused embeddings; see
+  [`docs/concept-search.md`](concept-search.md).
+- **Contrastive fine-tuning of a Football-CLIP on Toledo pairs** remains a
+  separate, later optional step gated on corrected-data volume (Issue #195
+  non-goal).
 
 ---
 
@@ -293,6 +319,10 @@ CREATE TABLE playembeddings (
     visual_vector       vector(192),
     structured_vector   vector(64),
 
+    -- Raw CLIP image embedding in CLIP shared text-image space (Issue #195).
+    -- Nullable: only a real CLIP visual encoder fills it. Powers /search/text.
+    clip_vector         vector(512),
+
     -- Lineage
     model_version_id    UUID NOT NULL REFERENCES model_versions(id),
     calibration_version_id UUID REFERENCES field_calibrations(id),
@@ -309,6 +339,10 @@ CREATE TABLE playembeddings (
 
 CREATE INDEX playembeddings_vector_ivfflat
     ON playembeddings USING ivfflat (vector vector_cosine_ops) WITH (lists = 100);
+
+-- Cosine ivfflat over the raw CLIP image embedding for /search/text (Issue #195).
+CREATE INDEX playembeddings_clip_vector_ivfflat
+    ON playembeddings USING ivfflat (clip_vector vector_cosine_ops) WITH (lists = 100);
 
 CREATE INDEX playembeddings_clip_id ON playembeddings (clip_id);
 CREATE INDEX playembeddings_model_version_id ON playembeddings (model_version_id);
@@ -403,10 +437,15 @@ explicit in the response so the front-end can warn if it changes
 under a coach mid-session.
 
 `POST /search/text` follows the same shape but the request supplies
-`{ "query": "outside zone with poor backside pursuit" }`. The router
-encodes the query with the CLIP text tower, then runs the same
-vector search. Results are returned with `experimental: true` flag in
-the response envelope, and the front-end labels them accordingly.
+`{ "query": "trips right cover 3" }`. The router resolves the query into a
+CLIP text-space vector (injected CLIP text tower, else the precomputed concept
+catalog grounded via the American-football lexicon — Issue #195), then runs the
+same cosine search **against `clip_vector(512)`** (not the fused 256-d
+`vector`). Rows whose `clip_vector` is NULL are skipped. Results carry
+`experimental: true` *and* `approximate: true` in the envelope (plus the
+grounded `matched_concept_ids`), and the front-end labels them accordingly. The
+surface is gated behind `ENABLE_EMBEDDING_TEXT_SEARCH` (503 when off) and never
+falls back to similar-by-clip.
 
 ---
 

@@ -24,9 +24,12 @@ export type R2BucketName = "raw-video" | "clips" | "overlays" | "artifacts";
 const DOWNLOADABLE_BUCKETS: ReadonlySet<string> = new Set<string>([
   "raw-video",
   "clips",
+  "overlays",
 ]);
 
-export function isDownloadableBucket(name: string): name is "raw-video" | "clips" {
+export function isDownloadableBucket(
+  name: string,
+): name is "raw-video" | "clips" | "overlays" {
   return DOWNLOADABLE_BUCKETS.has(name);
 }
 
@@ -178,7 +181,7 @@ export async function verifySignedUrl(
  */
 export async function getObject(
   env: Env,
-  bucketName: "raw-video" | "clips",
+  bucketName: "raw-video" | "clips" | "overlays",
   key: string,
   rangeHeader?: string | null,
 ): Promise<R2ObjectBody | null> {

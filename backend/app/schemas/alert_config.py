@@ -80,6 +80,36 @@ class FormationAnomalyThresholds(BaseModel):
     )
 
 
+class WorkloadThresholds(BaseModel):
+    """Workload-risk alert thresholds (Issue #149).
+
+    Alerts fire from the nightly workload rollup when the acute:chronic
+    workload ratio or the gait asymmetry index exceeds these values.  The
+    resulting alerts are sports-performance-staff only — never shown to
+    coaches, players, or viewers — and are experimental sports-performance
+    indicators, not a diagnosis.
+    """
+
+    acwr_high: float = Field(
+        default=1.5,
+        ge=1.0,
+        le=3.0,
+        description="Acute:chronic workload ratio above which an alert fires",
+    )
+    asymmetry_high: float = Field(
+        default=1.3,
+        ge=1.0,
+        le=2.0,
+        description="Gait asymmetry index above which an alert fires",
+    )
+    min_chronic_days: int = Field(
+        default=14,
+        ge=7,
+        le=28,
+        description="Days of data required in the 28-day window before ACWR is reported",
+    )
+
+
 # ── Per-position-group config ──────────────────────────────────────────────────
 
 
@@ -92,6 +122,7 @@ class PositionGroupAlertConfig(BaseModel):
     formation_anomaly: FormationAnomalyThresholds = Field(
         default_factory=FormationAnomalyThresholds
     )
+    workload: WorkloadThresholds = Field(default_factory=WorkloadThresholds)
 
 
 class AlertConfigRequest(BaseModel):
@@ -100,6 +131,7 @@ class AlertConfigRequest(BaseModel):
     bio_deviation: BioDeviationThresholds | None = None
     effort_anomaly: EffortAnomalyThresholds | None = None
     formation_anomaly: FormationAnomalyThresholds | None = None
+    workload: WorkloadThresholds | None = None
 
 
 class AlertConfigResponse(BaseModel):

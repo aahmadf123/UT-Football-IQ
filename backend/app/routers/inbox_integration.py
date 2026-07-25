@@ -33,6 +33,7 @@ from app.database import get_db
 from app.deps import require_any_staff
 from app.models import (
     Clip,
+    ClipResultState,
     FieldCalibration,
     JobStatus,
     JobType,
@@ -62,6 +63,10 @@ class VideoInboxItem(BaseModel):
     succeeded_jobs: int
     failed_jobs: int
     clip_count: int
+    # Clips whose results are still the same-session first pass (Issue #147) —
+    # awaiting the nightly full-quality upgrade. Surfaced as a "Preliminary"
+    # badge in the Practice Inbox.
+    preliminary_clip_count: int
     calibration_safe_pct: float | None
     latest_error_stage: str | None
     latest_error_message: str | None
@@ -207,6 +212,17 @@ async def _build_video_inbox_item(db: AsyncSession, video: Video) -> VideoInboxI
     )
     clip_count = clip_result.scalar_one() or 0
 
+    # Preliminary clips awaiting nightly upgrade (Issue #147)
+    prelim_result = await db.execute(
+        select(func.count())
+        .select_from(Clip)
+        .where(
+            Clip.video_id == video.id,
+            Clip.result_state == ClipResultState.preliminary.value,
+        )
+    )
+    preliminary_clip_count = prelim_result.scalar_one() or 0
+
     # Calibration safe %
     cal_result = await db.execute(
         select(FieldCalibration).where(FieldCalibration.video_id == video.id)
@@ -229,6 +245,7 @@ async def _build_video_inbox_item(db: AsyncSession, video: Video) -> VideoInboxI
         succeeded_jobs=succeeded_jobs,
         failed_jobs=failed_jobs,
         clip_count=clip_count,
+        preliminary_clip_count=preliminary_clip_count,
         calibration_safe_pct=cal_safe_pct,
         latest_error_stage=latest_failed.error_stage if latest_failed else None,
         latest_error_message=latest_failed.error_message if latest_failed else None,

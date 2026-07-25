@@ -28,6 +28,15 @@ export type SourceType = "drone" | "uploaded_clip";
 export type OurPossession = "offense" | "defense" | "special_teams";
 export type ApiSideOfBall = "offense" | "defense" | "special_teams";
 
+// Source-capture regime inferred from pixels at ingest (Issue #126 / ADR
+// 0005). ``unknown`` is reserved for hard analysis failures and rows that
+// predate the column.
+export type CaptureRegime =
+  | "drone_follow"
+  | "fixed_sideline"
+  | "unconstrained"
+  | "unknown";
+
 export interface ApiVideo {
   id: string;
   filename: string;
@@ -46,6 +55,13 @@ export interface ApiVideo {
   storage_uri?: string | null;
 }
 
+// Same-session result tier + derived coach-facing review state (Issue #147).
+// ``preliminary`` = same-session first pass awaiting nightly upgrade; ``final``
+// = nightly full-quality output. The review state distinguishes a clip a coach
+// still has to look at from one flagged low-confidence or already reviewed.
+export type ClipResultState = "preliminary" | "final";
+export type ClipReviewState = "reviewed" | "low_confidence" | "needs_review";
+
 export interface ApiClip {
   id: string;
   video_id: string;
@@ -61,6 +77,14 @@ export interface ApiClip {
   session_kind?: SessionKind | null;
   our_possession?: OurPossession | null;
   side_of_ball?: ApiSideOfBall | null;
+  // Issue #147 — present from backends that expose the same-session result tier;
+  // optional so older payloads (and mocks) stay valid.
+  result_state?: ClipResultState | null;
+  is_preliminary?: boolean;
+  review_state?: ClipReviewState;
+  // Capture regime the ingest detector picked for this clip's footage.
+  // Optional so older payloads (and mocks) stay valid.
+  capture_regime?: CaptureRegime | null;
   created_at: string;
 }
 
@@ -137,6 +161,14 @@ export interface ApiPracticeSessionGroup {
   last_recorded_at?: string | null;
 }
 
+// One entry in a job's per-stage progress map. The orchestrator heartbeats
+// ``{stage[:clipprefix]: {status, ...headline numbers}}`` where status is one
+// of "started" | "succeeded" | "failed" | "skipped".
+export interface JobStageProgress {
+  status?: string;
+  [key: string]: unknown;
+}
+
 export interface ApiJob {
   id: string;
   job_type: string;
@@ -147,6 +179,13 @@ export interface ApiJob {
   error_stage?: string | null;
   error_message?: string | null;
   nightly_followup_job_id?: string | null;
+  // Per-stage progress map maintained by the orchestrator via heartbeat.
+  progress?: Record<string, JobStageProgress> | null;
+  // Lease bookkeeping from the job queue (backend JobResponse): how many
+  // times a worker has claimed this job and which worker holds the current
+  // lease. Optional so older payloads (and mocks) stay valid.
+  attempt_count?: number;
+  leased_by?: string | null;
   created_at: string;
 }
 
@@ -323,6 +362,8 @@ export interface OverlayMetric {
   metric_value: Record<string, unknown>;
   unit: string | null;
   confidence: number | null;
+  effort_zscore?: number | null;
+  loaf_flag?: boolean | null;
 }
 
 export interface OverlayLayersAvailable {
@@ -332,6 +373,16 @@ export interface OverlayLayersAvailable {
   metrics: boolean;
 }
 
+// Field-calibration state for the clip's parent video. ``reason`` is a
+// coach-readable sentence composed server-side whenever spatial metrics are
+// suppressed — suppression is never silent.
+export interface OverlayCalibration {
+  analytics_safe: boolean;
+  reason: string | null;
+  reason_codes: string[];
+  confidence: number | null;
+}
+
 export interface ClipOverlayPayload {
   clip_id: string;
   tracklets: OverlayTracklet[];
@@ -339,6 +390,10 @@ export interface ClipOverlayPayload {
   labels: OverlayLabel[];
   metrics: OverlayMetric[];
   layers_available: OverlayLayersAvailable;
+  // Present from backends that expose calibration-aware overlays (explained
+  // suppression); optional so older payloads (and mocks) stay valid.
+  capture_regime?: CaptureRegime | null;
+  calibration?: OverlayCalibration;
 }
 
 // Layer keys the Clip Review UI exposes as toggles. ``raw`` is the bare video
@@ -361,6 +416,10 @@ export interface SystemConfig {
   capture_camera: string;
   storage_bucket: string;
   auto_export_access: AutoExportAccess;
+  // Kick off the processing pipeline automatically when a video is registered
+  // (system default ON; the Film Room "Process Film" CTA remains for
+  // manual/retry runs).
+  auto_process_on_upload: boolean;
 }
 
 export interface ModelSensitivity {
@@ -483,4 +542,33 @@ export interface CfbdMacBenchmarkResponse {
   conference: string;
   teams: CfbdMacBenchmarkRow[];
   cache: CfbdCacheMeta;
+}
+
+// ── Zero-shot concept search (Issue #144) ────────────────────────────────────
+
+export interface ConceptSearchMatch {
+  concept_id: string;
+  display_name: string;
+  category: string;
+  confidence: number;
+}
+
+export interface ConceptSearchResult {
+  clip_id: string;
+  source: "metadata" | "embedding" | string;
+  confidence: number;
+  score: number | null;
+  is_experimental: boolean;
+  matched_concept_ids: string[];
+  label_data: Record<string, unknown> | null;
+}
+
+export interface ConceptSearchResponse {
+  query: string;
+  matched_concepts: ConceptSearchMatch[];
+  approximate: boolean;
+  experimental: boolean;
+  reason: string | null;
+  model_version_label: string | null;
+  results: ConceptSearchResult[];
 }

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { AnalyticsCard, type AnalyticsCardState } from "@/components/analytics-card";
 import { FieldDiagram } from "@/components/field-diagram";
 import { useAppState } from "@/lib/app-state";
+import type { FetchState } from "@/lib/fetch-state";
 import {
   fetchCfbdMacBenchmark,
   fetchCfbdToledoSchedule,
@@ -15,14 +16,13 @@ import type {
   CfbdScheduleResponse,
   CfbdTeamResponse,
 } from "@/lib/types";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { cn } from "@/lib/utils";
 
 const SOURCE_LABEL = "CollegeFootballData.com";
 
-type FetchState<T> =
-  | { kind: "loading" }
-  | { kind: "offline" }
-  | { kind: "error"; message: string }
-  | { kind: "ready"; resp: T };
+const OFFLINE_REASON =
+  "Cached CFBD analytics are unavailable offline — they load when the team server is connected.";
 
 export function CollegeDataView() {
   const { authToken } = useAppState();
@@ -50,7 +50,7 @@ export function CollegeDataView() {
       set: (s: FetchState<T>) => void,
     ): Promise<void> => {
       try {
-        set({ kind: "ready", resp: await fn() });
+        set({ kind: "ready", data: await fn() });
       } catch (err) {
         set({ kind: "error", message: err instanceof Error ? err.message : String(err) });
       }
@@ -70,19 +70,15 @@ export function CollegeDataView() {
   // Aggregate cache freshness across whichever responses have loaded.
   const caches = useMemo<CfbdCacheMeta[]>(() => {
     const out: CfbdCacheMeta[] = [];
-    if (team.kind === "ready") out.push(team.resp.cache);
-    if (schedule.kind === "ready") out.push(schedule.resp.cache);
-    if (benchmark.kind === "ready") out.push(benchmark.resp.cache);
+    if (team.kind === "ready") out.push(team.data.cache);
+    if (schedule.kind === "ready") out.push(schedule.data.cache);
+    if (benchmark.kind === "ready") out.push(benchmark.data.cache);
     return out;
   }, [team, schedule, benchmark]);
 
   const banner = useMemo<BannerInfo | null>(() => {
     if (!apiConfigured) {
-      return {
-        tone: "unavailable",
-        message:
-          "Backend offline — set NEXT_PUBLIC_API_URL so cached CFBD analytics can load.",
-      };
+      return { tone: "unavailable", message: OFFLINE_REASON };
     }
     const anyError =
       team.kind === "error" || schedule.kind === "error" || benchmark.kind === "error";
@@ -114,127 +110,133 @@ export function CollegeDataView() {
   }, [apiConfigured, team, schedule, benchmark, caches]);
 
   return (
-    <div className="content-grid">
+    <div className="flex flex-col gap-4">
       {banner && (
         <div
-          className="span-12"
           data-testid="cfbd-banner"
           data-banner-tone={banner.tone}
-          style={{
-            padding: "10px 14px",
-            borderRadius: 8,
-            border: "1px solid",
-            borderColor: banner.tone === "unavailable" ? "var(--accent-red, #f87171)" : "var(--gold)",
-            background:
-              banner.tone === "unavailable"
-                ? "oklch(0.35 0.18 25 / 0.18)"
-                : "oklch(0.65 0.18 80 / 0.14)",
-            color: "var(--text)",
-            fontSize: "0.85rem",
-          }}
+          className={cn(
+            "rounded-lg border px-3.5 py-2.5 text-[0.85rem]",
+            banner.tone === "unavailable"
+              ? "border-status-danger/50 bg-status-danger/10 text-foreground"
+              : "border-primary/50 bg-primary/10 text-foreground",
+          )}
         >
           {banner.message}
         </div>
       )}
 
-      <AnalyticsCard
-        title="Toledo Team"
-        state={toCardState(team, (r) => (r.team ? "live" : "empty"), load, {
-          empty: "No cached Toledo team record yet. Run the CFBD ingestion (Issues #161/#162).",
-        })}
-        className="span-4"
-      >
-        {team.kind === "ready" && team.resp.team && (
-          <div className="list-stack" style={{ gap: 4 }}>
-            <Row label="School" value={team.resp.team.school} />
-            <Row label="Mascot" value={team.resp.team.mascot ?? "—"} />
-            <Row label="Conference" value={team.resp.team.conference ?? "—"} />
-            <Row label="Division" value={team.resp.team.division ?? "—"} />
-          </div>
-        )}
-      </AnalyticsCard>
+      <div className="grid gap-4 lg:grid-cols-3">
+        <AnalyticsCard
+          title="Toledo Team"
+          state={toCardState(team, (r) => (r.team ? "live" : "empty"), load, {
+            empty: "No cached Toledo team record yet. Run the CFBD ingestion (Issues #161/#162).",
+          })}
+        >
+          {team.kind === "ready" && team.data.team && (
+            <div className="flex flex-col gap-1">
+              <Row label="School" value={team.data.team.school} />
+              <Row label="Mascot" value={team.data.team.mascot ?? "—"} />
+              <Row label="Conference" value={team.data.team.conference ?? "—"} />
+              <Row label="Division" value={team.data.team.division ?? "—"} />
+            </div>
+          )}
+        </AnalyticsCard>
 
-      <AnalyticsCard
-        title="Toledo Schedule"
-        state={toCardState(
-          schedule,
-          (r) => (r.games.length > 0 ? "live" : "empty"),
-          load,
-          { empty: "No cached games for Toledo yet." },
-        )}
-        className="span-8"
-      >
-        {schedule.kind === "ready" && (
-          <div className="list-stack" style={{ gap: 4 }} data-testid="cfbd-schedule">
-            {schedule.resp.games.map((g) => (
-              <div
-                key={g.cfbd_game_id}
-                className="status-row"
-                style={{ gridTemplateColumns: "70px 1fr auto" }}
-              >
-                <span className="kicker">{g.start_date ? formatDate(g.start_date) : "TBD"}</span>
-                <strong>
-                  {g.away_team} @ {g.home_team}
-                </strong>
-                <span>
-                  {g.home_points != null && g.away_points != null
-                    ? `${g.away_points}–${g.home_points}`
-                    : "—"}
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
-      </AnalyticsCard>
-
-      <AnalyticsCard
-        title="MAC Benchmark (Points)"
-        state={toCardState(
-          benchmark,
-          (r) => (r.teams.length > 0 ? "live" : "empty"),
-          load,
-          { empty: "No cached MAC team game stats yet." },
-        )}
-        className="span-8"
-      >
-        {benchmark.kind === "ready" && (
-          <div className="list-stack" style={{ gap: 4 }} data-testid="cfbd-benchmark">
-            {benchmark.resp.teams.map((t) => (
-              <div
-                key={t.team}
-                className="status-row"
-                style={{ gridTemplateColumns: "1fr 48px 64px 64px" }}
-              >
-                <strong>{t.team}</strong>
-                <span title="Games">{t.games}</span>
-                <span title="Avg points for">{fmtNum(t.avg_points_for)}</span>
-                <span title="Point differential">{fmtSigned(t.point_differential)}</span>
-              </div>
-            ))}
-          </div>
-        )}
-      </AnalyticsCard>
-
-      <AnalyticsCard
-        title="Field Schematic (visualization spike #169)"
-        state={{
-          kind: "gated",
-          reason:
-            "Generic NCAA field rendered natively in SVG — no R / sportypy runtime dependency. Calibrated route overlays land with the tracking pipeline (#127/#128/#129).",
-        }}
-        className="span-4"
-      />
-      <section className="panel panel-pad span-4" data-testid="cfbd-field-sample">
-        <FieldDiagram />
-      </section>
-
-      <div
-        className="span-12 kicker"
-        data-testid="cfbd-source-label"
-        style={{ textAlign: "right" }}
-      >
-        Source: {SOURCE_LABEL}. CFBD data is external context and is not derived from Toledo film.
+        <AnalyticsCard
+          title="Toledo Schedule"
+          className="lg:col-span-2"
+          state={toCardState(
+            schedule,
+            (r) => (r.games.length > 0 ? "live" : "empty"),
+            load,
+            { empty: "No cached games for Toledo yet." },
+          )}
+        >
+          {schedule.kind === "ready" && (
+            <div className="flex flex-col gap-1" data-testid="cfbd-schedule">
+              {schedule.data.games.map((g) => (
+                <div
+                  key={g.cfbd_game_id}
+                  className="grid grid-cols-[74px_1fr_auto] items-baseline gap-2 text-[0.82rem]"
+                >
+                  <span className="text-xs text-muted-foreground">
+                    {g.start_date ? formatDate(g.start_date) : "TBD"}
+                  </span>
+                  <span className="truncate font-medium">
+                    {g.away_team} @ {g.home_team}
+                  </span>
+                  <span data-numeric className="font-mono text-xs">
+                    {g.home_points != null && g.away_points != null
+                      ? `${g.away_points}–${g.home_points}`
+                      : "—"}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </AnalyticsCard>
       </div>
+
+      <div className="grid gap-4 lg:grid-cols-3">
+        <AnalyticsCard
+          title="MAC Benchmark (Points)"
+          className="lg:col-span-2"
+          state={toCardState(
+            benchmark,
+            (r) => (r.teams.length > 0 ? "live" : "empty"),
+            load,
+            { empty: "No cached MAC team game stats yet." },
+          )}
+        >
+          {benchmark.kind === "ready" && (
+            <div className="flex flex-col gap-1" data-testid="cfbd-benchmark">
+              <div className="grid grid-cols-[1fr_48px_64px_64px] gap-2 text-[0.65rem] font-semibold uppercase tracking-widest text-muted-foreground">
+                <span>Team</span>
+                <span>G</span>
+                <span>Avg pts</span>
+                <span>Diff</span>
+              </div>
+              {benchmark.data.teams.map((t) => (
+                <div
+                  key={t.team}
+                  className="grid grid-cols-[1fr_48px_64px_64px] items-baseline gap-2 text-[0.82rem]"
+                >
+                  <span className="truncate font-medium">{t.team}</span>
+                  <span data-numeric className="font-mono text-xs" title="Games">
+                    {t.games}
+                  </span>
+                  <span data-numeric className="font-mono text-xs" title="Avg points for">
+                    {fmtNum(t.avg_points_for)}
+                  </span>
+                  <span data-numeric className="font-mono text-xs" title="Point differential">
+                    {fmtSigned(t.point_differential)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </AnalyticsCard>
+
+        <Card data-testid="cfbd-field-sample">
+          <CardHeader>
+            <h2 className="font-display text-sm font-semibold uppercase tracking-wide">
+              Field Schematic
+            </h2>
+          </CardHeader>
+          <CardContent>
+            <FieldDiagram />
+            <p className="mt-2 text-xs text-muted-foreground">
+              Generic NCAA field rendered natively in SVG. Calibrated route overlays land with the
+              tracking pipeline (#127/#128/#129).
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
+      <p className="text-right text-xs text-muted-foreground" data-testid="cfbd-source-label">
+        Source: {SOURCE_LABEL}. CFBD data is external context and is not derived from Toledo film.
+      </p>
     </div>
   );
 }
@@ -254,14 +256,13 @@ function toCardState<T>(
     case "loading":
       return { kind: "loading", label: "Loading cached CFBD data…" };
     case "offline":
-      return {
-        kind: "unavailable",
-        reason: "Backend offline — set NEXT_PUBLIC_API_URL to load cached CFBD analytics.",
-      };
+      return { kind: "unavailable", reason: OFFLINE_REASON };
     case "error":
       return { kind: "error", message: state.message, onRetry: retry };
+    case "empty":
+      return { kind: "empty", reason: copy.empty };
     case "ready":
-      return liveOrEmpty(state.resp) === "live"
+      return liveOrEmpty(state.data) === "live"
         ? { kind: "live" }
         : { kind: "empty", reason: copy.empty };
   }
@@ -269,9 +270,9 @@ function toCardState<T>(
 
 function Row({ label, value }: { label: string; value: string }) {
   return (
-    <div className="status-row" style={{ gridTemplateColumns: "100px 1fr" }}>
-      <span className="kicker">{label}</span>
-      <strong>{value}</strong>
+    <div className="grid grid-cols-[100px_1fr] items-baseline gap-2 text-[0.82rem]">
+      <span className="text-xs text-muted-foreground">{label}</span>
+      <span className="font-medium">{value}</span>
     </div>
   );
 }

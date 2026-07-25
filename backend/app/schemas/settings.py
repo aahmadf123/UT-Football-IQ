@@ -35,6 +35,10 @@ class SystemConfig(BaseModel):
     capture_camera: str = Field(default="Drone (primary)", max_length=120)
     storage_bucket: str = Field(default="artifacts", max_length=120)
     auto_export_access: Literal["off", "staff", "all"] = "staff"
+    # Set-and-forget: registering a video also creates its pipeline job, so
+    # film never sits idle. The Film Room "Process Film" CTA remains for
+    # manual mode (toggle off) and for retries.
+    auto_process_on_upload: bool = True
 
 
 class SystemConfigUpdate(BaseModel):
@@ -46,6 +50,7 @@ class SystemConfigUpdate(BaseModel):
     capture_camera: str | None = Field(default=None, max_length=120)
     storage_bucket: str | None = Field(default=None, max_length=120)
     auto_export_access: Literal["off", "staff", "all"] | None = None
+    auto_process_on_upload: bool | None = None
 
 
 class ModelSensitivity(BaseModel):

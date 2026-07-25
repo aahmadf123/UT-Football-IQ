@@ -22,13 +22,13 @@ from pipeline.homography import regime_detector as rd
 from pipeline.homography.regime_detector import (
     DRONE_FOLLOW,
     FIXED_SIDELINE,
+    UNCONSTRAINED,
     UNKNOWN,
     CaptureRegimeDetector,
     _framing_breakout_score,
     _global_affine_score,
     _static_background_score,
 )
-
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -167,8 +167,13 @@ def test_fuse_low_drone_signal_classifies_fixed_sideline():
     assert result.confidence > 0.5
 
 
-def test_fuse_uncertain_signal_falls_back_to_unknown():
-    """Mid-range features with default min-confidence ⇒ unknown."""
+def test_fuse_uncertain_signal_is_first_class_unconstrained():
+    """Mid-range features ⇒ ``unconstrained`` (any-camera generic path).
+
+    A confident non-match is not a failure (ADR 0005): footage that fits
+    neither special regime takes the generic pipeline path. ``unknown`` is
+    reserved for hard analysis failures (see the unsamplable-video test).
+    """
     detector = CaptureRegimeDetector(margin=0.0)
     # Features chosen so logit lands near 0 → p≈0.5 → confidence ≈ 0
     features = {
@@ -178,7 +183,7 @@ def test_fuse_uncertain_signal_falls_back_to_unknown():
         "framing_breakout_score": 0.31,
     }
     result = detector.fuse(features)
-    assert result.regime == UNKNOWN
+    assert result.regime == UNCONSTRAINED
     assert result.confidence < detector.min_confidence
     assert "low_confidence" in result.reason_codes
 

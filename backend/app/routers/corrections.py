@@ -6,13 +6,17 @@ from typing import Annotated, Any
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import exists, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.active_learning import (
+    effective_priority,
+    normalize_limit,
+    queue_reason,
+)
 from app.database import get_db
 from app.deps import get_current_user, require_analyst_or_above, require_coach_or_above
-from app.models import Clip, CoachCorrection, CorrectionType, Label, TrainingDataset, User
-from app.utils import make_dataset_artifact_uri
+from app.models import Clip, CoachCorrection, CorrectionType, User
 
 log = structlog.get_logger(__name__)
 router = APIRouter(prefix="/api/v1/corrections", tags=["corrections"])
@@ -64,7 +68,86 @@ class ExportResponse(BaseModel):
     training_dataset_id: uuid.UUID | None = None
 
 
+class AnnotationQueueItem(BaseModel):
+    """One prioritized review item — a view over a clip, not a new product.
+
+    ``uncertainty_score`` is the stored calibrated entropy (NULL when the clip
+    has not been scored yet). ``priority`` is the value the queue is ordered by
+    (higher first; unscored clips sort last). ``uncertainty_calibrated`` lets the
+    UI badge uncalibrated scores honestly (Issue #146).
+    """
+
+    model_config = {"protected_namespaces": ()}
+
+    clip_id: uuid.UUID
+    video_id: uuid.UUID
+    play_number: int | None
+    uncertainty_score: float | None
+    uncertainty_calibrated: bool
+    priority: float
+    reason: str
+    is_reviewed: bool
+    created_at: str
+
+    @classmethod
+    def from_orm_clip(cls, c: Clip) -> "AnnotationQueueItem":
+        return cls(
+            clip_id=c.id,
+            video_id=c.video_id,
+            play_number=c.play_number,
+            uncertainty_score=c.uncertainty_score,
+            uncertainty_calibrated=c.uncertainty_calibrated,
+            priority=effective_priority(c.uncertainty_score, c.uncertainty_calibrated),
+            reason=queue_reason(c.uncertainty_score, c.uncertainty_calibrated),
+            is_reviewed=c.is_reviewed,
+            created_at=c.created_at.isoformat(),
+        )
+
+
 # ── Endpoints ─────────────────────────────────────────────────────────────────
+
+
+@router.get("/queue", response_model=list[AnnotationQueueItem])
+async def get_annotation_queue(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    _current_user: Annotated[User, Depends(require_coach_or_above)],
+    strategy: str = Query(default="uncertainty", pattern="^(uncertainty|recent)$"),
+    video_id: uuid.UUID | None = Query(default=None),
+    include_unscored: bool = Query(default=True),
+    limit: int = Query(default=25, ge=1, le=200),
+) -> list[AnnotationQueueItem]:
+    """Active-learning review queue, ordered by calibrated uncertainty (#145/#146).
+
+    The labeled pool is excluded so the coach-correction loop stays the source
+    of truth: a clip drops out once it is reviewed *or* has any coach correction.
+
+    * ``strategy=uncertainty`` (default): most-uncertain clips first
+      (``uncertainty_score`` desc, NULLs last). Unscored clips are never
+      inflated into confident-looking scores — they sort last and are labeled
+      ``reason="unscored"``.
+    * ``strategy=recent``: newest unlabeled clips first (the prior default
+      ordering), for coaches who just want to work through fresh film.
+
+    ``include_unscored=false`` drops clips that have no uncertainty score yet.
+    """
+    capped = normalize_limit(limit)
+
+    # Labeled pool = reviewed clips OR clips that already have a correction.
+    has_correction = exists().where(CoachCorrection.clip_id == Clip.id)
+    q = select(Clip).where(Clip.is_reviewed.is_(False), ~has_correction)
+    if video_id is not None:
+        q = q.where(Clip.video_id == video_id)
+    if not include_unscored:
+        q = q.where(Clip.uncertainty_score.is_not(None))
+
+    if strategy == "uncertainty":
+        q = q.order_by(Clip.uncertainty_score.desc().nullslast(), Clip.created_at.asc())
+    else:  # recent
+        q = q.order_by(Clip.created_at.desc())
+    q = q.limit(capped)
+
+    result = await db.execute(q)
+    return [AnnotationQueueItem.from_orm_clip(c) for c in result.scalars().all()]
 
 
 @router.post("", response_model=CorrectionResponse, status_code=status.HTTP_201_CREATED)
@@ -130,76 +213,16 @@ async def export_corrections_as_labels(
     clip_id: uuid.UUID | None = Query(default=None),
     model_scope: str = Query(default="general"),
 ) -> ExportResponse:
-    """Export un-exported corrections as Label rows for model training."""
-    q = select(CoachCorrection).where(
-        CoachCorrection.exported_as_label.is_(False),
-        CoachCorrection.training_eligible.is_(True),
-    )
-    if clip_id is not None:
-        q = q.where(CoachCorrection.clip_id == clip_id)
-    result = await db.execute(q)
-    corrections = result.scalars().all()
+    """Export un-exported corrections as Label rows for model training.
 
-    labels: list[Label] = []
-    correction_ids: list[uuid.UUID] = []
-    for correction in corrections:
-        clip_result = await db.execute(select(Clip).where(Clip.id == correction.clip_id))
-        clip = clip_result.scalar_one_or_none()
-        label = Label(
-            id=uuid.uuid4(),
-            clip_id=correction.clip_id,
-            label_type=correction.correction_type.value,
-            label_value=correction.corrected_value,
-            annotated_by=correction.corrected_by,
-            source="human",
-            model_version_id=clip.model_version_id if clip is not None else None,
-        )
-        db.add(label)
-        correction.exported_as_label = True
-        labels.append(label)
-        correction_ids.append(correction.id)
+    Thin wrapper over :func:`app.services.corrections_export.export_corrections`
+    — the nightly scheduler runs the same service without HTTP.
+    """
+    from app.services.corrections_export import export_corrections
 
-    training_dataset_id: uuid.UUID | None = None
-    if labels:
-        previous_result = await db.execute(
-            select(TrainingDataset)
-            .where(TrainingDataset.model_scope == model_scope)
-            .order_by(TrainingDataset.snapshot_date.desc())
-            .limit(1)
-        )
-        previous = previous_result.scalar_one_or_none()
-        previous_corrections = (
-            {uuid.UUID(c) for c in previous.source_correction_ids}
-            if previous is not None
-            else set()
-        )
-        added_corrections = [
-            str(c_id) for c_id in correction_ids if c_id not in previous_corrections
-        ]
-
-        dataset = TrainingDataset(
-            id=uuid.uuid4(),
-            model_scope=model_scope,
-            source_label_ids=[str(label.id) for label in labels],
-            source_correction_ids=[str(c_id) for c_id in correction_ids],
-            row_count=len(labels),
-            artifact_uri=make_dataset_artifact_uri(model_scope),
-            changelog={"added_correction_ids": added_corrections},
-        )
-        db.add(dataset)
-        await db.flush()
-        training_dataset_id = dataset.id
-
-        for exported_label in labels:
-            exported_label.training_dataset_id = training_dataset_id
-            exported_label.dataset_version = str(training_dataset_id)
-
-    await db.flush()
-    log.info(
-        "corrections_exported", count=len(labels), training_dataset_id=str(training_dataset_id)
-    )
+    result = await export_corrections(db, clip_id=clip_id, model_scope=model_scope)
     return ExportResponse(
-        exported_count=len(labels),
-        label_ids=[label.id for label in labels],
-        training_dataset_id=training_dataset_id,
+        exported_count=result.exported_count,
+        label_ids=result.label_ids,
+        training_dataset_id=result.training_dataset_id,
     )

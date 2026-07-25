@@ -3,7 +3,10 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { FootballShell } from "@/components/football-shell";
+import { ArrowLeft, Clapperboard } from "lucide-react";
+import { AnalyticsCard } from "@/components/analytics-card";
+import { ClipStateBadges } from "@/components/clip-state-badge";
+import { FootballShell } from "@/components/shell/app-shell";
 import { useAppState } from "@/lib/app-state";
 import {
   fetchClip,
@@ -17,22 +20,17 @@ import type {
   ApiVideo,
   ClipOverlayPayload,
   OverlayLayerKey,
-  OurPossession,
-  SessionKind,
 } from "@/lib/types";
+import { POSSESSION_LABEL, SESSION_KIND_LABEL } from "@/lib/labels";
+import { CorrectionsPanel } from "./corrections-panel";
 import { OverlayCanvas, eventTimeSeconds } from "./overlay-canvas";
-
-const POSSESSION_LABEL: Record<OurPossession, string> = {
-  offense: "Toledo Offense",
-  defense: "Toledo Defense",
-  special_teams: "Special Teams",
-};
-
-const SESSION_KIND_LABEL: Record<SessionKind, string> = {
-  practice: "Practice",
-  scrimmage: "Scrimmage",
-  game: "Game",
-};
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
+import { EmptyState } from "@/components/composite/empty-state";
+import { StatLine } from "@/components/composite/stat-chip";
+import { cn } from "@/lib/utils";
 
 const LAYER_TOGGLES: ReadonlyArray<{ key: OverlayLayerKey; label: string }> = [
   { key: "raw", label: "Raw" },
@@ -69,7 +67,13 @@ type OverlayState =
 export default function ClipReviewPage() {
   return (
     <FootballShell activePage="clip-review">
-      <Suspense fallback={<section className="panel panel-pad"><p className="kicker">Loading…</p></section>}>
+      <Suspense
+        fallback={
+          <div role="status" aria-label="Loading" className="flex flex-col gap-2">
+            <Skeleton className="h-72 w-full" />
+          </div>
+        }
+      >
         <ClipReviewLoader />
       </Suspense>
     </FootballShell>
@@ -81,14 +85,18 @@ function ClipReviewLoader() {
   const clipId = searchParams.get("clipId") ?? "";
   if (!clipId) {
     return (
-      <section className="panel panel-pad">
-        <h3 className="panel-title">No clip selected</h3>
-        <p className="kicker" style={{ marginTop: 8 }}>
-          Open a clip from{" "}
-          <Link href="/film-room/?tab=browse" style={{ color: "var(--gold)" }}>Film Room → Browse Film</Link>{" "}
-          to review it.
-        </p>
-      </section>
+      <EmptyState
+        icon={Clapperboard}
+        title="No clip selected"
+        hint="Open a clip from Film Room → Browse Film to review it."
+        action={
+          <Button asChild variant="outline">
+            <Link href="/film-room/?tab=browse">
+              <ArrowLeft className="size-4" /> Film Room
+            </Link>
+          </Button>
+        }
+      />
     );
   }
   return <ClipReviewView clipId={clipId} />;
@@ -173,35 +181,39 @@ function ClipReviewView({ clipId }: { clipId: string }) {
 
   if (state.kind === "loading") {
     return (
-      <section className="panel panel-pad">
-        <p className="kicker">Loading clip metadata…</p>
-      </section>
+      <div role="status" aria-busy="true" aria-label="Loading clip metadata" className="flex flex-col gap-2">
+        <p className="text-xs text-muted-foreground">Loading clip metadata…</p>
+        <Skeleton className="h-72 w-full" />
+      </div>
     );
   }
   if (state.kind === "offline") {
     return (
-      <section className="panel panel-pad">
-        <h3 className="panel-title">Backend not configured</h3>
-        <p className="kicker" style={{ marginTop: 8 }}>
-          Clip Review requires <code>NEXT_PUBLIC_API_URL</code>.
-        </p>
-        <Link href="/film-room/?tab=browse" className="control-button" style={{ marginTop: 12 }}>
-          ← Back to Film Room
-        </Link>
-      </section>
+      <EmptyState
+        icon={Clapperboard}
+        title="Clip Review is unavailable offline"
+        hint="Playback, overlays, and corrections appear when the team server is connected."
+        action={
+          <Button asChild variant="outline">
+            <Link href="/film-room/?tab=browse">
+              <ArrowLeft className="size-4" /> Back to Film Room
+            </Link>
+          </Button>
+        }
+      />
     );
   }
   if (state.kind === "error") {
     return (
-      <section className="panel panel-pad">
-        <h3 className="panel-title">Could not load clip</h3>
-        <p className="kicker" style={{ marginTop: 8, color: "var(--accent-red, #f87171)" }}>
-          {state.message}
-        </p>
-        <Link href="/film-room/?tab=browse" className="control-button" style={{ marginTop: 12 }}>
-          ← Back to Film Room
-        </Link>
-      </section>
+      <Alert variant="destructive" role="alert">
+        <AlertTitle>Could not load clip</AlertTitle>
+        <AlertDescription>{state.message}</AlertDescription>
+        <Button asChild variant="outline" size="sm" className="mt-2 w-fit">
+          <Link href="/film-room/?tab=browse">
+            <ArrowLeft className="size-3.5" /> Back to Film Room
+          </Link>
+        </Button>
+      </Alert>
     );
   }
 
@@ -272,155 +284,213 @@ function ClipReviewReady({
       .filter((row): row is { event: typeof row.event; t: number } => row.t != null);
   }, [overlayPayload, fps]);
 
-  return (
-    <div className="content-grid">
-      <section className="panel span-8 panel-pad">
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
-          <div>
-            <h2 className="panel-title">
-              {clip.play_number != null
-                ? `Play #${clip.play_number}`
-                : `Clip ${clip.id.slice(0, 8)}`}
-            </h2>
-            <p className="kicker">
-              {sessionKindLabel}
-              {video.opponent_team ? ` · vs. ${video.opponent_team}` : ""}
-              {possessionLabel ? ` · ${possessionLabel}` : ""}
-            </p>
-          </div>
-          <Link href="/film-room/?tab=browse" className="control-button">← Film Room</Link>
-        </div>
+  // Calibration banner (explained suppression). Dismissal is per-clip so
+  // navigating to a different clip resurfaces the notice.
+  const calibration = overlayPayload?.calibration ?? null;
+  const [calibrationDismissedFor, setCalibrationDismissedFor] = useState<string | null>(null);
+  const dismissCalibrationBanner = useCallback(
+    () => setCalibrationDismissedFor(clip.id),
+    [clip.id],
+  );
 
-        <div
-          style={{
-            marginTop: 12,
-            background: "#000",
-            borderRadius: 8,
-            minHeight: 320,
-            position: "relative",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          {playbackUrl ? (
-            <>
-              <video
-                ref={videoRef}
-                src={playbackUrl}
-                controls
-                playsInline
-                onTimeUpdate={onTimeUpdate}
-                onSeeked={onTimeUpdate}
-                aria-label={`Clip ${clip.play_number ?? clip.id} video`}
-                style={{ width: "100%", maxHeight: 480, display: "block" }}
-              />
-              {overlayPayload && (
-                <OverlayCanvas
-                  tracklets={overlayPayload.tracklets}
-                  events={overlayPayload.events}
-                  currentTimeSeconds={clipLocalTime}
-                  fps={fps}
-                  videoWidth={video.width ?? null}
-                  videoHeight={video.height ?? null}
-                  activeLayers={overlayLayersForCanvas}
+  return (
+    <div className="grid items-start gap-4 xl:grid-cols-3">
+      <Card className="xl:col-span-2">
+        <CardContent>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="font-display text-lg font-semibold uppercase tracking-wide">
+                  {clip.play_number != null
+                    ? `Play #${clip.play_number}`
+                    : `Clip ${clip.id.slice(0, 8)}`}
+                </h2>
+                <ClipStateBadges
+                  isPreliminary={clip.is_preliminary}
+                  reviewState={clip.review_state}
                 />
-              )}
-            </>
-          ) : (
-            <div style={{ color: "var(--muted, #94a3b8)", textAlign: "center", padding: 24 }}>
-              <p style={{ margin: 0, fontWeight: 700 }}>Video not available</p>
-              <p className="kicker" style={{ marginTop: 8 }}>
-                {playbackUnavailable === "no_storage_uri"
-                  ? "No storage URI found. The video may not have been uploaded or rendered yet."
-                  : "Video playback failed or is unavailable. The Worker may not be deployed, the signed URL may have been rejected, or the file may be missing from storage."}
+              </div>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                {sessionKindLabel}
+                {video.opponent_team ? ` · vs. ${video.opponent_team}` : ""}
+                {possessionLabel ? ` · ${possessionLabel}` : ""}
               </p>
             </div>
-          )}
-        </div>
+            <Button asChild variant="outline" size="sm">
+              <Link href="/film-room/?tab=browse">
+                <ArrowLeft className="size-3.5" /> Film Room
+              </Link>
+            </Button>
+          </div>
 
-        <p className="kicker" style={{ marginTop: 8 }}>
-          {clip.start_time.toFixed(1)}s – {clip.end_time.toFixed(1)}s
-          {" "}({(clip.end_time - clip.start_time).toFixed(1)}s duration)
-        </p>
+          {calibration &&
+            calibration.analytics_safe === false &&
+            calibrationDismissedFor !== clip.id && (
+              <CalibrationBanner
+                reason={calibration.reason}
+                onDismiss={dismissCalibrationBanner}
+              />
+            )}
 
-        <OverlayToggles
-          active={activeLayers}
-          overlayState={overlayState}
-          onToggle={toggleLayer}
-        />
+          <div className="relative mt-3 flex min-h-80 items-center justify-center overflow-hidden rounded-lg bg-black">
+            {playbackUrl ? (
+              <>
+                <video
+                  ref={videoRef}
+                  src={playbackUrl}
+                  controls
+                  playsInline
+                  onTimeUpdate={onTimeUpdate}
+                  onSeeked={onTimeUpdate}
+                  aria-label={`Clip ${clip.play_number ?? clip.id} video`}
+                  className="block max-h-120 w-full"
+                />
+                {overlayPayload && (
+                  <OverlayCanvas
+                    tracklets={overlayPayload.tracklets}
+                    events={overlayPayload.events}
+                    currentTimeSeconds={clipLocalTime}
+                    fps={fps}
+                    videoWidth={video.width ?? null}
+                    videoHeight={video.height ?? null}
+                    activeLayers={overlayLayersForCanvas}
+                  />
+                )}
+              </>
+            ) : (
+              <div className="p-6 text-center text-muted-foreground">
+                <p className="m-0 text-sm font-semibold">Video not available</p>
+                <p className="mt-2 text-xs">
+                  {playbackUnavailable === "no_storage_uri"
+                    ? "No storage URI found. The video may not have been uploaded or rendered yet."
+                    : "Video playback failed or is unavailable. The Worker may not be deployed, the signed URL may have been rejected, or the file may be missing from storage."}
+                </p>
+              </div>
+            )}
+          </div>
 
-        {overlayPayload && (
-          <EventTimeline
-            events={eventsForTimeline}
-            clipDuration={clip.end_time - clip.start_time}
+          <p data-numeric className="mt-2 font-mono text-xs text-muted-foreground">
+            {clip.start_time.toFixed(1)}s – {clip.end_time.toFixed(1)}s{" "}
+            ({(clip.end_time - clip.start_time).toFixed(1)}s duration)
+          </p>
+
+          <OverlayToggles
+            active={activeLayers}
+            overlayState={overlayState}
+            onToggle={toggleLayer}
           />
-        )}
-      </section>
 
-      <aside className="panel panel-pad span-4">
-        <h2 className="panel-title">Clip Metadata</h2>
-        <div className="list-stack" style={{ marginTop: 12 }}>
-          <MetadataRow label="Video" value={video.filename} />
-          <MetadataRow label="Video status" value={video.status} />
-          <MetadataRow label="Session" value={sessionKindLabel} />
-          {video.opponent_team && (
-            <MetadataRow label="Opponent" value={video.opponent_team} />
-          )}
-          {possessionLabel && (
-            <MetadataRow label="Possession" value={possessionLabel} />
-          )}
-          {clip.play_number != null && (
-            <MetadataRow label="Play #" value={String(clip.play_number)} />
-          )}
-          <MetadataRow
-            label="Boundaries"
-            value={`${clip.start_time.toFixed(1)}s → ${clip.end_time.toFixed(1)}s`}
-          />
-          {clip.confidence != null && (
-            <MetadataRow
-              label="Confidence"
-              value={`${Math.round(clip.confidence * 100)}%`}
+          {overlayPayload && (
+            <EventTimeline
+              events={eventsForTimeline}
+              clipDuration={clip.end_time - clip.start_time}
             />
           )}
-          <MetadataRow
-            label="Reviewed"
-            value={
-              clip.is_reviewed === true
-                ? "Yes"
-                : clip.is_reviewed === false
-                  ? "No"
-                  : "Unknown"
-            }
-          />
-          {video.recorded_at && (
-            <MetadataRow
-              label="Recorded"
-              value={new Date(video.recorded_at).toLocaleString()}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent>
+          <h2 className="font-display text-base font-semibold uppercase tracking-wide">
+            Clip Metadata
+          </h2>
+          <div className="mt-3 flex flex-col gap-1.5">
+            <StatLine label="Video" value={video.filename} />
+            <StatLine label="Video status" value={video.status} />
+            <StatLine label="Session" value={sessionKindLabel} />
+            {video.opponent_team && <StatLine label="Opponent" value={video.opponent_team} />}
+            {possessionLabel && <StatLine label="Possession" value={possessionLabel} />}
+            {clip.play_number != null && (
+              <StatLine label="Play #" value={String(clip.play_number)} />
+            )}
+            <StatLine
+              label="Boundaries"
+              value={`${clip.start_time.toFixed(1)}s → ${clip.end_time.toFixed(1)}s`}
             />
-          )}
-        </div>
+            {clip.confidence != null && (
+              <StatLine label="Confidence" value={`${Math.round(clip.confidence * 100)}%`} />
+            )}
+            <StatLine
+              label="Reviewed"
+              value={
+                clip.is_reviewed === true
+                  ? "Yes"
+                  : clip.is_reviewed === false
+                    ? "No"
+                    : "Unknown"
+              }
+            />
+            {clip.result_state && (
+              <StatLine
+                label="Results"
+                value={clip.is_preliminary ? "Preliminary (same-session)" : "Final (nightly)"}
+              />
+            )}
+            {video.recorded_at && (
+              <StatLine label="Recorded" value={new Date(video.recorded_at).toLocaleString()} />
+            )}
+          </div>
 
-        <OverlaySummary
-          overlayState={overlayState}
-          showMetrics={activeLayers.has("metrics") && !activeLayers.has("raw")}
-          showLabels={activeLayers.has("labels") && !activeLayers.has("raw")}
-        />
+          <OverlaySummary
+            overlayState={overlayState}
+            showMetrics={activeLayers.has("metrics") && !activeLayers.has("raw")}
+            showLabels={activeLayers.has("labels") && !activeLayers.has("raw")}
+          />
 
-        <h3 className="panel-title" style={{ marginTop: 16 }}>Storage</h3>
-        <p className="kicker" style={{ wordBreak: "break-all" }}>
-          {clip.storage_uri ?? "Clip not yet rendered to R2."}
-        </p>
-      </aside>
+          <CorrectionsPanel clipId={clip.id} tracklets={overlayPayload?.tracklets ?? []} />
+
+          <h3 className="mt-4 font-display text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+            Storage
+          </h3>
+          <p className="mt-1 break-all font-mono text-[0.68rem] text-muted-foreground/80">
+            {clip.storage_uri ?? "Clip not yet rendered to storage."}
+          </p>
+        </CardContent>
+      </Card>
     </div>
   );
 }
 
-function MetadataRow({ label, value }: { label: string; value: string }) {
+/**
+ * Non-blocking, dismissable notice shown when field calibration failed for
+ * this footage. Watching video and detection boxes stays fully functional —
+ * suppression only affects spatial metrics, and the reason sentence comes
+ * ready-to-read from the backend (never silent suppression).
+ */
+function CalibrationBanner({
+  reason,
+  onDismiss,
+}: {
+  reason: string | null;
+  onDismiss: () => void;
+}) {
   return (
-    <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-      <span className="small-label">{label}</span>
-      <strong>{value}</strong>
+    <div
+      data-testid="calibration-banner"
+      role="status"
+      className="mt-3 flex items-start gap-2.5 rounded-lg border border-status-warn/45 bg-status-warn/10 px-3 py-2.5"
+    >
+      <span aria-hidden="true" className="font-bold text-status-warn">
+        !
+      </span>
+      <div className="flex-1">
+        <p className="m-0 text-[0.8rem]">
+          {reason ??
+            "The field couldn't be calibrated for this footage, so spatial metrics are hidden."}
+        </p>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Video and player boxes are unaffected — only spatial metrics are suppressed.
+        </p>
+      </div>
+      <button
+        type="button"
+        data-testid="calibration-banner-dismiss"
+        aria-label="Dismiss calibration notice"
+        onClick={onDismiss}
+        className="cursor-pointer border-none bg-transparent p-0.5 text-sm leading-none text-muted-foreground hover:text-foreground"
+      >
+        ✕
+      </button>
     </div>
   );
 }
@@ -443,7 +513,7 @@ function OverlayToggles({
       data-testid="overlay-toggles"
       role="group"
       aria-label="Overlay layer toggles"
-      style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 12 }}
+      className="mt-3 flex flex-wrap gap-2"
     >
       {LAYER_TOGGLES.map((layer) => {
         const isActive = active.has(layer.key);
@@ -463,16 +533,13 @@ function OverlayToggles({
             aria-pressed={isActive}
             data-testid={`overlay-toggle-${layer.key}`}
             disabled={!layerHasData && layer.key !== "raw"}
-            style={{
-              padding: "4px 10px",
-              borderRadius: 999,
-              border: `1px solid ${isActive ? "var(--gold)" : "rgba(148,163,184,0.4)"}`,
-              background: isActive ? "rgba(251,191,36,0.18)" : "transparent",
-              color: isActive ? "var(--gold)" : "var(--muted, #94a3b8)",
-              fontSize: 12,
-              cursor: layerHasData ? "pointer" : "not-allowed",
-              opacity: layerHasData ? 1 : 0.55,
-            }}
+            className={cn(
+              "rounded-full border px-2.5 py-1 text-xs transition-colors",
+              isActive
+                ? "border-primary bg-primary/15 text-primary"
+                : "border-border-soft bg-transparent text-muted-foreground hover:border-border hover:text-foreground",
+              !layerHasData && "cursor-not-allowed opacity-55",
+            )}
           >
             {layer.label}
             {!layerHasData && layer.key !== "raw" && layer.key !== "wireframe"
@@ -512,11 +579,7 @@ function EventTimeline({
   if (clipDuration <= 0) return null;
   if (events.length === 0) {
     return (
-      <p
-        data-testid="event-timeline-empty"
-        className="kicker"
-        style={{ marginTop: 12 }}
-      >
+      <p data-testid="event-timeline-empty" className="mt-3 text-xs text-muted-foreground">
         No events tagged for this clip.
       </p>
     );
@@ -524,13 +587,7 @@ function EventTimeline({
   return (
     <div
       data-testid="event-timeline"
-      style={{
-        marginTop: 12,
-        position: "relative",
-        height: 28,
-        borderRadius: 4,
-        background: "rgba(148,163,184,0.12)",
-      }}
+      className="relative mt-3 h-7 rounded bg-secondary/60"
       aria-label="Event timeline"
     >
       {events.map(({ event, t }) => {
@@ -540,16 +597,8 @@ function EventTimeline({
             key={event.id}
             data-testid={`event-marker-${event.id}`}
             title={event.event_type}
-            style={{
-              position: "absolute",
-              top: 4,
-              bottom: 4,
-              left: `${pct * 100}%`,
-              width: 4,
-              transform: "translateX(-2px)",
-              background: "var(--gold, #fbbf24)",
-              borderRadius: 2,
-            }}
+            className="absolute bottom-1 top-1 w-1 -translate-x-0.5 rounded-sm bg-primary"
+            style={{ left: `${pct * 100}%` }}
           />
         );
       })}
@@ -568,25 +617,21 @@ function OverlaySummary({
 }) {
   if (overlayState.kind === "loading") {
     return (
-      <p data-testid="overlay-loading" className="kicker" style={{ marginTop: 16 }}>
+      <p data-testid="overlay-loading" className="mt-4 text-xs text-muted-foreground">
         Loading overlays…
       </p>
     );
   }
   if (overlayState.kind === "error") {
     return (
-      <p
-        data-testid="overlay-error"
-        className="kicker"
-        style={{ marginTop: 16, color: "var(--accent-red, #f87171)" }}
-      >
+      <p data-testid="overlay-error" className="mt-4 text-xs text-status-danger">
         Could not load overlays: {overlayState.message}
       </p>
     );
   }
   if (overlayState.kind === "empty") {
     return (
-      <p data-testid="overlay-empty" className="kicker" style={{ marginTop: 16 }}>
+      <p data-testid="overlay-empty" className="mt-4 text-xs text-muted-foreground">
         No overlays available for this clip yet.
       </p>
     );
@@ -601,26 +646,37 @@ function OverlaySummary({
   ].filter((x): x is string => x != null);
 
   return (
-    <div data-testid="overlay-summary" style={{ marginTop: 16 }}>
-      <h3 className="panel-title">Overlays</h3>
+    <div data-testid="overlay-summary" className="mt-4">
+      <h3 className="font-display text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+        Overlays
+      </h3>
       {missing.length > 0 && (
-        <p
-          data-testid="overlay-degraded"
-          className="kicker"
-          style={{ marginTop: 4 }}
-        >
+        <p data-testid="overlay-degraded" className="mt-1 text-xs text-muted-foreground">
           Missing layers: {missing.join(", ")}.
         </p>
       )}
+      {payload.calibration && payload.calibration.analytics_safe === false && (
+        <AnalyticsCard
+          title="Spatial Metrics"
+          state={{
+            kind: "gated",
+            reason: "Hidden for this footage — the field could not be calibrated reliably.",
+          }}
+          gatedReason={payload.calibration.reason ?? undefined}
+          className="mt-2"
+        />
+      )}
       {showLabels && payload.labels.length > 0 && (
-        <div data-testid="overlay-labels-list" style={{ marginTop: 8 }}>
-          <p className="small-label">Labels</p>
-          <ul style={{ paddingLeft: 18, margin: "4px 0" }}>
+        <div data-testid="overlay-labels-list" className="mt-2">
+          <p className="text-[0.68rem] font-semibold uppercase tracking-widest text-muted-foreground">
+            Labels
+          </p>
+          <ul className="my-1 list-disc pl-4.5 text-[0.8rem]">
             {payload.labels.slice(0, 6).map((lb) => (
               <li key={lb.id}>
                 <strong>{lb.label_type}</strong>
                 {": "}
-                <span className="kicker">
+                <span className="text-xs text-muted-foreground">
                   {summarizeLabelValue(lb.label_value)} · {lb.source}
                 </span>
               </li>
@@ -629,14 +685,16 @@ function OverlaySummary({
         </div>
       )}
       {showMetrics && payload.metrics.length > 0 && (
-        <div data-testid="overlay-metrics-list" style={{ marginTop: 8 }}>
-          <p className="small-label">Metrics</p>
-          <ul style={{ paddingLeft: 18, margin: "4px 0" }}>
+        <div data-testid="overlay-metrics-list" className="mt-2">
+          <p className="text-[0.68rem] font-semibold uppercase tracking-widest text-muted-foreground">
+            Metrics
+          </p>
+          <ul className="my-1 list-disc pl-4.5 text-[0.8rem]">
             {payload.metrics.slice(0, 8).map((m) => (
               <li key={m.id}>
                 <strong>{m.metric_name}</strong>
                 {": "}
-                <span className="kicker">
+                <span data-numeric className="font-mono text-xs text-muted-foreground">
                   {summarizeMetricValue(m.metric_value)}
                   {m.unit ? ` ${m.unit}` : ""}
                 </span>

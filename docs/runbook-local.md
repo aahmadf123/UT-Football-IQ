@@ -2,6 +2,8 @@
 
 This runbook lets a new engineer or AI agent bring Football-IQ up end to end on a local machine with minimal guesswork. Work through the sections in order; each section references the actual files and commands in the repo.
 
+**The platform runs fully locally with no cloud accounts and no GPU.** Cloudflare (Worker + R2 + edge downloads) is a production/cloud deployment concern; a GPU is a speed upgrade, not a requirement — the pipeline runs real YOLO on CPU for short clips and falls back to deterministic stubs where heavy model stacks are absent.
+
 ---
 
 ## Prerequisites
@@ -12,9 +14,10 @@ This runbook lets a new engineer or AI agent bring Football-IQ up end to end on 
 | Node.js | 20+ | https://nodejs.org/ |
 | Python | 3.12 | https://python.org/ |
 | npm | 10+ | bundled with Node |
-| (optional) wrangler CLI | 3+ | `npm install -g wrangler` |
+| ffmpeg | 5+ | only if running the pipeline outside Docker |
+| (optional) wrangler CLI | 3+ | `npm install -g wrangler` — cloud-sim only |
 
-The GPU worker requires an NVIDIA GPU with CUDA 12.4+ and Docker GPU support. It is not needed for UI or API development — skip it unless you are working on the video pipeline.
+An NVIDIA GPU (CUDA 12.4+, NVIDIA Container Toolkit) accelerates the pipeline but is **optional** — every stage has a CPU path.
 
 ---
 
@@ -23,101 +26,142 @@ The GPU worker requires an NVIDIA GPU with CUDA 12.4+ and Docker GPU support. It
 ```
 Football-IQ/
 ├── backend/              FastAPI backend (Python 3.12)
-│   ├── app/              Application source
-│   │   ├── main.py       FastAPI entrypoint
+│   ├── app/
+│   │   ├── main.py       FastAPI entrypoint (+ nightly scheduler lifespan)
 │   │   ├── config.py     Pydantic settings (reads from env)
 │   │   ├── models.py     SQLAlchemy ORM models
-│   │   ├── database.py   Async engine + session factory
-│   │   ├── auth.py       JWT authentication
-│   │   └── routers/      24 router modules (videos, clips, labels, …)
+│   │   ├── storage.py    Storage facade: local disk or R2, signed URLs
+│   │   ├── scheduler.py  Nightly tick: corrections export → training job
+│   │   └── routers/      videos, clips, jobs (claim/heartbeat), uploads,
+│   │                     storage (signed local streaming), auth, corrections, …
+│   ├── scripts/seed_users.py   Idempotent admin + worker service account
 │   ├── migrations/       Alembic migration scripts
-│   ├── tests/            Pytest unit tests (no real DB needed)
-│   ├── requirements.txt
-│   ├── requirements-dev.txt
-│   └── alembic.ini
+│   └── tests/            Pytest (some suites use a real Postgres — see below)
 │
-├── frontend/             Next.js 16 app (React 19, TypeScript)
-│   ├── src/
-│   │   ├── app/          App Router pages (video library, clip review, …)
-│   │   ├── components/   Shared components
-│   │   └── lib/          API client (lib/api.ts), state, types
-│   ├── e2e/              Playwright E2E specs
-│   └── package.json
+├── frontend/             Next.js 16 static-export app (React 19, TypeScript)
+│   ├── src/app/          Routes: dashboard, film-room, clip-review, scouting, …
+│   ├── src/lib/          api.ts client, auth.tsx (login/JWT), app-state
+│   └── e2e/              Playwright specs (fully mocked, offline)
 │
-├── workers/              Cloudflare Worker (TypeScript)
-│   ├── src/
-│   │   ├── index.ts      Request handler (routing)
-│   │   ├── r2.ts         Presigned URL generation + R2 ops
-│   │   ├── queue.ts      Queue bindings
-│   │   └── auth.ts       JWT validation
-│   └── wrangler.toml     Cloudflare bindings (R2, Queues, secrets)
+├── workers/              Cloudflare Worker (cloud deployments only)
+│   └── src/              Upload proxy to R2, signed /dl/*, HLS. Job dispatch
+│                         lives in the backend DB queue, not here.
 │
-├── gpu-worker/           Video processing pipeline (PyTorch + CUDA)
-│   ├── __main__.py       Queue polling + job orchestration
-│   └── pipeline/         Per-stage modules (detect, track, pose, …)
+├── gpu-worker/           Video pipeline (CPU-capable; GPU optional)
+│   ├── __main__.py       Worker loop: claims jobs from the backend DB queue
+│   ├── pipeline/
+│   │   ├── orchestrator.py   Chains all stages in-process, resume ledger
+│   │   ├── __main__.py       Turnkey CLI: python -m pipeline run --input …
+│   │   ├── storage.py        r2:// | local:// | file:// facade
+│   │   └── stage_*.py        detect, track, reid, pose, events, render, …
+│   └── tests/            Unit suite + tests/integration (cross-service)
 │
 ├── docs/                 Architecture docs and ADRs
-├── docker-compose.yml    Local dev: db, backend, migrate, frontend
+├── docker-compose.yml    Profiles: default, migrate, pipeline, cloud-sim
 └── .env.example          Environment variable template
 ```
 
-**Data flow for a new upload:**
+**Data flow for a new upload (local mode, the default):**
 
-1. Coach uploads an MP4 via the frontend.
-2. Frontend calls the **Cloudflare Worker** for a presigned R2 upload URL.
-3. File goes directly to **R2** (`raw-video` bucket).
-4. Worker enqueues a job on **Cloudflare Queues** (`video-processing-jobs`).
-5. **GPU worker** polls the queue, downloads the file from R2, runs the pipeline (detect → track → re-ID → pose → embed → render), and writes results to the **backend API**.
-6. Backend persists everything in **PostgreSQL**.
-7. Frontend fetches clips and analytics from the backend API.
+1. Coach signs in (JWT) and uploads an MP4 in the frontend.
+2. With `NEXT_PUBLIC_WORKER_URL` empty, the frontend calls the backend's Worker-parity endpoints: `POST /api/v1/videos/upload-url` → `PUT /api/v1/videos/upload/{key}`. The file lands under `LOCAL_STORAGE_ROOT` as `local://raw-video/raw/…`.
+3. Registering the video (`POST /api/v1/videos`) **auto-enqueues a `pipeline` job** (system setting `auto_process_on_upload`, default ON; there is also an explicit "Process Film" button).
+4. The **gpu-worker** claims the job from the backend DB queue (`POST /api/v1/jobs/claim`, `FOR UPDATE SKIP LOCKED` with leases), runs the whole stage chain in-process via the orchestrator, and heartbeats per-stage progress into the job row.
+5. Results (clips, tracklets, events, metrics, overlay MP4s) are written back through the backend API with the worker's service account.
+6. The frontend polls jobs/clips; clip review streams the overlay video through the backend's signed `GET /api/v1/storage/{bucket}/{key}` route (Range-supporting).
+
+**Cloud mode** swaps step 2 for the Cloudflare Worker + R2 (`STORAGE_BACKEND=r2`) and step 6 for the Worker's signed `/dl/*` — same contracts, chosen by configuration. Job dispatch is the DB queue in both modes.
+
+---
+
+## Quick start (turnkey)
+
+```bash
+cp .env.example .env      # defaults work for local; edit only if you want to
+
+# 1. Database + migrations + seed users
+docker compose up -d db
+docker compose --profile migrate up migrate seed
+
+# 2. Everything: backend + frontend + pipeline worker
+docker compose --profile pipeline up backend frontend gpu-worker
+```
+
+Open `http://localhost:3000`, sign in, upload a clip, watch it process.
+
+**Signing in the first time — three options:**
+
+- Seeded admin: `admin@example.com` / `change-me-admin` (override with `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD` before running the `seed` service).
+- Register: the **first user ever registered becomes admin** automatically; everyone after that starts as `viewer` (an admin promotes them via `PATCH /api/v1/auth/users/{id}/role`). Client-supplied roles are ignored.
+- Dev autologin: compose sets `DEV_AUTOLOGIN=1`, enabling `POST /api/v1/auth/dev-login` (development environment only) which the login page surfaces as a one-click dev sign-in.
+
+`PIPELINE_STUB=1 docker compose --profile pipeline up …` swaps real models for deterministic stubs — useful to verify wiring in seconds on any machine.
+
+---
+
+## Turnkey CLI (mp4 in → boxes out, no services)
+
+The orchestrator also runs standalone — point it at any file or directory (any camera, any angle; e.g. the `Drone Footage/` clips):
+
+```bash
+cd gpu-worker
+python -m pipeline run --input "../Drone Footage/DJI_0119.mp4" --no-backend --out ./out
+```
+
+Outputs per video under `./out/<name>/`: `summary.json` (clips, tracklets, stage timings, model routing), per-stage artifact JSONs, and rendered overlay MP4s with bounding boxes, trails, and (when calibrated) metric callouts. `--stages`, `--stride`, and `--mode same_session|nightly` narrow or reshape the run; without `--no-backend` it writes results into a live backend instead.
 
 ---
 
 ## Environment variables
 
-Copy the template and fill in values before starting any service:
+Copy the template and adjust as needed:
 
 ```bash
 cp .env.example .env
 ```
 
-### Local development defaults
-
-For the core local loop (database + backend + frontend via Docker Compose), these are the only values you must set or verify:
+### Core local loop
 
 | Variable | Docker Compose default | What it is |
 |----------|-----------------------|------------|
 | `ENVIRONMENT` | `development` | App mode |
-| `SECRET_KEY` | `dev-secret-key-not-for-production` | JWT signing key (any 32+ char string for local) |
-| `DATABASE_URL` | `postgresql+asyncpg://footiq:footiq_dev@db:5432/footiq` | Async DB URL (used by FastAPI) |
-| `DATABASE_SYNC_URL` | `postgresql://footiq:footiq_dev@db:5432/footiq` | Sync DB URL (used by Alembic) |
+| `SECRET_KEY` | `dev-secret-key-not-for-production` | JWT + signed-URL key (any 32+ char string locally) |
+| `DATABASE_URL` | `postgresql+asyncpg://footiq:footiq_dev@db:5432/footiq` | Async DB URL (FastAPI) |
+| `DATABASE_SYNC_URL` | `postgresql://footiq:footiq_dev@db:5432/footiq` | Sync DB URL (Alembic) |
 | `CORS_ORIGINS` | `http://localhost:3000` | Allowed origins |
 | `NEXT_PUBLIC_API_URL` | `http://localhost:8000` | Backend URL (browser-visible) |
-| `NEXT_PUBLIC_WORKER_URL` | `http://localhost:8787` | Worker URL (browser-visible) |
+| `NEXT_PUBLIC_WORKER_URL` | `""` (empty) | Empty → uploads/downloads go through the backend; set to a Worker URL only in cloud mode |
 
-Docker Compose injects the database and CORS values automatically for the `backend` and `migrate` services. If you run services outside Docker you must export them yourself.
+### Storage & pipeline (local vs cloud)
 
-### R2 / Cloudflare variables (required for upload flow)
+| Variable | Default | What it is |
+|----------|---------|-----------|
+| `STORAGE_BACKEND` | auto (`local` unless R2 creds present) | `local` or `r2` — one switch for backend and gpu-worker |
+| `LOCAL_STORAGE_ROOT` | `/data/storage` in compose | Root for `local://bucket/key` objects |
+| `PUBLIC_API_BASE_URL` | `http://localhost:8000` | Base baked into signed local streaming URLs |
+| `QUEUE_BACKEND` | `db` | Worker job source: `db` (backend queue) or `cf` (legacy Cloudflare pull) |
+| `WORKER_EMAIL` / `WORKER_PASSWORD` | seed defaults | The gpu-worker's service-account login (analyst role) |
+| `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD` | `admin@example.com` / `change-me-admin` | `scripts/seed_users.py` inputs |
+| `SEED_WORKER_EMAIL` / `SEED_WORKER_PASSWORD` | `worker@example.com` / `change-me-worker` | Ditto, worker account |
+| `DEV_AUTOLOGIN` | off | `1` + development env → enables `POST /auth/dev-login` |
+| `PIPELINE_STUB` | `0` | `1` → deterministic stub models (fast wiring checks) |
+| `CF_QUEUES_ENABLED` | off | Opt-in for legacy Cloudflare Queues publishing |
+| `SCHEDULER_ENABLED` / `SCHEDULER_HOUR_UTC` | on / `8` | Nightly learning-loop tick (corrections export → training job when ≥ `TRAINING_MIN_NEW_LABELS`, default 200) |
 
-These are needed only if you run the Cloudflare Worker locally (`wrangler dev`) or point the frontend at a live Worker:
+### R2 / Cloudflare variables (cloud mode only)
+
+Needed only when `STORAGE_BACKEND=r2` (real R2 or the MinIO cloud-sim) or when running the Worker:
 
 | Variable | What it is |
 |----------|-----------|
 | `CLOUDFLARE_ACCOUNT_ID` | Your Cloudflare account ID |
-| `CLOUDFLARE_API_TOKEN` | API token with Workers + R2 + Queues permissions |
-| `R2_ACCESS_KEY_ID` | R2 API token key ID |
-| `R2_SECRET_ACCESS_KEY` | R2 API token secret |
-| `R2_ENDPOINT_URL` | `https://<ACCOUNT_ID>.r2.cloudflarestorage.com` |
-| `R2_BUCKET_RAW` | `raw-video` |
-| `R2_BUCKET_CLIPS` | `clips` |
-| `R2_BUCKET_OVERLAYS` | `overlays` |
-| `R2_BUCKET_ARTIFACTS` | `artifacts` |
-| `R2_PRESIGN_TTL` | Presigned URL lifetime in seconds (default: `3600`) |
-| `CF_QUEUE_VIDEO_PROCESSING` | `video-processing-jobs` |
-| `CF_QUEUE_NIGHTLY_TRAINING` | `nightly-training-exports` |
-| `WORKER_URL` | Worker base URL |
+| `CLOUDFLARE_API_TOKEN` | API token with Workers + R2 permissions |
+| `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` | R2 (or MinIO) credentials |
+| `R2_ENDPOINT_URL` | `https://<ACCOUNT_ID>.r2.cloudflarestorage.com` (or `http://minio:9000`) |
+| `R2_BUCKET_RAW` / `R2_BUCKET_CLIPS` / `R2_BUCKET_OVERLAYS` / `R2_BUCKET_ARTIFACTS` | `raw-video` / `clips` / `overlays` / `artifacts` |
+| `R2_PRESIGN_TTL` | Presigned URL lifetime seconds (default `3600`) |
 
-The Worker reads `JWT_SECRET`, `DATABASE_URL`, and `BACKEND_API_URL` as **Wrangler secrets** (not from `.env`). Set them via:
+The Worker reads `JWT_SECRET`, `DATABASE_URL`, and `BACKEND_API_URL` as **Wrangler secrets**:
 
 ```bash
 cd workers
@@ -134,27 +178,6 @@ npx wrangler secret put BACKEND_API_URL
 | `JWT_ACCESS_TOKEN_EXPIRE_MINUTES` | `60` | Access token lifetime |
 | `JWT_REFRESH_TOKEN_EXPIRE_DAYS` | `30` | Refresh token lifetime |
 
-### GPU worker variables (optional)
-
-| Variable | Default | What it is |
-|----------|---------|-----------|
-| `GPU_WORKER_POLL_INTERVAL` | `10` | Seconds between queue polls |
-| `RUNPOD_API_KEY` | — | RunPod burst GPU key (optional) |
-| `MODAL_TOKEN_ID` | — | Modal burst GPU token (optional) |
-| `MODAL_TOKEN_SECRET` | — | Modal burst GPU secret (optional) |
-
-GPU worker reuses the `R2_*` variables for downloading and uploading video files.
-
-### SSO (optional)
-
-| Variable | What it is |
-|----------|-----------|
-| `SSO_PROVIDER_URL` | University SAML/OAuth2 provider URL |
-| `SSO_CLIENT_ID` | SSO client ID |
-| `SSO_CLIENT_SECRET` | SSO client secret |
-
-Leave these blank for local development; the backend falls back to local JWT auth.
-
 ### College Football Data (CFBD) — backend-only (optional)
 
 | Variable | What it is |
@@ -162,26 +185,15 @@ Leave these blank for local development; the backend falls back to local JWT aut
 | `CFBD_API_KEY` | College Football Data API key — **backend only** |
 | `CFBD_BASE_URL` | API base URL (default `https://api.collegefootballdata.com`) |
 
-CFBD powers the Toledo/MAC analytics cache (Issues #160/#161/#162) and is
-called **only** from the FastAPI backend — never from the frontend, the Worker,
-or any browser bundle. The key is never persisted to the database and never
-appears in logs or coach-visible errors.
+CFBD powers the Toledo/MAC analytics cache (Issues #160/#161/#162) and is called **only** from the FastAPI backend — never from the frontend, the Worker, or any browser bundle. The key is never persisted to the database and never appears in logs or coach-visible errors.
 
 To set it up locally **without committing any value**:
 
 1. Request a free key at <https://collegefootballdata.com/key>.
-2. Add it to your local, git-ignored `.env` (copied from `.env.example`):
-
-   ```bash
-   # .env  — never commit this file
-   CFBD_API_KEY=<paste-your-key-here>
-   ```
-
+2. Add it to your local, git-ignored `.env` (copied from `.env.example`).
 3. Leave `CFBD_BASE_URL` at its default unless you are pointing at a mock.
 
-If `CFBD_API_KEY` is unset, the app still boots normally; any CFBD call fails
-fast with a clear backend-only `CFBDConfigError` rather than an opaque 401, and
-previously cached data in the `cfbd_*` tables remains fully queryable.
+If `CFBD_API_KEY` is unset, the app still boots normally; any CFBD call fails fast with a clear backend-only `CFBDConfigError` rather than an opaque 401, and previously cached data in the `cfbd_*` tables remains fully queryable.
 
 To populate the cache for a season once the key is set:
 
@@ -191,10 +203,7 @@ python -m app.cfbd --season 2024                 # Toledo + MAC, regular season
 python -m app.cfbd --season 2024 --season-type postseason
 ```
 
-The command upserts idempotently (safe to re-run) and records every attempt in
-`cfbd_sync_runs` (endpoint, params, row counts, status, error summary). If one
-endpoint is rate-limited or down, the others still sync and the failure is
-recorded without aborting the run.
+The command upserts idempotently (safe to re-run) and records every attempt in `cfbd_sync_runs`.
 
 ### Deployment variables (not needed locally)
 
@@ -202,63 +211,34 @@ recorded without aborting the run.
 
 ---
 
-## Local startup
+## Running services outside Docker
 
-### Recommended: Docker Compose
-
-Docker Compose manages the database, backend, migrations, and frontend together.
+**Database** — any Postgres 16 with pgvector. Simplest:
 
 ```bash
-# Start the database (wait for healthy)
-docker-compose up -d db
-
-# Apply all Alembic migrations
-docker-compose --profile migrate up migrate
-
-# Start backend (port 8000) and frontend (port 3000)
-docker-compose up backend frontend
-```
-
-Check the backend is up:
-
-```bash
-curl http://localhost:8000/health
-```
-
-Open the frontend at `http://localhost:3000`.
-
-Hot reload is enabled for the backend (`--reload` flag) via a volume mount of `./backend:/app`.
-
-### Alternative: without Docker
-
-If you prefer to run services directly:
-
-**Database:**
-
-```bash
-# Start a local Postgres 16 instance with the expected credentials
-docker run -d \
-  --name footiq-db \
-  -e POSTGRES_USER=footiq \
-  -e POSTGRES_PASSWORD=footiq_dev \
-  -e POSTGRES_DB=footiq \
-  -p 5432:5432 \
-  postgres:16-alpine
+docker run -d --name footiq-db \
+  -e POSTGRES_USER=footiq -e POSTGRES_PASSWORD=footiq_dev -e POSTGRES_DB=footiq \
+  -p 5432:5432 pgvector/pgvector:pg16
 ```
 
 **Backend:**
 
 ```bash
 cd backend
-python -m venv .venv
-source .venv/bin/activate          # Windows: .venv\Scripts\activate
+python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt -r requirements-dev.txt
 
 export DATABASE_URL=postgresql+asyncpg://footiq:footiq_dev@localhost:5432/footiq
 export DATABASE_SYNC_URL=postgresql://footiq:footiq_dev@localhost:5432/footiq
 export SECRET_KEY=dev-secret-key-not-for-production
 export CORS_ORIGINS=http://localhost:3000
+export STORAGE_BACKEND=local LOCAL_STORAGE_ROOT=/tmp/footiq-storage
+export PUBLIC_API_BASE_URL=http://localhost:8000
 
+alembic upgrade head
+SEED_ADMIN_EMAIL=admin@example.com SEED_ADMIN_PASSWORD=change-me-admin \
+SEED_WORKER_EMAIL=worker@example.com SEED_WORKER_PASSWORD=change-me-worker \
+  python -m scripts.seed_users
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
@@ -267,47 +247,40 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```bash
 cd frontend
 npm ci
-
 export NEXT_PUBLIC_API_URL=http://localhost:8000
-export NEXT_PUBLIC_WORKER_URL=http://localhost:8787
-
-npm run dev
+export NEXT_PUBLIC_WORKER_URL=""
+npm run dev            # http://localhost:3000
 ```
 
-Frontend is at `http://localhost:3000`.
-
-### Cloudflare Worker (optional — needed for real uploads)
-
-The upload flow requires the Cloudflare Worker. For local development you can run it with wrangler:
-
-```bash
-cd workers
-npm ci
-npx wrangler dev
-```
-
-The local Worker listens on `http://localhost:8787`. Set `NEXT_PUBLIC_WORKER_URL=http://localhost:8787` in the frontend environment.
-
-> **Note:** Local `wrangler dev` uses local Miniflare stubs for R2 and Queues. Uploads reach a local R2 simulation, not a real bucket. The GPU worker will not pick them up unless pointed at the same Cloudflare account. For full end-to-end testing, deploy to a real Cloudflare account.
-
-### GPU worker (optional — hardware-dependent)
-
-The GPU worker requires an NVIDIA GPU with CUDA 12.4+ and the NVIDIA Container Toolkit. It is not needed for UI, API, or analytics development.
+**Pipeline worker** (needs ffmpeg on PATH; torch optional):
 
 ```bash
 cd gpu-worker
-docker build -t football-iq-gpu-worker .
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt        # or requirements-ci.txt for stub mode
 
-docker run --gpus all \
-  -e DATABASE_URL=postgresql+asyncpg://footiq:footiq_dev@host.docker.internal:5432/footiq \
-  -e R2_ACCESS_KEY_ID=<your-key> \
-  -e R2_SECRET_ACCESS_KEY=<your-secret> \
-  -e R2_ENDPOINT_URL=https://<ACCOUNT_ID>.r2.cloudflarestorage.com \
-  -e GPU_WORKER_POLL_INTERVAL=10 \
-  football-iq-gpu-worker
+export QUEUE_BACKEND=db BACKEND_API_URL=http://localhost:8000
+export WORKER_EMAIL=worker@example.com WORKER_PASSWORD=change-me-worker
+export STORAGE_BACKEND=local LOCAL_STORAGE_ROOT=/tmp/footiq-storage
+python -m __main__ 2>/dev/null || python __main__.py
 ```
 
-Without GPU hardware, the worker will fail at the CUDA initialization step. Cloud GPU providers (RunPod, Modal) can substitute via the `RUNPOD_API_KEY` / `MODAL_TOKEN_*` variables in `.env`.
+---
+
+## Cloud-sim (verify the cloud path without a Cloudflare account)
+
+MinIO speaks the same S3 API surface boto3 uses against R2, so this exercises the **exact** `r2` storage driver:
+
+```bash
+docker compose --profile cloud-sim up -d minio minio-init   # buckets auto-created
+
+# Point backend + gpu-worker at it:
+export STORAGE_BACKEND=r2
+export R2_ENDPOINT_URL=http://localhost:9000     # http://minio:9000 inside compose
+export R2_ACCESS_KEY_ID=minio-local R2_SECRET_ACCESS_KEY=minio-local-secret
+```
+
+For the edge upload contract, additionally run the Worker under wrangler's Miniflare (`cd workers && npx wrangler dev`, `.dev.vars` for secrets) and set `NEXT_PUBLIC_WORKER_URL=http://localhost:8787`. Real deployment to Cloudflare/Fly stays a credentialed handoff step.
 
 ---
 
@@ -315,17 +288,8 @@ Without GPU hardware, the worker will fail at the CUDA initialization step. Clou
 
 ### Applying migrations
 
-Docker Compose (recommended):
-
 ```bash
-docker-compose --profile migrate up migrate
-```
-
-Directly with Alembic:
-
-```bash
-cd backend
-alembic upgrade head
+docker compose --profile migrate up migrate     # or: cd backend && alembic upgrade head
 ```
 
 ### Creating a new migration
@@ -337,85 +301,78 @@ alembic revision --autogenerate -m "describe_your_change"
 alembic upgrade head
 ```
 
-### Rolling back one step
+### Rolling back / inspecting
 
 ```bash
 cd backend
 alembic downgrade -1
-```
-
-### Checking current state
-
-```bash
-cd backend
 alembic current
 alembic history --verbose
 ```
 
 ### pgvector
 
-The `play_embeddings` table requires the `pgvector` extension. The Docker Compose `db` service uses `postgres:16-alpine` which does not include pgvector by default. Migration `0008_play_embeddings.py` runs `CREATE EXTENSION IF NOT EXISTS vector` — this works on managed Postgres instances (Supabase, Neon) that bundle pgvector. For a plain local Postgres, install pgvector first:
-
-```bash
-# Example for pgvector on the Docker-managed Postgres
-docker exec footiq-db sh -c "
-  apk add --no-cache git build-base postgresql-dev && \
-  git clone https://github.com/pgvector/pgvector.git /tmp/pgvector && \
-  cd /tmp/pgvector && make && make install
-"
-```
-
-Alternatively, use a `pgvector/pgvector:pg16` image as the `db` service if you customise `docker-compose.yml`.
+The compose `db` service uses `pgvector/pgvector:pg16` (upstream Postgres 16 with pgvector preinstalled), which migration `0008_play_embeddings.py`'s `CREATE EXTENSION IF NOT EXISTS vector` requires. Managed Postgres (Supabase, Neon) bundles it too. A plain `postgres:16` image will fail that migration — use the pgvector image.
 
 ### Seed data
 
-There are no seed scripts in the current repo. To bootstrap local data:
+```bash
+docker compose --profile migrate up seed        # or: cd backend && python -m scripts.seed_users
+```
 
-1. Start all services.
-2. Use the `/docs` (Swagger UI) at `http://localhost:8000/docs` to create a user and POST a video record.
-3. Or write a quick Python script using `httpx` against the local API.
+Idempotent; creates/updates the admin and the gpu-worker service account from the `SEED_*` variables. Beyond users, upload real footage — the pipeline generates the rest (clips, tracklets, metrics).
 
 ---
 
 ## Backend tests
 
-Tests live in `backend/tests/`. They use `pytest` with `AsyncMock`-based dependency overrides and do **not** require a running database.
-
 ```bash
 cd backend
-# Activate your virtualenv first if running outside Docker
 source .venv/bin/activate
-
-# Install dev deps
 pip install -r requirements-dev.txt
 
-# Run all tests
-pytest -v
-
-# Run a single file
-pytest tests/test_videos.py -v
-
-# Run with coverage (matches CI)
-pytest -v --cov=app --cov-report=term-missing
-```
-
-The tests require `SECRET_KEY` and `DATABASE_URL` env vars to be set (any valid-shaped values work because no real DB connection is made):
-
-```bash
 export SECRET_KEY=any-32-char-string
-export DATABASE_URL=postgresql+asyncpg://footiq:footiq_dev@localhost:5432/footiq
+export ENVIRONMENT=test
+export DATABASE_URL=postgresql+asyncpg://footiq:footiq_test@localhost:5432/footiq_test
+
+pytest -v
 ```
 
-See `backend/tests/README.md` for mocking conventions and how to add new tests.
+Most suites mock the DB, but several (`test_jobs_claim.py` lease/SKIP LOCKED semantics, `test_storage_local.py`, `test_scheduler.py`, the CFBD cache suite) need `DATABASE_URL` to point at a **real, scratch Postgres with pgvector** — never the dev database. They create and drop their own tables; the CFBD suite expects to start from an empty schema (CI runs pytest before the alembic up/down check for this reason). To reset a polluted scratch DB:
+
+```sql
+DROP SCHEMA public CASCADE; CREATE SCHEMA public; CREATE EXTENSION vector;
+```
 
 ### Linting and type checking
 
 ```bash
 cd backend
-ruff check .
-ruff format --check .
-mypy app
+ruff check . && ruff format --check . && mypy app
 ```
+
+---
+
+## GPU-worker tests
+
+```bash
+cd gpu-worker
+pip install -r requirements-ci.txt   # stub mode: no torch needed
+ruff check .
+pytest -v                            # unit suite (integration excluded by default)
+```
+
+### Cross-service integration test
+
+Boots the real backend against Postgres, uploads a synthetic clip through the API, runs one worker claim/process cycle in-process, and asserts job progress, clips, tracklets, and overlays through the API:
+
+```bash
+cd gpu-worker
+DATABASE_URL=postgresql+asyncpg://footiq:footiq_test@localhost:5432/footiq_test \
+  pytest -m integration tests/integration/ -v
+```
+
+Requirements: scratch Postgres with pgvector (same warning as backend tests), ffmpeg, and a `backend/.venv` (preferred; falls back to the current interpreter). CI runs this as the `integration` job.
 
 ---
 
@@ -425,40 +382,26 @@ mypy app
 
 ```bash
 cd frontend
-npm ci
-npm test
+npm ci && npm test
 ```
-
-Runs all `*.test.ts` / `*.spec.ts` files under `src/`. No browser or backend needed.
 
 ### E2E tests (Playwright)
 
-The Playwright suite is fully offline: it runs `next dev` and intercepts all backend/Worker HTTP calls. No real Cloudflare or Fly.io credentials are needed.
+Fully offline: runs `next dev` and intercepts all backend HTTP calls (auth included — the helpers seed a fake JWT).
 
 ```bash
 cd frontend
-npm ci
-
-# One-time: install Chromium (≈ 150 MB)
-npm run e2e:install
-
-# Run headless
+npm run e2e:install     # one-time Chromium download
 npm run e2e
-
-# Run with interactive UI (requires a display)
-npm run e2e:ui
 ```
 
-The web server starts on port `3100` by default. Override with `E2E_PORT=<port>`.
-
-See `frontend/docs/E2E.md` for the full spec list and what each one covers.
+If a Chromium already exists on the machine, point at it instead of downloading: `PLAYWRIGHT_EXECUTABLE_PATH=/path/to/chromium npm run e2e`. The web server starts on port `3100` (`E2E_PORT` overrides).
 
 ### Lint and type check
 
 ```bash
 cd frontend
-npm run lint
-npm run typecheck
+npm run lint && npm run typecheck
 ```
 
 ---
@@ -467,103 +410,59 @@ npm run typecheck
 
 ### API issues
 
-**Symptom:** `curl http://localhost:8000/health` returns connection refused.
+**`curl http://localhost:8000/health` refused** — `docker compose ps`; `docker compose logs backend`; verify `DATABASE_URL`/`SECRET_KEY` (the app fails fast if `app.config.Settings` cannot parse them).
 
-- Check `docker-compose ps` — is the `backend` service healthy?
-- Check logs: `docker-compose logs backend`.
-- Verify `DATABASE_URL` and `SECRET_KEY` are set. The app will fail to start if `app.config.Settings` cannot parse them.
-- If running outside Docker, confirm `uvicorn` is running on port 8000: `lsof -i :8000`.
+**401s from the frontend** — you're not signed in, or the token expired and refresh failed. Sign in again; check the browser console for the failing call. All API routes except `/health`, auth, and signed storage streaming require a Bearer token.
 
-**Symptom:** API returns 500 errors.
+**403 on an action** — role too low. Roles: `viewer < coach < analyst < admin`. Corrections need coach+; user management needs admin.
 
-- `docker-compose logs backend` usually shows the structured log with the error.
-- Most 500s in dev are missing env vars or a failed DB connection.
+### Jobs sit in `queued` forever
+
+- Is the worker running? It's behind the `pipeline` profile: `docker compose --profile pipeline up gpu-worker`.
+- Check its logs: `docker compose logs gpu-worker`. Login failures mean `WORKER_EMAIL`/`WORKER_PASSWORD` don't match a seeded account — rerun the `seed` service.
+- Inspect the queue directly: `psql "$DATABASE_SYNC_URL" -c "SELECT id, job_type, status, leased_by, attempt_count, lease_expires_at FROM processing_jobs ORDER BY created_at DESC LIMIT 10;"`
+- A crashed worker's lease expires on its own (default 600 s); the job is then re-claimable. After `max_attempts` (3) it lands in `failed` with the error preserved — the UI's retry clones it.
+
+### Upload or playback fails (local mode)
+
+- `STORAGE_BACKEND` must be `local` on **both** backend and gpu-worker, with the **same** volume mounted at `LOCAL_STORAGE_ROOT` (compose shares the `storage_data` volume).
+- Playback URLs are HMAC-signed with `SECRET_KEY` and expire; a 403 from `/api/v1/storage/...` usually means the page sat open past expiry — reload — or the backend's `SECRET_KEY` changed.
+- `PUBLIC_API_BASE_URL` must be the browser-reachable backend URL, or signed links will point somewhere the browser can't reach.
 
 ### CORS issues
 
-**Symptom:** Browser console shows `CORS policy` error when the frontend calls the backend.
-
-- Check `CORS_ORIGINS` in the backend environment. For Docker Compose the default is `http://localhost:3000`.
-- If you changed the frontend port, update `CORS_ORIGINS` to match.
-- The backend's `app/main.py` reads `CORS_ORIGINS` as a comma-separated list. Example: `CORS_ORIGINS=http://localhost:3000,http://localhost:3001`.
-
-**Symptom:** CORS error when the frontend calls the Worker.
-
-- The Worker (`workers/src/index.ts`) sets CORS headers independently. For local `wrangler dev`, the default allowed origin is `*`. For production you must configure the Worker's CORS policy to match your frontend domain.
-
-### R2 / storage issues
-
-**Symptom:** Upload fails with a 403 or presign URL error.
-
-- Confirm `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, and `R2_ENDPOINT_URL` are set.
-- The endpoint URL must match your Cloudflare account: `https://<ACCOUNT_ID>.r2.cloudflarestorage.com`.
-- R2 access keys are created in the Cloudflare dashboard under **R2 → Manage R2 API tokens**.
-- For `wrangler dev` (local simulation), R2 calls hit Miniflare's in-memory store; no real credentials are required.
-
-**Symptom:** Worker cannot read/write a bucket.
-
-- Check `wrangler.toml` binding names (`RAW_VIDEO`, `CLIPS`, `OVERLAYS`, `ARTIFACTS`) match the actual bucket names in the Cloudflare dashboard.
-- Run `npx wrangler r2 bucket list` to verify buckets exist.
+- Check `CORS_ORIGINS` matches the frontend origin (comma-separated list, e.g. `http://localhost:3000,http://localhost:3001`).
+- Worker CORS (cloud mode) is configured independently in `workers/src/index.ts`.
 
 ### Database / migration issues
 
-**Symptom:** `alembic upgrade head` fails with `relation already exists`.
+- `relation already exists` → partial migration ran; check `alembic current`. Clean slate: `docker compose down -v` (drops volumes) and re-migrate.
+- `FATAL: role "footiq" does not exist` → backend connected before Postgres finished init; the compose healthcheck handles this, manual starts must wait for `pg_isready`.
+- `CREATE EXTENSION vector` fails → not a pgvector image; see [pgvector](#pgvector).
 
-- A partial migration may have run. Check `alembic current` and the state of the `alembic_version` table in Postgres.
-- If the database is empty and you want a clean start: `docker-compose down -v` (drops the `postgres_data` volume) then restart.
+### Pipeline issues
 
-**Symptom:** Backend fails with `FATAL: role "footiq" does not exist`.
+- **Zero clips on a tiny/synthetic test video** is usually the optical-flow segmenter refusing sub-3 s segments — expected. Real footage segments fine; for wiring checks use `PIPELINE_STUB=1`.
+- **Spatial metrics missing** on some footage is by design: when field lines can't be detected from the camera angle, calibration marks the video `analytics_safe=false` and the UI explains why. Boxes, clips, and tracking still work.
+- **Model weights**: Ultralytics downloads YOLO weights on first run (cached under `~/.config/Ultralytics`); ensure outbound internet once, or pre-place the `.pt` files in `gpu-worker/`. A promoted model from the registry is fetched automatically into `~/.cache/football-iq/models/`.
+- **No GPU** → everything still runs; expect ~1–2 min per 30 s clip on a laptop CPU for the same-session stage set. `nvidia-smi` + NVENC are picked up automatically when present (with a runtime probe, not just a listing).
 
-- The DB container may not have finished initializing before the backend tried to connect. Docker Compose uses a healthcheck (`pg_isready -U footiq`) on the `db` service — the `backend` service `depends_on` this. If you start services manually, wait until `pg_isready` succeeds before starting the backend.
+### Worker / queue issues (cloud legacy)
 
-**Symptom:** `CREATE EXTENSION vector` fails.
-
-- The Postgres image does not have pgvector installed. See [pgvector section](#pgvector) above.
-
-### Worker / queue issues
-
-**Symptom:** GPU worker does not pick up jobs.
-
-- Confirm the Worker is actually enqueuing to the right Cloudflare Queue. Check the Cloudflare dashboard → Queues for message counts.
-- The GPU worker polls `video-processing-jobs`. Verify `CF_QUEUE_VIDEO_PROCESSING=video-processing-jobs` is set.
-- For local testing, `wrangler dev` does not deliver queue messages to an external consumer. You must deploy to a real Cloudflare account to test the full queue → GPU worker path.
-
-**Symptom:** `wrangler dev` fails with missing binding errors.
-
-- `wrangler dev` requires the secrets (`JWT_SECRET`, `DATABASE_URL`, `BACKEND_API_URL`) to be available. For local dev, pass them as env vars or create a `.dev.vars` file in `workers/`:
-
-  ```
-  JWT_SECRET=local-dev-secret
-  DATABASE_URL=postgresql://footiq:footiq_dev@localhost:5432/footiq
-  BACKEND_API_URL=http://localhost:8000
-  ```
-
-### GPU worker issues
-
-**Symptom:** GPU worker exits with `CUDA out of memory` or `device not found`.
-
-- Verify the host has an NVIDIA GPU: `nvidia-smi`.
-- Verify the NVIDIA Container Toolkit is installed: `docker run --gpus all nvidia/cuda:12.4.0-base-ubuntu22.04 nvidia-smi`.
-- Reduce model size by adjusting `GPU_WORKER_POLL_INTERVAL` or using the lightweight model config (`pipeline/lightweight_config.py`).
-
-**Symptom:** GPU worker downloads video but pipeline fails.
-
-- Check R2 credentials — the worker downloads raw video from the `raw-video` bucket using `R2_*` env vars.
-- Logs from `gpu-worker/__main__.py` show per-stage errors. Model weights are downloaded on first run (Ultralytics caches in `~/.ultralytics/`); ensure outbound internet access or pre-cache the weights.
+`QUEUE_BACKEND=cf` keeps the old Cloudflare Queues pull path for deployments that still use it; it requires the `CF_*`/`CLOUDFLARE_*` variables and a deployed Worker. New setups should stay on `db`.
 
 ---
 
 ## Service start order
 
-For a clean local session:
-
 ```
-1. db (postgres)          → docker-compose up -d db
-2. migrate (alembic)      → docker-compose --profile migrate up migrate
-3. backend (fastapi)      → docker-compose up -d backend
-4. frontend (next.js)     → docker-compose up -d frontend
-5. workers (optional)     → cd workers && npx wrangler dev
-6. gpu-worker (optional)  → docker run --gpus all ... (see GPU worker section)
+1. db          → docker compose up -d db
+2. migrate     → docker compose --profile migrate up migrate
+3. seed        → docker compose --profile migrate up seed
+4. backend     → docker compose up -d backend
+5. frontend    → docker compose up -d frontend
+6. gpu-worker  → docker compose --profile pipeline up -d gpu-worker
+7. (cloud-sim) → docker compose --profile cloud-sim up -d; workers: npx wrangler dev
 ```
 
-Steps 1–4 cover the full UI and API experience. Steps 5–6 are only needed for the video upload + processing pipeline.
+Steps 1–5 give the full UI and API. Step 6 adds video processing. Step 7 only exists to rehearse the cloud storage/edge path.

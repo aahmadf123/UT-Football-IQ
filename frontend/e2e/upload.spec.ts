@@ -22,11 +22,11 @@ test("upload flow drives Worker → R2 → backend register → inbox refresh", 
   const r2PutUrl = "http://worker.e2e.local/r2/put/PR_e2e.mp4";
 
   await mockWorker(page, {
-    "POST /api/v1/videos/upload-url": (route: Route) => {
+    "POST /api/v1/videos/upload-url": () => {
       uploadUrlRequested = true;
       return { uploadUrl: r2PutUrl, key: "raw/PR_e2e.mp4" };
     },
-    "PUT /r2/put/PR_e2e.mp4": (route: Route) => {
+    "PUT /r2/put/PR_e2e.mp4": () => {
       r2PutInvoked = true;
       return {
         key: "raw/PR_e2e.mp4",

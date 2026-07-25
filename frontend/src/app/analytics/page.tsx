@@ -1,19 +1,25 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { FootballShell } from "@/components/football-shell";
+import { FootballShell } from "@/components/shell/app-shell";
 import { AnalyticsCard, type AnalyticsCardState } from "@/components/analytics-card";
+import { TendencyTable } from "@/components/shared/tendency-table";
 import { useAppState } from "@/lib/app-state";
+import { useFetchState, type FetchState } from "@/lib/fetch-state";
 import {
-  fetchAlerts,
   fetchFrontierMetrics,
   fetchSelfScoutTendencies,
   fetchVideos,
-  type ApiAlert,
   type FrontierMetric,
 } from "@/lib/api";
-import type { ApiVideo, SelfScoutResponse, TendencyEntry } from "@/lib/types";
+import type { SelfScoutResponse } from "@/lib/types";
 import { ExperimentalBadge } from "@/components/experimental-badge";
+import { StatChip } from "@/components/composite/stat-chip";
+import { FilterBar } from "@/components/composite/filter-bar";
+import { Card, CardContent } from "@/components/ui/card";
+
+const OFFLINE_REASON =
+  "Backend offline — live metrics appear when the team server is connected.";
 
 const FRONTIER_UNAVAILABLE_REASON: Record<string, string> = {
   xsep: "xSep requires calibrated receiver tracking (#127/#128/#129). No experimental samples yet for this filter.",
@@ -22,13 +28,6 @@ const FRONTIER_UNAVAILABLE_REASON: Record<string, string> = {
   xpressure:
     "xPressure requires pass-rush tracking + snap/throw events. No experimental samples yet for this filter.",
 };
-
-type FetchState<T> =
-  | { kind: "loading" }
-  | { kind: "offline" }
-  | { kind: "error"; message: string }
-  | { kind: "empty" }
-  | { kind: "ready"; data: T };
 
 export default function AnalyticsPage() {
   return (
@@ -40,78 +39,30 @@ export default function AnalyticsPage() {
 
 function AnalyticsView() {
   const { authToken, selectedDate, sessionType } = useAppState();
-  const [videos, setVideos] = useState<FetchState<ApiVideo[]>>({ kind: "loading" });
-  const [scout, setScout] = useState<FetchState<SelfScoutResponse>>({ kind: "loading" });
-  const [alerts, setAlerts] = useState<FetchState<ApiAlert[]>>({ kind: "loading" });
   // Frontier analytics (Issue #10) — experimental, may be empty.
   const [frontier, setFrontier] = useState<FrontierMetric[] | null>(null);
   const [frontierLoading, setFrontierLoading] = useState(true);
 
-  const loadVideos = useCallback(async () => {
-    const baseUrl = process.env.NEXT_PUBLIC_API_URL;
-    if (!baseUrl) {
-      setVideos({ kind: "offline" });
-      return;
+  const videosFetcher = useCallback(() => {
+    const filters: Record<string, string | number> = { limit: 200 };
+    if (selectedDate) {
+      filters.recorded_after = `${selectedDate}T00:00:00Z`;
+      filters.recorded_before = `${selectedDate}T23:59:59.999999Z`;
     }
-    setVideos({ kind: "loading" });
-    try {
-      const filters: Record<string, string | number> = { limit: 200 };
-      if (selectedDate) {
-        filters.recorded_after = `${selectedDate}T00:00:00Z`;
-        filters.recorded_before = `${selectedDate}T23:59:59.999999Z`;
-      }
-      if (sessionType !== "all") {
-        filters.session_kind = sessionType;
-      }
-      const list = await fetchVideos(filters, authToken);
-      setVideos(list.length === 0 ? { kind: "empty" } : { kind: "ready", data: list });
-    } catch (err) {
-      setVideos({
-        kind: "error",
-        message: err instanceof Error ? err.message : String(err),
-      });
+    if (sessionType !== "all") {
+      filters.session_kind = sessionType;
     }
+    return fetchVideos(filters, authToken);
   }, [authToken, selectedDate, sessionType]);
+  const { state: videos, reload: loadVideos } = useFetchState(videosFetcher);
 
-  const loadScout = useCallback(async () => {
-    const baseUrl = process.env.NEXT_PUBLIC_API_URL;
-    if (!baseUrl) {
-      setScout({ kind: "offline" });
-      return;
-    }
-    setScout({ kind: "loading" });
-    try {
-      const data = await fetchSelfScoutTendencies(null, authToken);
-      setScout(
-        data.clip_count === 0
-          ? { kind: "empty" }
-          : { kind: "ready", data },
-      );
-    } catch (err) {
-      setScout({
-        kind: "error",
-        message: err instanceof Error ? err.message : String(err),
-      });
-    }
-  }, [authToken]);
-
-  const loadAlerts = useCallback(async () => {
-    const baseUrl = process.env.NEXT_PUBLIC_API_URL;
-    if (!baseUrl) {
-      setAlerts({ kind: "offline" });
-      return;
-    }
-    setAlerts({ kind: "loading" });
-    try {
-      const list = await fetchAlerts({ limit: 25 }, authToken);
-      setAlerts(list.length === 0 ? { kind: "empty" } : { kind: "ready", data: list });
-    } catch (err) {
-      setAlerts({
-        kind: "error",
-        message: err instanceof Error ? err.message : String(err),
-      });
-    }
-  }, [authToken]);
+  const scoutFetcher = useCallback(
+    () => fetchSelfScoutTendencies(null, authToken),
+    [authToken],
+  );
+  const { state: scout, reload: loadScout } = useFetchState(scoutFetcher, {
+    isEmpty: (data) => data.clip_count === 0,
+  });
 
   const loadFrontier = useCallback(async () => {
     const baseUrl = process.env.NEXT_PUBLIC_API_URL;
@@ -134,18 +85,6 @@ function AnalyticsView() {
   }, [authToken]);
 
   useEffect(() => {
-    loadVideos();
-  }, [loadVideos]);
-
-  useEffect(() => {
-    loadScout();
-  }, [loadScout]);
-
-  useEffect(() => {
-    loadAlerts();
-  }, [loadAlerts]);
-
-  useEffect(() => {
     loadFrontier();
   }, [loadFrontier]);
 
@@ -154,10 +93,7 @@ function AnalyticsView() {
       case "loading":
         return { kind: "loading" };
       case "offline":
-        return {
-          kind: "unavailable",
-          reason: "Backend offline — set NEXT_PUBLIC_API_URL to compute live metrics.",
-        };
+        return { kind: "unavailable", reason: OFFLINE_REASON };
       case "error":
         return { kind: "error", message: videos.message, onRetry: loadVideos };
       case "empty":
@@ -171,117 +107,75 @@ function AnalyticsView() {
   }, [videos, loadVideos]);
 
   const scoutCardState = scoutToCardState(scout, loadScout);
-  const alertsCardState = alertsToCardState(alerts, loadAlerts);
 
   return (
-    <div className="content-grid">
-      <AnalyticsCard
-        title="Film Volume"
-        state={totalPlaysState}
-        className="span-4"
-      >
-        {videos.kind === "ready" && (
-          <div className="metric-grid" style={{ marginTop: 4 }}>
-            <Metric label="Videos" value={String(videos.data.length)} />
-            <Metric
-              label="Ready"
-              value={String(videos.data.filter((v) => v.status === "ready").length)}
-            />
-            <Metric
-              label="Processing"
-              value={String(videos.data.filter((v) => v.status === "processing").length)}
-            />
-          </div>
-        )}
+    <div className="flex flex-col gap-4">
+      <FilterBar className="mb-0" />
+
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <AnalyticsCard title="Film Volume" state={totalPlaysState}>
+          {videos.kind === "ready" && (
+            <div className="grid grid-cols-3 gap-2">
+              <StatChip label="Videos" value={String(videos.data.length)} />
+              <StatChip
+                label="Ready"
+                value={String(videos.data.filter((v) => v.status === "ready").length)}
+              />
+              <StatChip
+                label="Processing"
+                value={String(videos.data.filter((v) => v.status === "processing").length)}
+              />
+            </div>
+          )}
+        </AnalyticsCard>
+
+        <FrontierCard
+          title="Expected Separation (xSep)"
+          metricName="xsep"
+          valueKey="yards"
+          unit="yd"
+          metrics={frontier}
+          loading={frontierLoading}
+        />
+
+        <FrontierCard
+          title="Expected Yards (xYards)"
+          metricName="xyards"
+          valueKey="observed_yac_yd"
+          unit="yd"
+          metrics={frontier}
+          loading={frontierLoading}
+        />
+
+        <FrontierCard
+          title="Expected Pressure (xPressure)"
+          metricName="xpressure"
+          valueKey="xpressure"
+          unit=""
+          metrics={frontier}
+          loading={frontierLoading}
+        />
+      </div>
+
+      <AnalyticsCard title="Formation Run / Pass" state={scoutCardState}>
+        {scout.kind === "ready" && <TendencyTable entries={scout.data.formation_tendencies} />}
       </AnalyticsCard>
 
-      <FrontierCard
-        title="Expected Separation (xSep)"
-        metricName="xsep"
-        valueKey="yards"
-        unit="yd"
-        metrics={frontier}
-        loading={frontierLoading}
-      />
-
-      <FrontierCard
-        title="Expected Yards (xYards)"
-        metricName="xyards"
-        valueKey="observed_yac_yd"
-        unit="yd"
-        metrics={frontier}
-        loading={frontierLoading}
-      />
-
-      <FrontierCard
-        title="Expected Pressure (xPressure)"
-        metricName="xpressure"
-        valueKey="xpressure"
-        unit=""
-        metrics={frontier}
-        loading={frontierLoading}
-      />
-
-      <AnalyticsCard
-        title="Model Quality"
-        state={{
-          kind: "gated",
-          reason:
-            "Boundary / tracking / label / pose quality scores are sourced from the model registry. Not exposed to coaches in P1.",
-        }}
-        className="span-4"
-      />
-
-      <AnalyticsCard
-        title="Spatial Heatmap"
-        state={{
-          kind: "unavailable",
-          reason:
-            "Spatial heatmaps require aggregated tracklet positions across many clips. Gated until the metrics pipeline backfills.",
-        }}
-        className="span-4"
-      />
-
-      <AnalyticsCard
-        title="Formation Run / Pass"
-        state={scoutCardState}
-        className="span-6"
-      >
-        {scout.kind === "ready" && (
-          <TendencyTable entries={scout.data.formation_tendencies} />
-        )}
-      </AnalyticsCard>
-
-      <AnalyticsCard
-        title="Coaching Alerts"
-        state={alertsCardState}
-        className="span-6"
-      >
-        {alerts.kind === "ready" && (
-          <div className="list-stack" style={{ gap: 6 }}>
-            {alerts.data.slice(0, 6).map((a) => (
-              <div
-                key={a.id}
-                className="status-row"
-                style={{ gridTemplateColumns: "1fr auto" }}
-                data-testid={`analytics-alert-${a.id}`}
-              >
-                <div>
-                  <strong>{a.alert_type}</strong>
-                  <div className="kicker">
-                    {a.position_group} · {a.metric_name} · {Math.round(a.confidence * 100)}%
-                  </div>
-                </div>
-                <span
-                  className={`status-pill ${alertPillClass(a.severity)}`}
-                >
-                  {a.severity}
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
-      </AnalyticsCard>
+      {/* Capabilities that exist in the pipeline but are not coach-visible
+          yet. One honest footnote instead of permanently-empty cards. */}
+      <Card data-testid="analytics-in-development">
+        <CardContent>
+          <h2 className="font-display text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+            In development
+          </h2>
+          <p className="mt-1 text-xs text-muted-foreground">
+            <strong className="text-foreground/80">Model Quality</strong> — boundary / tracking /
+            label / pose quality scores from the model registry, not exposed to coaches yet.{" "}
+            <strong className="text-foreground/80">Spatial Heatmap</strong> — requires aggregated
+            tracklet positions across many clips; arrives with the metrics-pipeline backfill.
+          </p>
+        </CardContent>
+      </Card>
     </div>
   );
 }
@@ -294,57 +188,16 @@ function scoutToCardState(
     case "loading":
       return { kind: "loading", label: "Computing tendencies…" };
     case "offline":
-      return {
-        kind: "unavailable",
-        reason: "Backend offline — set NEXT_PUBLIC_API_URL to compute live metrics.",
-      };
+      return { kind: "unavailable", reason: OFFLINE_REASON };
     case "error":
       return { kind: "error", message: scout.message, onRetry: retry };
     case "empty":
       return {
         kind: "empty",
-        reason:
-          "No labeled plays available yet. Upload film or wait for the labeling pipeline.",
+        reason: "No labeled plays available yet. Upload film or wait for the labeling pipeline.",
       };
     case "ready":
       return { kind: "live" };
-  }
-}
-
-function alertsToCardState(
-  alerts: FetchState<ApiAlert[]>,
-  retry: () => void,
-): AnalyticsCardState {
-  switch (alerts.kind) {
-    case "loading":
-      return { kind: "loading", label: "Loading alerts…" };
-    case "offline":
-      return {
-        kind: "unavailable",
-        reason: "Backend offline — set NEXT_PUBLIC_API_URL to stream alerts.",
-      };
-    case "error":
-      return { kind: "error", message: alerts.message, onRetry: retry };
-    case "empty":
-      return {
-        kind: "empty",
-        reason: "No alerts have been generated yet for your position group.",
-      };
-    case "ready":
-      return { kind: "live" };
-  }
-}
-
-function alertPillClass(severity: string): string {
-  switch (severity.toLowerCase()) {
-    case "critical":
-    case "high":
-      return "danger";
-    case "warning":
-    case "medium":
-      return "warning";
-    default:
-      return "info";
   }
 }
 
@@ -383,60 +236,23 @@ function FrontierCard({
     <AnalyticsCard
       title={title}
       state={state}
-      className="span-4"
       headerExtra={hasValue ? <ExperimentalBadge /> : undefined}
     >
       {hasValue && latest && (
         <div data-testid={`frontier-${metricName}`}>
-          <strong style={{ fontSize: "1.4rem" }}>
+          <strong data-numeric className="font-mono text-2xl font-semibold">
             {Number(rawValue).toFixed(2)}
             {unit ? ` ${unit}` : ""}
           </strong>
-          <p className="kicker" style={{ marginTop: 4 }}>
+          <p className="mt-1 text-xs text-muted-foreground">
             {forName.length} sample{forName.length === 1 ? "" : "s"} · source {latest.source}
             {latest.sample_size != null ? ` · n=${latest.sample_size}` : ""}
           </p>
           {latest.stability_note && (
-            <p className="kicker" style={{ marginTop: 4 }}>
-              {latest.stability_note}
-            </p>
+            <p className="mt-1 text-xs text-muted-foreground">{latest.stability_note}</p>
           )}
         </div>
       )}
     </AnalyticsCard>
-  );
-}
-
-function TendencyTable({ entries }: { entries: TendencyEntry[] }) {
-  if (entries.length === 0) {
-    return (
-      <p className="kicker">No tendencies above the minimum-sample threshold.</p>
-    );
-  }
-  return (
-    <div className="list-stack" style={{ gap: 4 }}>
-      {entries.map((e) => (
-        <div
-          key={e.grouping_key}
-          className="status-row"
-          style={{ gridTemplateColumns: "1fr 56px minmax(90px, 1fr)" }}
-        >
-          <strong>{e.grouping_key}</strong>
-          <span>{e.total_plays}</span>
-          <div className="progress">
-            <i style={{ "--value": `${Math.round(e.run_rate * 100)}%` } as React.CSSProperties} />
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function Metric({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="metric-card">
-      <span>{label}</span>
-      <strong>{value}</strong>
-    </div>
   );
 }

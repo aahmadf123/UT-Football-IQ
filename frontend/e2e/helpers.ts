@@ -19,11 +19,64 @@ interface RouteMap {
   [route: string]: unknown | JsonHandler;
 }
 
+/** Build a decodable (unsigned) JWT so roles.ts / auth.tsx can read the role. */
+export function makeE2eJwt(role = "coach"): string {
+  const header = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64");
+  const payload = Buffer.from(
+    JSON.stringify({ sub: "e2e-user", role, type: "access" }),
+  ).toString("base64");
+  return `${header}.${payload}.e2e-signature`;
+}
+
+/**
+ * Seed a signed-in session before the app boots. The shell requires a
+ * session whenever a backend is configured (which the e2e suite always
+ * fakes), so every spec runs as an authenticated coach by default.
+ */
+export async function seedAuthSession(page: Page, role = "coach"): Promise<void> {
+  const token = makeE2eJwt(role);
+  await page.addInitScript(
+    ([storageValue]) => {
+      window.localStorage.setItem("football-iq-auth-v1", storageValue);
+    },
+    [
+      JSON.stringify({
+        token,
+        refreshToken: "e2e-refresh-token",
+        user: { email: "coach@e2e.local", role },
+      }),
+    ],
+  );
+}
+
 /**
  * Register JSON responders for backend endpoints. Any unmatched request to
  * the fake API host returns 404 so unintended calls fail visibly.
+ *
+ * Also seeds an authenticated coach session and a default
+ * `/api/v1/auth/refresh` responder (override by passing your own).
  */
 export async function mockBackend(page: Page, routes: RouteMap): Promise<void> {
+  await seedAuthSession(page);
+  const withAuthDefaults: RouteMap = {
+    "POST /api/v1/auth/refresh": {
+      access_token: makeE2eJwt("coach"),
+      refresh_token: "e2e-refresh-token",
+    },
+    ...routes,
+  };
+  await mockHost(page, "api.e2e.local", withAuthDefaults);
+}
+
+/**
+ * Same as `mockBackend` but does **not** pre-seed an auth session in
+ * localStorage. Use this for specs that need to exercise the login page
+ * (where a pre-existing token would immediately redirect away from it).
+ *
+ * Auth-endpoint responders (login, register, refresh) are injected by the
+ * caller so each test controls the happy- or error-path outcome.
+ */
+export async function mockBackendNoAuth(page: Page, routes: RouteMap): Promise<void> {
   await mockHost(page, "api.e2e.local", routes);
 }
 
@@ -138,6 +191,41 @@ export function sampleClip(overrides: Record<string, unknown> = {}) {
   };
 }
 
+/**
+ * Sample clip-overlays payload matching the backend's ClipOverlayResponse
+ * schema, including the calibration + capture-regime fields (explained
+ * suppression). Defaults to an analytics-safe, empty-layers payload.
+ */
+export function sampleOverlays(overrides: Record<string, unknown> = {}) {
+  return {
+    clip_id: "c-1",
+    capture_regime: "drone_follow",
+    tracklets: [],
+    events: [],
+    labels: [],
+    metrics: [],
+    layers_available: { tracklets: false, events: false, labels: false, metrics: false },
+    calibration: { analytics_safe: true, reason: null, reason_codes: [], confidence: 0.94 },
+    ...overrides,
+  };
+}
+
+/** Sample overlay tracklet for specs that need a pickable track. */
+export function sampleTracklet(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "t-1",
+    player_id: null,
+    start_frame: 0,
+    end_frame: 300,
+    track_confidence: 0.9,
+    team_label: "home",
+    position_group: "Skill",
+    side_of_ball: "offense",
+    track_points: [],
+    ...overrides,
+  };
+}
+
 /** Sample practice-session group. */
 export function samplePracticeSession(overrides: Record<string, unknown> = {}) {
   return {
@@ -161,6 +249,7 @@ export function sampleInboxItem(overrides: Record<string, unknown> = {}) {
     succeeded_jobs: 6,
     failed_jobs: 0,
     clip_count: 12,
+    preliminary_clip_count: 0,
     calibration_safe_pct: 94,
     latest_error_stage: null,
     latest_error_message: null,

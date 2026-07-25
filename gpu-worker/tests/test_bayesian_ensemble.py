@@ -18,7 +18,6 @@ from pipeline.play_prediction.bayesian_ensemble import (
     MixtureOfExperts,
     PredictionResult,
 )
-from pipeline.play_prediction.calibration import PlattScaler
 
 
 def _toy_samples() -> list[tuple[dict[str, str], str]]:

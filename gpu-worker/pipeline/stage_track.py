@@ -57,6 +57,7 @@ def run(
     results = tracker.track(detections)
 
     tracklet_ids: list[str] = []
+    tracklets: list[dict[str, Any]] = []
     masked_tracklet_count = 0
     for track in results:
         if len(track.points) < 2:
@@ -71,6 +72,20 @@ def run(
                 job_id=job_id,
             )
             tracklet_ids.append(resp["id"])
+            # Full tracklet record for in-process consumers (reid / pose /
+            # events / labels / metrics take `tracklets` dicts in exactly
+            # the backend row shape — carrying them here saves the
+            # orchestrator a read-back round trip).
+            tracklets.append(
+                {
+                    "id": resp["id"],
+                    "clip_id": clip_id,
+                    "start_frame": track.start_frame,
+                    "end_frame": track.last_frame,
+                    "track_points": track.points,
+                    "team_label": "unknown",
+                }
+            )
             if any("mask" in p for p in track.points):
                 masked_tracklet_count += 1
         except Exception as exc:
@@ -87,5 +102,6 @@ def run(
     return {
         "tracklet_count": len(tracklet_ids),
         "tracklet_ids": tracklet_ids,
+        "tracklets": tracklets,
         "mask_aware": tracker.mask_aware,
     }

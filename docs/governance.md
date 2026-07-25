@@ -36,10 +36,13 @@ any (resource, action) pair not listed in the table is forbidden.
 | `player_profile`      | `read`     | all authenticated roles                       |
 | `player_visibility`   | `write`    | admin, analyst, coach                         |
 | `player_visibility`   | `approve`  | admin, analyst (recruiting approval)          |
+| `player_development`  | `write`    | admin, analyst, coach                         |
+| `player_development`  | `approve`  | admin, analyst, coach                         |
 | `player_metrics`      | `read`     | admin, analyst, coach, sportsperformance, player |
 | `health_workload`     | `read`     | admin, analyst, sportsperformance             |
 | `heavy_workload`      | `trigger`  | admin, analyst                                |
 | `cfbd_analytics`      | `read`     | admin, analyst, coach, sportsperformance      |
+| `counterfactual`      | `read`     | admin, analyst, coach                         |
 
 Routers enforce policies via `require_policy(resource, action)` where the
 resource/action matrix is applied. Every denial
@@ -139,12 +142,28 @@ The gating dependency is intentionally cheap and reusable — apply it to
 additional heavy endpoints (embedding rebuilds, video re-renders, bulk
 exports) as those land.
 
-### Health/workload status surface
+### System workload status surface
 
-`GET /api/v1/health/workload` returns the current snapshot for operators.
-It is restricted to the `health_workload:read` policy (admin / analyst /
-sports-performance) and contains aggregate counters only — no per-player or
-per-job identifiers.
+`GET /api/v1/health/workload` returns the current GPU-queue snapshot for
+operators.  It is restricted to the `health_workload:read` policy (admin /
+analyst / sports-performance) and contains aggregate counters only — no
+per-player or per-job identifiers.
+
+> This is *system capacity*, not athlete health data.  The athlete
+> health/workload product surface (wellness, GPS/wearables, S&C) is a separate
+> concern — see [`health-workload-surface.md`](health-workload-surface.md).
+
+### Athlete health/workload surface (Issue #113)
+
+`GET /api/v1/health-workload/surface` is the role-gated, audit-logged
+groundwork for the athlete health/workload product surface.  It is gated by the
+same `health_workload:read` policy and returns **no athlete data** — only the
+placeholder integration contracts (wellness, GPS/wearables, S&C, all
+`not_connected`), the approved-role list, and a non-medical disclaimer.  The UI
+is hidden for non-approved roles in both the navigation and the page itself.
+The full contract — RBAC, audit events, policy-safe copy rules, and the
+integration contracts — lives in
+[`health-workload-surface.md`](health-workload-surface.md).
 
 ## 5. Audit logging
 
@@ -165,6 +184,18 @@ Events to expect:
 * `audit.gating.allowed`
 * `audit.gating.rejected`
 * `audit.health_workload.read`
+* `audit.health_workload.surface.read`
+* `audit.profile.read`
+* `audit.profile.upserted`
+* `audit.profile.snapshot_created`
+* `audit.profile.snapshot_approval_changed`
+* `audit.profile.snapshot_approval_blocked`
+* `audit.playbook.concept_upserted`
+* `audit.playbook.concept_linked`
+* `audit.playbook.scored`
+* `audit.playbook.score_overridden`
+* `audit.playbook.corpus_scored`
+* `audit.counterfactual.simulated`
 
 These follow the existing structlog JSON format and can be filtered by
 `event=audit.*` in log aggregators.
@@ -201,6 +232,103 @@ Two coaching-staff-only surfaces build on the layers above:
   ingest. `GET /api/v1/analytics/frontier` blocks `player`/`viewer`, returns the
   coach-readable definitions, and labels every value EXPERIMENTAL. See
   [`docs/frontier-analytics.md`](frontier-analytics.md).
+
+## 6c. Player development passport (Issue #7)
+
+The individualized player profile / development passport builds directly on the
+visibility lifecycle and RBAC above. Two tables back it
+(`player_profiles`, `player_profile_snapshots`); the router is
+`app.routers.player_profiles`.
+
+* **Single source of visibility.** The outward-facing lifecycle stays on
+  `players.visibility_state` (§3). The passport tables deliberately do **not**
+  duplicate it — `shape_player_profile` delegates the staff/player/recruiting
+  gate to `shape_player`, so a profile is only visible in a mode the parent
+  player record already permits.
+* **Private coach notes.** `coach_notes` is staff-only and is stripped from
+  every player/recruiting projection regardless of column state. The player
+  self-view returns the staff-approved `player_summary`, development goals, and
+  curated clips only — never coach notes, identity confidence, or raw metrics.
+* **Authoring vs. approval.** Writing profile content and weekly snapshots
+  requires `player_development:write` (coaching staff). Approving a snapshot for
+  player-facing/recruiting use requires `player_development:approve`. Every
+  snapshot records `generated_by` (`manual` / `model_assisted` / `imported`)
+  and, once approved, `approved_by` / `approved_at`.
+* **Confidence-scored identity (no face recognition).** Each snapshot carries a
+  `PlayerIdentityState` (`known` / `probable` / `unknown` / `conflicting` /
+  `needs_review`), an `identity_confidence`, and the `identity_signals` that
+  produced it (jersey OCR, appearance, trajectory, roster mapping, manual
+  correction — never face data). Jersey OCR is never treated as ground truth.
+* **Low-confidence guard.** A snapshot whose identity confidence is below
+  `PLAYER_PROFILE_IDENTITY_CONFIDENCE_THRESHOLD` or whose state is not
+  `known`/`probable` is forced `experimental_flag = True` and **cannot be
+  approved** for player-facing use (`409 identity_confidence_too_low`) — a
+  low-confidence identity is never silently attached to a player's profile.
+  Identity is resolved/corrected via the existing tracklet + coach-correction
+  flywheel (`PATCH /api/v1/tracklets/{id}`), not by this router.
+* **Audit.** Reads emit `audit.profile.read`; writes emit
+  `audit.profile.upserted` / `audit.profile.snapshot_created`; approval emits
+  `audit.profile.snapshot_approval_changed` or
+  `audit.profile.snapshot_approval_blocked`. All carry identifiers/enums only —
+  never profile content, metrics, or notes.
+
+## 6d. Playbook overlays & assignment scoring (Issue #15)
+
+The playbook overlay + execution-scoring surface (`app.routers.playbook`,
+`/api/v1/playbook`) builds on the RBAC and workload layers above. See ADR 0004
+and [`docs/playbook-overlays.md`](playbook-overlays.md).
+
+* **Coaching-staff only.** A new `Resource.PLAYBOOK` with `read` and `write`
+  actions is allowed for admin/analyst/coach. Reading the overlay/score surface
+  and authoring concepts/links/scores/overrides are both coaching-staff only —
+  execution scores are **never** exposed to player/viewer accounts (Non-Goal:
+  no player-facing scores without coach mediation), and sports-performance has
+  no tactical-scheme role here. The whole router is additionally guarded by the
+  `PLAYBOOK_ENABLED` feature flag (404 when off).
+* **Identity-safe, experimental-by-default scoring.** The rule-based engine
+  never grades a "wrong assignment" on a low-confidence/conflicting identity (it
+  returns `needs_review`), consumes identity/track/calibration confidence, and
+  flags outputs experimental until the concept is coach-validated on a `known`
+  identity. No face recognition is used.
+* **Heavy endpoint is gated.** `POST /concepts/{id}/score-corpus` uses
+  `require_workload_capacity("playbook.score_corpus")` and returns the standard
+  distinguishable `503 workload_gated` behaviour; per-play scoring is ungated.
+* **Corrections feed training.** A coach override (`PATCH /scores/{id}`) is
+  authoritative on the row and also writes an `assignment_execution` training
+  Label.
+* **Audit.** Events carry identifiers/enums only (clip/concept/score ids,
+  assignment key, grade, source, counts) — never coaching points, comments, or
+  trajectory data: `audit.playbook.concept_upserted` / `concept_linked` /
+  `scored` / `score_overridden` / `corpus_scored`.
+
+## 6e. Counterfactual coverage simulator (Issue #141)
+
+The counterfactual simulator (`app.routers.counterfactuals`,
+`POST /api/v1/counterfactuals`) is an **offline/backend MVP** built on the RBAC
+and workload layers above. There is **no** coach-facing frontend surface — it
+stays blocked until calibrated uncertainty (#146) and the IA decisions
+(#184/#185/#186). See [`docs/counterfactual-simulator.md`](counterfactual-simulator.md).
+
+* **Coaching-staff only.** A new `Resource.COUNTERFACTUAL` with a `read` action is
+  allowed for admin/analyst/coach. The "what-if vs another coverage" surface is
+  tactical scheme — never exposed to player/viewer accounts, and (like the
+  playbook surface) sports-performance has no role here. The whole router is
+  additionally guarded by the `COUNTERFACTUAL_SIMULATOR_ENABLED` dark-launch flag
+  (404 when off).
+* **Experimental, never trusted truth.** Every response is `experimental` with
+  `trusted_for_coaching=false` and prominent uncertainty bands. Caller-supplied
+  low-confidence identity/tracking/calibration (or a sparse sample) is recorded
+  in `low_confidence_inputs` and forces experimental-only, concept-level
+  language — estimates are keyed by route/coverage concepts, never named players.
+* **Honest about data.** A route with no measured reps returns
+  `data_sufficiency="insufficient"` and no outcomes rather than a fabricated
+  number — no mock data is presented as real.
+* **Heavy endpoint is gated.** It scans the labeled corpus, so it uses
+  `require_workload_capacity("counterfactual.simulate")` and returns the standard
+  distinguishable `503 workload_gated` behaviour.
+* **Audit.** `audit.counterfactual.simulated` carries route/coverage concept keys,
+  the candidate count, and the data-sufficiency tier only — never trajectories or
+  player names.
 
 ## 7. Integration placeholders
 

@@ -12,6 +12,7 @@ from app.database import get_db
 from app.deps import get_current_user
 from app.main import app
 from app.models import (
+    PLAY_EMBEDDING_CLIP_DIM,
     PLAY_EMBEDDING_DIM,
     PLAY_EMBEDDING_STRUCTURED_DIM,
     PLAY_EMBEDDING_VISUAL_DIM,
@@ -73,6 +74,7 @@ def _embedding_row(clip_id: uuid.UUID, mv_id: uuid.UUID) -> MagicMock:
     e.is_experimental = True
     e.source_label_ids = []
     e.vector = [0.0] * PLAY_EMBEDDING_DIM
+    e.clip_vector = None
     e.created_at = MagicMock()
     e.created_at.isoformat.return_value = "2026-05-26T00:00:00+00:00"
     return e
@@ -117,6 +119,48 @@ def test_play_embedding_create_rejects_wrong_sub_vector_dims() -> None:
             vector=[0.0] * PLAY_EMBEDDING_DIM,
             visual_vector=[0.0] * 10,
         )
+
+
+def test_play_embedding_create_accepts_clip_vector() -> None:
+    payload = PlayEmbeddingCreate(
+        clip_id=uuid.uuid4(),
+        model_version_id=uuid.uuid4(),
+        vector=[0.0] * PLAY_EMBEDDING_DIM,
+        clip_vector=[0.0] * PLAY_EMBEDDING_CLIP_DIM,
+    )
+    assert payload.clip_vector is not None
+    assert len(payload.clip_vector) == PLAY_EMBEDDING_CLIP_DIM
+
+
+def test_play_embedding_create_rejects_wrong_clip_vector_dim() -> None:
+    import pydantic
+
+    with pytest.raises(pydantic.ValidationError):
+        PlayEmbeddingCreate(
+            clip_id=uuid.uuid4(),
+            model_version_id=uuid.uuid4(),
+            vector=[0.0] * PLAY_EMBEDDING_DIM,
+            clip_vector=[0.0] * 256,
+        )
+
+
+def test_play_embedding_create_clip_vector_optional() -> None:
+    payload = PlayEmbeddingCreate(
+        clip_id=uuid.uuid4(),
+        model_version_id=uuid.uuid4(),
+        vector=[0.0] * PLAY_EMBEDDING_DIM,
+    )
+    assert payload.clip_vector is None
+
+
+def test_play_embedding_response_reports_has_clip_vector() -> None:
+    clip_id = uuid.uuid4()
+    mv_id = uuid.uuid4()
+    row = _embedding_row(clip_id, mv_id)
+    row.clip_vector = None
+    assert PlayEmbeddingResponse.from_orm_embedding(row).has_clip_vector is False
+    row.clip_vector = [0.0] * PLAY_EMBEDDING_CLIP_DIM
+    assert PlayEmbeddingResponse.from_orm_embedding(row).has_clip_vector is True
 
 
 def test_play_embedding_response_serialises_lineage() -> None:

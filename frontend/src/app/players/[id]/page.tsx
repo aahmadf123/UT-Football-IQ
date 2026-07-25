@@ -1,15 +1,14 @@
-import { footballData } from "@/lib/mock-data";
-import { PlayerProfileClient } from "./player-profile-client";
+import { LegacyPlayerRedirect } from "./legacy-redirect";
 
+// Compatibility route. The old dynamic profile page pre-rendered only the
+// mock-data ids, so real player ids 404'd on the static export. The canonical
+// profile now lives at /players/detail/?id=<id>; this segment keeps one
+// placeholder path alive purely to redirect old links (the client component
+// reads the real id from the runtime URL).
 export function generateStaticParams() {
-  return footballData.players.map((p) => ({ id: p.id }));
+  return [{ id: "redirect" }];
 }
 
-export default async function PlayerProfilePage({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
-  const { id } = await params;
-  return <PlayerProfileClient id={decodeURIComponent(id)} />;
+export default function LegacyPlayerProfilePage() {
+  return <LegacyPlayerRedirect />;
 }

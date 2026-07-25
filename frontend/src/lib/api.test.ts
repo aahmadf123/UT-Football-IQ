@@ -17,7 +17,7 @@ async function freshImport() {
 }
 
 describe("requestUploadUrl", () => {
-  test("sends POST to worker upload-url endpoint and returns uploadUrl + key", async () => {
+  test("requests upload URL from configured Worker and returns uploadUrl + key", async () => {
     const mockResponse = { uploadUrl: "https://worker.test/api/v1/videos/upload/raw/123-test.mp4", key: "raw/123-test.mp4" };
     const fetchMock = vi.fn(async () => ({
       ok: true,
@@ -39,6 +39,33 @@ describe("requestUploadUrl", () => {
     expect(result).toEqual(mockResponse);
   });
 
+  test("falls back to backend when Worker rejects the token", async () => {
+    const workerResponse = { error: "Authentication failed" };
+    const apiResponse = { uploadUrl: "https://api.test/api/v1/videos/upload/raw/x", key: "raw/x" };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+        json: async () => workerResponse,
+        text: async () => JSON.stringify(workerResponse),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => apiResponse,
+        text: async () => JSON.stringify(apiResponse),
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { requestUploadUrl } = await freshImport();
+    const result = await requestUploadUrl("test.mp4", "tok123");
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[0][0]).toBe("https://worker.test/api/v1/videos/upload-url");
+    expect(fetchMock.mock.calls[1][0]).toBe("https://api.test/api/v1/videos/upload-url");
+    expect(result).toEqual(apiResponse);
+  });
+
   test("throws on non-ok response", async () => {
     const fetchMock = vi.fn(async () => ({
       ok: false,
@@ -52,9 +79,31 @@ describe("requestUploadUrl", () => {
     await expect(requestUploadUrl("test.mp4")).rejects.toThrow(/400/);
   });
 
-  test("throws when NEXT_PUBLIC_WORKER_URL is not set", async () => {
+  test("falls back to the API base when NEXT_PUBLIC_WORKER_URL is not set", async () => {
+    // Local / single-box mode: the backend mirrors the Worker's upload
+    // contract, so an empty worker URL routes upload calls to the API base.
     vi.stubEnv("NEXT_PUBLIC_WORKER_URL", "");
+    vi.stubEnv("NEXT_PUBLIC_API_URL", "https://api.test");
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ uploadUrl: "https://api.test/api/v1/videos/upload/raw%2Fx", key: "raw/x" }),
+      text: async () => "",
+    }));
+    vi.stubGlobal("fetch", fetchMock);
     const { requestUploadUrl } = await freshImport();
+    await requestUploadUrl("test.mp4");
+    const [url] = fetchMock.mock.calls[0] as unknown as [string];
+    expect(url).toBe("https://api.test/api/v1/videos/upload-url");
+  });
+
+  test("throws naming both env vars when neither worker nor API base is configured", async () => {
+    vi.stubEnv("NEXT_PUBLIC_WORKER_URL", "");
+    vi.stubEnv("NEXT_PUBLIC_API_URL", "");
+    const { requestUploadUrl } = await freshImport();
+    // The message must name both vars — with the API-base fallback, requiring
+    // only NEXT_PUBLIC_WORKER_URL would be misleading.
+    await expect(requestUploadUrl("test.mp4")).rejects.toThrow(/NEXT_PUBLIC_API_URL/);
     await expect(requestUploadUrl("test.mp4")).rejects.toThrow(/NEXT_PUBLIC_WORKER_URL/);
   });
 });
@@ -169,7 +218,7 @@ describe("fetchClipOverlays", () => {
 });
 
 describe("requestVideoProcessing", () => {
-  test("POSTs an ingest job to backend /api/v1/jobs (nightly by default)", async () => {
+  test("POSTs a pipeline job to backend /api/v1/jobs (nightly by default)", async () => {
     const job = { id: "job-1", status: "queued" };
     const fetchMock = vi.fn(async () => ({
       ok: true,
@@ -189,7 +238,7 @@ describe("requestVideoProcessing", () => {
     const body = JSON.parse(opts.body as string);
     expect(body).toMatchObject({
       video_id: "vid-1",
-      job_type: "ingest",
+      job_type: "pipeline",
       priority: 0,
       pipeline_mode: "nightly",
     });

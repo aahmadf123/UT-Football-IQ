@@ -11,8 +11,6 @@ import os
 import sys
 from typing import Any
 
-import pytest
-
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from pipeline.tracker_models import TrackerBase, get_tracker

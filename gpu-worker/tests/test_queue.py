@@ -17,15 +17,22 @@ Covers:
 
 from __future__ import annotations
 
-import sys
 import os
+import sys
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
 # Ensure gpu-worker root is importable
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+
+
+@pytest.fixture(autouse=True)
+def _enable_cf_queues(monkeypatch: pytest.MonkeyPatch) -> None:
+    """These tests exercise the CF transport, which is opt-in since the
+    DB-as-queue migration — the default (unset) skips CF publishes."""
+    monkeypatch.setenv("CF_QUEUES_ENABLED", "1")
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -63,7 +70,7 @@ def _mock_depth_response(total: int) -> MagicMock:
 class TestPushSameSessionJob:
     def test_happy_path_returns_message_id(self) -> None:
         """push_same_session_job returns the CF message ID on success."""
-        from queue.same_session_queue import push_same_session_job, SAME_SESSION_QUEUE
+        from queue.same_session_queue import SAME_SESSION_QUEUE, push_same_session_job
 
         mock_client = MagicMock()
         mock_client.post.return_value = _mock_push_response("msg-123")
@@ -94,8 +101,9 @@ class TestPushSameSessionJob:
 
     def test_http_error_propagates(self) -> None:
         """An HTTP 500 from CF API raises httpx.HTTPStatusError."""
-        import httpx
         from queue.same_session_queue import push_same_session_job
+
+        import httpx
 
         mock_client = MagicMock()
         err_resp = MagicMock()
@@ -111,7 +119,7 @@ class TestPushSameSessionJob:
 class TestPushNightlyJob:
     def test_happy_path_uses_nightly_queue(self) -> None:
         """push_nightly_job routes to the nightly video-processing queue."""
-        from queue.same_session_queue import push_nightly_job, NIGHTLY_QUEUE
+        from queue.same_session_queue import NIGHTLY_QUEUE, push_nightly_job
 
         mock_client = MagicMock()
         mock_client.post.return_value = _mock_push_response("msg-nightly")
@@ -146,8 +154,9 @@ class TestPullSameSessionMessages:
         assert msgs == []
 
     def test_http_error_propagates(self) -> None:
-        import httpx
         from queue.same_session_queue import pull_same_session_messages
+
+        import httpx
 
         mock_client = MagicMock()
         err_resp = MagicMock()
@@ -239,8 +248,9 @@ class TestDispatchOnUpload:
 
     def test_push_failure_propagates(self) -> None:
         """HTTP error during queue push is raised to the caller."""
-        import httpx
         from queue.cf_trigger import dispatch_on_upload
+
+        import httpx
 
         mock_client = MagicMock()
         err_resp = MagicMock()

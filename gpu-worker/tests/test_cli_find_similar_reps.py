@@ -63,7 +63,7 @@ def test_find_similar_reps_posts_expected_payload(monkeypatch: pytest.MonkeyPatc
         def __init__(self, *args: Any, **kwargs: Any) -> None:
             pass
 
-        def __enter__(self) -> "_FakeClient":
+        def __enter__(self) -> _FakeClient:
             return self
 
         def __exit__(self, *exc: Any) -> None:

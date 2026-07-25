@@ -67,7 +67,7 @@ class PlattScaler:
         *,
         max_iter: int = 100,
         tol: float = 1e-7,
-    ) -> "PlattScaler":
+    ) -> PlattScaler:
         """Fit ``a``/``b`` by Newton-Raphson on the binary cross-entropy.
 
         ``scores`` are real-valued decision scores (logits); ``labels`` are
@@ -128,7 +128,7 @@ class PlattScaler:
         return {"a": self.a, "b": self.b, "is_fitted": self.is_fitted, "kind": "platt"}
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "PlattScaler":
+    def from_dict(cls, d: dict[str, Any]) -> PlattScaler:
         return cls(a=float(d.get("a", 1.0)), b=float(d.get("b", 0.0)), is_fitted=bool(d.get("is_fitted", False)))
 
 
@@ -147,7 +147,7 @@ class IsotonicCalibrator:
     y_values: list[float] | None = None
     is_fitted: bool = False
 
-    def fit(self, probs: np.ndarray | list[float], labels: np.ndarray | list[int]) -> "IsotonicCalibrator":
+    def fit(self, probs: np.ndarray | list[float], labels: np.ndarray | list[int]) -> IsotonicCalibrator:
         x = np.asarray(probs, dtype=np.float64).ravel()
         y = np.asarray(labels, dtype=np.float64).ravel()
         if x.size == 0 or x.size != y.size:
@@ -200,7 +200,7 @@ class IsotonicCalibrator:
         }
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "IsotonicCalibrator":
+    def from_dict(cls, d: dict[str, Any]) -> IsotonicCalibrator:
         return cls(
             x_thresholds=d.get("x_thresholds"),
             y_values=d.get("y_values"),

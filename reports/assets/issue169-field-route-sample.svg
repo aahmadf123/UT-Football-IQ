@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="560" viewBox="0 0 1200 560" role="img" aria-labelledby="title desc">
+  <title id="title">Issue 169 sample NCAA football field route chart</title>
+  <desc id="desc">Synthetic report-only field chart showing yard lines, hashes, player starts, and illustrative receiver routes.</desc>
+  <rect width="1200" height="560" fill="#f7f7f2"/>
+  <rect x="40" y="40" width="1120" height="480" fill="#27664b"/>
+  <rect x="40" y="40" width="93" height="480" fill="#1e4f73"/>
+  <rect x="1067" y="40" width="93" height="480" fill="#1e4f73"/>
+  <rect x="40" y="40" width="1120" height="480" fill="none" stroke="#ffffff" stroke-width="4"/>
+  <g stroke="#ffffff" stroke-width="2" opacity="0.88">
+    <line x1="133" y1="40" x2="133" y2="520"/>
+    <line x1="227" y1="40" x2="227" y2="520"/>
+    <line x1="320" y1="40" x2="320" y2="520"/>
+    <line x1="413" y1="40" x2="413" y2="520"/>
+    <line x1="507" y1="40" x2="507" y2="520"/>
+    <line x1="600" y1="40" x2="600" y2="520"/>
+    <line x1="693" y1="40" x2="693" y2="520"/>
+    <line x1="787" y1="40" x2="787" y2="520"/>
+    <line x1="880" y1="40" x2="880" y2="520"/>
+    <line x1="973" y1="40" x2="973" y2="520"/>
+    <line x1="1067" y1="40" x2="1067" y2="520"/>
+  </g>
+  <g stroke="#ffffff" stroke-width="2" opacity="0.76">
+    <line x1="133" y1="214" x2="1067" y2="214"/>
+    <line x1="133" y1="346" x2="1067" y2="346"/>
+  </g>
+  <g fill="#ffffff" font-family="Arial, Helvetica, sans-serif" font-size="32" font-weight="700" text-anchor="middle" opacity="0.92">
+    <text x="227" y="104">10</text>
+    <text x="320" y="104">20</text>
+    <text x="413" y="104">30</text>
+    <text x="507" y="104">40</text>
+    <text x="600" y="104">50</text>
+    <text x="693" y="104">40</text>
+    <text x="787" y="104">30</text>
+    <text x="880" y="104">20</text>
+    <text x="973" y="104">10</text>
+    <text x="227" y="470">10</text>
+    <text x="320" y="470">20</text>
+    <text x="413" y="470">30</text>
+    <text x="507" y="470">40</text>
+    <text x="600" y="470">50</text>
+    <text x="693" y="470">40</text>
+    <text x="787" y="470">30</text>
+    <text x="880" y="470">20</text>
+    <text x="973" y="470">10</text>
+  </g>
+  <g stroke="#f8d94a" stroke-width="5" fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M 451 150 C 515 150, 566 126, 600 92"/>
+    <path d="M 451 236 C 535 236, 563 236, 619 236"/>
+    <path d="M 451 324 C 506 324, 544 360, 582 402"/>
+    <path d="M 451 410 C 507 410, 544 410, 563 382"/>
+  </g>
+  <g fill="#f8d94a" stroke="#1b1b1b" stroke-width="2">
+    <circle cx="451" cy="150" r="11"/>
+    <circle cx="451" cy="236" r="11"/>
+    <circle cx="451" cy="324" r="11"/>
+    <circle cx="451" cy="410" r="11"/>
+    <circle cx="426" cy="280" r="13"/>
+  </g>
+  <g fill="#ffffff" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="700">
+    <text x="463" y="143">X</text>
+    <text x="463" y="229">Y</text>
+    <text x="463" y="317">Z</text>
+    <text x="463" y="403">H</text>
+    <text x="444" y="286">QB</text>
+  </g>
+  <g fill="#1b1b1b" font-family="Arial, Helvetica, sans-serif" font-size="20">
+    <text x="40" y="30">Synthetic route chart - report artifact, not real Toledo data</text>
+    <text x="40" y="550">Coordinate frame: 120 yd x 53.3 yd NCAA field. Production should render from calibrated field_x/field_y.</text>
+  </g>
+</svg>

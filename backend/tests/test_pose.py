@@ -39,7 +39,7 @@ def test_pose_metric_names_all_prefixed() -> None:
 
 
 def test_pose_metric_names_count() -> None:
-    assert len(POSE_METRIC_NAMES) == 14
+    assert len(POSE_METRIC_NAMES) == 15
 
 
 def test_position_group_metrics_ol_contains_pad_level() -> None:
@@ -60,6 +60,11 @@ def test_position_group_metrics_qb_contains_mechanics() -> None:
     names = _position_group_metric_names("QB")
     assert "pose_qb_stride_consistency" in names
     assert "pose_qb_shoulder_hip_separation" in names
+
+
+def test_position_group_metrics_db_contains_body_orientation_proxy() -> None:
+    names = _position_group_metric_names("DB")
+    assert "pose_body_orientation_proxy" in names
 
 
 def test_position_group_metrics_all_returns_all_pose_names() -> None:

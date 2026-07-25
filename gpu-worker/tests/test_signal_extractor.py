@@ -7,6 +7,7 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
+from pipeline.play_prediction.formation_mlp import FormationClassifier
 from pipeline.play_prediction.per_opponent_prior import (
     DEFAULT_ALPHA_PASS,
     DEFAULT_ALPHA_RUN,
@@ -15,7 +16,6 @@ from pipeline.play_prediction.per_opponent_prior import (
     distance_bucket,
     field_zone,
 )
-from pipeline.play_prediction.formation_mlp import FormationClassifier
 from pipeline.play_prediction.personnel import extract_personnel, position_from_jersey
 from pipeline.play_prediction.signal_extractor import (
     PreSnapSignals,
@@ -24,7 +24,6 @@ from pipeline.play_prediction.signal_extractor import (
     extract_signals,
     extract_split,
 )
-
 
 # ── Signal 1: personnel ───────────────────────────────────────────────────────
 

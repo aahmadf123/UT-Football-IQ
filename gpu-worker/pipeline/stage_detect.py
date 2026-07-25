@@ -47,7 +47,6 @@ import structlog
 
 from pipeline import r2
 from pipeline.detection.ball_detector import (
-    YOLO_BALL,
     ball_strategy,
     build_ball_detector,
 )
@@ -112,8 +111,23 @@ def run(
     )
 
     # ── Player detector ───────────────────────────────────────────────────
+    served_version_id: str | None = None
     if detector is None:
-        if variant is None:
+        # Serving leg: a human-promoted production detector from the model
+        # registry takes precedence over bundled defaults (offline-safe —
+        # resolve() returns None whenever the registry/artifact is absent).
+        from pipeline import model_registry_client
+
+        resolved = model_registry_client.resolve("detect")
+        if resolved is not None:
+            served_version_id = resolved.model_version_id
+            base = get_detector(
+                player_variant,
+                model_path=str(resolved.local_path),
+                confidence_threshold=DETECTION_CONF,
+            )
+            player = build_player_detector(player_variant, capture_regime, base=base)
+        elif variant is None:
             # Legacy path: build the base detector from MODEL_DETECT_PATH and
             # let regime composition wrap it.
             base = get_detector(
@@ -153,6 +167,10 @@ def run(
         video_path.unlink(missing_ok=True)
 
     result["model_routing"] = {"detect": player_variant, "ball": ball_variant}
+    if served_version_id:
+        # Record which registry-promoted artifact actually served this run so
+        # provenance survives into job output_artifacts.
+        result["served_model_versions"] = {"detect": served_version_id}
     result["detection_strategy"] = {
         "capture_regime": capture_regime or "unknown",
         "player": player_detection_strategy(capture_regime),
@@ -163,8 +181,7 @@ def run(
 
 
 def _uri_to_r2_key(uri: str) -> str:
-    if uri.startswith("r2://"):
-        return "/".join(uri.split("/")[3:])
+    """Pass storage references through — pipeline.storage parses scheme + bucket."""
     return uri
 
 

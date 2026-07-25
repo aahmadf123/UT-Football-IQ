@@ -1,0 +1,254 @@
+{
+  "model": "clip-vitb32",
+  "dim": 512,
+  "generated_at": null,
+  "_note": "American-football concept vocabulary for CLIP text-tower zero-shot search (Issue #195). 'vector' is null until gpu-worker/scripts/build_concept_catalog.py encodes each phrase with the CLIP ViT-B/32 text tower and the populated file is committed. Vectors only here \u2014 never model weights. No soccer concepts.",
+  "concepts": [
+    {
+      "concept_id": "counter",
+      "category": "concept",
+      "phrase": "american football counter play",
+      "vector": null
+    },
+    {
+      "concept_id": "draw",
+      "category": "concept",
+      "phrase": "american football draw play",
+      "vector": null
+    },
+    {
+      "concept_id": "flood",
+      "category": "concept",
+      "phrase": "american football flood play",
+      "vector": null
+    },
+    {
+      "concept_id": "four_verts",
+      "category": "concept",
+      "phrase": "american football four verticals play",
+      "vector": null
+    },
+    {
+      "concept_id": "inside_zone",
+      "category": "concept",
+      "phrase": "american football inside zone play",
+      "vector": null
+    },
+    {
+      "concept_id": "mesh",
+      "category": "concept",
+      "phrase": "american football mesh play",
+      "vector": null
+    },
+    {
+      "concept_id": "outside_zone",
+      "category": "concept",
+      "phrase": "american football outside zone play",
+      "vector": null
+    },
+    {
+      "concept_id": "play_action",
+      "category": "concept",
+      "phrase": "american football play action play",
+      "vector": null
+    },
+    {
+      "concept_id": "power",
+      "category": "concept",
+      "phrase": "american football power play",
+      "vector": null
+    },
+    {
+      "concept_id": "rpo",
+      "category": "concept",
+      "phrase": "american football rpo play",
+      "vector": null
+    },
+    {
+      "concept_id": "scramble",
+      "category": "concept",
+      "phrase": "american football qb scramble play",
+      "vector": null
+    },
+    {
+      "concept_id": "screen",
+      "category": "concept",
+      "phrase": "american football screen play",
+      "vector": null
+    },
+    {
+      "concept_id": "smash",
+      "category": "concept",
+      "phrase": "american football smash play",
+      "vector": null
+    },
+    {
+      "concept_id": "stick",
+      "category": "concept",
+      "phrase": "american football stick play",
+      "vector": null
+    },
+    {
+      "concept_id": "sweep",
+      "category": "concept",
+      "phrase": "american football sweep play",
+      "vector": null
+    },
+    {
+      "concept_id": "cover_0",
+      "category": "coverage",
+      "phrase": "american football defense playing cover 0",
+      "vector": null
+    },
+    {
+      "concept_id": "cover_1",
+      "category": "coverage",
+      "phrase": "american football defense playing cover 1",
+      "vector": null
+    },
+    {
+      "concept_id": "cover_2",
+      "category": "coverage",
+      "phrase": "american football defense playing cover 2",
+      "vector": null
+    },
+    {
+      "concept_id": "cover_3",
+      "category": "coverage",
+      "phrase": "american football defense playing cover 3",
+      "vector": null
+    },
+    {
+      "concept_id": "cover_4",
+      "category": "coverage",
+      "phrase": "american football defense playing cover 4",
+      "vector": null
+    },
+    {
+      "concept_id": "cover_6",
+      "category": "coverage",
+      "phrase": "american football defense playing cover 6",
+      "vector": null
+    },
+    {
+      "concept_id": "man_coverage",
+      "category": "coverage",
+      "phrase": "american football defense playing man coverage",
+      "vector": null
+    },
+    {
+      "concept_id": "zone_coverage",
+      "category": "coverage",
+      "phrase": "american football defense playing zone coverage",
+      "vector": null
+    },
+    {
+      "concept_id": "goal_line",
+      "category": "field_zone",
+      "phrase": "american football play in the goal line",
+      "vector": null
+    },
+    {
+      "concept_id": "red_zone",
+      "category": "field_zone",
+      "phrase": "american football play in the red zone",
+      "vector": null
+    },
+    {
+      "concept_id": "bunch",
+      "category": "formation",
+      "phrase": "american football offense lined up in a bunch formation",
+      "vector": null
+    },
+    {
+      "concept_id": "doubles",
+      "category": "formation",
+      "phrase": "american football offense lined up in a doubles formation",
+      "vector": null
+    },
+    {
+      "concept_id": "empty",
+      "category": "formation",
+      "phrase": "american football offense lined up in a empty formation",
+      "vector": null
+    },
+    {
+      "concept_id": "i_formation",
+      "category": "formation",
+      "phrase": "american football offense lined up in a i-formation formation",
+      "vector": null
+    },
+    {
+      "concept_id": "pistol",
+      "category": "formation",
+      "phrase": "american football offense lined up in a pistol formation",
+      "vector": null
+    },
+    {
+      "concept_id": "shotgun",
+      "category": "formation",
+      "phrase": "american football offense lined up in a shotgun formation",
+      "vector": null
+    },
+    {
+      "concept_id": "singleback",
+      "category": "formation",
+      "phrase": "american football offense lined up in a singleback formation",
+      "vector": null
+    },
+    {
+      "concept_id": "trips",
+      "category": "formation",
+      "phrase": "american football offense lined up in a trips formation",
+      "vector": null
+    },
+    {
+      "concept_id": "jet_motion",
+      "category": "motion",
+      "phrase": "american football pre-snap jet motion motion",
+      "vector": null
+    },
+    {
+      "concept_id": "orbit_motion",
+      "category": "motion",
+      "phrase": "american football pre-snap orbit motion motion",
+      "vector": null
+    },
+    {
+      "concept_id": "shift",
+      "category": "motion",
+      "phrase": "american football pre-snap shift motion",
+      "vector": null
+    },
+    {
+      "concept_id": "personnel_10",
+      "category": "personnel",
+      "phrase": "american football offense using 10 personnel",
+      "vector": null
+    },
+    {
+      "concept_id": "personnel_11",
+      "category": "personnel",
+      "phrase": "american football offense using 11 personnel",
+      "vector": null
+    },
+    {
+      "concept_id": "personnel_12",
+      "category": "personnel",
+      "phrase": "american football offense using 12 personnel",
+      "vector": null
+    },
+    {
+      "concept_id": "personnel_21",
+      "category": "personnel",
+      "phrase": "american football offense using 21 personnel",
+      "vector": null
+    },
+    {
+      "concept_id": "personnel_22",
+      "category": "personnel",
+      "phrase": "american football offense using 22 personnel",
+      "vector": null
+    }
+  ]
+}

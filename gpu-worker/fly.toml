@@ -1,0 +1,25 @@
+# Fly.io GPU worker for Football-IQ video processing pipeline.
+# Requires a Fly GPU-enabled organization and billing.
+
+app = 'football-iq-gpu-worker'
+primary_region = 'ord'
+
+[build]
+  dockerfile = 'Dockerfile'
+
+[env]
+  QUEUE_BACKEND = 'db'
+  BACKEND_API_URL = 'https://football-iq-backend.fly.dev'
+  STORAGE_BACKEND = 'r2'
+  R2_BUCKET_NAME = 'raw-video'
+  R2_ENDPOINT_URL = 'https://4607053406491c18132943949b972140.r2.cloudflarestorage.com'
+  GPU_WORKER_POLL_INTERVAL = '10'
+  GPU_WORKER_HEARTBEAT_INTERVAL = '60'
+  GPU_WORKER_LEASE_SECONDS = '600'
+
+[[vm]]
+  cpu_kind = 'performance'
+  cpus = 4
+  memory = '32gb'
+  gpus = 1
+  gpu_kind = 'l40s'

@@ -25,6 +25,7 @@ Pose metric names (prefixed with ``pose_``):
   pose_qb_release_consistency
   pose_stride_symmetry
   pose_biomechanical_drift
+  pose_body_orientation_proxy
 """
 
 import uuid
@@ -68,6 +69,7 @@ POSE_METRIC_NAMES: frozenset[str] = frozenset(
         "pose_qb_release_consistency",
         "pose_stride_symmetry",
         "pose_biomechanical_drift",
+        "pose_body_orientation_proxy",
     }
 )
 
@@ -80,6 +82,7 @@ _POSITION_GROUP_METRICS: dict[str, frozenset[str]] = {
             "pose_pass_set_weight_distribution",
             "pose_stride_symmetry",
             "pose_biomechanical_drift",
+            "pose_body_orientation_proxy",
         }
     ),
     "DL": frozenset(
@@ -88,6 +91,7 @@ _POSITION_GROUP_METRICS: dict[str, frozenset[str]] = {
             "pose_block_shed_timing",
             "pose_stride_symmetry",
             "pose_biomechanical_drift",
+            "pose_body_orientation_proxy",
         }
     ),
     "WR": frozenset(
@@ -98,6 +102,7 @@ _POSITION_GROUP_METRICS: dict[str, frozenset[str]] = {
             "pose_wr_pre_snap_stance",
             "pose_wr_release_technique",
             "pose_stride_symmetry",
+            "pose_body_orientation_proxy",
         }
     ),
     "QB": frozenset(
@@ -107,8 +112,11 @@ _POSITION_GROUP_METRICS: dict[str, frozenset[str]] = {
             "pose_qb_weight_transfer",
             "pose_qb_release_consistency",
             "pose_stride_symmetry",
+            "pose_body_orientation_proxy",
         }
     ),
+    "DB": frozenset({"pose_body_orientation_proxy", "pose_stride_symmetry"}),
+    "LB": frozenset({"pose_body_orientation_proxy", "pose_stride_symmetry"}),
 }
 
 

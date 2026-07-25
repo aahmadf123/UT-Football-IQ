@@ -1,0 +1,43 @@
+{
+  "video_id": "61a4746a-2d43-4b8b-815c-07a7c9f901d7",
+  "pipeline_mode": "same_session",
+  "capture_regime": "unconstrained",
+  "regime_confidence": 0.2752,
+  "analytics_safe": false,
+  "fps": 29.97002997002997,
+  "clip_count": 1,
+  "clips": [
+    {
+      "id": "64d9b7c4-02c0-49b5-84fc-eb935f040982",
+      "start_time": 1.4014,
+      "end_time": 6.973633333333334,
+      "play_number": 1,
+      "tracklet_count": 82,
+      "event_count": 0,
+      "overlay_uri": "local://overlays/period_overlays/64d9b7c4-02c0-49b5-84fc-eb935f040982/period_overlay.mp4"
+    }
+  ],
+  "model_routing": {
+    "detect": "yolov8n",
+    "ball": "yolov8n-ball"
+  },
+  "stage_timings": {
+    "ingest": 4.223,
+    "segment": 4.98,
+    "calibrate": 1.445,
+    "detect": 75.899,
+    "track:64d9b7c4-02c0-49b5-84fc-eb935f040982": 0.106,
+    "reid:64d9b7c4-02c0-49b5-84fc-eb935f040982": 21.456,
+    "pose:64d9b7c4-02c0-49b5-84fc-eb935f040982": 0.802,
+    "events:64d9b7c4-02c0-49b5-84fc-eb935f040982": 0.017,
+    "labels:64d9b7c4-02c0-49b5-84fc-eb935f040982": 4.891,
+    "metrics:64d9b7c4-02c0-49b5-84fc-eb935f040982": 0.009,
+    "routes:64d9b7c4-02c0-49b5-84fc-eb935f040982": 0.001,
+    "coverage:64d9b7c4-02c0-49b5-84fc-eb935f040982": 0.018,
+    "oline:64d9b7c4-02c0-49b5-84fc-eb935f040982": 0.001,
+    "pressure:64d9b7c4-02c0-49b5-84fc-eb935f040982": 0.003,
+    "render:64d9b7c4-02c0-49b5-84fc-eb935f040982": 1.709
+  },
+  "failed_clip_stages": [],
+  "duration_seconds": 116.13
+}

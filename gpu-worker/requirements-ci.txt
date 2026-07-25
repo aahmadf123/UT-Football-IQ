@@ -1,0 +1,22 @@
+# CI subset — stub-mode test dependencies (no torch/ultralytics).
+#
+# The pipeline's adapter pattern falls back to deterministic stubs when the
+# heavy model stacks are absent, which is exactly what the CI job exercises:
+# wiring, orchestration, contracts. Real-model runs happen on GPU boxes and
+# in the local acceptance flow, not in CI.
+#
+# Keep versions in lockstep with requirements.txt.
+opencv-python-headless==4.10.0.84
+numpy>=1.26,<3
+boto3==1.35.76
+psycopg2-binary==2.9.10
+sqlalchemy==2.0.36
+structlog==24.4.0
+pydantic==2.9.2
+pydantic-settings==2.6.1
+httpx==0.27.2
+prometheus-client==0.21.1
+
+# Tooling
+pytest==9.1.1
+ruff==0.16.0

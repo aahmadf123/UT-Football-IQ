@@ -38,7 +38,7 @@ from typing import Any
 
 import structlog
 
-from alerts import bio_deviation_alert, effort_anomaly, formation_anomaly
+from alerts import bio_deviation_alert, effort_anomaly
 
 log = structlog.get_logger(__name__)
 

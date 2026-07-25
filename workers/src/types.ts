@@ -9,11 +9,6 @@ export interface Env {
   OVERLAYS: R2Bucket;
   ARTIFACTS: R2Bucket;
 
-  // Queue producers
-  VIDEO_PROCESSING_QUEUE: Queue;
-  SAME_SESSION_QUEUE: Queue;
-  NIGHTLY_TRAINING_QUEUE: Queue;
-
   // Secrets (set with `wrangler secret put`)
   JWT_SECRET: string;
   DATABASE_URL: string;

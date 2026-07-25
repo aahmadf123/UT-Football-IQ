@@ -69,6 +69,12 @@ DEFAULT_MARGIN = 0.05
 UNKNOWN = "unknown"
 DRONE_FOLLOW = "drone_follow"
 FIXED_SIDELINE = "fixed_sideline"
+#: First-class "any camera" regime: the footage was analyzed but matches
+#: neither special regime — endzone, handheld, tripod, phone, whatever. The
+#: pipeline runs its full generic path (detection tuned for possibly-small
+#: players, opportunistic calibration). ``unknown`` is reserved for hard
+#: analysis failures (no frames / sampling error).
+UNCONSTRAINED = "unconstrained"
 
 
 def _env_float(name: str, default: float) -> float:
@@ -231,18 +237,21 @@ class CaptureRegimeDetector(RegimeDetectorAdapter):
         confidence = abs(p_drone - 0.5) * 2.0  # 0..1, peaks at the extremes
         reason_codes: list[str] = []
 
-        if p_drone >= 0.5 + self.margin:
+        # A confident non-match is not a failure: footage that fits neither
+        # special regime is first-class "unconstrained" capture (any angle,
+        # any height, any camera) and takes the generic pipeline path.
+        if 0.5 - self.margin < p_drone < 0.5 + self.margin:
+            regime = UNCONSTRAINED
+            reason_codes.append("within_margin")
+        elif confidence < self.min_confidence:
+            regime = UNCONSTRAINED
+            reason_codes.append("low_confidence")
+        elif p_drone >= 0.5 + self.margin:
             regime = DRONE_FOLLOW
         elif p_drone <= 0.5 - self.margin:
             regime = FIXED_SIDELINE
-        elif 0.5 - self.margin < p_drone < 0.5 + self.margin:
-            regime = UNKNOWN
-            reason_codes.append("within_margin")
-        elif confidence < self.min_confidence:
-            regime = UNKNOWN
-            reason_codes.append("low_confidence")
         else:
-            regime = UNKNOWN
+            regime = UNCONSTRAINED
 
         return RegimeResult(
             regime=regime,
@@ -330,7 +339,6 @@ def _vanishing_point_score(frame: np.ndarray) -> float:
         return 0.5
 
     h, w = gray.shape[:2]
-    cx = w / 2.0
     # Keep near-vertical lines only (yard lines projected toward VP).
     vert_lines: list[tuple[float, float]] = []
     for line in lines[:50]:

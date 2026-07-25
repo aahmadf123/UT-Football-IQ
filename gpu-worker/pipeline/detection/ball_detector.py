@@ -39,6 +39,9 @@ BALL_DETECTION_CONF = float(os.environ.get("BALL_DETECTION_CONF", "0.25"))
 
 # Regimes (kept in sync with pipeline.homography.regime_detector).
 DRONE_FOLLOW = "drone_follow"
+UNCONSTRAINED = "unconstrained"
+#: Regimes where the ball may be only a few pixels — SAHI tiling applies.
+_SMALL_BALL_REGIMES = frozenset({DRONE_FOLLOW, UNCONSTRAINED})
 
 
 class BallDetectorAdapter(DetectorBase):
@@ -90,13 +93,21 @@ def get_ball_detector(
     *,
     model_path: str | None = None,
     confidence_threshold: float = BALL_DETECTION_CONF,
-) -> DetectorBase:
+) -> DetectorBase | None:
     """Build the base ball detector for a routing variant.
 
     ``yolov8n-ball`` → a YOLO model loaded from the dedicated ball weights,
-    its single class normalised to ``ball``. On ImportError (ultralytics /
-    weights absent) it falls back to the deterministic stub — the same
-    self-configuring behaviour as :func:`pipeline.detector_models.get_detector`.
+    its single class normalised to ``ball``.
+
+    Degradation is deliberate and two-tiered:
+    * **ImportError** (no ultralytics at all — CI / stub environments) →
+      the deterministic stub, matching
+      :func:`pipeline.detector_models.get_detector`.
+    * **Weights missing/unloadable with ultralytics present** (the dedicated
+      ball model is a team-trained artifact, not a public download) →
+      ``None`` — ball detection is *disabled* for the run. A stub here would
+      inject a fabricated ball into real footage, which the no-mock-data
+      rule forbids.
     """
     v = (variant or "").lower()
     if v.startswith("yolo") and "ball" in v:
@@ -110,13 +121,21 @@ def get_ball_detector(
         except ImportError:
             log.warning("ball_model_unavailable_using_stub", variant=variant)
             return _StubBallDetector()
+        except Exception as exc:
+            log.warning(
+                "ball_weights_unavailable_ball_detection_disabled",
+                variant=variant,
+                model_path=model_path or MODEL_BALL_PATH,
+                error=str(exc),
+            )
+            return None
     log.warning("unknown_ball_variant_using_stub", variant=variant)
     return _StubBallDetector()
 
 
 def ball_strategy(regime: str | None) -> str:
     """Return the slicing strategy label for the routing artifact."""
-    return f"sahi-{BALL_TILE}" if regime == DRONE_FOLLOW else "full-frame"
+    return f"sahi-{BALL_TILE}" if regime in _SMALL_BALL_REGIMES else "full-frame"
 
 
 def build_ball_detector(
@@ -124,14 +143,18 @@ def build_ball_detector(
     regime: str | None = None,
     *,
     base: DetectorBase | None = None,
-) -> DetectorBase:
+) -> DetectorBase | None:
     """Compose the regime-appropriate ball detector.
 
     ``drone_follow`` → SAHI (128 px tiles, 0.2 overlap) for the 6–18 px ball.
     Everything else  → the base nano model run full-frame.
+    Returns ``None`` when the ball weights are unavailable (detection
+    disabled for the run — see :func:`get_ball_detector`).
     """
     detector = base if base is not None else get_ball_detector(variant)
-    if regime == DRONE_FOLLOW:
+    if detector is None:
+        return None
+    if regime in _SMALL_BALL_REGIMES:
         return SAHIDetectorAdapter(
             detector,
             tile=BALL_TILE,

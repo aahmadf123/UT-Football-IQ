@@ -78,7 +78,7 @@ class TemperatureScaler:
         lr: float = 0.05,
         max_iter: int = 200,
         tol: float = 1e-6,
-    ) -> "TemperatureScaler":
+    ) -> TemperatureScaler:
         """Fit ``T`` by minimising NLL on held-out ``(logits, label)`` pairs."""
         z = np.asarray(logits, dtype=np.float64)
         y = np.asarray(labels, dtype=np.int64).ravel()
@@ -121,7 +121,7 @@ class TemperatureScaler:
         }
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "TemperatureScaler":
+    def from_dict(cls, d: dict[str, Any]) -> TemperatureScaler:
         return cls(
             temperature=float(d.get("temperature", 1.0)),
             is_fitted=bool(d.get("is_fitted", False)),
@@ -211,7 +211,7 @@ class CalibratedOutput:
         is_calibrated: bool = False,
         ece: float | None = None,
         detail: dict[str, Any] | None = None,
-    ) -> "CalibratedOutput":
+    ) -> CalibratedOutput:
         """Build from a ``{label: probability}`` distribution."""
         if not probabilities:
             raise ValueError("probabilities must be non-empty")
@@ -246,7 +246,7 @@ class CalibratedOutput:
         is_calibrated: bool = False,
         ece: float | None = None,
         detail: dict[str, Any] | None = None,
-    ) -> "CalibratedOutput":
+    ) -> CalibratedOutput:
         """Build from a single ``P(positive)`` (the pressure-predictor case)."""
         p = float(min(max(p_positive, 0.0), 1.0))
         return cls.from_multiclass(

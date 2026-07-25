@@ -36,7 +36,6 @@ from pipeline.segment_models import (
     validate_boundary,
 )
 
-
 # ── Schema invariants ─────────────────────────────────────────────────────────
 
 

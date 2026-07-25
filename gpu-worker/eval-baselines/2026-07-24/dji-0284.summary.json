@@ -1,0 +1,43 @@
+{
+  "video_id": "ee882864-07db-4d64-a8ae-19d48854e258",
+  "pipeline_mode": "same_session",
+  "capture_regime": "unconstrained",
+  "regime_confidence": 0.0864,
+  "analytics_safe": false,
+  "fps": 29.97002997002997,
+  "clip_count": 1,
+  "clips": [
+    {
+      "id": "deb37eba-ba4a-40e9-84e2-e051e80d8855",
+      "start_time": 2.1021,
+      "end_time": 7.240566666666667,
+      "play_number": 1,
+      "tracklet_count": 88,
+      "event_count": 0,
+      "overlay_uri": "local://overlays/period_overlays/deb37eba-ba4a-40e9-84e2-e051e80d8855/period_overlay.mp4"
+    }
+  ],
+  "model_routing": {
+    "detect": "yolov8n",
+    "ball": "yolov8n-ball"
+  },
+  "stage_timings": {
+    "ingest": 4.394,
+    "segment": 6.27,
+    "calibrate": 1.366,
+    "detect": 102.994,
+    "track:deb37eba-ba4a-40e9-84e2-e051e80d8855": 0.117,
+    "reid:deb37eba-ba4a-40e9-84e2-e051e80d8855": 26.072,
+    "pose:deb37eba-ba4a-40e9-84e2-e051e80d8855": 0.983,
+    "events:deb37eba-ba4a-40e9-84e2-e051e80d8855": 0.017,
+    "labels:deb37eba-ba4a-40e9-84e2-e051e80d8855": 4.88,
+    "metrics:deb37eba-ba4a-40e9-84e2-e051e80d8855": 0.009,
+    "routes:deb37eba-ba4a-40e9-84e2-e051e80d8855": 0.001,
+    "coverage:deb37eba-ba4a-40e9-84e2-e051e80d8855": 0.018,
+    "oline:deb37eba-ba4a-40e9-84e2-e051e80d8855": 0.001,
+    "pressure:deb37eba-ba4a-40e9-84e2-e051e80d8855": 0.003,
+    "render:deb37eba-ba4a-40e9-84e2-e051e80d8855": 2.265
+  },
+  "failed_clip_stages": [],
+  "duration_seconds": 149.43
+}

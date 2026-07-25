@@ -1,0 +1,45 @@
+name: Production Repair Check
+
+on:
+  workflow_dispatch:
+    inputs:
+      do_deploy:
+        description: "Deploy backend before checks"
+        required: true
+        type: boolean
+        default: true
+      do_migrate:
+        description: "Run production migrations before checks"
+        required: true
+        type: boolean
+        default: true
+
+jobs:
+  prod-repair:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup flyctl
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Verify Fly token exists
+        shell: bash
+        run: |
+          if [ -z "$FLY_API_TOKEN" ]; then
+            echo "Missing required secret: FLY_API_TOKEN"
+            exit 1
+          fi
+
+      - name: Run production repair/check script
+        shell: pwsh
+        run: |
+          $args = @()
+          if (-not ${{ inputs.do_deploy }}) { $args += '-SkipDeploy' }
+          if (-not ${{ inputs.do_migrate }}) { $args += '-SkipMigrate' }
+          ./scripts/prod-go.ps1 @args

@@ -106,7 +106,7 @@ class PressureModel:
         lr: float = 0.1,
         epochs: int = 500,
         l2: float = 1e-3,
-    ) -> "PressureModel":
+    ) -> PressureModel:
         x = np.asarray(features, dtype=np.float64)
         y = np.asarray(labels, dtype=np.float64).ravel()
         if x.ndim != 2 or x.shape[0] != y.size or x.shape[0] == 0:
@@ -127,7 +127,7 @@ class PressureModel:
         self.bias = float(b)
         return self
 
-    def calibrate(self, features: np.ndarray, labels: np.ndarray) -> "PressureModel":
+    def calibrate(self, features: np.ndarray, labels: np.ndarray) -> PressureModel:
         if self.weight is None:
             raise RuntimeError("fit before calibrating")
         x = self._standardize(np.asarray(features, dtype=np.float64))
@@ -150,7 +150,7 @@ class PressureModel:
         }
 
     @classmethod
-    def from_checkpoint(cls, d: dict[str, Any]) -> "PressureModel":
+    def from_checkpoint(cls, d: dict[str, Any]) -> PressureModel:
         platt = d.get("platt")
         return cls(
             weight=np.asarray(d["weight"], dtype=np.float64),
@@ -162,7 +162,7 @@ class PressureModel:
         )
 
     @classmethod
-    def load_from_env(cls, env_var: str = PRESSURE_MODEL_ENV) -> "PressureModel | None":
+    def load_from_env(cls, env_var: str = PRESSURE_MODEL_ENV) -> PressureModel | None:
         path_str = os.environ.get(env_var)
         if not path_str:
             return None
@@ -202,7 +202,7 @@ class PressureClassifier:
     model: PressureModel | None = None
 
     @classmethod
-    def from_env(cls) -> "PressureClassifier":
+    def from_env(cls) -> PressureClassifier:
         return cls(model=PressureModel.load_from_env())
 
     def predict(self, feats: PressureFeatures) -> CalibratedOutput:

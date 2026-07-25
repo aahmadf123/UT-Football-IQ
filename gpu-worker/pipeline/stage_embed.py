@@ -30,7 +30,7 @@ from __future__ import annotations
 import math
 import statistics
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import Any, Protocol, runtime_checkable
 
 import structlog
 
@@ -41,6 +41,11 @@ EMBEDDING_DIM: int = 256
 VISUAL_DIM: int = 192
 STRUCTURED_DIM: int = 64
 assert VISUAL_DIM + STRUCTURED_DIM == EMBEDDING_DIM
+# Raw CLIP ViT-B/32 image embedding dimension (Issue #195). This is the
+# *unprojected* visual encoder output, in CLIP's shared text-image space —
+# retained so a CLIP text-tower query can be cosine-compared against it.
+# Must match ``backend.app.models.PLAY_EMBEDDING_CLIP_DIM``.
+CLIP_DIM: int = 512
 
 # ── Baseline model identifier (also registered in model_router as nightly-only)
 BASELINE_MODEL_VARIANT: str = "play-embed-clip-vitb32-baseline"
@@ -120,6 +125,11 @@ class EmbeddingResult:
     used_sam_masks: bool
     source_label_ids: list[str] = field(default_factory=list)
     chunk_kind: str = "play"
+    # Raw 512-d CLIP image embedding in CLIP shared space (Issue #195), or
+    # ``None`` when the visual encoder cannot surface one (e.g. the default
+    # ``ZeroVisualEncoder``). When present it is persisted to
+    # ``playembeddings.clip_vector`` and powers ``/api/v1/search/text``.
+    clip_vector: list[float] | None = None
 
 
 # ── Visual encoder interface ─────────────────────────────────────────────────
@@ -138,14 +148,48 @@ class VisualEncoder(Protocol):
     ) -> list[float]: ...
 
 
+@dataclass(frozen=True)
+class VisualEncoding:
+    """Combined output of a CLIP-aware visual encoder (Issue #195).
+
+    ``projected`` is the ``VISUAL_DIM`` (192-d) vector that fuses into the
+    play embedding — the existing behaviour. ``clip_image`` is the raw
+    ``CLIP_DIM`` (512-d) image embedding *before* projection, in CLIP's
+    shared text-image space, retained for CLIP text-tower search. Both are
+    L2-normalised by the stage, so encoders need not normalise themselves.
+    """
+
+    projected: list[float]
+    clip_image: list[float] | None = None
+
+
+@runtime_checkable
+class ClipAwareVisualEncoder(Protocol):
+    """A visual encoder that can also surface the raw CLIP image embedding.
+
+    Production's CLIP ViT-B/32 encoder computes the 512-d image embedding
+    and *then* projects it to ``VISUAL_DIM``; implementing ``encode_visual``
+    lets it return both from a single forward pass (no double compute) so
+    ``stage_embed`` can persist the raw embedding for ``/search/text``.
+    Encoders that only implement ``encode`` keep working unchanged — their
+    ``clip_vector`` is simply ``None``.
+    """
+
+    def encode_visual(
+        self, keyframes: list[Any], *, masks: list[Any] | None = None
+    ) -> VisualEncoding: ...
+
+
 class ZeroVisualEncoder:
     """No-op visual encoder used when CLIP weights are unavailable.
 
-    Returns a ``VISUAL_DIM``-zero vector. The fused play embedding then
-    behaves like the structured-only sub-embedding (renormalised) — this
-    is intentional for v1 so the rest of the retrieval surface
-    (pgvector index, search router, CLI) can be exercised end-to-end
-    without GPU prerequisites.
+    Returns a ``VISUAL_DIM``-zero vector and surfaces **no** raw CLIP
+    embedding (it has no CLIP weights to run), so the resulting row's
+    ``clip_vector`` stays ``NULL`` and is invisible to text search. The
+    fused play embedding then behaves like the structured-only
+    sub-embedding (renormalised) — this is intentional for v1 so the rest
+    of the retrieval surface (pgvector index, search router, CLI) can be
+    exercised end-to-end without GPU prerequisites.
     """
 
     def encode(
@@ -153,6 +197,23 @@ class ZeroVisualEncoder:
     ) -> list[float]:
         del keyframes, masks
         return [0.0] * VISUAL_DIM
+
+
+def _encode_visual(
+    encoder: VisualEncoder,
+    keyframes: list[Any],
+    masks: list[Any] | None,
+) -> tuple[list[float], list[float] | None]:
+    """Resolve ``(projected_192, raw_clip_512_or_none)`` from any encoder.
+
+    Prefers a CLIP-aware encoder's single-pass ``encode_visual`` (so the
+    512-d CLIP embedding is captured without recomputing it); falls back to
+    the legacy ``encode`` interface (raw CLIP embedding unavailable → None).
+    """
+    if isinstance(encoder, ClipAwareVisualEncoder):
+        enc = encoder.encode_visual(keyframes, masks=masks)
+        return list(enc.projected), (None if enc.clip_image is None else list(enc.clip_image))
+    return list(encoder.encode(keyframes, masks=masks)), None
 
 
 # ── Public entry point ────────────────────────────────────────────────────────
@@ -224,8 +285,15 @@ def run(
     structured_vec = _l2_normalise(_pad_or_trim(structured_vec_raw, STRUCTURED_DIM))
 
     encoder: VisualEncoder = visual_encoder or ZeroVisualEncoder()
-    raw_visual = encoder.encode(keyframes or [], masks=sam_masks)
+    raw_visual, raw_clip = _encode_visual(encoder, keyframes or [], sam_masks)
     visual_vec = _l2_normalise(_pad_or_trim(list(raw_visual), VISUAL_DIM))
+    # Retain the raw CLIP image embedding (CLIP shared space) when the
+    # encoder produced one — it powers genuine CLIP text-tower search
+    # (Issue #195). L2-normalised for unit-norm storage; cosine ranking is
+    # scale-invariant either way.
+    clip_vec: list[float] | None = None
+    if raw_clip is not None:
+        clip_vec = _l2_normalise(_pad_or_trim(list(raw_clip), CLIP_DIM))
 
     fused = _l2_normalise(list(visual_vec) + list(structured_vec))
 
@@ -246,6 +314,7 @@ def run(
         used_sam_masks=bool(sam_masks),
         source_label_ids=source_label_ids,
         chunk_kind="play",
+        clip_vector=clip_vec,
     )
 
     log.info(
@@ -255,6 +324,7 @@ def run(
         embedding_confidence=confidence,
         used_sam_masks=result.used_sam_masks,
         source_label_count=len(source_label_ids),
+        has_clip_vector=clip_vec is not None,
     )
     return result
 

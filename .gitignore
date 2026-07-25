@@ -73,3 +73,10 @@ data/bdb/**
 frontend/playwright-report/
 frontend/test-results/
 frontend/blob-report/
+
+# Playwright MCP browser artifacts (agent screenshots/snapshots)
+.playwright-mcp/
+
+# HLS test byproducts written to gpu-worker/ cwd by the render tests
+gpu-worker/seg_*.ts
+gpu-worker/-encoders

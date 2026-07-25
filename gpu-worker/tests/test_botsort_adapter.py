@@ -13,7 +13,6 @@ import sys
 from typing import Any
 
 import numpy as np
-import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 

@@ -11,12 +11,15 @@ Endpoints:
   supplies a raw 256-d vector. Useful for batch CLI tools that want to
   search by a centroid or hand-crafted prototype.
 
-* ``POST /api/v1/search/text`` — *experimental.* Encodes a natural-
-  language query with the CLIP text tower and runs the same vector
-  search. Outputs always carry ``experimental: true`` and are filtered
-  out of any caller that opts into production-only results. The endpoint
-  refuses to serve unless ``ENABLE_EMBEDDING_TEXT_SEARCH`` is truthy in
-  the env so the surface stays gated end-to-end.
+* ``POST /api/v1/search/text`` — *experimental* CLIP text-tower search
+  (Issue #195). Encodes the query into CLIP's shared text-image space —
+  via an injected CLIP text tower or the precomputed concept catalog —
+  and cosine-searches it against the raw 512-d ``clip_vector`` (the CLIP
+  *image* embedding). Outputs always carry ``experimental: true`` /
+  ``approximate: true`` and are filtered out of any caller that opts into
+  production-only results. The endpoint refuses to serve unless
+  ``ENABLE_EMBEDDING_TEXT_SEARCH`` is truthy in the env so the surface
+  stays gated end-to-end.
 
 The vector similarity is computed in Postgres via the pgvector ``<=>``
 cosine-distance operator. We pre-filter on label / date / opponent
@@ -28,18 +31,22 @@ from __future__ import annotations
 
 import os
 import uuid
+from collections.abc import Callable
 from datetime import datetime
-from typing import Annotated, Any
+from typing import Annotated, Any, cast
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy import bindparam, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.concept_catalog import load_catalog, query_vector_for_concepts
+from app.concept_lexicon import detect_soccer_terms, parse_query
 from app.database import get_db
 from app.deps import get_current_user
 from app.models import (
+    PLAY_EMBEDDING_CLIP_DIM,
     PLAY_EMBEDDING_DIM,
     Clip,
     ModelStage,
@@ -122,6 +129,14 @@ class SearchResponse(BaseModel):
     experimental: bool
     reason: str | None = None
     results: list[SimilarResult]
+    # ── CLIP text-tower search annotations (Issue #195) ──────────────────────
+    # ``approximate`` flags zero-shot text→image matching; ``query`` /
+    # ``matched_concept_ids`` echo how a free-text query was grounded. Default
+    # to the non-text shape so ``/similar`` and ``/vector`` envelopes are
+    # unchanged.
+    approximate: bool = False
+    query: str | None = None
+    matched_concept_ids: list[str] = Field(default_factory=list)
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -213,6 +228,12 @@ def _format_vector_for_sql(values: list[float]) -> str:
     return "[" + ",".join(repr(float(v)) for v in values) + "]"
 
 
+# The only pgvector columns the search SQL is ever allowed to rank on.
+# ``_run_vector_search`` interpolates the column name into the query, so it
+# must come from this closed set — never from request input.
+_VECTOR_COLUMNS: frozenset[str] = frozenset({"vector", "clip_vector"})
+
+
 async def _run_vector_search(
     db: AsyncSession,
     *,
@@ -223,11 +244,23 @@ async def _run_vector_search(
     candidate_clip_ids: list[uuid.UUID] | None,
     include_experimental: bool,
     exclude_clip_ids: list[uuid.UUID] | None = None,
+    vector_column: str = "vector",
 ) -> list[SimilarResult]:
-    """Run the pgvector cosine-distance ORDER BY for the given anchor."""
+    """Run the pgvector cosine-distance ORDER BY for the given anchor.
+
+    ``vector_column`` selects which pgvector column to rank on: the fused
+    256-d ``vector`` (similar / concept search) or the raw 512-d
+    ``clip_vector`` in CLIP shared space (CLIP text-tower search, Issue
+    #195). Rows whose ranked column is NULL are excluded, so a
+    ``clip_vector`` search naturally skips embeddings produced without a
+    real CLIP encoder.
+    """
+    if vector_column not in _VECTOR_COLUMNS:
+        raise ValueError(f"unsupported vector column: {vector_column!r}")
     where_clauses = [
         "pe.model_version_id = :model_version_id",
         "pe.chunk_kind = :chunk_kind",
+        f"pe.{vector_column} IS NOT NULL",
     ]
     params: dict[str, Any] = {
         "anchor": _format_vector_for_sql(anchor_vector),
@@ -246,21 +279,22 @@ async def _run_vector_search(
         where_clauses.append("pe.clip_id <> ALL(:exclude_clip_ids)")
         params["exclude_clip_ids"] = [str(cid) for cid in exclude_clip_ids]
 
-    # The ``where_clauses`` list is built from a closed set of literal
-    # fragments in this function — no user input ever lands in it — so the
-    # f-string interpolation is safe and the bandit warning is a false
-    # positive. All actual values flow through ``params`` and are bound
-    # by SQLAlchemy as parameters.
+    # The ``where_clauses`` list and ``vector_column`` are built from a closed
+    # set of literal fragments in this function — no user input ever lands in
+    # them (``vector_column`` is validated against ``_VECTOR_COLUMNS`` above) —
+    # so the f-string interpolation is safe and the bandit warning is a false
+    # positive. All actual values flow through ``params`` and are bound by
+    # SQLAlchemy as parameters.
     where_sql = " AND ".join(where_clauses)
-    sql_str = (  # noqa: S608 — where_sql is composed from static fragments above
-        "SELECT pe.id AS embedding_id, pe.clip_id AS clip_id, "
+    sql_str = (
+        "SELECT pe.id AS embedding_id, pe.clip_id AS clip_id, "  # noqa: S608
         "pe.snap_anchor AS snap_anchor, pe.chunk_kind AS chunk_kind, "
         "pe.is_experimental AS is_experimental, c.label_data AS label_data, "
-        "1 - (pe.vector <=> CAST(:anchor AS vector)) AS score "
+        f"1 - (pe.{vector_column} <=> CAST(:anchor AS vector)) AS score "
         "FROM playembeddings pe "
         "JOIN clips c ON c.id = pe.clip_id "
-        "WHERE " + where_sql + " "
-        "ORDER BY pe.vector <=> CAST(:anchor AS vector) ASC "
+        f"WHERE {where_sql} "
+        f"ORDER BY pe.{vector_column} <=> CAST(:anchor AS vector) ASC "
         "LIMIT :k"
     )
     from sqlalchemy.dialects.postgresql import ARRAY, UUID
@@ -418,19 +452,73 @@ def _text_search_enabled() -> bool:
     return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
+# Type of an injected CLIP text encoder: free text → 512-d CLIP text vector.
+TextEncoder = Callable[[str], list[float]]
+
+
+def _resolve_text_encoder(request: Request) -> TextEncoder | None:
+    """Return the deployment-injected CLIP text encoder, if any.
+
+    Production may mount a CPU CLIP **text** tower at startup
+    (``app.state.clip_text_encoder``) to encode *arbitrary* free-text
+    queries. When absent we fall back to the precomputed concept catalog,
+    which only needs committed vectors — no CLIP weights in the container.
+    """
+    encoder: Any = getattr(request.app.state, "clip_text_encoder", None)
+    if callable(encoder):
+        return cast(TextEncoder, encoder)
+    return None
+
+
+def _text_envelope(
+    query: str,
+    *,
+    reason: str | None,
+    results: list[SimilarResult],
+    mv: ModelVersion | None = None,
+    matched_concept_ids: list[str] | None = None,
+) -> SearchResponse:
+    """Build the always-experimental/approximate ``/search/text`` envelope."""
+    return SearchResponse(
+        anchor_clip_id=None,
+        model_version_id=mv.id if mv else None,
+        model_version_label=_model_label(mv) if mv else None,
+        experimental=True,
+        approximate=True,
+        reason=reason,
+        results=results,
+        query=query,
+        matched_concept_ids=matched_concept_ids or [],
+    )
+
+
 @router.post("/text", response_model=SearchResponse)
 async def search_by_text(
     payload: TextSearchRequest,
+    request: Request,
     db: Annotated[AsyncSession, Depends(get_db)],
     _current_user: Annotated[User, Depends(get_current_user)],
 ) -> SearchResponse:
-    """Natural-language query — *experimental*.
+    """Genuine CLIP text-tower zero-shot search — *experimental* (Issue #195).
 
-    Always returns ``experimental: true`` in the response envelope so the
-    front-end can label results clearly and the back-end correction
-    export job skips them. The endpoint is gated behind
-    ``ENABLE_EMBEDDING_TEXT_SEARCH``; when off it returns 503 instead of
-    silently degrading to similar-by-clip.
+    Encodes the query into CLIP's shared text-image space and cosine-searches
+    it against the raw ``playembeddings.clip_vector`` (the 512-d CLIP image
+    embedding). Two ways to get the query vector, in order:
+
+    1. a deployment-injected CLIP **text** tower (``app.state.clip_text_encoder``)
+       — handles arbitrary phrasing; or
+    2. the precomputed, committed **concept catalog** (``app.concept_catalog``):
+       the query is grounded to American-football concept(s) lexically via the
+       Issue #144 lexicon (soccer rejected), and those concepts' precomputed
+       CLIP text vectors are averaged — no CLIP weights in the backend.
+
+    Results **always** carry ``experimental: true`` / ``approximate: true`` so
+    the front-end labels them and the correction-export job skips them; nothing
+    here promotes to an official label. The surface stays gated behind
+    ``ENABLE_EMBEDDING_TEXT_SEARCH`` (503 when off) and never silently degrades
+    to similar-by-clip. When neither an encoder nor a built catalog can ground
+    the query, it returns a 200 envelope with a clear ``reason`` and no results
+    — it never fabricates matches.
     """
     if not _text_search_enabled():
         raise HTTPException(
@@ -441,13 +529,105 @@ async def search_by_text(
             ),
         )
 
-    # Stub text-encoder: production ships the CLIP text tower here, but
-    # we don't pre-load CLIP weights in the backend container — the
-    # production deploy injects an encoder via dependency override.
-    raise HTTPException(
-        status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        detail=(
-            "Text search is enabled but no text encoder is wired into this "
-            "deployment. Override ``encode_query_text`` in app state."
-        ),
+    query = payload.query
+
+    # American-football only: a "football" query that is really about soccer is
+    # rejected with a clear reason rather than silently matching nothing.
+    soccer_hits = detect_soccer_terms(query)
+    if soccer_hits:
+        return _text_envelope(
+            query,
+            reason=(
+                "Football-IQ is American football only — this query looks like "
+                f"soccer / association football ({', '.join(soccer_hits)})."
+            ),
+            results=[],
+        )
+
+    encoder = _resolve_text_encoder(request)
+
+    # Ground the query to lexicon concepts (used for the catalog path and for
+    # transparency in the response either way).
+    matches = parse_query(query)
+    matched_concept_ids = [m.concept.concept_id for m in matches]
+
+    # Build the query vector in CLIP space.
+    query_vector: list[float] | None = None
+    if encoder is not None:
+        try:
+            raw = list(encoder(query))
+        except Exception:  # pragma: no cover - defensive; encoder is deployment code
+            log.warning("clip_text_encoder_failed", query_len=len(query))
+            raw = []
+        if len(raw) == PLAY_EMBEDDING_CLIP_DIM:
+            query_vector = [float(x) for x in raw]
+        else:
+            log.warning("clip_text_encoder_bad_dim", got=len(raw), expected=PLAY_EMBEDDING_CLIP_DIM)
+    if query_vector is None:
+        # Catalog fallback: need at least one grounded concept with a vector.
+        if not matched_concept_ids:
+            return _text_envelope(
+                query,
+                reason=(
+                    "Could not ground the query to an American-football concept. "
+                    "Try a concept like 'cover 3', 'trips', 'mesh', or 'jet sweep'."
+                ),
+                results=[],
+            )
+        catalog = load_catalog()
+        query_vector = query_vector_for_concepts(catalog, matched_concept_ids)
+        if query_vector is None:
+            return _text_envelope(
+                query,
+                reason=(
+                    "Text-search concept catalog is not built yet — run the "
+                    "offline CLIP text-tower encoder "
+                    "(gpu-worker/scripts/build_concept_catalog.py) or inject a "
+                    "CLIP text encoder."
+                ),
+                results=[],
+                matched_concept_ids=matched_concept_ids,
+            )
+
+    mv = await _resolve_production_model_version(db)
+    if mv is None:
+        return _text_envelope(
+            query,
+            reason="no production embedding model",
+            results=[],
+            matched_concept_ids=matched_concept_ids,
+        )
+
+    candidate_ids = await _candidate_clip_ids(db, payload.filters)
+    results = await _run_vector_search(
+        db,
+        anchor_vector=query_vector,
+        k=payload.k,
+        chunk_kind=payload.chunk_kind,
+        model_version_id=mv.id,
+        candidate_clip_ids=candidate_ids,
+        # Text results are inherently experimental — include the experimental
+        # clip_vector rows rather than filtering them out.
+        include_experimental=True,
+        vector_column="clip_vector",
+    )
+    # Every text result is experimental/approximate regardless of the row's
+    # own flag (the row's clip_vector is image-derived; the *text* match is
+    # the heuristic).
+    for r in results:
+        r.is_experimental = True
+    log.info(
+        "search_by_text",
+        k=payload.k,
+        result_count=len(results),
+        model_version_id=str(mv.id),
+        used_encoder=encoder is not None,
+        matched_concepts=len(matched_concept_ids),
+    )
+    return _text_envelope(
+        query,
+        reason=None,
+        results=results,
+        mv=mv,
+        matched_concept_ids=matched_concept_ids,
     )

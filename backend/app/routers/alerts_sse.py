@@ -34,15 +34,46 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
 
 from app.deps import get_current_user
-from app.models import User, UserRole
+from app.models import AlertType, User, UserRole
 
 log = structlog.get_logger(__name__)
 router = APIRouter(prefix="/api/v1/alerts", tags=["alerts-sse"])
 
+# ── Restricted alert types (Issue #149 / #9) ─────────────────────────────────
+# Workload-risk alerts are sports-performance context, not coaching tactics:
+# they are visible ONLY to admin + sportsperformance. Coaches and analysts
+# never see them in the list, by ID, or over SSE — fatigue/injury-risk flags
+# must not reach coaching staff without sports-performance mediation. Defined
+# here (not in the REST router) because the REST router imports this module.
+RESTRICTED_ALERT_TYPES: frozenset[AlertType] = frozenset({AlertType.workload_risk})
+WORKLOAD_ALERT_ROLES: frozenset[UserRole] = frozenset({UserRole.admin, UserRole.sportsperformance})
+
+
+def alert_type_visible_to(role: UserRole, alert_type: AlertType) -> bool:
+    """Whether ``role`` may see alerts of ``alert_type`` at all."""
+    if alert_type in RESTRICTED_ALERT_TYPES:
+        return role in WORKLOAD_ALERT_ROLES
+    return role not in (UserRole.player, UserRole.viewer)
+
+
+def _alert_dict_visible_to(role: UserRole | None, alert_type_value: Any) -> bool:
+    """Visibility check for a serialized alert dict (SSE fan-out path).
+
+    Unknown/missing roles are denied for restricted types — default deny.
+    """
+    try:
+        alert_type = AlertType(str(alert_type_value))
+    except ValueError:
+        return True  # unknown type: not restricted
+    if alert_type not in RESTRICTED_ALERT_TYPES:
+        return True
+    return role is not None and role in WORKLOAD_ALERT_ROLES
+
+
 # ── In-process pub/sub registry ───────────────────────────────────────────────
-# Maps connection_id → (queue, position_group_filter)
+# Maps connection_id → (queue, position_group_filter, role)
 # position_group_filter=None means "receive all groups" (admin/analyst)
-_connections: dict[str, tuple[asyncio.Queue[dict[str, Any]], str | None]] = {}
+_connections: dict[str, tuple[asyncio.Queue[dict[str, Any]], str | None, UserRole | None]] = {}
 
 _KEEPALIVE_SECONDS = 25
 _QUEUE_MAX_SIZE = 200
@@ -52,17 +83,22 @@ def publish_alert(alert_dict: dict[str, Any]) -> None:
     """Fan an alert dict to all connected SSE clients whose filter matches.
 
     Called by the alerts REST router after persisting the alert, or directly
-    by the GPU worker via the backend publish endpoint.
+    by the GPU worker via the backend publish endpoint. Restricted alert
+    types (workload_risk) are only fanned to sports-performance/admin
+    connections regardless of position-group filters.
     """
     pg = alert_dict.get("position_group")
+    alert_type_value = alert_dict.get("alert_type")
     fanned = 0
-    for _conn_id, (q, conn_pg) in list(_connections.items()):
+    for _conn_id, (q, conn_pg, conn_role) in list(_connections.items()):
+        if not _alert_dict_visible_to(conn_role, alert_type_value):
+            continue
         if conn_pg is not None and pg and conn_pg.upper() != str(pg).upper():
             continue
         if not q.full():
             q.put_nowait(alert_dict)
             fanned += 1
-    log.debug("alert_published_to_sse", alert_type=alert_dict.get("alert_type"), connections=fanned)
+    log.debug("alert_published_to_sse", alert_type=alert_type_value, connections=fanned)
 
 
 # ── SSE generator ─────────────────────────────────────────────────────────────
@@ -73,7 +109,7 @@ async def _sse_generator(
     request: Request,
 ) -> AsyncGenerator[str, None]:
     """Yield SSE-formatted strings for the lifetime of the connection."""
-    queue, _ = _connections[conn_id]
+    queue, _, _ = _connections[conn_id]
     try:
         yield f"data: {json.dumps({'type': 'connected', 'connection_id': conn_id})}\n\n"
         while True:
@@ -140,7 +176,7 @@ async def stream_alerts(
 
     conn_id = str(uuid.uuid4())
     queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=_QUEUE_MAX_SIZE)
-    _connections[conn_id] = (queue, effective_pg)
+    _connections[conn_id] = (queue, effective_pg, current_user.role)
 
     log.info(
         "sse_client_connected",

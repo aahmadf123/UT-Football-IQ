@@ -24,18 +24,19 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from pipeline import stage_embed  # noqa: E402
 from pipeline.stage_embed import (  # noqa: E402
+    CLIP_DIM,
     EMBEDDING_DIM,
     STRUCTURED_DIM,
     VISUAL_DIM,
     EmbeddingResult,
     VisualEncoder,
+    VisualEncoding,
     ZeroVisualEncoder,
     cosine_similarity,
     run,
     select_keyframe_indices,
     snap_window_bounds,
 )
-
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -317,3 +318,95 @@ def test_baseline_variant_constant_matches_router_string() -> None:
     # If this drifts the model-router's NIGHTLY_ONLY_VARIANTS guard
     # silently stops covering the embedding stage.
     assert stage_embed.BASELINE_MODEL_VARIANT == "play-embed-clip-vitb32-baseline"
+
+
+# ── Raw CLIP image embedding (clip_vector) — Issue #195 ──────────────────────
+
+
+class _ClipAwareEncoder:
+    """A CLIP-aware encoder that surfaces both the projection and raw CLIP."""
+
+    def __init__(self, *, proj_fill: float, clip_fill: float, clip_dim: int = CLIP_DIM) -> None:
+        self.proj_fill = proj_fill
+        self.clip_fill = clip_fill
+        self.clip_dim = clip_dim
+        self.calls = 0
+
+    def encode_visual(self, keyframes, *, masks=None) -> VisualEncoding:
+        self.calls += 1
+        return VisualEncoding(
+            projected=[self.proj_fill] * VISUAL_DIM,
+            clip_image=[self.clip_fill] * self.clip_dim,
+        )
+
+
+def test_clip_aware_encoder_populates_clip_vector() -> None:
+    enc = _ClipAwareEncoder(proj_fill=0.5, clip_fill=2.0)
+    result = run(
+        clip_id="c",
+        clip=_clip(),
+        tracklets=[],
+        track_points=[],
+        pose_keypoints=[],
+        labels=[],
+        events=[_snap_event(100)],
+        visual_encoder=enc,
+        keyframes=[object()],
+    )
+    assert result.clip_vector is not None
+    assert len(result.clip_vector) == CLIP_DIM
+    # Stored unit-norm in CLIP space; cosine ranking is scale-invariant.
+    assert math.isclose(_l2_norm(result.clip_vector), 1.0, rel_tol=1e-6)
+    # Single forward pass — encode_visual, not a second encode() call.
+    assert enc.calls == 1
+
+
+def test_legacy_encode_only_encoder_leaves_clip_vector_none() -> None:
+    # The default ZeroVisualEncoder implements only encode() — no raw CLIP.
+    result = run(
+        clip_id="c",
+        clip=_clip(),
+        tracklets=[],
+        track_points=[],
+        pose_keypoints=[],
+        labels=[],
+        events=[_snap_event(100)],
+        visual_encoder=ZeroVisualEncoder(),
+    )
+    assert result.clip_vector is None
+
+
+def test_clip_image_none_from_clip_aware_encoder_yields_none() -> None:
+    class _NoClip:
+        def encode_visual(self, keyframes, *, masks=None) -> VisualEncoding:
+            return VisualEncoding(projected=[0.1] * VISUAL_DIM, clip_image=None)
+
+    result = run(
+        clip_id="c",
+        clip=_clip(),
+        tracklets=[],
+        track_points=[],
+        pose_keypoints=[],
+        labels=[],
+        events=[_snap_event(100)],
+        visual_encoder=_NoClip(),
+    )
+    assert result.clip_vector is None
+
+
+def test_clip_vector_dim_is_padded_or_trimmed() -> None:
+    # A misconfigured encoder returning the wrong dim is normalised to CLIP_DIM
+    # so a downstream pgvector(512) write never fails on shape.
+    enc = _ClipAwareEncoder(proj_fill=0.0, clip_fill=1.0, clip_dim=CLIP_DIM - 5)
+    result = run(
+        clip_id="c",
+        clip=_clip(),
+        tracklets=[],
+        track_points=[],
+        pose_keypoints=[],
+        labels=[],
+        events=[_snap_event(100)],
+        visual_encoder=enc,
+    )
+    assert result.clip_vector is not None
+    assert len(result.clip_vector) == CLIP_DIM

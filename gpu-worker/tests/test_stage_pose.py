@@ -15,10 +15,10 @@ Tests cover:
 """
 
 import math
-import sys
 import os
+import sys
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import numpy as np
 import pytest
@@ -34,7 +34,6 @@ from pipeline.pose_estimator import (
     midpoint,
     vector_angle_from_vertical,
 )
-from pipeline.video_ingest import MockVideoSource
 from pipeline.stage_pose import (
     _compute_biomechanical_drift,
     _compute_block_shed_timing,
@@ -48,7 +47,7 @@ from pipeline.stage_pose import (
     _wr_shoulder_over_knee,
     run,
 )
-
+from pipeline.video_ingest import MockVideoSource
 
 # ── Geometry helper tests ──────────────────────────────────────────────────────
 
@@ -504,12 +503,23 @@ def test_stride_symmetry_too_short_returns_none() -> None:
     assert result is None
 
 
+def test_stride_symmetry_carries_asymmetry_index_scalar() -> None:
+    # Issue #149: asymmetry_index (longer/shorter stride ratio) rides both in
+    # metric_value and as a top-level scalar for the metrics-table column.
+    kp_seq = _make_asymmetric_kp_seq(left_stride=13.0, right_stride=10.0)
+    result = _compute_stride_symmetry(kp_seq, fps=30.0, tracklet_id="t1")
+    assert result is not None
+    assert result["metric_value"]["asymmetry_index"] == pytest.approx(1.3, abs=0.01)
+    assert result["asymmetry_index"] == result["metric_value"]["asymmetry_index"]
+    assert result["gait_summary"]["asymmetry_index"] == result["asymmetry_index"]
+
+
 # ── run() integration tests ────────────────────────────────────────────────────
 
 
 def test_run_with_empty_tracklets_returns_safely() -> None:
     src = MockVideoSource(total_frames=9, fps=30.0)
-    with patch("pipeline.stage_pose.backend") as mock_backend:
+    with patch("pipeline.stage_pose.backend"):
         result = run(
             clip_id="clip-1",
             video_source=src,
@@ -562,6 +572,36 @@ def test_run_with_single_ol_tracklet_writes_metrics() -> None:
         assert call_kwargs["analytics_safe"] is False
 
 
+def test_run_writes_head_yaw_to_pose_keypoints() -> None:
+    src = MockVideoSource(total_frames=6, fps=30.0)
+    tracklet = {
+        "id": "tracklet-1",
+        "position_group": "DB",
+        "start_frame": 0,
+        "end_frame": 6,
+    }
+
+    with patch("pipeline.stage_pose.backend") as mock_backend:
+        mock_backend.create_metric.return_value = {"id": "metric-1"}
+        mock_backend.create_pose_keypoints.return_value = {"id": "kp-1"}
+
+        run(
+            clip_id="clip-1",
+            video_source=src,
+            tracklets=[tracklet],
+            events=[],
+            analytics_safe=False,
+            fps=30.0,
+            job_id="job-1",
+            model_path=None,
+        )
+
+    assert mock_backend.create_pose_keypoints.called
+    call_kwargs = mock_backend.create_pose_keypoints.call_args.kwargs
+    assert call_kwargs["head_yaw_degrees"] is not None
+    assert call_kwargs["head_orientation_confidence"] is not None
+
+
 def test_run_pose_metric_names_are_all_pose_prefixed() -> None:
     src = MockVideoSource(total_frames=30, fps=30.0)
     captured_names: list[str] = []
@@ -609,7 +649,12 @@ def test_run_no_frames_no_tracklets_returns_zeros() -> None:
             job_id="j1",
             model_path=None,
         )
-    assert result == {"keypoint_count": 0, "metric_count": 0, "metric_ids": []}
+    assert result == {
+        "keypoint_count": 0,
+        "metric_count": 0,
+        "metric_ids": [],
+        "pose_metrics": {},
+    }
 
 
 # ── StubPoseEstimator defensive-copy regression ───────────────────────────────

@@ -21,17 +21,16 @@ from __future__ import annotations
 
 import os
 import uuid
-from typing import Any
-
-import httpx
-import structlog
-
 from queue.same_session_queue import (
     NIGHTLY_PRIORITY,
     SAME_SESSION_PRIORITY,
     push_nightly_job,
     push_same_session_job,
 )
+from typing import Any
+
+import httpx
+import structlog
 
 log = structlog.get_logger(__name__)
 
@@ -148,9 +147,19 @@ def _create_backend_job(
     }
     jobs_url = f"{BACKEND_API_URL.rstrip('/')}/api/v1/jobs"
 
+    headers: dict[str, str] = {}
+    try:
+        from worker import auth as worker_auth
+
+        bearer = worker_auth.token()
+        if bearer:
+            headers["Authorization"] = f"Bearer {bearer}"
+    except ImportError:
+        pass
+
     def _do(c: httpx.Client) -> None:
         try:
-            resp = c.post(jobs_url, json=payload, timeout=10)
+            resp = c.post(jobs_url, json=payload, headers=headers, timeout=10)
             resp.raise_for_status()
             log.info("backend_job_created", job_id=job_id, video_id=video_id)
         except Exception as exc:

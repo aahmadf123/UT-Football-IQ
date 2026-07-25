@@ -57,6 +57,11 @@ def _auth_headers() -> dict[str, str]:
     return {"Authorization": f"Bearer {API_TOKEN}", "Content-Type": "application/json"}
 
 
+def _cf_queues_enabled() -> bool:
+    """CF queue publishing is opt-in; DB-as-queue is the default transport."""
+    return os.environ.get("CF_QUEUES_ENABLED", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
 # ── Push helpers ──────────────────────────────────────────────────────────────
 
 
@@ -87,6 +92,12 @@ def _push(
     *,
     client: httpx.Client | None = None,
 ) -> str:
+    if not _cf_queues_enabled():
+        # DB-as-queue mode (default): the backend processing_jobs row created
+        # alongside this push IS the queue entry, so the CF publish is a no-op.
+        log.info("cf_queue_push_skipped_db_mode", queue=queue_name, job_id=payload.get("jobId"))
+        return "db-only"
+
     body = json.dumps({"messages": [{"body": payload}]})
     log.info("cf_queue_push", queue=queue_name, job_id=payload.get("jobId"))
 

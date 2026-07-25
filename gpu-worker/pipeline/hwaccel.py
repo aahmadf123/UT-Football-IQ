@@ -77,7 +77,13 @@ def probe_nvdec() -> bool:
 
 @functools.lru_cache(maxsize=1)
 def probe_nvenc() -> bool:
-    """Return True if NVENC is available (ffmpeg compiled with h264_nvenc)."""
+    """Return True if NVENC actually works at runtime.
+
+    Checking ``ffmpeg -encoders`` alone is not enough: distro builds compile
+    the ``h264_nvenc`` encoder in, but on a GPU-less host it fails at open
+    time ("Cannot load libcuda.so.1"). So after the cheap listing check, run
+    a tiny null encode to prove the driver stack is really usable.
+    """
     if os.environ.get("DISABLE_NVENC", "") == "1":
         log.info("nvenc_disabled_by_env")
         return False
@@ -88,9 +94,22 @@ def probe_nvenc() -> bool:
             text=True,
             timeout=10,
         )
-        if "h264_nvenc" in result.stdout:
+        if "h264_nvenc" not in result.stdout:
+            log.info("nvenc_unavailable")
+            return False
+        smoke = subprocess.run(
+            [
+                "ffmpeg", "-hide_banner", "-v", "error",
+                "-f", "lavfi", "-i", "color=black:s=64x64:d=0.1",
+                "-c:v", "h264_nvenc", "-f", "null", "-",
+            ],
+            capture_output=True,
+            timeout=20,
+        )
+        if smoke.returncode == 0:
             log.info("nvenc_available")
             return True
+        log.info("nvenc_listed_but_unusable")
     except (FileNotFoundError, subprocess.TimeoutExpired):
         pass
     log.info("nvenc_unavailable")

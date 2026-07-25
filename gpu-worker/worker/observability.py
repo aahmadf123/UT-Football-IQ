@@ -14,7 +14,7 @@ from __future__ import annotations
 import os
 import threading
 import time
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any
 
 from prometheus_client import (

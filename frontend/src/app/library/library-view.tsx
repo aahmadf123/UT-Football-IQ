@@ -1,8 +1,10 @@
 "use client";
 
 import Link from "next/link";
+import { ArrowRight, Minus, Plus } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAppState } from "@/lib/app-state";
+import { ConceptSearch } from "@/components/concept-search";
 import {
   fetchClipsForVideo,
   fetchPracticeSessions,
@@ -10,32 +12,30 @@ import {
   type PracticeSessionFilters,
   type VideoFilters,
 } from "@/lib/api";
+import type { FetchState } from "@/lib/fetch-state";
+import { POSSESSION_LABEL, SESSION_KIND_LABEL } from "@/lib/labels";
 import type {
   ApiClip,
   ApiPracticeSessionGroup,
   ApiVideo,
   OurPossession,
-  SessionKind,
 } from "@/lib/types";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { NativeSelect } from "@/components/ui/native-select";
+import { Skeleton } from "@/components/ui/skeleton";
+import { FilterBar } from "@/components/composite/filter-bar";
+import { StatusBadge, toneForVideoStatus } from "@/components/composite/status-badge";
 
-type LibraryState =
-  | { kind: "loading" }
-  | { kind: "offline" }
-  | { kind: "error"; message: string }
-  | { kind: "empty" }
-  | { kind: "ready"; sessions: ApiPracticeSessionGroup[]; videos: ApiVideo[] };
+interface LibraryData {
+  sessions: ApiPracticeSessionGroup[];
+  videos: ApiVideo[];
+}
 
-const POSSESSION_LABEL: Record<OurPossession, string> = {
-  offense: "Toledo Offense",
-  defense: "Toledo Defense",
-  special_teams: "Special Teams",
-};
-
-const SESSION_KIND_LABEL: Record<SessionKind, string> = {
-  practice: "Practice",
-  scrimmage: "Scrimmage",
-  game: "Game",
-};
+type LibraryState = FetchState<LibraryData>;
 
 function formatDate(value: string | null | undefined): string {
   if (!value) return "Unknown date";
@@ -99,7 +99,7 @@ export function LibraryView() {
       if (sessions.length === 0 && videos.length === 0) {
         setState({ kind: "empty" });
       } else {
-        setState({ kind: "ready", sessions, videos });
+        setState({ kind: "ready", data: { sessions, videos } });
       }
     } catch (err) {
       setState({
@@ -119,7 +119,7 @@ export function LibraryView() {
     if (state.kind !== "ready") return null;
     const videosForGroup = (group: ApiPracticeSessionGroup): ApiVideo[] => {
       const dateStr = group.session_date;
-      return state.videos.filter((v) => {
+      return state.data.videos.filter((v) => {
         if (group.practice_session_id) {
           if (v.practice_session_id !== group.practice_session_id) return false;
         } else {
@@ -136,7 +136,7 @@ export function LibraryView() {
         return true;
       });
     };
-    const enriched = state.sessions
+    const enriched = state.data.sessions
       .map((s) => ({ session: s, videos: videosForGroup(s) }))
       .filter((g) => g.videos.length > 0 || !possession);
     const practice = enriched.filter(
@@ -147,86 +147,101 @@ export function LibraryView() {
   }, [state, possession]);
 
   return (
-    <div className="content-grid">
-      <section className="panel panel-pad span-12">
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            gap: 12,
-            flexWrap: "wrap",
-          }}
-        >
-          <div>
-            <h2 className="panel-title">Hudl-style Library</h2>
-            <p className="kicker">
-              Practice and game film grouped by date and session. Use the top
-              filters for date and session kind; opponent and possession refine
-              below.
-            </p>
+    <div className="flex flex-col gap-4">
+      <Card>
+        <CardHeader>
+          <h2 className="font-display text-base font-semibold uppercase tracking-wide">
+            Hudl-style Library
+          </h2>
+          <p className="mt-0.5 max-w-2xl text-xs text-muted-foreground">
+            Practice and game film grouped by date and session. Filter by date, session kind,
+            opponent, and possession.
+          </p>
+        </CardHeader>
+        <CardContent className="flex flex-wrap items-end gap-3">
+          <FilterBar className="mb-0" />
+          <div className="flex min-w-40 flex-col gap-1">
+            <Label
+              htmlFor="library-opponent"
+              className="font-display text-[0.68rem] font-semibold uppercase tracking-widest text-muted-foreground"
+            >
+              Opponent
+            </Label>
+            <Input
+              id="library-opponent"
+              className="h-9"
+              value={opponent}
+              onChange={(e) => setOpponent(e.target.value)}
+              placeholder="e.g. Northern Illinois"
+              aria-label="Filter by opponent team"
+            />
           </div>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <label className="form-control" style={{ minWidth: 160 }}>
-              <span className="small-label">Opponent</span>
-              <input
-                value={opponent}
-                onChange={(e) => setOpponent(e.target.value)}
-                placeholder="e.g. Northern Illinois"
-                aria-label="Filter by opponent team"
-              />
-            </label>
-            <label className="form-control" style={{ minWidth: 160 }}>
-              <span className="small-label">Possession</span>
-              <select
-                value={possession}
-                onChange={(e) => setPossession(e.target.value as "" | OurPossession)}
-                aria-label="Filter by possession"
-              >
-                <option value="">All possessions</option>
-                <option value="offense">Toledo Offense</option>
-                <option value="defense">Toledo Defense</option>
-                <option value="special_teams">Special Teams</option>
-              </select>
-            </label>
+          <div className="flex min-w-40 flex-col gap-1">
+            <Label
+              htmlFor="library-possession"
+              className="font-display text-[0.68rem] font-semibold uppercase tracking-widest text-muted-foreground"
+            >
+              Possession
+            </Label>
+            <NativeSelect
+              id="library-possession"
+              value={possession}
+              onChange={(e) => setPossession(e.target.value as "" | OurPossession)}
+              aria-label="Filter by possession"
+            >
+              <option value="">All possessions</option>
+              <option value="offense">Toledo Offense</option>
+              <option value="defense">Toledo Defense</option>
+              <option value="special_teams">Special Teams</option>
+            </NativeSelect>
           </div>
-        </div>
-      </section>
+        </CardContent>
+      </Card>
+
+      <ConceptSearch />
 
       {state.kind === "loading" && (
-        <section className="panel panel-pad span-12">
-          <p className="kicker">Loading library…</p>
-        </section>
+        <div role="status" aria-busy="true" aria-label="Loading library" className="flex flex-col gap-2">
+          <Skeleton className="h-16 w-full" />
+          <Skeleton className="h-16 w-full" />
+        </div>
       )}
       {state.kind === "offline" && (
-        <section className="panel panel-pad span-12">
-          <h3 className="panel-title">Library unavailable</h3>
-          <p className="kicker" style={{ marginTop: 8 }}>
-            <code>NEXT_PUBLIC_API_URL</code> is not configured. The Library
-            requires a backend connection.{mockMode ? " Mock mode is active — server-backed library is hidden in the default UI." : ""}
-          </p>
-        </section>
+        <Card>
+          <CardContent>
+            <h3 className="font-display text-sm font-semibold uppercase tracking-wide">
+              Library unavailable
+            </h3>
+            <p className="mt-1 text-xs text-muted-foreground">
+              The Library requires a connection to the team server.
+              {mockMode
+                ? " Mock mode is active — server-backed library is hidden in the default UI."
+                : " Film appears here once the system is back online."}
+            </p>
+          </CardContent>
+        </Card>
       )}
       {state.kind === "error" && (
-        <section className="panel panel-pad span-12">
-          <h3 className="panel-title">Could not load library</h3>
-          <p className="kicker" style={{ marginTop: 8, color: "var(--accent-red, #f87171)" }}>
-            {state.message}
-          </p>
-          <button className="control-button" onClick={load} style={{ marginTop: 12 }}>
+        <Alert variant="destructive" role="alert">
+          <AlertTitle>Could not load library</AlertTitle>
+          <AlertDescription>{state.message}</AlertDescription>
+          <Button variant="outline" size="sm" className="mt-2 w-fit" onClick={load}>
             Retry
-          </button>
-        </section>
+          </Button>
+        </Alert>
       )}
       {state.kind === "empty" && (
-        <section className="panel panel-pad span-12">
-          <h3 className="panel-title">No film yet</h3>
-          <p className="kicker" style={{ marginTop: 8 }}>
-            Upload practice or game film from the Film Room → Upload / Process
-            Film tab or your Drone integration. Sessions appear here once at
-            least one video lands in R2.
-          </p>
-        </section>
+        <Card>
+          <CardContent>
+            <h3 className="font-display text-sm font-semibold uppercase tracking-wide">
+              No film yet
+            </h3>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Upload practice or game film from the Film Room → Upload / Process Film tab or your
+              Drone integration. Sessions appear here once at least one video lands in storage.
+            </p>
+          </CardContent>
+        </Card>
       )}
       {state.kind === "ready" && grouped && (
         <>
@@ -252,26 +267,26 @@ function LibrarySection({
   groups: Array<{ session: ApiPracticeSessionGroup; videos: ApiVideo[] }>;
 }) {
   return (
-    <section className="panel panel-pad span-12">
-      <h2 className="panel-title">{title}</h2>
-      {groups.length === 0 ? (
-        <p className="kicker" style={{ marginTop: 8 }}>
-          {kind === "game"
-            ? "No game film matches the current filters."
-            : "No practice or scrimmage sessions match the current filters."}
-        </p>
-      ) : (
-        <div className="list-stack" style={{ marginTop: 12, gap: 12 }}>
-          {groups.map((g) => (
-            <SessionCard
-              key={sessionKey(g.session)}
-              session={g.session}
-              videos={g.videos}
-            />
-          ))}
-        </div>
-      )}
-    </section>
+    <Card>
+      <CardHeader>
+        <h2 className="font-display text-base font-semibold uppercase tracking-wide">{title}</h2>
+      </CardHeader>
+      <CardContent>
+        {groups.length === 0 ? (
+          <p className="text-xs text-muted-foreground">
+            {kind === "game"
+              ? "No game film matches the current filters."
+              : "No practice or scrimmage sessions match the current filters."}
+          </p>
+        ) : (
+          <div className="flex flex-col gap-3">
+            {groups.map((g) => (
+              <SessionCard key={sessionKey(g.session)} session={g.session} videos={g.videos} />
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -284,56 +299,44 @@ function SessionCard({
 }) {
   const [open, setOpen] = useState(false);
   const kindLabel = session.session_kind ? SESSION_KIND_LABEL[session.session_kind] : "Session";
-  const opponentLabel = session.session_kind === "game" && session.opponent_team
-    ? `vs. ${session.opponent_team}`
-    : null;
+  const opponentLabel =
+    session.session_kind === "game" && session.opponent_team
+      ? `vs. ${session.opponent_team}`
+      : null;
 
   return (
-    <div
-      style={{
-        border: "1px solid var(--line-soft, #333)",
-        borderRadius: 8,
-        background: "var(--surface, transparent)",
-      }}
-    >
+    <div className="rounded-lg border border-border-soft bg-secondary/20">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
         aria-label={`${open ? "Collapse" : "Expand"} session ${formatDate(session.session_date)}`}
-        style={{
-          width: "100%",
-          padding: 12,
-          background: "transparent",
-          border: "none",
-          color: "inherit",
-          textAlign: "left",
-          cursor: "pointer",
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          gap: 12,
-        }}
+        className="flex min-h-11 w-full items-center justify-between gap-3 rounded-lg p-3 text-left transition-colors hover:bg-accent/40"
       >
         <div>
-          <strong style={{ fontSize: "1rem" }}>
-            {formatDate(session.session_date)}
-          </strong>
-          <div className="kicker" style={{ marginTop: 4 }}>
+          <span className="text-[0.95rem] font-semibold">{formatDate(session.session_date)}</span>
+          <div className="mt-0.5 text-xs text-muted-foreground">
             {kindLabel}
             {opponentLabel ? ` · ${opponentLabel}` : ""}
             {" · "}
             {session.video_count} video{session.video_count === 1 ? "" : "s"}
           </div>
         </div>
-        <span className="status-pill info">{open ? "−" : "+"}</span>
+        <span
+          aria-hidden
+          className="flex size-7 shrink-0 items-center justify-center rounded-md border border-border-soft text-muted-foreground"
+        >
+          {open ? <Minus className="size-4" /> : <Plus className="size-4" />}
+        </span>
       </button>
       {open && (
-        <div style={{ padding: "0 12px 12px" }}>
+        <div className="px-3 pb-3">
           {videos.length === 0 ? (
-            <p className="kicker">No videos match the current possession filter.</p>
+            <p className="text-xs text-muted-foreground">
+              No videos match the current possession filter.
+            </p>
           ) : (
-            <div className="list-stack" style={{ gap: 8 }}>
+            <div className="flex flex-col gap-2">
               {videos.map((v) => (
                 <VideoRow key={v.id} video={v} />
               ))}
@@ -374,56 +377,33 @@ function VideoRow({ video }: { video: ApiVideo }) {
     };
   }, [expanded, clips, video.id, authToken]);
 
-  const statusColor = video.status === "ready"
-    ? "var(--accent-green, #4ade80)"
-    : video.status === "failed"
-      ? "var(--accent-red, #f87171)"
-      : "var(--accent-amber, #fbbf24)";
-
   return (
-    <div
-      style={{
-        border: "1px solid var(--line-soft, #333)",
-        borderRadius: 6,
-        padding: 10,
-      }}
-    >
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <strong>{video.filename}</strong>
-          <div className="kicker" style={{ marginTop: 4 }}>
+    <div className="rounded-md border border-border-soft p-2.5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <span className="text-[0.85rem] font-semibold">{video.filename}</span>
+          <div className="mt-0.5 text-xs text-muted-foreground">
             {video.session_kind ? SESSION_KIND_LABEL[video.session_kind] : "Session"}
             {video.opponent_team ? ` · vs. ${video.opponent_team}` : ""}
             {video.our_possession ? ` · ${POSSESSION_LABEL[video.our_possession]}` : ""}
           </div>
         </div>
-        <span
-          style={{
-            color: statusColor,
-            fontWeight: 700,
-            fontSize: "0.75rem",
-            textTransform: "capitalize",
-          }}
-        >
+        <StatusBadge tone={toneForVideoStatus(video.status)} dot className="capitalize">
           {video.status}
-        </span>
-        <button className="control-button" onClick={() => setExpanded((v) => !v)}>
+        </StatusBadge>
+        <Button variant="outline" size="sm" onClick={() => setExpanded((v) => !v)}>
           {expanded ? "Hide clips" : "Show clips"}
-        </button>
+        </Button>
       </div>
       {expanded && (
-        <div style={{ marginTop: 10 }}>
-          {loadingClips && <p className="kicker">Loading clips…</p>}
-          {clipsError && (
-            <p className="kicker" style={{ color: "var(--accent-red, #f87171)" }}>
-              {clipsError}
-            </p>
-          )}
+        <div className="mt-2.5">
+          {loadingClips && <p className="text-xs text-muted-foreground">Loading clips…</p>}
+          {clipsError && <p className="text-xs text-status-danger">{clipsError}</p>}
           {clips && clips.length === 0 && (
-            <p className="kicker">No clips processed for this video yet.</p>
+            <p className="text-xs text-muted-foreground">No clips processed for this video yet.</p>
           )}
           {clips && clips.length > 0 && (
-            <div className="list-stack" style={{ marginTop: 6, gap: 4 }}>
+            <div className="flex flex-col gap-1.5">
               {clips.map((c) => (
                 <ClipRow key={c.id} clip={c} />
               ))}
@@ -441,30 +421,21 @@ function ClipRow({ clip }: { clip: ApiClip }) {
   return (
     <Link
       href={`/clip-review/?clipId=${encodeURIComponent(clip.id)}`}
-      className="row-button"
-      style={{
-        display: "flex",
-        justifyContent: "space-between",
-        alignItems: "center",
-        gap: 8,
-        textDecoration: "none",
-        color: "inherit",
-        padding: "6px 8px",
-        border: "1px solid var(--line-soft, #333)",
-        borderRadius: 6,
-      }}
+      className="group flex items-center justify-between gap-2 rounded-md border border-border-soft px-2.5 py-1.5 transition-colors hover:border-border hover:bg-accent/50"
     >
       <div>
-        <strong>
+        <span className="text-[0.82rem] font-semibold">
           {clip.play_number != null ? `Play #${clip.play_number}` : `Clip ${clip.id.slice(0, 8)}`}
-        </strong>
-        <div className="kicker" style={{ marginTop: 2 }}>
+        </span>
+        <div data-numeric className="mt-0.5 font-mono text-xs text-muted-foreground">
           {(clip.end_time - clip.start_time).toFixed(1)}s
           {possessionLabel ? ` · ${possessionLabel}` : ""}
           {clip.session_kind ? ` · ${SESSION_KIND_LABEL[clip.session_kind]}` : ""}
         </div>
       </div>
-      <span className="status-pill info">Review →</span>
+      <span className="inline-flex shrink-0 items-center gap-1 text-xs font-semibold uppercase tracking-wide text-primary opacity-80 transition-opacity group-hover:opacity-100">
+        Review <ArrowRight className="size-3.5" />
+      </span>
     </Link>
   );
 }

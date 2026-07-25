@@ -29,7 +29,12 @@ from app.database import get_db
 from app.deps import get_current_user, require_any_staff, require_coach_or_above
 from app.models import Alert, AlertSeverity, AlertType, User, UserRole
 from app.position_filter import position_group_filter
-from app.routers.alerts_sse import publish_alert
+from app.routers.alerts_sse import (
+    RESTRICTED_ALERT_TYPES,
+    WORKLOAD_ALERT_ROLES,
+    alert_type_visible_to,
+    publish_alert,
+)
 
 log = structlog.get_logger(__name__)
 router = APIRouter(prefix="/api/v1/alerts", tags=["alerts"])
@@ -181,9 +186,16 @@ async def list_alerts(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Alerts are not available in player- or viewer-facing views",
         )
+    if alert_type is not None and not alert_type_visible_to(current_user.role, alert_type):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This alert type is restricted to sports-performance staff",
+        )
 
     q = select(Alert).order_by(Alert.created_at.desc()).limit(limit).offset(offset)
 
+    if current_user.role not in WORKLOAD_ALERT_ROLES:
+        q = q.where(Alert.alert_type.notin_(RESTRICTED_ALERT_TYPES))
     if effective_pg is not None:
         q = q.where(Alert.position_group == effective_pg.upper())
     if alert_type is not None:
@@ -218,7 +230,8 @@ async def get_alert(
         )
     result = await db.execute(select(Alert).where(Alert.id == alert_id))
     alert = result.scalar_one_or_none()
-    if alert is None:
+    if alert is None or not alert_type_visible_to(current_user.role, alert.alert_type):
+        # 404 (not 403) for restricted types so their existence never leaks.
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Alert not found")
     return AlertResponse.from_orm(alert)
 
@@ -235,7 +248,7 @@ async def acknowledge_alert(
     """
     result = await db.execute(select(Alert).where(Alert.id == alert_id))
     alert = result.scalar_one_or_none()
-    if alert is None:
+    if alert is None or not alert_type_visible_to(current_user.role, alert.alert_type):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Alert not found")
 
     alert.is_acknowledged = True
@@ -266,7 +279,7 @@ async def action_alert(
     """
     result = await db.execute(select(Alert).where(Alert.id == alert_id))
     alert = result.scalar_one_or_none()
-    if alert is None:
+    if alert is None or not alert_type_visible_to(current_user.role, alert.alert_type):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Alert not found")
 
     # Apply the same position-group scoping that ``list_alerts`` enforces:

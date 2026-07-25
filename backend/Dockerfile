@@ -22,7 +22,8 @@ FROM deps AS app
 COPY . .
 
 # Run as non-root
-RUN addgroup --system appgroup && adduser --system --ingroup appgroup appuser
+RUN addgroup --system appgroup && adduser --system --ingroup appgroup appuser && \
+    mkdir -p /app/data/storage && chown -R appuser:appgroup /app/data
 USER appuser
 
 EXPOSE 8000

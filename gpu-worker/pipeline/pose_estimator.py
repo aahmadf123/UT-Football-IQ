@@ -138,8 +138,9 @@ class RTMPoseEstimator(PoseEstimatorBase):
 def _default_rtmpose_config() -> str:
     """Return the bundled RTMPose-m config path (relative to mmpose install)."""
     try:
-        import mmpose  # type: ignore[import]
         from pathlib import Path as _P
+
+        import mmpose  # type: ignore[import]
         cfg = (
             _P(mmpose.__file__).parent
             / "configs"

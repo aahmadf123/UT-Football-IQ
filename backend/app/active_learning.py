@@ -16,6 +16,7 @@ a label (``label_value["uncertainty"]``) / a queue row
         "method": str,             # "temperature" | "platt" | "uncalibrated" ...
         "confidence": float|None,  # calibrated probability — ONLY when calibrated
         "entropy": float|None,     # normalised Shannon entropy in [0, 1]
+        "raw_score": float|None,   # uncalibrated ranking signal (never shown as confidence)
     }
 
 Two safety rules are baked in, matching the producer side:
@@ -53,6 +54,22 @@ BASIS_MISSING = "missing"
 DEFAULT_ENTROPY_WEIGHT = 0.5
 DEFAULT_UNCALIBRATED_PRIORITY = 0.6
 DEFAULT_MISSING_PRIORITY = 0.5
+
+# ── Corrections queue constants (used by app.routers.corrections) ─────────────
+
+# Default number of clips returned by the annotation queue.
+DEFAULT_QUEUE_LIMIT = 25
+MAX_QUEUE_LIMIT = 200
+
+# Priority assigned to a clip with no uncertainty score. Negative so it always
+# sorts below any real score in the closed unit interval [0, 1].
+UNSCORED_PRIORITY = -1.0
+
+# Per-item reason codes (mirror the spirit of ``ActiveLearningReason`` without
+# coupling the read-only queue to that write-side enum).
+REASON_UNSCORED = "unscored"
+REASON_CALIBRATED = "uncertainty_calibrated"
+REASON_UNCALIBRATED = "uncertainty_uncalibrated"
 
 
 @dataclass(frozen=True)
@@ -240,3 +257,40 @@ def basis_for(signal: UncertaintySignal | None) -> str:
     if signal is None:
         return BASIS_MISSING
     return BASIS_CALIBRATED if signal.calibrated else BASIS_UNCALIBRATED
+
+
+# ── Corrections-queue helpers (used by app.routers.corrections) ───────────────
+
+
+def effective_priority(
+    uncertainty_score: float | None,
+    uncertainty_calibrated: bool = False,
+) -> float:
+    """Return the ranking value for one clip (higher = review first).
+
+    A real score is clamped to ``[0, 1]``. A missing score returns
+    :data:`UNSCORED_PRIORITY` so it sorts below every scored clip — an unknown
+    uncertainty is never inflated into a confident-looking number (#146).
+
+    Calibration does **not** change the ranking value: entropy is the
+    active-learning signal regardless of calibration. The
+    ``uncertainty_calibrated`` flag governs *honest presentation*, not order,
+    and is surfaced separately on each queue item.
+    """
+    if uncertainty_score is None:
+        return UNSCORED_PRIORITY
+    return _clamp(float(uncertainty_score))
+
+
+def queue_reason(uncertainty_score: float | None, uncertainty_calibrated: bool) -> str:
+    """Classify why a clip is in the queue (drives the UI badge)."""
+    if uncertainty_score is None:
+        return REASON_UNSCORED
+    return REASON_CALIBRATED if uncertainty_calibrated else REASON_UNCALIBRATED
+
+
+def normalize_limit(limit: int | None) -> int:
+    """Clamp a requested queue ``limit`` into ``[1, MAX_QUEUE_LIMIT]``."""
+    if limit is None:
+        return DEFAULT_QUEUE_LIMIT
+    return max(1, min(int(limit), MAX_QUEUE_LIMIT))

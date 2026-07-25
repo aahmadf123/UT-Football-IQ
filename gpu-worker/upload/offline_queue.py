@@ -27,13 +27,11 @@ import os
 import sqlite3
 import threading
 import time
-from pathlib import Path
+from queue.cf_trigger import dispatch_on_upload
 from typing import Any
 
 import httpx
 import structlog
-
-from queue.cf_trigger import dispatch_on_upload
 
 log = structlog.get_logger(__name__)
 

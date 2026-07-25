@@ -15,11 +15,9 @@ Covers:
 
 from __future__ import annotations
 
-import sys
 import os
+import sys
 from unittest.mock import MagicMock, patch
-
-import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
@@ -52,6 +50,7 @@ class TestRequestBurst:
         with patch.dict(os.environ, {"AUTOSCALE_API_URL": "http://scale.test/api"}):
             # Re-import to pick up env var
             import importlib
+
             import worker.autoscale as autoscale_mod
             importlib.reload(autoscale_mod)
 
@@ -69,6 +68,7 @@ class TestRequestBurst:
         """No API URL → dry-run mode returns True without any HTTP call."""
         with patch.dict(os.environ, {"AUTOSCALE_API_URL": ""}):
             import importlib
+
             import worker.autoscale as autoscale_mod
             importlib.reload(autoscale_mod)
 
@@ -82,6 +82,7 @@ class TestRequestBurst:
         """HTTP error from scale API returns False (does not raise)."""
         with patch.dict(os.environ, {"AUTOSCALE_API_URL": "http://scale.test/api"}):
             import importlib
+
             import worker.autoscale as autoscale_mod
             importlib.reload(autoscale_mod)
 
@@ -100,6 +101,7 @@ class TestRequestScaleDown:
         """request_scale_down POSTs scale_down action."""
         with patch.dict(os.environ, {"AUTOSCALE_API_URL": "http://scale.test/api"}):
             import importlib
+
             import worker.autoscale as autoscale_mod
             importlib.reload(autoscale_mod)
 
@@ -115,6 +117,7 @@ class TestRequestScaleDown:
     def test_dry_run_returns_true(self) -> None:
         with patch.dict(os.environ, {"AUTOSCALE_API_URL": ""}):
             import importlib
+
             import worker.autoscale as autoscale_mod
             importlib.reload(autoscale_mod)
 
@@ -124,6 +127,7 @@ class TestRequestScaleDown:
     def test_api_error_returns_false(self) -> None:
         with patch.dict(os.environ, {"AUTOSCALE_API_URL": "http://scale.test/api"}):
             import importlib
+
             import worker.autoscale as autoscale_mod
             importlib.reload(autoscale_mod)
 
@@ -141,6 +145,7 @@ class TestAutoscaleLoop:
     def test_burst_triggered_when_queue_non_empty(self) -> None:
         """Loop calls request_burst when same-session queue depth > 0."""
         import importlib
+
         import worker.autoscale as autoscale_mod
         importlib.reload(autoscale_mod)
 
@@ -158,7 +163,6 @@ class TestAutoscaleLoop:
             return True
 
         autoscale_mod._shutdown = False  # type: ignore[attr-defined]
-        stop = autoscale_mod._shutdown
 
         # Patch depth and scale calls; stop loop after one iteration
         with (
@@ -177,6 +181,7 @@ class TestAutoscaleLoop:
     def test_scale_down_triggered_when_queue_drains(self) -> None:
         """Loop calls request_scale_down when depth returns to 0 after burst."""
         import importlib
+
         import worker.autoscale as autoscale_mod
         importlib.reload(autoscale_mod)
 
@@ -214,6 +219,7 @@ class TestAutoscaleLoop:
     def test_loop_handles_depth_error_gracefully(self) -> None:
         """Queue depth exception does not crash the loop."""
         import importlib
+
         import worker.autoscale as autoscale_mod
         importlib.reload(autoscale_mod)
 

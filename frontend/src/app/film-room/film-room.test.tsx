@@ -52,14 +52,15 @@ async function renderHub() {
 }
 
 describe("FilmRoomPage", () => {
-  test("renders all four consolidated tabs", async () => {
+  test("renders the three consolidated tabs (mock clips tab is gone)", async () => {
     await renderHub();
     await waitFor(() => {
       expect(screen.getByTestId("film-room-tab-browse")).toBeTruthy();
     });
     expect(screen.getByTestId("film-room-tab-review")).toBeTruthy();
-    expect(screen.getByTestId("film-room-tab-clips")).toBeTruthy();
     expect(screen.getByTestId("film-room-tab-upload")).toBeTruthy();
+    // The old "Clips & Highlights" tab rendered a mock clip grid — removed.
+    expect(screen.queryByTestId("film-room-tab-clips")).toBeNull();
   });
 
   test("default tab is Browse Film (former Library)", async () => {
@@ -70,20 +71,79 @@ describe("FilmRoomPage", () => {
     });
   });
 
-  test("review tab renders the clip review / tagging view", async () => {
+  test("review tab renders the real per-video clip inventory", async () => {
     nav.tab = "review";
     await renderHub();
+    // The heading (distinct from the tab link) proves the panel rendered.
     await waitFor(() => {
-      expect(screen.getByText(/Play Tags & Corrections/i)).toBeTruthy();
+      expect(
+        screen.getByRole("heading", { name: /Review & Tag Plays/i }),
+      ).toBeTruthy();
+    });
+    // Offline backend, no videos → honest empty state, never a fake player.
+    await waitFor(() => {
+      expect(screen.getByTestId("review-empty").textContent).toMatch(
+        /Backend offline|Loading film|No film yet/i,
+      );
     });
   });
 
-  test("clips tab renders the clip library view", async () => {
+  test("an unknown tab falls back to Browse Film", async () => {
     nav.tab = "clips";
     await renderHub();
     await waitFor(() => {
-      expect(screen.getByText(/Clip Library/i)).toBeTruthy();
+      expect(screen.getByText(/Library unavailable/i)).toBeTruthy();
     });
+  });
+
+  test("review tab lists a video's real clips linking to /clip-review", async () => {
+    vi.stubEnv("NEXT_PUBLIC_API_URL", "https://api.test");
+    const respond = (body: unknown) =>
+      ({
+        ok: true,
+        status: 200,
+        json: async () => body,
+        text: async () => JSON.stringify(body),
+      }) as Response;
+    const video = {
+      id: "v-1",
+      filename: "practice.mp4",
+      status: "ready",
+      created_at: "2026-07-20T10:00:00Z",
+    };
+    const clip = {
+      id: "c-1",
+      video_id: "v-1",
+      start_time: 12.0,
+      end_time: 18.5,
+      play_number: 1,
+      confidence: 0.92,
+      is_reviewed: false,
+      our_possession: "offense",
+      session_kind: "practice",
+      result_state: "preliminary",
+      is_preliminary: true,
+      review_state: "needs_review",
+      created_at: "2026-07-20T10:00:00Z",
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = typeof input === "string" ? input : input.toString();
+        if (url.includes("/api/v1/videos/v-1/clips")) return respond([clip]);
+        if (url.includes("/api/v1/videos")) return respond([video]);
+        return respond([]);
+      }),
+    );
+    nav.tab = "review";
+    await renderHub();
+
+    const row = await screen.findByTestId("review-clip-c-1");
+    expect(row.getAttribute("href")).toBe("/clip-review/?clipId=c-1");
+    expect(row.textContent).toContain("Play #1");
+    // Same-session result tier + review state surface as badges.
+    expect(screen.getByTestId("preliminary-badge")).toBeTruthy();
+    expect(screen.getByTestId("review-state-needs_review")).toBeTruthy();
   });
 
   test("upload tab renders the explicit Upload & Process Film view", async () => {

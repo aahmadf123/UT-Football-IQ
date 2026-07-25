@@ -1,0 +1,16 @@
+# Ruff configuration for the GPU worker (linted by the ci.yml gpu-worker job).
+# Mirrors the backend's rule flavour (backend/pyproject.toml) minus the
+# FastAPI-specific ignores; kept as ruff.toml because this package has no
+# pyproject.toml of its own.
+target-version = "py312"
+line-length = 100
+
+[lint]
+select = ["E4", "E7", "E9", "F", "I", "UP", "B"]
+ignore = [
+    "B905",  # zip(strict=) — pre-dates the lint gate; behaviour-preserving to leave
+    "UP042", # str-Enum classes are part of stored artifact contracts
+]
+
+[lint.per-file-ignores]
+"tests/*" = ["B017"]

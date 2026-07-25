@@ -33,9 +33,10 @@ from __future__ import annotations
 
 import json
 import subprocess
+from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Iterator
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import structlog
@@ -270,6 +271,7 @@ def open_video(uri: str | Path | None, *, fps_fallback: float = 30.0) -> Iterato
 
     - ``None`` or empty string → ``MockVideoSource`` (no-op, safe for tests)
     - ``r2://…``               → ``R2VideoSource`` (downloads from R2, cleans up)
+    - ``local://…``/``file://…`` → ``LocalFileVideoSource`` on the resolved path
     - Anything else            → ``LocalFileVideoSource`` (local .mp4 path)
 
     Example::
@@ -284,11 +286,20 @@ def open_video(uri: str | Path | None, *, fps_fallback: float = 30.0) -> Iterato
 
     uri_str = str(uri)
     if uri_str.startswith("r2://"):
-        r2_key = "/".join(uri_str.split("/")[3:])
-        source = R2VideoSource(r2_key)
+        # Pass the full URI through — the storage facade parses the bucket,
+        # so multi-bucket references are honoured (a bare key would silently
+        # fall back to the single default bucket).
+        source = R2VideoSource(uri_str)
         try:
             yield source
         finally:
             source.cleanup()
+    elif uri_str.startswith(("local://", "file://")):
+        from pipeline import storage as storage_mod
+
+        path = storage_mod.resolve_readable_path(uri_str)
+        if path is None:
+            raise FileNotFoundError(f"Unresolvable storage reference: {uri_str}")
+        yield LocalFileVideoSource(path)
     else:
         yield LocalFileVideoSource(uri_str)

@@ -35,6 +35,7 @@ Metric names (written into the ``metrics`` table):
   pose_qb_release_consistency
   pose_stride_symmetry
   pose_biomechanical_drift
+  pose_body_orientation_proxy
 """
 
 from __future__ import annotations
@@ -46,8 +47,9 @@ from typing import Any
 import structlog
 
 from pipeline import backend
+from pipeline.metrics.gait_asymmetry import compute_gait_asymmetry
+from pipeline.pose.head_yaw import compute_head_yaw, summarize_body_orientation
 from pipeline.pose_estimator import (
-    PoseEstimatorBase,
     angle_degrees,
     get_estimator,
     kp,
@@ -75,6 +77,7 @@ POSE_METRIC_NAMES: frozenset[str] = frozenset(
         "pose_qb_release_consistency",
         "pose_stride_symmetry",
         "pose_biomechanical_drift",
+        "pose_body_orientation_proxy",
     }
 )
 
@@ -137,7 +140,7 @@ def run(
 
     if not frame_keypoints and not tracklets:
         log.info("stage_pose_no_data", clip_id=clip_id)
-        return {"keypoint_count": 0, "metric_count": 0, "metric_ids": []}
+        return {"keypoint_count": 0, "metric_count": 0, "metric_ids": [], "pose_metrics": {}}
 
     # ── Resolve key events ────────────────────────────────────────────────────
     snap_frame = _event_frame(events, "snap")
@@ -147,6 +150,9 @@ def run(
     # ── Per-tracklet processing ───────────────────────────────────────────────
     keypoint_count = 0
     metrics: list[dict[str, Any]] = []
+    # Per-tracklet gait summaries handed to the chained metrics job (#149) so
+    # workload fusion can fold asymmetry in without re-reading keypoints.
+    pose_metrics: dict[str, dict[str, Any]] = {}
 
     for tracklet in tracklets:
         tracklet_id = tracklet.get("id")
@@ -163,6 +169,15 @@ def run(
         # Write raw keypoints to pose_keypoints table
         kp_ids = _write_keypoints(clip_id, tracklet_id, kp_seq, job_id)
         keypoint_count += len(kp_ids)
+
+        orientation_metric = _compute_body_orientation_proxy(
+            kp_seq,
+            tracklet_id,
+            player_id=tracklet.get("player_id"),
+            position_group=position_group or None,
+        )
+        if orientation_metric:
+            metrics.append(orientation_metric)
 
         # Position-group-specific biomechanics
         if position_group in ("OL", "DL", "OT", "OG", "OC", "DE", "DT", "NT"):
@@ -183,6 +198,9 @@ def run(
         stride_metric = _compute_stride_symmetry(kp_seq, fps, tracklet_id)
         if stride_metric:
             metrics.append(stride_metric)
+            gait_summary = stride_metric.get("gait_summary")
+            if tracklet_id is not None and gait_summary:
+                pose_metrics[str(tracklet_id)] = dict(gait_summary)
 
     # ── Biomechanical drift (across all OL tracklets in clip) ─────────────────
     ol_tracklets = [
@@ -207,6 +225,7 @@ def run(
                 "experimental_flag": True,
                 "analytics_safe": False,
                 "confidence": m.get("confidence"),
+                "asymmetry_index": m.get("asymmetry_index"),
                 "job_id": job_id,
             }
             resp = backend.create_metric(**payload)
@@ -224,6 +243,7 @@ def run(
         "keypoint_count": keypoint_count,
         "metric_count": len(metric_ids),
         "metric_ids": metric_ids,
+        "pose_metrics": pose_metrics,
     }
 
 
@@ -282,7 +302,7 @@ def _compute_pad_level(
         )
         torso_angle = vector_angle_from_vertical(hip_centre, shoulder_centre)
 
-        hip_flexions.append(hip_flex := hip_flexion)
+        hip_flexions.append(hip_flexion)
         torso_angles.append(torso_angle)
         confs.append(min_conf)
 
@@ -849,7 +869,6 @@ def _qb_shoulder_hip_separation(
             continue
 
         shoulder_vec = (rs["x"] - ls["x"], rs["y"] - ls["y"])
-        hip_vec = (rh["x"] - lh["x"], rh["y"] - lh["y"])
         sep = angle_degrees(
             (ls["x"] + shoulder_vec[0], ls["y"] + shoulder_vec[1]),
             ((ls["x"] + rs["x"]) / 2, (ls["y"] + rs["y"]) / 2),
@@ -1006,66 +1025,26 @@ def _compute_stride_symmetry(
     Left/right stride lengths derived from consecutive ankle-contact events.
     Asymmetry score > 0.15 → injury_risk_flag=True (feeds UT Athletics model).
     """
-    if len(kp_seq) < 4:
+    gait = compute_gait_asymmetry(kp_seq)
+    if gait is None:
         return None
 
-    left_strides: list[float] = []
-    right_strides: list[float] = []
-    prev_la_y: float | None = None
-    prev_ra_y: float | None = None
-    prev_la_x: float | None = None
-    prev_ra_x: float | None = None
-
-    for entry in kp_seq:
-        la = kp(entry["keypoints"], "left_ankle")
-        ra = kp(entry["keypoints"], "right_ankle")
-        if la["confidence"] < 0.3 or ra["confidence"] < 0.3:
-            continue
-
-        if prev_la_y is not None and prev_la_x is not None:
-            left_move = math.sqrt((la["x"] - prev_la_x) ** 2 + (la["y"] - prev_la_y) ** 2)
-            left_strides.append(left_move)
-        if prev_ra_y is not None and prev_ra_x is not None:
-            right_move = math.sqrt((ra["x"] - prev_ra_x) ** 2 + (ra["y"] - prev_ra_y) ** 2)
-            right_strides.append(right_move)
-
-        prev_la_x, prev_la_y = la["x"], la["y"]
-        prev_ra_x, prev_ra_y = ra["x"], ra["y"]
-
-    if not left_strides or not right_strides:
-        return None
-
-    mean_left = statistics.mean(left_strides)
-    mean_right = statistics.mean(right_strides)
-    total = mean_left + mean_right
-    if total < 1e-6:
-        return None
-
-    ratio = mean_left / mean_right if mean_right > 0 else 1.0
-    asymmetry = abs(mean_left - mean_right) / (total / 2.0)
-    injury_risk = asymmetry > _ASYMMETRY_RISK_THRESHOLD
-
-    avg_conf = statistics.mean(
-        min(
-            kp(e["keypoints"], "left_ankle")["confidence"],
-            kp(e["keypoints"], "right_ankle")["confidence"],
-        )
-        for e in kp_seq
-        if min(kp(e["keypoints"], "left_ankle")["confidence"],
-               kp(e["keypoints"], "right_ankle")["confidence"]) >= 0.3
-    ) if kp_seq else 0.5
+    injury_risk = gait["asymmetry_score"] > _ASYMMETRY_RISK_THRESHOLD
 
     return {
         "metric_name": "pose_stride_symmetry",
         "metric_value": {
-            "left_right_ratio": round(ratio, 3),
-            "asymmetry_score": round(asymmetry, 4),
+            "left_right_ratio": gait["left_right_ratio"],
+            "asymmetry_score": gait["asymmetry_score"],
+            "asymmetry_index": gait["asymmetry_index"],
             "injury_risk_flag": injury_risk,
-            "confidence": round(float(avg_conf), 3),
+            "confidence": gait["confidence"],
         },
         "unit": "ratio",
-        "confidence": round(float(avg_conf), 3),
+        "confidence": gait["confidence"],
         "tracklet_id": tracklet_id,
+        "asymmetry_index": gait["asymmetry_index"],
+        "gait_summary": gait,
     }
 
 
@@ -1191,10 +1170,21 @@ def _write_keypoints(
     ids: list[str] = []
     for entry in kp_seq:
         try:
+            head_orientation = compute_head_yaw(entry["keypoints"])
             resp = backend.create_pose_keypoints(
                 tracklet_id=tracklet_id,
                 frame_number=entry["frame_number"],
                 keypoints=entry["keypoints"],
+                head_yaw_degrees=(
+                    head_orientation.get("head_yaw_degrees")
+                    if head_orientation is not None
+                    else None
+                ),
+                head_orientation_confidence=(
+                    head_orientation.get("confidence")
+                    if head_orientation is not None
+                    else None
+                ),
                 job_id=job_id,
             )
             ids.append(resp.get("id", ""))
@@ -1205,3 +1195,36 @@ def _write_keypoints(
                 error=str(exc),
             )
     return ids
+
+
+def _compute_body_orientation_proxy(
+    kp_seq: list[dict[str, Any]],
+    tracklet_id: str | None,
+    *,
+    player_id: str | None,
+    position_group: str | None,
+) -> dict[str, Any] | None:
+    """Create the tracklet-level body-orientation proxy metric."""
+    summary = summarize_body_orientation(kp_seq)
+    if summary is None:
+        return None
+
+    reason_codes = list(summary.get("reason_codes", []))
+    if player_id is None:
+        reason_codes.append("anonymous_track")
+
+    metric_value = {
+        **summary,
+        "track_id": tracklet_id,
+        "player_id": player_id,
+        "position_group": position_group,
+        "proxy_kind": "body_orientation_proxy",
+        "reason_codes": sorted(set(reason_codes)),
+    }
+    return {
+        "tracklet_id": tracklet_id,
+        "metric_name": "pose_body_orientation_proxy",
+        "metric_value": metric_value,
+        "unit": "degrees",
+        "confidence": summary.get("confidence"),
+    }

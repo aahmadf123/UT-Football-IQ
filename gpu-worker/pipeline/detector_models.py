@@ -322,16 +322,22 @@ def get_detector(
 
 # Regimes (kept in sync with pipeline.homography.regime_detector).
 _DRONE_FOLLOW = "drone_follow"
+_UNCONSTRAINED = "unconstrained"
+#: Regimes whose players may be small in frame (high/far/unknown viewpoints):
+#: they get the SAHI + dual-resolution composition. ``fixed_sideline`` keeps
+#: the plain full-frame pass (press-box footage has large players).
+_SMALL_PLAYER_REGIMES = frozenset({_DRONE_FOLLOW, _UNCONSTRAINED})
 
 
 def player_detection_strategy(regime: str | None) -> str:
     """Strategy label for the player routing artifact, by capture regime.
 
     ``drone_follow`` players are 30–80 px tall → SAHI tiles + dual-resolution.
-    ``fixed_sideline`` / ``unknown`` players are 80–200 px → the base detector
-    is enough (SAHI not needed; dual-res only a marginal lift — Issue #128).
+    ``unconstrained`` (any angle/height) may put players anywhere on that
+    scale → the same recall-first composition. ``fixed_sideline`` players are
+    80–200 px → the base detector is enough (Issue #128).
     """
-    return "sahi-400+dual-res" if regime == _DRONE_FOLLOW else "base"
+    return "sahi-400+dual-res" if regime in _SMALL_PLAYER_REGIMES else "base"
 
 
 def build_player_detector(
@@ -355,7 +361,7 @@ def build_player_detector(
         if base is not None
         else get_detector(variant, confidence_threshold=confidence_threshold)
     )
-    if regime != _DRONE_FOLLOW:
+    if regime not in _SMALL_PLAYER_REGIMES:
         return detector
     # Local imports avoid a package import cycle (detection imports this module).
     from pipeline.detection.dual_res_merger import DualResolutionDetector

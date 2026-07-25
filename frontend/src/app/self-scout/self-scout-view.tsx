@@ -2,7 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AnalyticsCard, type AnalyticsCardState } from "@/components/analytics-card";
+import { TendencyTable } from "@/components/shared/tendency-table";
 import { useAppState } from "@/lib/app-state";
+import type { FetchState } from "@/lib/fetch-state";
 import {
   actionAlert,
   fetchSelfScoutTendencies,
@@ -12,24 +14,22 @@ import {
   type TendencyBreakAlert,
   type VideoFilters,
 } from "@/lib/api";
-import type { ApiVideo, SelfScoutResponse, TendencyEntry } from "@/lib/types";
+import type { ApiVideo, SelfScoutResponse } from "@/lib/types";
 import { ExperimentalBadge } from "@/components/experimental-badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardHeader } from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
+import { NativeSelect } from "@/components/ui/native-select";
+import { StatusBadge } from "@/components/composite/status-badge";
 
-type ScoutDataState =
-  | { kind: "loading" }
-  | { kind: "offline" }
-  | { kind: "empty" }
-  | { kind: "error"; message: string }
-  | { kind: "ready"; data: SelfScoutResponse };
+type ScoutDataState = FetchState<SelfScoutResponse>;
 
-type BreakState =
-  | { kind: "loading" }
-  | { kind: "offline" }
-  | { kind: "empty" }
-  | { kind: "error"; message: string }
-  | { kind: "ready"; alerts: TendencyBreakAlert[] };
+type BreakState = FetchState<TendencyBreakAlert[]>;
 
 const ALL_VIDEOS = "__all__";
+
+const OFFLINE_REASON =
+  "Self-Scout is unavailable offline — tendencies appear when the team server is connected.";
 
 export function SelfScoutView() {
   const { selectedDate, sessionType, authToken, mockMode } = useAppState();
@@ -125,7 +125,7 @@ export function SelfScoutView() {
     try {
       const res = await fetchTendencyBreakAlerts({ limit: 100 }, authToken);
       const list = Array.isArray(res?.alerts) ? res.alerts : [];
-      setBreakState(list.length === 0 ? { kind: "empty" } : { kind: "ready", alerts: list });
+      setBreakState(list.length === 0 ? { kind: "empty" } : { kind: "ready", data: list });
     } catch (err) {
       setBreakState({
         kind: "error",
@@ -162,7 +162,7 @@ export function SelfScoutView() {
           if (cur.kind !== "ready") return cur;
           return {
             kind: "ready",
-            alerts: cur.alerts.map((a) =>
+            data: cur.data.map((a) =>
               a.id === alertId ? { ...a, is_actioned: true } : a,
             ),
           };
@@ -181,7 +181,8 @@ export function SelfScoutView() {
       case "offline":
         return {
           kind: "unavailable",
-          reason: "Tendency-break alerts need the FastAPI backend (NEXT_PUBLIC_API_URL).",
+          reason:
+            "Tendency-break alerts are unavailable offline — they appear when the team server is connected.",
         };
       case "empty":
         return {
@@ -201,11 +202,7 @@ export function SelfScoutView() {
       case "loading":
         return { kind: "loading", label: "Computing Self-Scout tendencies…" };
       case "offline":
-        return {
-          kind: "unavailable",
-          reason:
-            "Self-Scout needs the FastAPI backend. Set NEXT_PUBLIC_API_URL to enable.",
-        };
+        return { kind: "unavailable", reason: OFFLINE_REASON };
       case "empty":
         return {
           kind: "empty",
@@ -222,29 +219,33 @@ export function SelfScoutView() {
   const data = state.kind === "ready" ? state.data : null;
 
   return (
-    <div className="content-grid">
-      <section className="panel panel-pad span-12">
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            gap: 12,
-            flexWrap: "wrap",
-          }}
-        >
+    <div className="flex flex-col gap-4">
+      <Card>
+        <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-3">
           <div>
-            <h2 className="panel-title">Self-Scout filter</h2>
-            <p className="kicker">
-              Pick a single piece of our film to scout, or scout across every
-              uploaded session. Top-bar Date and Session Type also narrow the
-              picker.
+            <h2 className="font-display text-base font-semibold uppercase tracking-wide">
+              Self-Scout filter
+            </h2>
+            <p className="mt-0.5 max-w-2xl text-xs text-muted-foreground">
+              Pick a single piece of our film to scout, or scout across every uploaded session.
+              Date and Session Type filters also narrow the picker.
               {mockMode ? " Mock mode shows whatever the backend returns when configured." : ""}
             </p>
+            {videosError && (
+              <p className="mt-2 text-xs text-status-danger" data-testid="self-scout-videos-error">
+                Could not load source film list: {videosError}
+              </p>
+            )}
           </div>
-          <label className="form-control" style={{ minWidth: 280 }}>
-            <span className="small-label">Source film</span>
-            <select
+          <div className="flex min-w-72 flex-col gap-1">
+            <Label
+              htmlFor="self-scout-video-picker"
+              className="font-display text-[0.68rem] font-semibold uppercase tracking-widest text-muted-foreground"
+            >
+              Source film
+            </Label>
+            <NativeSelect
+              id="self-scout-video-picker"
               value={selectedVideoId}
               onChange={(e) => setSelectedVideoId(e.target.value)}
               aria-label="Self-Scout source video"
@@ -256,92 +257,65 @@ export function SelfScoutView() {
                   {videoLabel(v)}
                 </option>
               ))}
-            </select>
-          </label>
-        </div>
-        {videosError && (
-          <p
-            className="kicker"
-            style={{ marginTop: 8, color: "var(--accent-red, #f87171)" }}
-            data-testid="self-scout-videos-error"
-          >
-            Could not load source film list: {videosError}
-          </p>
-        )}
-      </section>
-
-      <AnalyticsCard
-        title="Run / Pass by Formation"
-        state={cardState}
-        className="span-6"
-      >
-        {data && <TendencyTable entries={data.formation_tendencies} />}
-      </AnalyticsCard>
-
-      <AnalyticsCard
-        title="Personnel Tendencies"
-        state={cardState}
-        className="span-6"
-      >
-        {data && <TendencyTable entries={data.personnel_tendencies} />}
-      </AnalyticsCard>
-
-      <AnalyticsCard
-        title="Motion Split"
-        state={cardState}
-        className="span-6"
-      >
-        {data && (
-          <div className="list-stack" style={{ gap: 6 }}>
-            <MotionRow label="With motion" split={data.motion_tendencies.with_motion} />
-            <MotionRow label="Without motion" split={data.motion_tendencies.without_motion} />
+            </NativeSelect>
           </div>
-        )}
-      </AnalyticsCard>
+        </CardHeader>
+      </Card>
 
-      <AnalyticsCard
-        title="Down & Distance"
-        state={cardState}
-        className="span-6"
-      >
-        {data && (
-          <TendencyTable
-            entries={data.down_distance_tendencies.map((e) => ({
-              ...e,
-              grouping_key: `${ordinalDown(e.down)} · ${distanceLabel(e.distance_bucket)}`,
-            }))}
-          />
-        )}
-      </AnalyticsCard>
+      <div className="grid gap-4 lg:grid-cols-2">
+        <AnalyticsCard title="Run / Pass by Formation" state={cardState}>
+          {data && <TendencyTable entries={data.formation_tendencies} />}
+        </AnalyticsCard>
 
-      <AnalyticsCard
-        title="Pre-Snap Tells"
-        state={cardState}
-        className="span-12"
-      >
+        <AnalyticsCard title="Personnel Tendencies" state={cardState}>
+          {data && <TendencyTable entries={data.personnel_tendencies} />}
+        </AnalyticsCard>
+
+        <AnalyticsCard title="Motion Split" state={cardState}>
+          {data && (
+            <div className="flex flex-col gap-1.5">
+              <MotionRow label="With motion" split={data.motion_tendencies.with_motion} />
+              <MotionRow label="Without motion" split={data.motion_tendencies.without_motion} />
+            </div>
+          )}
+        </AnalyticsCard>
+
+        <AnalyticsCard title="Down & Distance" state={cardState}>
+          {data && (
+            <TendencyTable
+              entries={data.down_distance_tendencies.map((e) => ({
+                ...e,
+                grouping_key: `${ordinalDown(e.down)} · ${distanceLabel(e.distance_bucket)}`,
+              }))}
+            />
+          )}
+        </AnalyticsCard>
+      </div>
+
+      <AnalyticsCard title="Pre-Snap Tells" state={cardState}>
         {data &&
           (data.pre_snap_tells.length === 0 ? (
-            <p className="kicker">
+            <p className="text-xs text-muted-foreground">
               No exposure leans crossed the alert threshold for this film.
             </p>
           ) : (
-            <div className="list-stack" style={{ gap: 6 }}>
+            <div className="flex flex-col gap-2">
               {data.pre_snap_tells.map((tell) => (
                 <div
                   key={tell.grouping_key}
-                  className="status-row"
-                  style={{ gridTemplateColumns: "1fr auto" }}
+                  className="flex items-start justify-between gap-3 border-b border-border-soft pb-2 last:border-b-0 last:pb-0"
                   data-testid={`pre-snap-tell-${tell.grouping_key}`}
                 >
-                  <div>
-                    <strong>{tell.formation}</strong>
-                    <div className="kicker">{tell.message}</div>
+                  <div className="min-w-0">
+                    <span className="text-[0.85rem] font-semibold">{tell.formation}</span>
+                    <div className="mt-0.5 text-xs text-muted-foreground">{tell.message}</div>
                   </div>
-                  <span
-                    className={`status-pill ${tell.severity === "high" ? "danger" : "warning"}`}
+                  <StatusBadge
+                    tone={tell.severity === "high" ? "danger" : "warn"}
+                    className="capitalize"
                   >
                     {tell.severity}
-                  </span>
+                  </StatusBadge>
                 </div>
               ))}
             </div>
@@ -351,21 +325,19 @@ export function SelfScoutView() {
       <AnalyticsCard
         title="Tendency-Break Alerts"
         state={breakCardState}
-        className="span-12"
         headerExtra={
-          <button
-            type="button"
-            className="control-button primary"
+          <Button
+            size="sm"
             data-testid="generate-tendency-break"
             onClick={handleGenerate}
             disabled={generating}
           >
             {generating ? "Generating…" : "Generate from film"}
-          </button>
+          </Button>
         }
       >
         {breakState.kind === "ready" && (
-          <TendencyBreakList alerts={breakState.alerts} onAction={handleActionBreak} />
+          <TendencyBreakList alerts={breakState.data} onAction={handleActionBreak} />
         )}
       </AnalyticsCard>
     </div>
@@ -380,65 +352,39 @@ function TendencyBreakList({
   onAction: (alertId: string) => void;
 }) {
   return (
-    <div className="list-stack" style={{ gap: 8 }}>
+    <div className="flex flex-col gap-3">
       {alerts.map((a) => (
         <div
           key={a.id ?? a.grouping_key}
-          className="status-row"
-          style={{ gridTemplateColumns: "1fr auto", alignItems: "start", gap: 12 }}
+          className="flex items-start justify-between gap-3 border-b border-border-soft pb-3 last:border-b-0 last:pb-0"
           data-testid={`tendency-break-${a.id ?? a.grouping_key}`}
         >
-          <div>
-            <div style={{ display: "flex", gap: 8, alignItems: "baseline", flexWrap: "wrap" }}>
-              <strong>{a.grouping_key}</strong>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-[0.85rem] font-semibold">{a.grouping_key}</span>
               {a.tendency_kind === "pattern_break" && <ExperimentalBadge label="Pattern break" />}
             </div>
-            <div className="kicker">{a.message}</div>
-            <div className="kicker">
+            <div className="mt-0.5 text-xs text-muted-foreground">{a.message}</div>
+            <div data-numeric className="mt-0.5 font-mono text-xs text-muted-foreground">
               {Math.round(a.pass_rate * 100)}% pass · {Math.round(a.run_rate * 100)}% run ·{" "}
               {a.total_plays} plays · source {a.source}
               {a.is_actioned ? " · actioned" : ""}
             </div>
           </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "end" }}>
-            <span className={`status-pill ${a.severity === "high" ? "danger" : "warning"}`}>
+          <div className="flex shrink-0 flex-col items-end gap-1.5">
+            <StatusBadge tone={a.severity === "high" ? "danger" : "warn"} className="capitalize">
               {a.severity}
-            </span>
+            </StatusBadge>
             {a.id && !a.is_actioned && (
-              <button
-                type="button"
-                className="control-button"
+              <Button
+                variant="outline"
+                size="sm"
                 data-testid={`action-break-${a.id}`}
                 onClick={() => onAction(a.id as string)}
               >
                 Mark actioned
-              </button>
+              </Button>
             )}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function TendencyTable({ entries }: { entries: TendencyEntry[] }) {
-  if (entries.length === 0) {
-    return (
-      <p className="kicker">No tendencies above the minimum-sample threshold.</p>
-    );
-  }
-  return (
-    <div className="list-stack" style={{ gap: 4 }}>
-      {entries.map((e) => (
-        <div
-          key={e.grouping_key}
-          className="status-row"
-          style={{ gridTemplateColumns: "1fr 56px minmax(90px, 1fr)" }}
-        >
-          <strong>{e.grouping_key}</strong>
-          <span>{e.total_plays}</span>
-          <div className="progress">
-            <i style={{ "--value": `${Math.round(e.run_rate * 100)}%` } as React.CSSProperties} />
           </div>
         </div>
       ))}
@@ -454,11 +400,17 @@ function MotionRow({
   split: { total: number; run_rate: number; pass_rate: number };
 }) {
   return (
-    <div className="status-row" style={{ gridTemplateColumns: "1fr auto auto auto" }}>
-      <strong>{label}</strong>
-      <span className="kicker">{split.total} plays</span>
-      <span className="kicker">{(split.run_rate * 100).toFixed(0)}% run</span>
-      <span className="kicker">{(split.pass_rate * 100).toFixed(0)}% pass</span>
+    <div className="grid grid-cols-[1fr_auto_auto_auto] items-baseline gap-3 text-[0.82rem]">
+      <span className="font-medium">{label}</span>
+      <span data-numeric className="font-mono text-xs text-muted-foreground">
+        {split.total} plays
+      </span>
+      <span data-numeric className="font-mono text-xs text-muted-foreground">
+        {(split.run_rate * 100).toFixed(0)}% run
+      </span>
+      <span data-numeric className="font-mono text-xs text-muted-foreground">
+        {(split.pass_rate * 100).toFixed(0)}% pass
+      </span>
     </div>
   );
 }

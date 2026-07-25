@@ -65,6 +65,54 @@ Third-party models, libraries, and tools used in Football-IQ. Updated May 2026.
 
 ---
 
+## SportsDataverse sportypy
+
+| Field | Detail |
+|---|---|
+| **Library** | `sportypy` by SportsDataverse |
+| **License** | GPL-3.0 |
+| **Access** | https://sportypy.sportsdataverse.org and https://github.com/sportsdataverse/sportypy - `pip install sportypy`; no account required |
+| **Sport coverage** | Multi-sport playing-surface renderer; includes American football NCAA/NFL fields. Avoid broad multi-sport adoption paths that could pull in soccer/association-football use. |
+| **Football-IQ usage** | Issue #169 evaluation only. Recommended for optional analyst/report-only exploration, not as a production backend, frontend, Worker, or GPU-worker dependency. |
+| **Secret/key required** | No |
+| **Privacy risk** | Low when used with synthetic or approved aggregated field coordinates. Real route/spacing charts must wait for calibrated tracking gates and must not expose private footage or player PII. |
+| **Model-router impact** | None - visualization only; no inference stage or model registry path. |
+| **Notes** | GPL-3.0 requires legal review before any deployed-service dependency. No package dependency was added in the issue #169 PR. |
+
+---
+
+## SportsDataverse cfbplotR
+
+| Field | Detail |
+|---|---|
+| **Library** | `cfbplotR` by SportsDataverse |
+| **License** | MIT for package code; college football data/logos belong to their respective owners and are governed by their terms of use |
+| **Access** | https://cfbplotr.sportsdataverse.org and https://github.com/sportsdataverse/cfbplotR - R/GitHub install; no account required |
+| **Sport coverage** | College football visualization helpers, especially logo plotting in ggplot2 |
+| **Football-IQ usage** | Issue #169 evaluation only. Deferred for production because Football-IQ should not add R to the backend for logo/chart rendering, and Toledo/MAC marks require explicit rights review. |
+| **Secret/key required** | No package secret; this evaluation makes no CFBD or Sportradar calls |
+| **Privacy risk** | Medium for logo/trademark handling; low for synthetic chart geometry |
+| **Model-router impact** | None - visualization only; no inference stage or model registry path. |
+| **Notes** | Use only approved local Toledo brand assets/tokens if frontend identity is needed. Do not expose vendor keys or fetch external logo/data catalogs in browser code. |
+
+---
+
+## SportsDataverse sportyR
+
+| Field | Detail |
+|---|---|
+| **Library** | `sportyR` by SportsDataverse |
+| **License** | GPL-3.0 |
+| **Access** | https://sportyr.sportsdataverse.org and https://github.com/sportsdataverse/sportyR - R package; no account required |
+| **Sport coverage** | Multi-sport playing-surface renderer; includes American football but also soccer surfaces |
+| **Football-IQ usage** | Issue #169 evaluation only. Deferred; it duplicates the playing-surface use case while adding an R runtime and GPL-3.0 production-review burden. |
+| **Secret/key required** | No |
+| **Privacy risk** | Low when limited to synthetic or approved aggregated coordinates |
+| **Model-router impact** | None - visualization only; no inference stage or model registry path. |
+| **Notes** | Do not use for production Football-IQ rendering unless a future ADR explicitly approves R/GPL dependency handling. |
+
+---
+
 ## Ultralytics (YOLOv8 / YOLOv11)
 
 | Field | Detail |
@@ -228,6 +276,69 @@ Third-party models, libraries, and tools used in Football-IQ. Updated May 2026.
 | **Router path** | `pipeline.model_router` → nightly `reid`; on `NIGHTLY_ONLY_VARIANTS`. Same-session `reid` stays Tesseract `jersey-ocr` |
 | **Privacy risk** | Reads jersey numbers (no PII/medical); single-camera only |
 | **Football-IQ usage** | Phase CV — Issue #131: `gpu-worker/pipeline/tracking/parseq_ocr_adapter.py`, wired into `stage_reid` ahead of Tesseract on the nightly path. |
+
+---
+
+## SportQA — evaluated, not adopted (Issue #168)
+
+| Field | Detail |
+|---|---|
+| **Resource** | SportQA — sports-understanding text QA benchmark (70,592 multiple-choice questions, 35 sports, 3 difficulty levels) |
+| **Source** | https://github.com/haotianxia/SportQA · paper https://arxiv.org/abs/2402.15862 (NAACL 2024) |
+| **Sport coverage** | 35 sports; **American football ✅ present** (also contains soccer — that subset is excluded per the denylist) |
+| **License** | **CC-BY-4.0** (attribution). Redistribution permitted under CC-BY; raw data kept local/gitignored regardless |
+| **Access / key** | Public download; **no API key**. Not read by the backend |
+| **Runtime category** | **Offline evaluation only** — never same-session/nightly, not coach-facing, not in the model router |
+| **Privacy risk** | None — public sports-knowledge QA; benchmark scores are **not** Toledo labels |
+| **Football-IQ usage** | **Deferred** (Issue #168). Coverage harness only: `gpu-worker/eval/sportqa_sportr_eval.py`. Adopt for offline assistant-rules eval only when a coach-facing assistant is scoped. See `reports/spike-issue168-sportqa-sportr.md`. |
+
+---
+
+## SportR — evaluated, deferred to full release (Issue #168)
+
+| Field | Detail |
+|---|---|
+| **Resource** | SportR — multimodal sports-reasoning benchmark (4,789 images, 2,052 videos, 20k+ QA, 6,841 chain-of-thought, bbox grounding) |
+| **Source** | https://github.com/chili-lab/SportR · preprint https://arxiv.org/abs/2511.06499 (ICLR 2026) |
+| **Sport coverage** | 5 ball/racket sports — basketball, soccer, table tennis, badminton, **American football ✅**. Soccer subset excluded per the denylist |
+| **License** | **Apache-2.0**. **Full dataset staged for release "before ICLR 2026" — verify availability before any use** |
+| **Access / key** | Public release; **no key known**. Not read by the backend |
+| **Runtime category** | **Offline evaluation only** — not coach-facing, not in the pipeline; single-camera product (#101) means its broadcast frames are an external probe, never a capture mode |
+| **Privacy risk** | Public broadcast imagery (verify the released split); no Toledo data; its annotations are **not** calibrated Football-IQ coordinates (#127–#129) |
+| **Football-IQ usage** | **Deferred** until full release + license re-check (Issue #168). Same offline harness as SportQA. See `reports/spike-issue168-sportqa-sportr.md`. |
+
+---
+
+## OpenAI CLIP ViT-B/32 (play embeddings + text-tower search)
+
+| Field | Detail |
+|---|---|
+| **Model** | OpenAI CLIP ViT-B/32 (frozen) — image tower + text tower |
+| **Source URL** | https://github.com/openai/CLIP · model card https://github.com/openai/CLIP/blob/main/model-card.md · open-weights via https://github.com/mlfoundations/open_clip (`ViT-B-32`, `openai`) |
+| **Sport coverage** | Sport-agnostic vision-language model; applied to **American football** clips and an American-football-only concept vocabulary. Not soccer. |
+| **Toledo / MAC relevance** | Broad American football — encodes Toledo clip keyframes (image tower) and football concept phrases (text tower). |
+| **License** | MIT (CLIP reference code). Pretrained weights released for research use; re-verify before any external/commercial deployment. |
+| **Access / key** | `pip install open_clip_torch` (or `transformers`); **no API key**. Not gated, no token required. |
+| **Secret / key requirement** | None. |
+| **Runtime category** | Nightly-only embedding encoder (image tower, `stage_embed` — Issues #8/#77) + **offline** text-tower encode for the committed concept catalog (Issue #195). Never same-session. |
+| **Data privacy risk** | None beyond existing player-tracking imagery; single-camera only (#101). The committed catalog holds CLIP **text** vectors of generic football phrases — no PII, no Toledo footage. |
+| **Model-router / registry path** | `pipeline.model_router` → nightly `embeddings` = `play-embed-clip-vitb32-baseline`; on `NIGHTLY_ONLY_VARIANTS`. Issue #195 adds **no** new stage/variant — it persists the raw 512-d image embedding to `playembeddings.clip_vector` and serves `/api/v1/search/text` from it. |
+| **Calibrated-tracking dependency** | None (#127/#128/#129 not implicated). |
+| **Weights** | **Never committed** (`.pt`/`.pth`/`.safetensors` git-ignored). Downloaded at runtime by `open_clip`/`transformers`. The committed `backend/app/data/concept_catalog.json` holds **vectors only** (CLIP text-tower outputs), produced offline by `gpu-worker/scripts/build_concept_catalog.py` — never weights. |
+| **Football-IQ usage** | Phase 3 — Issues #8/#77 (fused play embedding) and #195 (raw `clip_vector(512)` + CLIP text-tower `/search/text`). Results are always experimental/approximate and never promote to a label. |
+
+---
+
+## Frontend UI libraries (PR #262)
+
+| Field | Detail |
+|---|---|
+| **Libraries** | `class-variance-authority`, `clsx`, `radix-ui`, `@radix-ui/react-slot`, `sonner`, `tailwind-merge` |
+| **License** | MIT (each library) |
+| **Access** | `npm install` via `frontend/package.json`; no account or API key required |
+| **Football-IQ usage** | Frontend UI primitives and utilities in `frontend/src/components/ui/` and `frontend/src/lib/utils.ts` |
+| **Secret / key requirement** | None |
+| **Sport coverage** | N/A (UI/tooling libraries only) |
 
 ---
 

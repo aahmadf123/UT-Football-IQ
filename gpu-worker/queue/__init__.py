@@ -3,9 +3,9 @@
 # forward all stdlib attributes here so that code doing `import queue; queue.Queue`
 # continues to work when gpu-worker is on sys.path.
 
+import importlib.util
 import os
 import sysconfig
-import importlib.util
 
 
 def _load_stdlib_queue() -> None:

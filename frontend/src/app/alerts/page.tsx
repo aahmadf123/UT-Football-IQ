@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import { ArrowRight, BellOff } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { FootballShell } from "@/components/football-shell";
+import { FootballShell } from "@/components/shell/app-shell";
 import { useAppState } from "@/lib/app-state";
 import {
   actionAlert,
@@ -12,6 +13,16 @@ import {
   type ApiAlert,
 } from "@/lib/api";
 import { ExperimentalBadge } from "@/components/experimental-badge";
+import { Alert as AlertBox, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
+import { EmptyState } from "@/components/composite/empty-state";
+import {
+  StatusBadge,
+  toneForSeverity,
+  type StatusTone,
+} from "@/components/composite/status-badge";
 
 type AlertsState =
   | { kind: "loading" }
@@ -20,15 +31,6 @@ type AlertsState =
   | { kind: "ready"; alerts: ApiAlert[] };
 
 type StreamState = "idle" | "connecting" | "connected" | "degraded" | "polling";
-
-const SEVERITY_COLOR: Record<string, string> = {
-  critical: "var(--accent-red, #f87171)",
-  high: "var(--accent-red, #f87171)",
-  warning: "var(--accent-amber, #fbbf24)",
-  medium: "var(--accent-amber, #fbbf24)",
-  low: "var(--accent-green, #4ade80)",
-  info: "var(--text-muted, #94a3b8)",
-};
 
 export default function AlertsPage() {
   return (
@@ -145,70 +147,58 @@ function AlertsView() {
   }, [loadAlerts, authToken]);
 
   return (
-    <div className="content-grid">
-      <section className="panel panel-pad span-12">
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            flexWrap: "wrap",
-            gap: 12,
-          }}
-        >
+    <div className="flex flex-col gap-4">
+      <Card>
+        <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3">
           <div>
-            <h2 className="panel-title">Coaching Alerts</h2>
-            <p className="kicker">
-              Live coaching alerts streamed from the analytics and biomechanics
-              pipeline. Coach/analyst-only.
+            <h2 className="font-display text-base font-semibold uppercase tracking-wide">
+              Coaching Alerts
+            </h2>
+            <p className="mt-0.5 max-w-2xl text-xs text-muted-foreground">
+              Live coaching alerts streamed from the analytics and biomechanics pipeline.
+              Coach/analyst-only.
               {mockMode ? " Mock mode is on — only server-backed alerts appear here." : ""}
             </p>
           </div>
           <StreamBadge state={streamState} />
-        </div>
-      </section>
+        </CardHeader>
+      </Card>
 
       {state.kind === "loading" && (
-        <section className="panel panel-pad span-12">
-          <p className="kicker">Loading alerts…</p>
-        </section>
+        <div role="status" aria-busy="true" aria-label="Loading alerts" className="flex flex-col gap-2">
+          <Skeleton className="h-16 w-full" />
+          <Skeleton className="h-16 w-full" />
+        </div>
       )}
       {state.kind === "offline" && (
-        <section className="panel panel-pad span-12">
-          <h3 className="panel-title">Backend not configured</h3>
-          <p className="kicker" style={{ marginTop: 8 }}>
-            Alerts require <code>NEXT_PUBLIC_API_URL</code>.
-          </p>
-        </section>
+        <EmptyState
+          icon={BellOff}
+          title="Alerts unavailable — not connected to the team server"
+          hint="New alerts stream in automatically once the system is back online."
+        />
       )}
       {state.kind === "error" && (
-        <section className="panel panel-pad span-12">
-          <h3 className="panel-title">Could not load alerts</h3>
-          <p className="kicker" style={{ marginTop: 8, color: "var(--accent-red, #f87171)" }}>
-            {state.message}
-          </p>
-          <button className="control-button" style={{ marginTop: 12 }} onClick={loadAlerts}>
+        <AlertBox variant="destructive" role="alert">
+          <AlertTitle>Could not load alerts</AlertTitle>
+          <AlertDescription>{state.message}</AlertDescription>
+          <Button variant="outline" size="sm" className="mt-2 w-fit" onClick={loadAlerts}>
             Retry
-          </button>
-        </section>
+          </Button>
+        </AlertBox>
       )}
       {state.kind === "ready" && state.alerts.length === 0 && (
-        <section className="panel panel-pad span-12">
-          <h3 className="panel-title">No alerts</h3>
-          <p className="kicker" style={{ marginTop: 8 }}>
-            No coaching alerts yet for your position group. New alerts will
-            stream in here automatically.
-          </p>
-        </section>
+        <EmptyState
+          icon={BellOff}
+          title="No alerts"
+          hint="No coaching alerts yet for your position group. New alerts will stream in here automatically."
+        />
       )}
       {state.kind === "ready" && state.alerts.length > 0 && (
-        <section className="panel panel-pad span-12">
-          <div className="list-stack" style={{ gap: 8 }}>
-            {state.alerts.map((a) => (
-              <AlertRow key={a.id} alert={a} onAction={handleAction} />
-            ))}
-          </div>
-        </section>
+        <div className="flex flex-col gap-2">
+          {state.alerts.map((a) => (
+            <AlertRow key={a.id} alert={a} onAction={handleAction} />
+          ))}
+        </div>
       )}
     </div>
   );
@@ -222,28 +212,18 @@ function StreamBadge({ state }: { state: StreamState }) {
     degraded: "Degraded",
     polling: "Polling (15s)",
   };
-  const color: Record<StreamState, string> = {
-    idle: "var(--text-muted, #94a3b8)",
-    connecting: "var(--accent-amber, #fbbf24)",
-    connected: "var(--accent-green, #4ade80)",
-    degraded: "var(--accent-red, #f87171)",
-    polling: "var(--accent-amber, #fbbf24)",
+  const tone: Record<StreamState, StatusTone> = {
+    idle: "neutral",
+    connecting: "info",
+    connected: "ok",
+    degraded: "danger",
+    polling: "warn",
   };
   return (
-    <span
-      role="status"
-      aria-label={`Alert stream ${label[state]}`}
-      style={{
-        padding: "4px 10px",
-        borderRadius: 999,
-        fontSize: "0.72rem",
-        fontWeight: 700,
-        background: "oklch(0.18 0.02 252 / 0.6)",
-        color: color[state],
-        border: `1px solid ${color[state]}`,
-      }}
-    >
-      ● {label[state]}
+    <span role="status" aria-label={`Alert stream ${label[state]}`}>
+      <StatusBadge tone={tone[state]} dot>
+        {label[state]}
+      </StatusBadge>
     </span>
   );
 }
@@ -255,96 +235,96 @@ function AlertRow({
   alert: ApiAlert;
   onAction?: (alertId: string) => void;
 }) {
-  const color = SEVERITY_COLOR[alert.severity.toLowerCase()] ?? SEVERITY_COLOR.info;
   const isTendency = alert.alert_type === "formation_tendency";
+  // Workload-risk alerts (Issue #149) only ever reach sports-performance
+  // staff + admins — the backend filters them out of the list/SSE for
+  // everyone else. Rendered with explicitly non-diagnostic copy.
+  const isWorkloadRisk = alert.alert_type === "workload_risk";
   const mv = alert.metric_value ?? {};
   const tendencyKind = typeof mv.tendency_kind === "string" ? mv.tendency_kind : null;
   const message = typeof mv.message === "string" ? mv.message : null;
+  const caveat = typeof mv.caveat === "string" ? mv.caveat : null;
   const evidence = Array.isArray(mv.evidence_clip_ids)
     ? (mv.evidence_clip_ids as unknown[]).filter((c): c is string => typeof c === "string")
     : [];
-  const title = isTendency ? "Tendency break" : alert.alert_type;
+  const title = isTendency
+    ? "Tendency break"
+    : isWorkloadRisk
+      ? "Workload review flag"
+      : alert.alert_type;
 
   return (
-    <div
-      data-testid={`alert-${alert.id}`}
-      style={{
-        display: "flex",
-        gap: 12,
-        padding: 10,
-        border: "1px solid var(--line-soft, #333)",
-        borderRadius: 6,
-        alignItems: "flex-start",
-      }}
-    >
-      <span
-        aria-hidden
-        style={{
-          width: 10,
-          height: 10,
-          borderRadius: "50%",
-          background: color,
-          flexShrink: 0,
-          marginTop: 6,
-        }}
-      />
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ display: "flex", gap: 8, alignItems: "baseline", flexWrap: "wrap" }}>
-          <strong>{title}</strong>
-          <span className="kicker" style={{ textTransform: "uppercase" }}>
-            {alert.position_group} · {alert.severity}
-          </span>
-          {tendencyKind === "pattern_break" && <ExperimentalBadge label="Pattern break" />}
+    <Card data-testid={`alert-${alert.id}`}>
+      <CardContent className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 flex-1 basis-64">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[0.9rem] font-semibold">{title}</span>
+            <StatusBadge tone={toneForSeverity(alert.severity)} className="capitalize">
+              {alert.severity}
+            </StatusBadge>
+            <span className="text-xs uppercase tracking-wide text-muted-foreground">
+              {alert.position_group}
+            </span>
+            {tendencyKind === "pattern_break" && <ExperimentalBadge label="Pattern break" />}
+            {isWorkloadRisk && <ExperimentalBadge label="Sports-performance signal" />}
+          </div>
+          {isWorkloadRisk && (
+            <p className="mt-1 text-xs text-muted-foreground">
+              ACWR {typeof mv.acwr === "number" ? mv.acwr : "–"} · asymmetry{" "}
+              {typeof mv.asymmetry_index === "number" ? mv.asymmetry_index : "–"}
+              {caveat ? ` · ${caveat}` : ""}
+            </p>
+          )}
+          {isTendency && message ? (
+            <p className="mt-1 text-xs text-muted-foreground">{message}</p>
+          ) : (
+            <p className="mt-1 text-xs text-muted-foreground">
+              {alert.metric_name} · confidence {Math.round(alert.confidence * 100)}%
+              {alert.session_id ? ` · session ${alert.session_id}` : ""}
+            </p>
+          )}
+          {isTendency && evidence.length > 0 && (
+            <p className="mt-1 text-xs text-muted-foreground">
+              Examples:{" "}
+              {evidence.map((clipId, i) => (
+                <span key={clipId}>
+                  {i > 0 ? " · " : ""}
+                  <Link
+                    href={`/clip-review/?clipId=${encodeURIComponent(clipId)}`}
+                    className="text-primary hover:underline"
+                  >
+                    clip {i + 1}
+                  </Link>
+                </span>
+              ))}
+            </p>
+          )}
+          <p className="mt-1 text-xs text-muted-foreground/80">
+            {new Date(alert.created_at).toLocaleString()}
+            {alert.is_acknowledged ? " · acknowledged" : ""}
+            {alert.is_actioned ? " · actioned" : ""}
+          </p>
         </div>
-        {isTendency && message ? (
-          <p className="kicker" style={{ marginTop: 4 }}>
-            {message}
-          </p>
-        ) : (
-          <p className="kicker" style={{ marginTop: 4 }}>
-            {alert.metric_name} · confidence {Math.round(alert.confidence * 100)}%
-            {alert.session_id ? ` · session ${alert.session_id}` : ""}
-          </p>
-        )}
-        {isTendency && evidence.length > 0 && (
-          <p className="kicker" style={{ marginTop: 4 }}>
-            Examples:{" "}
-            {evidence.map((clipId, i) => (
-              <span key={clipId}>
-                {i > 0 ? " · " : ""}
-                <Link href={`/clip-review/?clipId=${encodeURIComponent(clipId)}`}>
-                  clip {i + 1}
-                </Link>
-              </span>
-            ))}
-          </p>
-        )}
-        <p className="kicker" style={{ marginTop: 4 }}>
-          {new Date(alert.created_at).toLocaleString()}
-          {alert.is_acknowledged ? " · acknowledged" : ""}
-          {alert.is_actioned ? " · actioned" : ""}
-        </p>
-      </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-        {onAction && !alert.is_actioned && (
-          <button
-            type="button"
-            className="control-button"
-            data-testid={`action-${alert.id}`}
-            onClick={() => onAction(alert.id)}
-          >
-            Mark actioned
-          </button>
-        )}
-        {alert.clip_id && (
-          <Link
-            href={`/clip-review/?clipId=${encodeURIComponent(alert.clip_id)}`}
-            className="control-button"
-          >
-            Open clip →
-          </Link>
-        )}
-      </div>
-    </div>
+        <div className="flex shrink-0 flex-col items-stretch gap-1.5">
+          {onAction && !alert.is_actioned && (
+            <Button
+              variant="outline"
+              size="sm"
+              data-testid={`action-${alert.id}`}
+              onClick={() => onAction(alert.id)}
+            >
+              Mark actioned
+            </Button>
+          )}
+          {alert.clip_id && (
+            <Button asChild variant="secondary" size="sm">
+              <Link href={`/clip-review/?clipId=${encodeURIComponent(alert.clip_id)}`}>
+                Open clip <ArrowRight className="size-3.5" />
+              </Link>
+            </Button>
+          )}
+        </div>
+      </CardContent>
+    </Card>
   );
 }

@@ -262,7 +262,7 @@ class SAM3MaskTracker(TrackerBase):
         # contributes to the combined score relative to bbox IoU.
         self.mask_weight = max(0.0, min(1.0, mask_weight))
 
-    def _score(self, track: "_Track", det: dict[str, Any]) -> float:
+    def _score(self, track: _Track, det: dict[str, Any]) -> float:
         iou = bbox_iou(track.bbox, det["bbox"])
         if not detection_has_mask(det) or track.mask is None:
             return iou

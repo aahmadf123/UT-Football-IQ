@@ -1,13 +1,23 @@
 "use client";
 
-import { Trash2, Upload } from "lucide-react";
+import { Upload } from "lucide-react";
 import { useCallback, useState } from "react";
+import { PreliminaryBadge } from "@/components/clip-state-badge";
+import { UploadStatusList } from "@/components/shared/upload-status-list";
 import {
+  fetchJobs,
   requestVideoProcessing,
+  retryJob,
   WorkloadGatedError,
   type VideoInboxItem,
 } from "@/lib/api";
-import { useAppState, type UploadPhase } from "@/lib/app-state";
+import { useAppState } from "@/lib/app-state";
+import { useFetchState } from "@/lib/fetch-state";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { AsyncSection } from "@/components/composite/async-section";
+import { JobRow } from "@/components/composite/job-row";
+import { StatusBadge, type StatusTone } from "@/components/composite/status-badge";
 
 // Per-video local request state, layered on top of the backend inbox status so
 // the coach gets immediate "Queued" feedback before the backend reflects it.
@@ -16,65 +26,31 @@ type RequestState =
   | { kind: "busy"; message: string }
   | { kind: "error"; message: string };
 
-function phaseLabel(phase: UploadPhase): string {
-  switch (phase) {
-    case "idle":
-      return "Queued to upload";
-    case "requesting-url":
-      return "Preparing…";
-    case "uploading":
-      return "Uploading…";
-    case "registering":
-      return "Saving…";
-    case "done":
-      return "Uploaded";
-    case "error":
-      return "Upload failed";
-  }
-}
-
-function phaseColor(phase: UploadPhase): string {
-  switch (phase) {
-    case "done":
-      return "var(--accent-green, #4ade80)";
-    case "error":
-      return "var(--accent-red, #f87171)";
-    case "uploading":
-    case "registering":
-    case "requesting-url":
-      return "var(--accent-amber, #fbbf24)";
-    default:
-      return "var(--text-muted, #94a3b8)";
-  }
-}
-
 // Coach-facing label + tone for a backend video status. The five lifecycle
 // states (uploaded → queued → processing → processed → failed) are preserved.
 function statusBadge(
   videoStatus: string,
   request: RequestState | undefined,
-): { label: string; color: string } {
+): { label: string; tone: StatusTone } {
   if (request?.kind === "queued" && videoStatus === "uploaded") {
-    return { label: "Queued", color: "var(--accent-amber, #fbbf24)" };
+    return { label: "Queued", tone: "warn" };
   }
   switch (videoStatus) {
     case "ready":
-      return { label: "Processed", color: "var(--accent-green, #4ade80)" };
+      return { label: "Processed", tone: "ok" };
     case "processing":
-      return { label: "Processing", color: "var(--accent-amber, #fbbf24)" };
+      return { label: "Processing", tone: "info" };
     case "failed":
-      return { label: "Failed", color: "var(--accent-red, #f87171)" };
+      return { label: "Failed", tone: "danger" };
     case "uploaded":
     default:
-      return { label: "Uploaded", color: "var(--text-muted, #94a3b8)" };
+      return { label: "Uploaded", tone: "neutral" };
   }
 }
 
 export function UploadProcessFilm({ onUploadClick }: { onUploadClick: () => void }) {
   const {
     uploads,
-    removeUpload,
-    retryUpload,
     inboxItems,
     refreshInbox,
     apiStatus,
@@ -85,8 +61,8 @@ export function UploadProcessFilm({ onUploadClick }: { onUploadClick: () => void
   const [requests, setRequests] = useState<Record<string, RequestState>>({});
   const [pending, setPending] = useState<Record<string, boolean>>({});
 
-  const handleProcess = useCallback(
-    async (videoId: string) => {
+  const runRequest = useCallback(
+    async (videoId: string, action: () => Promise<unknown>) => {
       setPending((cur) => ({ ...cur, [videoId]: true }));
       setRequests((cur) => {
         const next = { ...cur };
@@ -94,7 +70,7 @@ export function UploadProcessFilm({ onUploadClick }: { onUploadClick: () => void
         return next;
       });
       try {
-        await requestVideoProcessing(videoId, { mode: "nightly" }, authToken);
+        await action();
         setRequests((cur) => ({ ...cur, [videoId]: { kind: "queued" } }));
         refreshInbox();
       } catch (err) {
@@ -113,98 +89,135 @@ export function UploadProcessFilm({ onUploadClick }: { onUploadClick: () => void
         setPending((cur) => ({ ...cur, [videoId]: false }));
       }
     },
-    [authToken, refreshInbox],
+    [refreshInbox],
+  );
+
+  const handleProcess = useCallback(
+    (videoId: string) =>
+      runRequest(videoId, () =>
+        requestVideoProcessing(videoId, { mode: "nightly" }, authToken),
+      ),
+    [authToken, runRequest],
+  );
+
+  // Failed videos retry the failed job itself (POST /jobs/{id}/retry) so the
+  // job lineage/attempt counters are preserved; if the failed job row is no
+  // longer visible, fall back to enqueueing a fresh pipeline job.
+  const handleRetry = useCallback(
+    (videoId: string) =>
+      runRequest(videoId, async () => {
+        const failed = await fetchJobs(
+          { video_id: videoId, status: "failed", limit: 1 },
+          authToken,
+        );
+        if (failed.length > 0) {
+          await retryJob(failed[0].id, authToken);
+        } else {
+          await requestVideoProcessing(videoId, { mode: "nightly" }, authToken);
+        }
+      }),
+    [authToken, runRequest],
   );
 
   const inFlight = uploads.filter((u) => u.phase !== "done");
 
   return (
-    <div className="content-grid">
-      <section className="panel panel-pad span-12">
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            gap: 12,
-            flexWrap: "wrap",
-          }}
-        >
+    <div className="flex flex-col gap-4">
+      <Card>
+        <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3">
           <div>
-            <h2 className="panel-title">Upload &amp; Process Film</h2>
-            <p className="kicker">
+            <h2 className="font-display text-base font-semibold uppercase tracking-wide">
+              Upload &amp; Process Film
+            </h2>
+            <p className="mt-0.5 max-w-2xl text-xs text-muted-foreground">
               Add practice or game film here. Uploaded film is saved but{" "}
-              <strong>not processed automatically</strong> — click{" "}
-              <strong>Process Film</strong> when you&rsquo;re ready to run the
-              pipeline. Full-quality processing runs in the overnight queue.
+              <strong className="text-foreground">not processed automatically</strong> — click{" "}
+              <strong className="text-foreground">Process Film</strong>
+              {" when you’re ready to run the pipeline. Full-quality processing runs in the overnight queue."}
             </p>
           </div>
-          <button className="control-button primary" onClick={onUploadClick}>
-            <Upload size={15} /> Upload Film
-          </button>
-        </div>
-      </section>
+          <Button onClick={onUploadClick}>
+            <Upload className="size-4" /> Upload Film
+          </Button>
+        </CardHeader>
+      </Card>
 
       {inFlight.length > 0 && (
-        <section className="panel panel-pad span-12">
-          <h2 className="panel-title">Uploading now</h2>
-          <div className="list-stack" style={{ marginTop: 10 }}>
-            {inFlight.map((u) => (
-              <div
-                key={u.id}
-                className="status-row"
-                style={{ gridTemplateColumns: "1fr auto auto" }}
-              >
-                <div>
-                  <strong>{u.filename}</strong>
-                  <div className="kicker">
-                    {(u.sizeBytes / (1024 * 1024)).toFixed(1)} MB{" · "}
-                    <span style={{ color: phaseColor(u.phase), fontWeight: 700 }}>
-                      {phaseLabel(u.phase)}
-                      {u.phase === "uploading" && ` ${u.progress}%`}
-                    </span>
-                  </div>
-                  {u.phase === "uploading" && (
-                    <div style={{ height: 3, background: "var(--line-soft, #333)", borderRadius: 2, marginTop: 4 }}>
-                      <div style={{ height: "100%", width: `${u.progress}%`, background: "var(--accent-amber, #fbbf24)", borderRadius: 2, transition: "width 0.3s" }} />
-                    </div>
-                  )}
-                  {u.phase === "error" && u.error && (
-                    <div className="kicker" style={{ color: "var(--accent-red, #f87171)", marginTop: 2 }}>
-                      {u.error}
-                    </div>
-                  )}
-                </div>
-                {u.phase === "error" && (
-                  <button className="control-button" onClick={() => retryUpload(u.id)}>
-                    Retry upload
-                  </button>
-                )}
-                <button
-                  className="control-button"
-                  onClick={() => removeUpload(u.id)}
-                  aria-label={`Remove ${u.filename}`}
-                >
-                  <Trash2 size={14} />
-                </button>
-              </div>
-            ))}
-          </div>
-        </section>
+        <Card>
+          <CardHeader>
+            <h2 className="font-display text-base font-semibold uppercase tracking-wide">
+              Uploading now
+            </h2>
+          </CardHeader>
+          <CardContent>
+            <UploadStatusList uploads={inFlight} />
+          </CardContent>
+        </Card>
       )}
 
-      <section className="panel panel-pad span-12">
-        <h2 className="panel-title">Film &amp; processing status</h2>
-        <ProcessingList
-          items={inboxItems}
-          apiStatus={apiStatus}
-          mockMode={mockMode}
-          requests={requests}
-          pending={pending}
-          onProcess={handleProcess}
-        />
-      </section>
+      <Card>
+        <CardHeader>
+          <h2 className="font-display text-base font-semibold uppercase tracking-wide">
+            Film &amp; processing status
+          </h2>
+        </CardHeader>
+        <CardContent>
+          <ProcessingList
+            items={inboxItems}
+            apiStatus={apiStatus}
+            mockMode={mockMode}
+            requests={requests}
+            pending={pending}
+            onProcess={handleProcess}
+            onRetry={handleRetry}
+          />
+        </CardContent>
+      </Card>
+
+      <PipelineJobsCard />
     </div>
+  );
+}
+
+/**
+ * The one home for pipeline job detail (per-stage progress, lease/attempt
+ * bookkeeping) — consolidated here from the dashboard jobs card, the old
+ * right-rail Model Pipeline panel, and the settings jobs list.
+ */
+function PipelineJobsCard() {
+  const { authToken } = useAppState();
+  const fetcher = useCallback(() => fetchJobs({ limit: 20 }, authToken), [authToken]);
+  const { state, reload } = useFetchState(fetcher);
+
+  return (
+    <Card data-testid="pipeline-jobs">
+      <CardHeader>
+        <h2 className="font-display text-base font-semibold uppercase tracking-wide">
+          Pipeline jobs
+        </h2>
+        <p className="mt-0.5 text-xs text-muted-foreground">
+          Stage-level progress and retry bookkeeping for every processing job.
+        </p>
+      </CardHeader>
+      <CardContent>
+        <AsyncSection
+          state={state}
+          onRetry={reload}
+          loadingLabel="Loading jobs"
+          offlineTitle="Jobs unavailable — not connected to the team server"
+          emptyTitle="No processing jobs yet"
+          emptyHint="Upload film and press Process Film to start the pipeline."
+        >
+          {(jobs) => (
+            <div className="flex flex-col">
+              {jobs.map((job) => (
+                <JobRow key={job.id} job={job} />
+              ))}
+            </div>
+          )}
+        </AsyncSection>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -215,6 +228,7 @@ function ProcessingList({
   requests,
   pending,
   onProcess,
+  onRetry,
 }: {
   items: VideoInboxItem[];
   apiStatus: ReturnType<typeof useAppState>["apiStatus"];
@@ -222,25 +236,26 @@ function ProcessingList({
   requests: Record<string, RequestState>;
   pending: Record<string, boolean>;
   onProcess: (videoId: string) => void;
+  onRetry: (videoId: string) => void;
 }) {
   if (items.length === 0) {
     const message =
       apiStatus === "loading" || apiStatus === "idle"
         ? "Checking for uploaded film…"
         : apiStatus === "offline"
-          ? "Backend offline — connect NEXT_PUBLIC_API_URL to see uploaded film and start processing."
+          ? "Backend offline — uploaded film appears when the team server is connected."
           : mockMode
             ? "Mock mode is on — only server-backed film appears here. Configure the backend to process real film."
             : "No film waiting. Upload practice or game film above, then start processing when you're ready.";
     return (
-      <p className="kicker" style={{ marginTop: 8 }} data-testid="processing-empty">
+      <p className="text-xs text-muted-foreground" data-testid="processing-empty">
         {message}
       </p>
     );
   }
 
   return (
-    <div className="list-stack" style={{ marginTop: 10, gap: 8 }}>
+    <div className="flex flex-col gap-2.5">
       {items.map((item) => (
         <ProcessingRow
           key={item.video_id}
@@ -248,6 +263,7 @@ function ProcessingList({
           request={requests[item.video_id]}
           pending={!!pending[item.video_id]}
           onProcess={onProcess}
+          onRetry={onRetry}
         />
       ))}
     </div>
@@ -259,15 +275,17 @@ function ProcessingRow({
   request,
   pending,
   onProcess,
+  onRetry,
 }: {
   item: VideoInboxItem;
   request: RequestState | undefined;
   pending: boolean;
   onProcess: (videoId: string) => void;
+  onRetry: (videoId: string) => void;
 }) {
   const isQueued = request?.kind === "queued";
   const badge = isQueued
-    ? { label: "Queued", color: "var(--accent-amber, #fbbf24)" }
+    ? { label: "Queued", tone: "warn" as StatusTone }
     : statusBadge(item.video_status, request);
   const canProcess = item.video_status === "uploaded" && !isQueued;
   const isFailed = item.video_status === "failed" && !isQueued;
@@ -275,28 +293,19 @@ function ProcessingRow({
   return (
     <div
       data-testid={`processing-row-${item.video_id}`}
-      style={{
-        border: "1px solid var(--line-soft, #333)",
-        borderRadius: 8,
-        padding: 12,
-        display: "flex",
-        gap: 12,
-        alignItems: "center",
-        justifyContent: "space-between",
-        flexWrap: "wrap",
-      }}
+      className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border-soft p-3"
     >
-      <div style={{ minWidth: 0, flex: 1 }}>
-        <div style={{ display: "flex", gap: 8, alignItems: "baseline", flexWrap: "wrap" }}>
-          <strong>{item.filename}</strong>
-          <span
-            data-testid={`processing-status-${item.video_id}`}
-            style={{ color: badge.color, fontWeight: 700, fontSize: "0.72rem", textTransform: "uppercase", letterSpacing: "0.04em" }}
-          >
-            {badge.label}
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-[0.85rem] font-semibold">{item.filename}</span>
+          <span data-testid={`processing-status-${item.video_id}`}>
+            <StatusBadge tone={badge.tone} dot>
+              {badge.label}
+            </StatusBadge>
           </span>
+          {(item.preliminary_clip_count ?? 0) > 0 && <PreliminaryBadge />}
         </div>
-        <div className="kicker" style={{ marginTop: 4 }}>
+        <div className="mt-1 text-xs text-muted-foreground">
           {item.video_status === "uploaded" && !isQueued
             ? "Not processed yet — start processing when you're ready."
             : isQueued
@@ -309,41 +318,55 @@ function ProcessingRow({
                     ? `Processing failed${item.latest_error_stage ? ` at ${item.latest_error_stage}` : ""}.`
                     : null}
         </div>
-        {isFailed && item.latest_error_message && (
-          <div className="kicker" style={{ color: "var(--accent-red, #f87171)", marginTop: 2 }}>
-            {item.latest_error_message}
+        {(item.preliminary_clip_count ?? 0) > 0 && (
+          <div
+            className="mt-0.5 text-xs text-muted-foreground"
+            data-testid={`processing-preliminary-${item.video_id}`}
+          >
+            {item.preliminary_clip_count} preliminary clip
+            {item.preliminary_clip_count === 1 ? "" : "s"} — full-quality nightly upgrade pending.
           </div>
         )}
+        {isFailed && item.latest_error_message && (
+          <div className="mt-0.5 text-xs text-status-danger">{item.latest_error_message}</div>
+        )}
         {request?.kind === "busy" && (
-          <div className="kicker" style={{ color: "var(--accent-amber, #fbbf24)", marginTop: 2 }} data-testid={`processing-busy-${item.video_id}`}>
+          <div
+            className="mt-0.5 text-xs text-status-warn"
+            data-testid={`processing-busy-${item.video_id}`}
+          >
             {request.message}
           </div>
         )}
         {request?.kind === "error" && (
-          <div className="kicker" style={{ color: "var(--accent-red, #f87171)", marginTop: 2 }} data-testid={`processing-error-${item.video_id}`}>
+          <div
+            className="mt-0.5 text-xs text-status-danger"
+            data-testid={`processing-error-${item.video_id}`}
+          >
             {request.message}
           </div>
         )}
       </div>
       {canProcess && (
-        <button
-          className="control-button primary"
+        <Button
+          size="sm"
           data-testid={`process-film-${item.video_id}`}
           onClick={() => onProcess(item.video_id)}
           disabled={pending}
         >
           {pending ? "Starting…" : "Process Film"}
-        </button>
+        </Button>
       )}
       {isFailed && (
-        <button
-          className="control-button"
+        <Button
+          size="sm"
+          variant="outline"
           data-testid={`retry-process-${item.video_id}`}
-          onClick={() => onProcess(item.video_id)}
+          onClick={() => onRetry(item.video_id)}
           disabled={pending}
         >
           {pending ? "Starting…" : "Retry processing"}
-        </button>
+        </Button>
       )}
     </div>
   );

@@ -1,38 +1,30 @@
 "use client";
 
 import type { ApiStatus } from "@/lib/app-state";
+import { Badge } from "@/components/ui/badge";
 
-interface Props {
-  status: ApiStatus;
-}
-
-export function MockBadge({ status }: Props) {
+/**
+ * Data-source honesty badge (repo rule #96): gold = mock data, warn-outline =
+ * API offline. Hidden while live/loading so real data carries no noise.
+ */
+export function MockBadge({ status }: { status: ApiStatus }) {
   if (status === "live" || status === "idle" || status === "loading") return null;
 
-  const label = status === "mock" ? "Mock data" : "API offline";
-  const background = status === "mock" ? "var(--gold)" : "#a33";
-  const color = status === "mock" ? "#1a1a1a" : "#fff";
+  const mock = status === "mock";
+  const label = mock ? "Mock data" : "API offline";
 
   return (
-    <span
-      className="mock-badge"
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        padding: "2px 8px",
-        borderRadius: 999,
-        background,
-        color,
-        fontSize: "0.7rem",
-        fontWeight: 700,
-        letterSpacing: "0.04em",
-        textTransform: "uppercase",
-        marginLeft: 8,
-      }}
+    <Badge
+      variant={mock ? "default" : "outline"}
+      className={
+        mock
+          ? "text-[0.65rem] font-semibold uppercase tracking-wide"
+          : "border-status-warn/50 bg-status-warn/15 text-[0.65rem] font-semibold uppercase tracking-wide text-status-warn"
+      }
       aria-label={`Data source: ${label}`}
       data-testid="mock-badge"
     >
       {label}
-    </span>
+    </Badge>
   );
 }

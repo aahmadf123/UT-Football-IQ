@@ -63,7 +63,7 @@ def _make_user(role: UserRole, position_group: str | None = None) -> User:
 def test_publish_alert_fans_to_matching_group() -> None:
     conn_id = str(uuid.uuid4())
     q: asyncio.Queue = asyncio.Queue(maxsize=10)
-    _connections[conn_id] = (q, "OL")
+    _connections[conn_id] = (q, "OL", UserRole.coach)
 
     try:
         publish_alert({"alert_type": "effort_anomaly", "position_group": "OL", "player_id": "p1"})
@@ -77,7 +77,7 @@ def test_publish_alert_fans_to_matching_group() -> None:
 def test_publish_alert_skips_non_matching_group() -> None:
     conn_id = str(uuid.uuid4())
     q: asyncio.Queue = asyncio.Queue(maxsize=10)
-    _connections[conn_id] = (q, "WR")
+    _connections[conn_id] = (q, "WR", UserRole.coach)
 
     try:
         publish_alert({"alert_type": "effort_anomaly", "position_group": "OL", "player_id": "p1"})
@@ -89,7 +89,7 @@ def test_publish_alert_skips_non_matching_group() -> None:
 def test_publish_alert_fans_to_all_when_no_filter() -> None:
     conn_id = str(uuid.uuid4())
     q: asyncio.Queue = asyncio.Queue(maxsize=10)
-    _connections[conn_id] = (q, None)  # None = admin/analyst receives all
+    _connections[conn_id] = (q, None, UserRole.admin)  # None = admin/analyst receives all
 
     try:
         publish_alert({"alert_type": "bio_deviation", "position_group": "DL"})
@@ -102,7 +102,7 @@ def test_publish_alert_skips_full_queue() -> None:
     conn_id = str(uuid.uuid4())
     q: asyncio.Queue = asyncio.Queue(maxsize=1)
     q.put_nowait({"dummy": True})  # fill it
-    _connections[conn_id] = (q, None)
+    _connections[conn_id] = (q, None, UserRole.admin)
 
     try:
         publish_alert({"alert_type": "effort_anomaly", "position_group": "OL"})
@@ -114,11 +114,63 @@ def test_publish_alert_skips_full_queue() -> None:
 def test_publish_alert_case_insensitive_group_match() -> None:
     conn_id = str(uuid.uuid4())
     q: asyncio.Queue = asyncio.Queue(maxsize=10)
-    _connections[conn_id] = (q, "ol")
+    _connections[conn_id] = (q, "ol", UserRole.coach)
 
     try:
         publish_alert({"alert_type": "effort_anomaly", "position_group": "OL"})
         assert not q.empty()
+    finally:
+        _connections.pop(conn_id, None)
+
+
+# ── Restricted alert types (Issue #149 / #9) ─────────────────────────────────
+
+
+def test_publish_workload_risk_skips_coach_connection() -> None:
+    conn_id = str(uuid.uuid4())
+    q: asyncio.Queue = asyncio.Queue(maxsize=10)
+    _connections[conn_id] = (q, "OL", UserRole.coach)
+
+    try:
+        publish_alert({"alert_type": "workload_risk", "position_group": "OL"})
+        assert q.empty()
+    finally:
+        _connections.pop(conn_id, None)
+
+
+def test_publish_workload_risk_skips_analyst_connection() -> None:
+    conn_id = str(uuid.uuid4())
+    q: asyncio.Queue = asyncio.Queue(maxsize=10)
+    _connections[conn_id] = (q, None, UserRole.analyst)
+
+    try:
+        publish_alert({"alert_type": "workload_risk", "position_group": "OL"})
+        assert q.empty()
+    finally:
+        _connections.pop(conn_id, None)
+
+
+def test_publish_workload_risk_reaches_sportsperformance() -> None:
+    conn_id = str(uuid.uuid4())
+    q: asyncio.Queue = asyncio.Queue(maxsize=10)
+    _connections[conn_id] = (q, None, UserRole.sportsperformance)
+
+    try:
+        publish_alert({"alert_type": "workload_risk", "position_group": "OL"})
+        assert not q.empty()
+    finally:
+        _connections.pop(conn_id, None)
+
+
+def test_publish_workload_risk_denied_for_unknown_role() -> None:
+    # Default deny: a registry entry with no role never receives restricted types.
+    conn_id = str(uuid.uuid4())
+    q: asyncio.Queue = asyncio.Queue(maxsize=10)
+    _connections[conn_id] = (q, None, None)
+
+    try:
+        publish_alert({"alert_type": "workload_risk", "position_group": "OL"})
+        assert q.empty()
     finally:
         _connections.pop(conn_id, None)
 

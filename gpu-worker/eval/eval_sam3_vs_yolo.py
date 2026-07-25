@@ -58,7 +58,6 @@ from pipeline.tracker_models import (  # noqa: E402
     TrackerBase,
 )
 
-
 # ── Result types ──────────────────────────────────────────────────────────────
 
 

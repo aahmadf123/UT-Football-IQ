@@ -10,8 +10,8 @@ Covers:
   - bio_deviation_alerts present when config has pose_pipeline_active+coach_approved
 """
 
-import sys
 import os
+import sys
 
 import pytest
 
@@ -24,7 +24,6 @@ from pipeline.period_package import (
     _player_position_group,
     build,
 )
-
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 

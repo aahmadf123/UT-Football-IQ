@@ -18,7 +18,6 @@ from pipeline.detection.sahi_wrapper import (
 )
 from pipeline.detector_models import DetectorBase
 
-
 # ── slice_offsets geometry ────────────────────────────────────────────────────
 
 

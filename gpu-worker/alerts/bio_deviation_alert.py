@@ -112,7 +112,7 @@ def run(
 
         try:
             mean = statistics.mean(baseline_vals)
-            stdev = statistics.stdev(baseline_vals)
+            stdev = statistics.pstdev(baseline_vals)
         except statistics.StatisticsError:
             continue
 

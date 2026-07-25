@@ -48,6 +48,7 @@ def _make_clip(**overrides: Any) -> Clip:
     c.video_id = overrides.get("video_id", uuid.uuid4())
     c.start_time = 0.0
     c.end_time = 5.0
+    c.capture_regime = overrides.get("capture_regime", None)
     return c
 
 
@@ -166,10 +167,14 @@ def _make_db(
             if n == 1:
                 result.scalar_one_or_none.return_value = clip
             elif n == 2:
-                result.scalars.return_value.all.return_value = tracklets
+                # Latest FieldCalibration for the clip's video — none in these
+                # fixtures, exercising the default "no_calibration" block.
+                result.scalar_one_or_none.return_value = None
             elif n == 3:
-                result.scalars.return_value.all.return_value = events
+                result.scalars.return_value.all.return_value = tracklets
             elif n == 4:
+                result.scalars.return_value.all.return_value = events
+            elif n == 5:
                 result.scalars.return_value.all.return_value = labels
             else:
                 result.scalars.return_value.all.return_value = metrics
@@ -311,7 +316,9 @@ def test_get_overlays_filters_out_suppressed_metrics_in_sql() -> None:
             result = MagicMock()
             if calls["n"] == 1:
                 result.scalar_one_or_none.return_value = clip
-            elif calls["n"] == 5:
+            elif calls["n"] == 2:
+                result.scalar_one_or_none.return_value = None
+            elif calls["n"] == 6:
                 captured["sql"] = str(stmt.compile(compile_kwargs={"literal_binds": False}))
                 result.scalars.return_value.all.return_value = []
             else:
@@ -349,7 +356,9 @@ def test_get_overlays_filters_out_experimental_metrics_for_player_role() -> None
             result = MagicMock()
             if calls["n"] == 1:
                 result.scalar_one_or_none.return_value = clip
-            elif calls["n"] == 5:
+            elif calls["n"] == 2:
+                result.scalar_one_or_none.return_value = None
+            elif calls["n"] == 6:
                 captured["sql"] = str(stmt.compile(compile_kwargs={"literal_binds": False}))
                 result.scalars.return_value.all.return_value = []
             else:

@@ -19,7 +19,6 @@ from pipeline.detection.official_suppressor import (
     vertical_stripe_score,
 )
 
-
 # ── Synthetic crop / frame builders ───────────────────────────────────────────
 
 

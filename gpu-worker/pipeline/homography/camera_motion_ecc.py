@@ -24,6 +24,8 @@ unit-tested directly.
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
+from dataclasses import dataclass, field
 
 import numpy as np
 
@@ -216,3 +218,179 @@ def _mean_reprojection_gap(
     pa = pa[:, :2] / np.where(np.abs(pa[:, 2:3]) < 1e-12, 1e-12, pa[:, 2:3])
     pb = pb[:, :2] / np.where(np.abs(pb[:, 2:3]) < 1e-12, 1e-12, pb[:, 2:3])
     return float(np.sqrt(((pa - pb) ** 2).sum(axis=1)).mean())
+
+
+# ── Frame / background-mask helpers (cv2 lazy, no-op without it) ───────────────
+
+
+def to_gray(frame: np.ndarray) -> np.ndarray:
+    """Convert a BGR frame to single-channel grayscale for ECC.
+
+    Falls back to a channel mean when OpenCV is unavailable so the pure-NumPy
+    paths stay importable in test/CI environments without cv2.
+    """
+    arr = np.asarray(frame)
+    if arr.ndim == 2:
+        return arr.astype(np.uint8)
+    try:
+        import cv2
+
+        return cv2.cvtColor(arr, cv2.COLOR_BGR2GRAY)
+    except Exception:
+        return arr.mean(axis=2).astype(np.uint8)
+
+
+def field_background_mask(
+    frame_bgr: np.ndarray,
+    player_boxes: list[tuple[int, int, int, int]] | None = None,
+) -> np.ndarray:
+    """Static-background mask for ECC: HSV grass + white paint, players removed.
+
+    ECC must align the *field* — moving players would bias the warp — so we
+    keep only grass (green hue band) and white paint (low saturation, high
+    value) and zero out any supplied player bounding boxes. Without OpenCV we
+    return an all-ones mask (ECC then aligns on the full frame).
+    """
+    arr = np.asarray(frame_bgr)
+    try:
+        import cv2
+    except Exception:
+        h, w = arr.shape[:2]
+        full = np.full((h, w), 255, dtype=np.uint8)
+        return background_mask(full, player_boxes)
+    hsv = cv2.cvtColor(arr, cv2.COLOR_BGR2HSV)
+    grass = cv2.inRange(hsv, (30, 30, 30), (90, 255, 255))
+    paint = cv2.inRange(hsv, (0, 0, 180), (180, 60, 255))
+    field = cv2.bitwise_or(grass, paint)
+    return background_mask(field, player_boxes)
+
+
+# ── Sequence-level orchestration (chains warps onto sparsely-refit anchors) ────
+
+
+@dataclass
+class CompensationResult:
+    """Outcome of chaining ECC warps across a consecutive-frame window.
+
+    ``mean_drift_px`` is the §5.1 temporal-stability signal: the mean
+    chained-vs-direct re-projection gap measured at each anchor checkpoint.
+    """
+
+    homographies: list[np.ndarray] = field(default_factory=list)
+    mean_drift_px: float = 0.0
+    max_drift_px: float = 0.0
+    reanchor_count: int = 0
+    zoom_breach: bool = False
+    n_checks: int = 0
+    n_frames: int = 0
+    anchored: bool = False
+
+
+def compensate_sequence(
+    *,
+    n_frames: int,
+    regime: str,
+    fps: float,
+    anchor_fit: Callable[[int], tuple[np.ndarray, float] | None],
+    warp_at: Callable[[int], tuple[np.ndarray, bool]],
+    sample_pts: np.ndarray,
+    anchor_interval: int = ANCHOR_INTERVAL,
+) -> CompensationResult:
+    """Chain inter-frame ECC warps onto sparsely-refit anchors (Issue #138).
+
+    The pixel I/O is injected so this orchestration is unit-testable without
+    OpenCV:
+
+    * ``anchor_fit(i)`` returns a *direct* full-calibration ``(H_i, confidence)``
+      for frame ``i`` (or ``None`` when the frame can't be calibrated). Called
+      to seed the first anchor and again at each checkpoint.
+    * ``warp_at(i)`` returns the inter-frame affine ``(warp_2x3, ok)`` mapping
+      frame ``i-1`` onto frame ``i`` (typically :func:`estimate_warp`). ``ok``
+      is ``False`` on ECC failure, forcing a re-anchor.
+
+    Every ``anchor_interval`` frames the chained estimate is compared to a
+    fresh direct fit; drift above ``REANCHOR_DRIFT_PX`` or a zoom-rate breach
+    forces a re-anchor. FIXED_SIDELINE collapses to the single anchor (no-op).
+    """
+    sample_pts = np.asarray(sample_pts, dtype=np.float64)
+    comp = ChainedECCCompensator(regime=regime, fps=fps)
+    homographies: list[np.ndarray | None] = [None] * max(n_frames, 0)
+    drifts: list[float] = []
+    reanchor_count = 0
+    zoom_breach = False
+
+    # Seed the first anchor that clears the confidence floor.
+    start: int | None = None
+    for i in range(n_frames):
+        fit = anchor_fit(i)
+        if fit is not None and comp.set_anchor(i, fit[0], fit[1]):
+            homographies[i] = comp.anchor_H
+            start = i
+            break
+    if start is None:
+        return CompensationResult(n_frames=n_frames, anchored=False)
+
+    for i in range(start + 1, n_frames):
+        warp, ok = warp_at(i)
+        if not ok:
+            # ECC could not converge → drop the chain and re-anchor here.
+            fit = anchor_fit(i)
+            if fit is not None and comp.set_anchor(i, fit[0], fit[1]):
+                reanchor_count += 1
+                homographies[i] = comp.anchor_H
+            else:
+                # No direct re-anchor available: reset the chain anchor to the
+                # last known homography so later warps compose from this frame
+                # forward. Otherwise the dropped inter-frame warp leaves the
+                # cumulative motion missing one step and drifting thereafter.
+                last_H = homographies[i - 1]
+                homographies[i] = last_H
+                if last_H is not None:
+                    # Pass ANCHOR_MIN_CONFIDENCE so set_anchor clears its own
+                    # floor: this is a forced continuity reset, not a fresh
+                    # high-confidence calibration, so we only need it to take.
+                    comp.set_anchor(i, last_H, ANCHOR_MIN_CONFIDENCE)
+            continue
+
+        H_t, _ = comp.chain(warp)
+        homographies[i] = H_t if H_t is not None else homographies[i - 1]
+
+        # Zoom-rate watchdog (AC #2): a fast zoom breaches 1.15×/s.
+        if exceeds_zoom_rate(
+            comp.cumulative, frames_elapsed=comp.frames_since_anchor, fps=fps
+        ):
+            zoom_breach = True
+
+        # Anchor checkpoint every K frames: measure chained-vs-direct drift.
+        if (
+            comp.frames_since_anchor > 0
+            and comp.frames_since_anchor % anchor_interval == 0
+        ):
+            fit = anchor_fit(i)
+            if fit is None:
+                continue
+            direct_H, conf = fit
+            chained = comp.cumulative @ comp.anchor_H
+            if abs(chained[2, 2]) > 1e-12:
+                chained = chained / chained[2, 2]
+            drifts.append(_mean_reprojection_gap(chained, direct_H, sample_pts))
+            if comp.needs_reanchor(direct_H, sample_pts):
+                if comp.set_anchor(i, direct_H, conf):
+                    reanchor_count += 1
+                    homographies[i] = comp.anchor_H
+
+    # Frames before the first anchor have no estimate; fill them with the first
+    # anchor homography so the returned list stays aligned with the input
+    # indices (length ``n_frames``).
+    first_anchor_H = homographies[start]
+    filled = [h if h is not None else first_anchor_H for h in homographies]
+    return CompensationResult(
+        homographies=filled,
+        mean_drift_px=float(np.mean(drifts)) if drifts else 0.0,
+        max_drift_px=float(np.max(drifts)) if drifts else 0.0,
+        reanchor_count=reanchor_count,
+        zoom_breach=zoom_breach,
+        n_checks=len(drifts),
+        n_frames=n_frames,
+        anchored=True,
+    )

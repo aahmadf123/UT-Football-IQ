@@ -75,6 +75,7 @@ NIGHTLY_STAGES: list[str] = [
     "render_hls",
     "self_scout",
     "embeddings",
+    "workload_rollup",
 ]
 
 

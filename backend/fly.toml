@@ -10,6 +10,10 @@ primary_region = "ord"  # Chicago — closest to Toledo, Ohio
 [env]
   ENVIRONMENT = "production"
   LOG_LEVEL    = "INFO"
+  CORS_ORIGINS = "https://football-iq.pages.dev"
+  # Permit this Pages project's preview deployments and the existing Vercel
+  # deployment without opening the API to unrelated origins.
+  CORS_ORIGIN_REGEX = "^https://football-iq(?:-[a-z0-9]+(?:-[a-z0-9]+)*)?\\.pages\\.dev$|^https://football-iq(?:-[a-z0-9]+(?:-[a-z0-9]+)*)?\\.vercel\\.app$"
 
 [http_service]
   internal_port = 8000

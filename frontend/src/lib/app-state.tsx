@@ -4,9 +4,13 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { footballData } from "./mock-data";
 import { emptyFootballData } from "./empty-data";
 import { useMocks } from "./mock-flag";
+import { resolveCurrentRole, type UserRole } from "./roles";
 import {
   fetchInboxStatus,
+  fetchJobs,
   fetchPlayers,
+  fetchSelfScoutTendencies,
+  fetchVideos,
   registerVideo,
   requestUploadUrl,
   uploadToR2,
@@ -27,7 +31,6 @@ import type {
 } from "./types";
 
 export type SessionType = "all" | "practice" | "game" | "scrimmage";
-export type SideOfBall = "all" | "offense" | "defense" | "special";
 export type ApiStatus = "idle" | "loading" | "live" | "offline" | "mock";
 
 const SESSION_LABELS: Record<SessionType, string> = {
@@ -37,23 +40,9 @@ const SESSION_LABELS: Record<SessionType, string> = {
   scrimmage: "Scrimmages",
 };
 
-const SIDE_LABELS: Record<SideOfBall, string> = {
-  all: "All (Off & Def)",
-  offense: "Offense",
-  defense: "Defense",
-  special: "Special Teams",
-};
-
-const POSITION_BY_SIDE: Record<SideOfBall, string[] | null> = {
-  all: null,
-  offense: ["QB", "RB", "WR", "TE", "OL", "C", "G", "T"],
-  defense: ["DL", "DE", "DT", "LB", "MLB", "OLB", "CB", "S", "FS", "SS", "DB"],
-  special: ["K", "P", "LS", "RET"],
-};
-
-// Fallback group derivation when a player row hasn't been tagged yet.
-// Mirrors POSITION_BY_SIDE but maps to the coaching-group labels used by the
-// roster filters (Skill, OL, DL, LB, DB, ST, QB).
+// Fallback group derivation when a player row hasn't been tagged yet. Maps
+// positions to the coaching-group labels used by the roster filters (Skill,
+// OL, DL, LB, DB, ST, QB).
 const GROUP_BY_POSITION: Record<string, string> = {
   QB: "QB",
   RB: "Skill",
@@ -79,6 +68,19 @@ const GROUP_BY_POSITION: Record<string, string> = {
   LS: "ST",
   RET: "ST",
 };
+
+function looksNetworkFailure(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const msg = error.message.toLowerCase();
+  // Browser fetch/network failures (including CORS-blocked requests) surface
+  // as "Failed to fetch"/"NetworkError" rather than an HTTP status.
+  return (
+    msg.includes("failed to fetch") ||
+    msg.includes("networkerror") ||
+    msg.includes("load failed") ||
+    msg.includes("fetch failed")
+  );
+}
 
 function deriveGroup(position: string | null, positionGroup: string | null): string {
   if (positionGroup) return positionGroup;
@@ -134,7 +136,6 @@ export interface UploadMetadata {
 
 interface PersistedState {
   sessionType: SessionType;
-  sideOfBall: SideOfBall;
   selectedDate: string;
   uploadedNames: string[];
 }
@@ -143,16 +144,12 @@ interface AppStateValue {
   // Filters
   sessionType: SessionType;
   setSessionType: (v: SessionType) => void;
-  sideOfBall: SideOfBall;
-  setSideOfBall: (v: SideOfBall) => void;
   selectedDate: string;
   setSelectedDate: (v: string) => void;
   availableDates: string[];
 
   // Data
   data: FootballData;
-  filteredPlayers: PlayerSummary[];
-  filteredPlays: PlaySummary[];
 
   // Connectivity
   apiStatus: ApiStatus;
@@ -160,12 +157,6 @@ interface AppStateValue {
   mockMode: boolean;
 
   // Selection
-  currentPlayIndex: number;
-  setCurrentPlayIndex: (n: number) => void;
-  nextPlay: () => void;
-  prevPlay: () => void;
-  currentPlay: PlaySummary | undefined;
-
   selectedPlayerId: string;
   setSelectedPlayerId: (id: string) => void;
   selectedPlayer: PlayerSummary | undefined;
@@ -183,6 +174,10 @@ interface AppStateValue {
 
   // Auth
   authToken?: string;
+  // Effective role used for client-side surface gating (Issue #113). Derived
+  // from the JWT role claim, a NEXT_PUBLIC_DEMO_ROLE override, or a safe
+  // "coach" default. Never a security boundary — the backend re-checks.
+  currentRole: UserRole;
 }
 
 const AppStateContext = createContext<AppStateValue | null>(null);
@@ -224,21 +219,27 @@ function buildDates(uploads: UploadedClip[], videos: ApiVideo[]): string[] {
   return Array.from(set).sort().reverse();
 }
 
-export function AppStateProvider({ children, authToken }: { children: React.ReactNode; authToken?: string }) {
+export function AppStateProvider({
+  children,
+  authToken,
+  getValidToken,
+}: {
+  children: React.ReactNode;
+  authToken?: string;
+  getValidToken?: () => Promise<string | undefined>;
+}) {
   const mockMode = useMocks();
   const initialData = mockMode ? footballData : emptyFootballData;
 
   const persisted = typeof window !== "undefined" ? loadPersisted() : null;
 
   const [sessionType, setSessionType] = useState<SessionType>(persisted?.sessionType ?? "all");
-  const [sideOfBall, setSideOfBall] = useState<SideOfBall>(persisted?.sideOfBall ?? "all");
   const [selectedDate, setSelectedDate] = useState<string>(persisted?.selectedDate ?? "");
   const [uploads, setUploads] = useState<UploadedClip[]>([]);
 
   const [data, setData] = useState<FootballData>(initialData);
   const [apiStatus, setApiStatus] = useState<ApiStatus>(mockMode ? "mock" : "idle");
   const [playersStatus, setPlayersStatus] = useState<ApiStatus>(mockMode ? "mock" : "idle");
-  const [currentPlayIndex, setCurrentPlayIndex] = useState(0);
   const [selectedPlayerId, setSelectedPlayerId] = useState<string>(
     initialData.players[0]?.id ?? "",
   );
@@ -252,6 +253,17 @@ export function AppStateProvider({ children, authToken }: { children: React.Reac
   // Auth token ref — updated from props, read by async upload/inbox calls
   const tokenRef = useRef(authToken);
   useEffect(() => { tokenRef.current = authToken; }, [authToken]);
+
+  const resolveToken = useCallback(async (): Promise<string | undefined> => {
+    if (getValidToken) {
+      const refreshed = await getValidToken();
+      if (refreshed) {
+        tokenRef.current = refreshed;
+        return refreshed;
+      }
+    }
+    return tokenRef.current;
+  }, [getValidToken]);
 
   // Hydrate uploaded clip names from storage on mount
   useEffect(() => {
@@ -270,15 +282,16 @@ export function AppStateProvider({ children, authToken }: { children: React.Reac
     }
   }, []);
 
-  // Persist filters and upload names
+  // Persist filters and upload names. (Old persisted payloads may carry a
+  // stray `sideOfBall` key from the retired global filter — harmlessly
+  // ignored on load.)
   useEffect(() => {
     savePersisted({
       sessionType,
-      sideOfBall,
       selectedDate,
       uploadedNames: uploads.filter((u) => u.phase === "done").map((u) => u.filename),
     });
-  }, [sessionType, sideOfBall, selectedDate, uploads]);
+  }, [sessionType, selectedDate, uploads]);
 
   // Fetch live data when the API is configured and we are not in mock mode.
   useEffect(() => {
@@ -293,24 +306,23 @@ export function AppStateProvider({ children, authToken }: { children: React.Reac
     }
     let cancelled = false;
     setApiStatus("loading");
-    const videosParams = new URLSearchParams();
+    const videoFilters: Record<string, string> = {};
     if (selectedDate) {
-      videosParams.set("recorded_after", `${selectedDate}T00:00:00Z`);
-      videosParams.set("recorded_before", `${selectedDate}T23:59:59.999999Z`);
+      videoFilters.recorded_after = `${selectedDate}T00:00:00Z`;
+      videoFilters.recorded_before = `${selectedDate}T23:59:59.999999Z`;
     }
     if (sessionType !== "all") {
-      videosParams.set("session_kind", sessionType);
+      videoFilters.session_kind = sessionType;
     }
-    const videosQs = videosParams.toString();
-    const videosUrl = `${baseUrl}/api/v1/videos${videosQs ? `?${videosQs}` : ""}`;
     (async () => {
       try {
+        // Typed api.ts clients with the auth token — the previous raw
+        // fetch() calls here were the one unauthenticated code path left.
+        const token = tokenRef.current;
         const [videosRes, jobsRes, scoutRes] = await Promise.allSettled([
-          fetch(videosUrl).then((r) => (r.ok ? r.json() : Promise.reject(new Error(`videos ${r.status}`)))),
-          fetch(`${baseUrl}/api/v1/jobs`).then((r) => (r.ok ? r.json() : Promise.reject(new Error(`jobs ${r.status}`)))),
-          fetch(`${baseUrl}/api/v1/self-scout/tendencies`).then((r) =>
-            r.ok ? r.json() : Promise.reject(new Error(`self-scout ${r.status}`)),
-          ),
+          fetchVideos(videoFilters, token),
+          fetchJobs({}, token),
+          fetchSelfScoutTendencies(undefined, token),
         ]);
         if (cancelled) return;
         const anyFulfilled =
@@ -318,7 +330,14 @@ export function AppStateProvider({ children, authToken }: { children: React.Reac
           jobsRes.status === "fulfilled" ||
           scoutRes.status === "fulfilled";
         if (!anyFulfilled) {
-          setApiStatus("offline");
+          const rejectedReasons = [videosRes, jobsRes, scoutRes]
+            .filter((r): r is PromiseRejectedResult => r.status === "rejected")
+            .map((r) => r.reason);
+          const allNetworkFailures =
+            rejectedReasons.length > 0 && rejectedReasons.every(looksNetworkFailure);
+          // HTTP 4xx/5xx means the backend is reachable (not offline), even if
+          // a specific surface is forbidden or currently erroring.
+          setApiStatus(allNetworkFailures ? "offline" : "live");
           return;
         }
         setData((cur) => ({
@@ -332,14 +351,14 @@ export function AppStateProvider({ children, authToken }: { children: React.Reac
           ),
         }));
         setApiStatus("live");
-      } catch {
-        if (!cancelled) setApiStatus("offline");
+      } catch (err) {
+        if (!cancelled) setApiStatus(looksNetworkFailure(err) ? "offline" : "live");
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [mockMode, selectedDate, sessionType]);
+  }, [mockMode, selectedDate, sessionType, authToken]);
 
   // Fetch the active roster from /api/v1/players on mount and whenever
   // mockMode changes. Roster data is independent of the date/session filters
@@ -363,8 +382,9 @@ export function AppStateProvider({ children, authToken }: { children: React.Reac
         const summaries = apiPlayers.map(apiPlayerToSummary);
         setData((cur) => ({ ...cur, players: summaries }));
         setPlayersStatus("live");
-      } catch {
-        if (!cancelled) setPlayersStatus("offline");
+      } catch (err) {
+        // Keep "offline" only for genuine network/CORS failures.
+        if (!cancelled) setPlayersStatus(looksNetworkFailure(err) ? "offline" : "live");
       }
     })();
     return () => {
@@ -461,18 +481,34 @@ export function AppStateProvider({ children, authToken }: { children: React.Reac
     try {
       // Step 1: Request upload URL from Worker
       updateUpload(clip.id, { phase: "requesting-url", progress: 0 });
-      const token = tokenRef.current;
+      const token = await resolveToken();
       const { uploadUrl } = await requestUploadUrl(file.name, token);
 
       // Step 2: Upload file to R2 via Worker proxy
       updateUpload(clip.id, { phase: "uploading", progress: 0 });
-      const r2Result = await uploadToR2(uploadUrl, file, token, (loaded, total) => {
-        const pct = Math.round((loaded / total) * 100);
-        updateUpload(clip.id, { progress: pct });
-      });
+      let r2Result;
+      try {
+        r2Result = await uploadToR2(uploadUrl, file, token, (loaded, total) => {
+          const pct = Math.round((loaded / total) * 100);
+          updateUpload(clip.id, { progress: pct });
+        });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message.toLowerCase() : String(err).toLowerCase();
+        const tokenExpired = msg.includes("401") && (msg.includes("expired token") || msg.includes("invalid token"));
+        if (!tokenExpired) throw err;
+
+        const retriedToken = await resolveToken();
+        if (!retriedToken || retriedToken === token) throw err;
+
+        r2Result = await uploadToR2(uploadUrl, file, retriedToken, (loaded, total) => {
+          const pct = Math.round((loaded / total) * 100);
+          updateUpload(clip.id, { progress: pct });
+        });
+      }
 
       // Step 3: Register video with backend
       updateUpload(clip.id, { phase: "registering", progress: 100 });
+      const registerToken = tokenRef.current;
       const video = await registerVideo({
         filename: file.name,
         storage_uri: r2Result.storageUri,
@@ -481,7 +517,7 @@ export function AppStateProvider({ children, authToken }: { children: React.Reac
         source_type: metadata?.source_type,
         opponent_team: metadata?.opponent_team,
         our_possession: metadata?.our_possession,
-      }, token);
+      }, registerToken);
 
       updateUpload(clip.id, {
         phase: "done",
@@ -522,7 +558,7 @@ export function AppStateProvider({ children, authToken }: { children: React.Reac
     }
 
     return created;
-  }, [mockMode, refreshInbox]);
+  }, [mockMode, refreshInbox, resolveToken]);
 
   const retryUpload = useCallback((id: string) => {
     const meta = retryMetaRef.current.get(id);
@@ -531,7 +567,7 @@ export function AppStateProvider({ children, authToken }: { children: React.Reac
     if (!clip) return;
     updateUpload(id, { phase: "idle", progress: 0, error: undefined });
     executeUpload(clip, meta.file, meta.metadata);
-  }, [uploads, mockMode, refreshInbox]);
+  }, [uploads, mockMode, refreshInbox, resolveToken]);
 
   const removeUpload = useCallback((id: string) => {
     setUploads((cur) => {
@@ -544,82 +580,29 @@ export function AppStateProvider({ children, authToken }: { children: React.Reac
     retryMetaRef.current.delete(id);
   }, []);
 
-  // Derived: filter plays/players by side of ball
-  const filteredPlayers = useMemo(() => {
-    const allowed = POSITION_BY_SIDE[sideOfBall];
-    if (!allowed) return data.players;
-    return data.players.filter((p) => allowed.includes(p.position));
-  }, [data.players, sideOfBall]);
-
-  const filteredPlays = useMemo(() => {
-    if (sideOfBall === "all") return data.plays;
-    const offenseConcepts = ["Zone", "Duo", "Mesh", "Stick", "Boot", "PA", "Pass", "Run", "Inside", "Outside", "Custom"];
-    if (sideOfBall === "offense") {
-      return data.plays.filter((p) => offenseConcepts.some((c) => p.concept.includes(c)));
-    }
-    if (sideOfBall === "defense") {
-      return data.plays.filter((p) => /cover|blitz|stunt/i.test(p.concept));
-    }
-    return data.plays.filter((p) => /punt|kick|return|FG/i.test(p.concept));
-  }, [data.plays, sideOfBall]);
-
-  // Keep currentPlayIndex in range when filteredPlays changes
-  useEffect(() => {
-    if (filteredPlays.length === 0) {
-      setCurrentPlayIndex(0);
-    } else if (currentPlayIndex >= filteredPlays.length) {
-      setCurrentPlayIndex(filteredPlays.length - 1);
-    }
-  }, [filteredPlays.length, currentPlayIndex]);
-
-  const currentPlay = filteredPlays[currentPlayIndex];
-
-  const nextPlay = useCallback(() => {
-    setCurrentPlayIndex((i) =>
-      filteredPlays.length ? (i + 1) % filteredPlays.length : 0,
-    );
-  }, [filteredPlays.length]);
-
-  const prevPlay = useCallback(() => {
-    setCurrentPlayIndex((i) =>
-      filteredPlays.length ? (i - 1 + filteredPlays.length) % filteredPlays.length : 0,
-    );
-  }, [filteredPlays.length]);
-
   const getPlayerById = useCallback(
     (id: string) => data.players.find((p) => p.id === id || p.jersey === id),
     [data.players],
   );
 
   const selectedPlayer = useMemo(() => {
-    return (
-      getPlayerById(selectedPlayerId) ??
-      filteredPlayers[0] ??
-      data.players[0]
-    );
-  }, [getPlayerById, selectedPlayerId, filteredPlayers, data.players]);
+    return getPlayerById(selectedPlayerId) ?? data.players[0];
+  }, [getPlayerById, selectedPlayerId, data.players]);
 
   const availableDates = useMemo(() => ["", ...buildDates(uploads, data.videos)], [uploads, data.videos]);
+
+  const currentRole = useMemo(() => resolveCurrentRole(authToken), [authToken]);
 
   const value: AppStateValue = {
     sessionType,
     setSessionType,
-    sideOfBall,
-    setSideOfBall,
     selectedDate,
     setSelectedDate,
     availableDates,
     data,
-    filteredPlayers,
-    filteredPlays,
     apiStatus,
     playersStatus,
     mockMode,
-    currentPlayIndex,
-    setCurrentPlayIndex,
-    nextPlay,
-    prevPlay,
-    currentPlay,
     selectedPlayerId,
     setSelectedPlayerId,
     selectedPlayer,
@@ -631,6 +614,7 @@ export function AppStateProvider({ children, authToken }: { children: React.Reac
     inboxItems,
     refreshInbox,
     authToken,
+    currentRole,
   };
 
   return <AppStateContext.Provider value={value}>{children}</AppStateContext.Provider>;
@@ -644,7 +628,7 @@ export function useAppState(): AppStateValue {
   return ctx;
 }
 
-export { SESSION_LABELS, SIDE_LABELS };
+export { SESSION_LABELS };
 
 // Returns the API value as-is on success (including empty arrays — empty is
 // valid live data, not a signal to substitute mock). Falls back only on a

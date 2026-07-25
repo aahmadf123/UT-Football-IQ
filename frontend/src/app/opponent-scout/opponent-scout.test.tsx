@@ -26,13 +26,15 @@ beforeEach(() => {
   vi.stubEnv("NEXT_PUBLIC_USE_MOCKS", "");
 });
 
+// /opponent-scout is now a thin redirect into Scouting → Opponent Prep
+// (ADR 0003); the behavior under test lives in the shared OpponentScoutView.
 async function importPage() {
   vi.resetModules();
-  const [{ default: OpponentScoutPage }, { AppStateProvider }] = await Promise.all([
-    import("./page"),
+  const [{ OpponentScoutView }, { AppStateProvider }] = await Promise.all([
+    import("./opponent-scout-view"),
     import("@/lib/app-state"),
   ]);
-  return { OpponentScoutPage, AppStateProvider };
+  return { OpponentScoutPage: OpponentScoutView, AppStateProvider };
 }
 
 interface RouteSpec {

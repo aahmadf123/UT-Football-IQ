@@ -287,11 +287,12 @@ def test_search_text_is_gated_503_when_flag_unset(monkeypatch: pytest.MonkeyPatc
     assert "ENABLE_EMBEDDING_TEXT_SEARCH" in resp.json()["detail"]
 
 
-def test_search_text_flag_on_returns_501_until_encoder_wired(
+def test_search_text_flag_on_grounds_but_reports_unbuilt_catalog(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Flag-on without an encoder is the documented "not implemented" path —
-    we never want a silent fallback to similar-by-clip from the text route."""
+    """Flag-on, no injected encoder, committed catalog unbuilt (vectors null):
+    the query grounds to a concept but we honestly report the catalog is not
+    built — never a silent fallback to similar-by-clip and never fake results."""
     monkeypatch.setenv("ENABLE_EMBEDDING_TEXT_SEARCH", "1")
     app.dependency_overrides[get_current_user] = lambda: _make_user()
     try:
@@ -304,4 +305,223 @@ def test_search_text_flag_on_returns_501_until_encoder_wired(
         app.dependency_overrides.clear()
         os.environ.pop("ENABLE_EMBEDDING_TEXT_SEARCH", None)
 
-    assert resp.status_code == 501
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["results"] == []
+    assert body["experimental"] is True
+    assert body["approximate"] is True
+    assert "trips" in body["matched_concept_ids"]
+    assert "catalog" in (body["reason"] or "").lower()
+
+
+def test_search_text_rejects_soccer_query(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ENABLE_EMBEDDING_TEXT_SEARCH", "1")
+    app.dependency_overrides[get_current_user] = lambda: _make_user()
+    try:
+        with TestClient(app) as c:
+            resp = c.post(
+                "/api/v1/search/text",
+                json={"query": "show me the 4-4-2 with a high xg", "k": 5},
+            )
+    finally:
+        app.dependency_overrides.clear()
+        os.environ.pop("ENABLE_EMBEDDING_TEXT_SEARCH", None)
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["results"] == []
+    assert "soccer" in (body["reason"] or "").lower()
+
+
+def test_search_text_ungrounded_query_reports_reason(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ENABLE_EMBEDDING_TEXT_SEARCH", "1")
+    app.dependency_overrides[get_current_user] = lambda: _make_user()
+    try:
+        with TestClient(app) as c:
+            resp = c.post(
+                "/api/v1/search/text",
+                json={"query": "zzzqqq wibble wobble", "k": 5},
+            )
+    finally:
+        app.dependency_overrides.clear()
+        os.environ.pop("ENABLE_EMBEDDING_TEXT_SEARCH", None)
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["results"] == []
+    assert body["matched_concept_ids"] == []
+    assert "ground" in (body["reason"] or "").lower()
+
+
+def _mapping_row(score: float, *, is_experimental: bool = True) -> dict[str, Any]:
+    return {
+        "embedding_id": uuid.uuid4(),
+        "clip_id": uuid.uuid4(),
+        "snap_anchor": True,
+        "chunk_kind": "play",
+        "is_experimental": is_experimental,
+        "label_data": {"formation": {"generic": "trips"}},
+        "score": score,
+    }
+
+
+def _mock_mappings(rows: list[dict[str, Any]]) -> MagicMock:
+    result = MagicMock()
+    result.mappings.return_value = rows
+    return result
+
+
+def _text_search_db(mv: MagicMock, rows: list[dict[str, Any]]):
+    async def _db() -> AsyncGenerator[Any, None]:
+        session = AsyncMock()
+        session.execute = AsyncMock(
+            side_effect=[
+                _mock_scalars([mv]),  # _resolve_production_model_version
+                _mock_mappings(rows),  # _run_vector_search
+            ]
+        )
+        yield session
+
+    return _db
+
+
+def test_search_text_catalog_path_returns_experimental_results(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A built catalog + a clip_vector row yields a real, experimental result."""
+    from app.concept_catalog import ConceptCatalog
+    from app.models import PLAY_EMBEDDING_CLIP_DIM
+
+    monkeypatch.setenv("ENABLE_EMBEDDING_TEXT_SEARCH", "1")
+    built = ConceptCatalog(
+        model="clip-vitb32",
+        dim=PLAY_EMBEDDING_CLIP_DIM,
+        generated_at="2026-05-31T00:00:00+00:00",
+        vectors={"trips": [0.1] * PLAY_EMBEDDING_CLIP_DIM},
+    )
+    monkeypatch.setattr("app.routers.search.load_catalog", lambda: built)
+
+    mv = _model_version(ModelStage.production)
+    app.dependency_overrides[get_current_user] = lambda: _make_user()
+    app.dependency_overrides[get_db] = _text_search_db(mv, [_mapping_row(0.77)])
+    try:
+        with TestClient(app) as c:
+            resp = c.post("/api/v1/search/text", json={"query": "trips", "k": 5})
+    finally:
+        app.dependency_overrides.clear()
+        os.environ.pop("ENABLE_EMBEDDING_TEXT_SEARCH", None)
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["experimental"] is True
+    assert body["approximate"] is True
+    assert len(body["results"]) == 1
+    assert body["results"][0]["is_experimental"] is True
+    assert body["results"][0]["score"] == pytest.approx(0.77)
+    assert "trips" in body["matched_concept_ids"]
+
+
+def test_search_text_searches_clip_vector_column(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The text path must rank on clip_vector, not the fused 256-d vector."""
+    from app.concept_catalog import ConceptCatalog
+    from app.models import PLAY_EMBEDDING_CLIP_DIM
+
+    monkeypatch.setenv("ENABLE_EMBEDDING_TEXT_SEARCH", "1")
+    built = ConceptCatalog(
+        model="clip-vitb32",
+        dim=PLAY_EMBEDDING_CLIP_DIM,
+        generated_at="2026-05-31T00:00:00+00:00",
+        vectors={"trips": [0.2] * PLAY_EMBEDDING_CLIP_DIM},
+    )
+    monkeypatch.setattr("app.routers.search.load_catalog", lambda: built)
+
+    mv = _model_version(ModelStage.production)
+    db = _text_search_db(mv, [])
+    captured: dict[str, Any] = {}
+
+    # Wrap _run_vector_search to capture the column without changing behaviour.
+    import app.routers.search as search_mod
+
+    real = search_mod._run_vector_search
+
+    async def _spy(*args: Any, **kwargs: Any):
+        captured["vector_column"] = kwargs.get("vector_column")
+        captured["include_experimental"] = kwargs.get("include_experimental")
+        return await real(*args, **kwargs)
+
+    monkeypatch.setattr(search_mod, "_run_vector_search", _spy)
+
+    app.dependency_overrides[get_current_user] = lambda: _make_user()
+    app.dependency_overrides[get_db] = db
+    try:
+        with TestClient(app) as c:
+            c.post("/api/v1/search/text", json={"query": "trips", "k": 5})
+    finally:
+        app.dependency_overrides.clear()
+        os.environ.pop("ENABLE_EMBEDDING_TEXT_SEARCH", None)
+
+    assert captured["vector_column"] == "clip_vector"
+    assert captured["include_experimental"] is True
+
+
+def test_search_text_injected_encoder_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An injected CLIP text encoder handles arbitrary phrasing (no catalog)."""
+    from app.models import PLAY_EMBEDDING_CLIP_DIM
+
+    monkeypatch.setenv("ENABLE_EMBEDDING_TEXT_SEARCH", "1")
+    mv = _model_version(ModelStage.production)
+    app.dependency_overrides[get_current_user] = lambda: _make_user()
+    app.dependency_overrides[get_db] = _text_search_db(mv, [_mapping_row(0.66)])
+    app.state.clip_text_encoder = lambda q: [0.05] * PLAY_EMBEDDING_CLIP_DIM
+    try:
+        with TestClient(app) as c:
+            resp = c.post(
+                "/api/v1/search/text",
+                json={"query": "some phrasing the lexicon does not know", "k": 5},
+            )
+    finally:
+        app.dependency_overrides.clear()
+        del app.state.clip_text_encoder
+        os.environ.pop("ENABLE_EMBEDDING_TEXT_SEARCH", None)
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["experimental"] is True
+    assert len(body["results"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_run_vector_search_clip_vector_column_filters_nulls() -> None:
+    """clip_vector search must skip rows whose CLIP embedding is NULL."""
+    session = AsyncMock()
+    session.execute = AsyncMock(return_value=_empty_mapping_result())
+    await _run_vector_search(
+        session,
+        anchor_vector=[0.0] * 512,
+        k=5,
+        chunk_kind="play",
+        model_version_id=uuid.uuid4(),
+        candidate_clip_ids=None,
+        include_experimental=True,
+        vector_column="clip_vector",
+    )
+    sql_clause, _ = session.execute.await_args.args
+    s = str(sql_clause)
+    assert "pe.clip_vector IS NOT NULL" in s
+    assert "pe.clip_vector <=>" in s
+
+
+@pytest.mark.asyncio
+async def test_run_vector_search_rejects_unknown_vector_column() -> None:
+    session = AsyncMock()
+    with pytest.raises(ValueError, match="unsupported vector column"):
+        await _run_vector_search(
+            session,
+            anchor_vector=[0.0] * 512,
+            k=5,
+            chunk_kind="play",
+            model_version_id=uuid.uuid4(),
+            candidate_clip_ids=None,
+            include_experimental=True,
+            vector_column="label_data; DROP TABLE clips",
+        )

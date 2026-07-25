@@ -18,13 +18,12 @@ hls_encoder covers:
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
-import os
-import tempfile
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -75,7 +74,6 @@ class TestPeriodRendererRun:
 
     def test_happy_path_returns_period_overlay_uri(self) -> None:
         """run() returns dict with period_overlay_uri from R2 upload."""
-        import numpy as np
         from renderer.period_renderer import run
 
         with (
@@ -102,7 +100,6 @@ class TestPeriodRendererRun:
 
     def test_r2_upload_called_with_correct_key(self) -> None:
         """R2 is called with the expected key path."""
-        import numpy as np
         from renderer.period_renderer import run
 
         with (
@@ -127,7 +124,6 @@ class TestPeriodRendererRun:
 
     def test_analytics_unsafe_draws_warning(self) -> None:
         """analytics_safe=False triggers a cv2.rectangle call for the banner."""
-        import numpy as np
         from renderer.period_renderer import run
 
         with (

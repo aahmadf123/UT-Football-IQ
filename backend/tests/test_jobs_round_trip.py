@@ -52,6 +52,11 @@ def _make_job(**overrides: Any) -> ProcessingJob:
     j.input_artifacts = overrides.get("input_artifacts", None)
     j.output_artifacts = overrides.get("output_artifacts", None)
     j.model_version_id = overrides.get("model_version_id", None)
+    j.progress = overrides.get("progress", None)
+    j.attempt_count = overrides.get("attempt_count", 0)
+    j.leased_by = overrides.get("leased_by", None)
+    j.lease_expires_at = overrides.get("lease_expires_at", None)
+    j.max_attempts = overrides.get("max_attempts", 3)
     j.started_at = overrides.get("started_at", None)
     j.finished_at = overrides.get("finished_at", None)
     j.created_at = overrides.get("created_at", datetime.now(UTC))
@@ -355,6 +360,66 @@ def test_update_job_status_to_failed_stamps_finished_at_and_error() -> None:
     assert body["error_message"] == "nan in homography"
     assert body["output_artifacts"] == {"log": "r2://x/log.txt"}
     assert job.finished_at is not None
+
+
+def _patch_client(job: ProcessingJob, role: UserRole = UserRole.coach) -> TestClient:
+    async def _db() -> AsyncGenerator[Any, None]:
+        session = AsyncMock()
+        result = MagicMock()
+        result.scalar_one_or_none.return_value = job
+        session.execute = AsyncMock(return_value=result)
+        session.flush = AsyncMock()
+        yield session
+
+    _override_auth(role)
+    app.dependency_overrides[get_db] = _db
+    return TestClient(app)
+
+
+def test_update_leased_running_job_requires_lease_holder() -> None:
+    job = _make_job(status=JobStatus.running, leased_by="worker-a")
+    try:
+        with _patch_client(job) as c:
+            hijack = c.patch(f"/api/v1/jobs/{job.id}", json={"status": "succeeded"})
+            wrong = c.patch(
+                f"/api/v1/jobs/{job.id}", json={"status": "succeeded", "worker_id": "worker-b"}
+            )
+            holder = c.patch(
+                f"/api/v1/jobs/{job.id}", json={"status": "succeeded", "worker_id": "worker-a"}
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert hijack.status_code == 409
+    assert wrong.status_code == 409
+    assert holder.status_code == 200, holder.text
+    assert holder.json()["status"] == "succeeded"
+
+
+def test_admin_can_override_lease_for_ops_cancel() -> None:
+    job = _make_job(status=JobStatus.running, leased_by="worker-a")
+    try:
+        with _patch_client(job, role=UserRole.admin) as c:
+            resp = c.patch(f"/api/v1/jobs/{job.id}", json={"status": "cancelled"})
+    finally:
+        app.dependency_overrides.clear()
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["status"] == "cancelled"
+
+
+def test_update_rejects_oversized_artifact_payloads() -> None:
+    job = _make_job(status=JobStatus.queued)
+    try:
+        with _patch_client(job) as c:
+            resp = c.patch(
+                f"/api/v1/jobs/{job.id}",
+                json={"status": "succeeded", "output_artifacts": {"blob": "x" * 70_000}},
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert resp.status_code == 413
 
 
 # ── Retry job ─────────────────────────────────────────────────────────────────

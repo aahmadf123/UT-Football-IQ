@@ -179,7 +179,7 @@ class CoverageGNN:
         epochs: int = 400,
         l2: float = 1e-3,
         seed: int = 0,
-    ) -> "CoverageGNN":
+    ) -> CoverageGNN:
         """Train the softmax head on pooled graph embeddings (multinomial LR)."""
         emb = np.asarray(embeddings, dtype=np.float64)
         y = np.asarray(class_indices, dtype=np.int64).ravel()
@@ -211,7 +211,7 @@ class CoverageGNN:
 
     def calibrate(
         self, embeddings: np.ndarray, class_indices: np.ndarray
-    ) -> "CoverageGNN":
+    ) -> CoverageGNN:
         """Fit a temperature scaler on held-out embeddings (Issue #146)."""
         if not self.is_loaded:
             raise RuntimeError("fit the head before calibrating")
@@ -241,7 +241,7 @@ class CoverageGNN:
         }
 
     @classmethod
-    def from_checkpoint(cls, d: dict[str, Any]) -> "CoverageGNN":
+    def from_checkpoint(cls, d: dict[str, Any]) -> CoverageGNN:
         version = int(d.get("schema_version", -1))
         if version != fs.SCHEMA_VERSION:
             log.warning(
@@ -261,7 +261,7 @@ class CoverageGNN:
         )
 
     @classmethod
-    def load_from_env(cls, env_var: str = COVERAGE_GNN_MODEL_ENV) -> "CoverageGNN | None":
+    def load_from_env(cls, env_var: str = COVERAGE_GNN_MODEL_ENV) -> CoverageGNN | None:
         """Load a checkpoint from the path in ``env_var`` (None when absent/bad)."""
         path_str = os.environ.get(env_var)
         if not path_str:
@@ -345,7 +345,7 @@ class CoverageClassifier:
     baseline: DeterministicCoverageBaseline | None = None
 
     @classmethod
-    def from_env(cls) -> "CoverageClassifier":
+    def from_env(cls) -> CoverageClassifier:
         return cls(gnn=CoverageGNN.load_from_env(), baseline=DeterministicCoverageBaseline())
 
     def classify(

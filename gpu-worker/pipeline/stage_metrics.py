@@ -32,6 +32,7 @@ Phase 2 additions — Practice Tempo & Effort:
   - downfield_blocking       — whether skill players engage downfield
   - rep_count                — number of plays in a period
   - time_between_plays       — seconds between end of one play and snap of next
+  - effort_review_candidate  — per-tracklet effort z-score + coach-review flag
 
 All metric_value dicts include a `confidence` field.
 Metrics with field coords require analytics_safe=True on the calibration.
@@ -47,6 +48,8 @@ from typing import Any
 import structlog
 
 from pipeline import backend
+from pipeline.metrics.effort_zscore import evaluate_effort_candidate
+from pipeline.metrics.workload_fusion import evaluate_workload_candidate
 
 log = structlog.get_logger(__name__)
 
@@ -58,6 +61,7 @@ def run(
     analytics_safe: bool,
     fps: float,
     job_id: str,
+    pose_metrics: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Compute metrics for a clip and write them to the backend."""
     log.info("stage_metrics_start", clip_id=clip_id, analytics_safe=analytics_safe)
@@ -193,17 +197,31 @@ def run(
     effort_metrics = _effort_metrics(tracklets, events, snap_frame, fps, suppressed, reason)
     metrics.extend(effort_metrics)
 
+    # ── Workload Fusion (Issue #149) ──────────────────────────────────────
+    metrics.extend(
+        _workload_metrics(tracklets, fps, analytics_safe, pose_metrics, suppressed, reason)
+    )
+
     # Write to backend
     metric_ids: list[str] = []
     for m in metrics:
         try:
             payload: dict[str, Any] = {
                 "clip_id": clip_id,
+                "tracklet_id": m.get("tracklet_id"),
                 "metric_name": m["metric_name"],
                 "metric_value": m["metric_value"],
                 "unit": m.get("unit"),
                 "is_suppressed": m.get("is_suppressed", False),
                 "suppression_reason": m.get("suppression_reason"),
+                "experimental_flag": m.get("experimental_flag", False),
+                "analytics_safe": m.get("analytics_safe", False),
+                "confidence": m.get("confidence"),
+                "effort_zscore": m.get("effort_zscore"),
+                "loaf_flag": m.get("loaf_flag"),
+                "sprint_count": m.get("sprint_count"),
+                "asymmetry_index": m.get("asymmetry_index"),
+                "injury_risk_score": m.get("injury_risk_score"),
                 "job_id": job_id,
             }
             resp = backend.create_metric(**payload)
@@ -212,7 +230,9 @@ def run(
             log.warning("metric_write_failed", name=m.get("metric_name"), error=str(exc))
 
     log.info("stage_metrics_done", clip_id=clip_id, metric_count=len(metric_ids))
-    return {"metric_count": len(metric_ids), "metric_ids": metric_ids}
+    # ``metrics`` carries the full dicts for in-process consumers (render's
+    # metric callouts) — the ids alone would force a backend read-back.
+    return {"metric_count": len(metric_ids), "metric_ids": metric_ids, "metrics": metrics}
 
 
 # ── Phase 1 Helpers ───────────────────────────────────────────────────────────
@@ -687,6 +707,77 @@ def _effort_metrics(
             "unit": "count",
             "is_suppressed": False,
             "suppression_reason": None,
+        })
+
+    for t in tracklets:
+        candidate = evaluate_effort_candidate(
+            t,
+            snap_frame=snap_frame,
+            fps=fps,
+            analytics_safe=not suppressed,
+        )
+        if candidate is None:
+            continue
+        metrics.append({
+            "tracklet_id": t.get("id"),
+            "metric_name": "effort_review_candidate",
+            "metric_value": candidate,
+            "unit": "review",
+            "effort_zscore": candidate.get("effort_zscore"),
+            "loaf_flag": candidate.get("loaf_flag"),
+            "experimental_flag": True,
+            "analytics_safe": False,
+            "confidence": candidate.get("confidence"),
+            "is_suppressed": suppressed,
+            "suppression_reason": reason,
+        })
+
+    return metrics
+
+
+# ── Issue #149: Workload Fusion ──────────────────────────────────────────────
+
+
+def _workload_metrics(
+    tracklets: list[dict[str, Any]],
+    fps: float,
+    analytics_safe: bool,
+    pose_metrics: dict[str, Any] | None,
+    suppressed: bool,
+    reason: str | None,
+) -> list[dict[str, Any]]:
+    """Per-tracklet workload-fusion review candidates (sprints, speed, asymmetry).
+
+    ``pose_metrics`` maps tracklet id → gait summary from the pose stage; when
+    the metrics job runs without a pose job upstream the candidates carry the
+    ``asymmetry_unavailable`` reason code instead.
+    """
+    gait_by_track = pose_metrics or {}
+    metrics: list[dict[str, Any]] = []
+
+    for t in tracklets:
+        asymmetry = gait_by_track.get(str(t.get("id")))
+        candidate = evaluate_workload_candidate(
+            t,
+            fps=fps,
+            analytics_safe=analytics_safe,
+            asymmetry=asymmetry if isinstance(asymmetry, dict) else None,
+        )
+        if candidate is None:
+            continue
+        metrics.append({
+            "tracklet_id": t.get("id"),
+            "metric_name": "workload_fusion",
+            "metric_value": candidate,
+            "unit": "review",
+            "sprint_count": candidate.get("sprint_count"),
+            "asymmetry_index": candidate.get("asymmetry_index"),
+            "injury_risk_score": candidate.get("injury_risk_score"),
+            "experimental_flag": True,
+            "analytics_safe": False,
+            "confidence": candidate.get("confidence"),
+            "is_suppressed": suppressed,
+            "suppression_reason": reason,
         })
 
     return metrics

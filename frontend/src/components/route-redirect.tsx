@@ -14,8 +14,10 @@ export function RouteRedirect({ to, label }: { to: string; label?: string }) {
     router.replace(to);
   }, [router, to]);
   return (
-    <div style={{ padding: 24 }}>
-      <p className="kicker">{label ?? "Taking you to the new location…"}</p>
+    <div className="p-6">
+      <p className="text-xs text-muted-foreground">
+        {label ?? "Taking you to the new location…"}
+      </p>
     </div>
   );
 }

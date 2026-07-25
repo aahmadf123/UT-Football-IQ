@@ -19,12 +19,11 @@ from __future__ import annotations
 import os
 import signal
 import time
+from queue.same_session_queue import get_same_session_queue_depth
 from typing import Any
 
 import httpx
 import structlog
-
-from queue.same_session_queue import get_same_session_queue_depth
 
 log = structlog.get_logger(__name__)
 

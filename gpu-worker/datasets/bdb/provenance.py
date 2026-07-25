@@ -14,7 +14,7 @@ import hashlib
 import json
 import os
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from datasets.bdb.schema import (
@@ -122,7 +122,7 @@ def build_provenance(
     dataset: NormalizedDataset,
 ) -> Provenance:
     prov = Provenance(competition=competition, season=season)
-    prov.generated_at = datetime.now(timezone.utc).isoformat()
+    prov.generated_at = datetime.now(UTC).isoformat()
     prov.record_counts = dataset.record_counts()
     if input_dir is not None and os.path.isdir(input_dir):
         prov.source_files = collect_source_files(input_dir)

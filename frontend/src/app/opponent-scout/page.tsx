@@ -1,15 +1,8 @@
-"use client";
+import { RouteRedirect } from "@/components/route-redirect";
 
-import { FootballShell } from "@/components/football-shell";
-import { OpponentScoutView } from "./opponent-scout-view";
-
-// Compatibility route (ADR 0003): Opponent Scout now lives in the Scouting
-// workspace → Opponent Prep. Retained so existing deep links keep working and
-// renders the same view component the Scouting hub uses.
+// Compatibility route (ADR 0003): Opponent Scout lives in the Scouting
+// workspace → Opponent Prep. Redirect instead of re-rendering the view inside
+// a second shell so the hub owns the single mounted instance.
 export default function OpponentScoutPage() {
-  return (
-    <FootballShell activePage="opponent-scout">
-      <OpponentScoutView />
-    </FootballShell>
-  );
+  return <RouteRedirect to="/scouting/?tab=opponent" label="Opening Scouting → Opponent Prep…" />;
 }

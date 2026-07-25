@@ -113,6 +113,9 @@ def test_inbox_status_aggregates_jobs_clips_and_calibrations() -> None:
                 result.scalars.return_value.all.return_value = [video]
             elif "from processing_jobs" in text:
                 result.scalars.return_value.all.return_value = jobs
+            elif "from clips" in text and "count(" in text and "result_state" in text:
+                # preliminary-clip count (same-session clips awaiting upgrade)
+                result.scalar_one.return_value = 4
             elif "from clips" in text and "count(" in text:
                 # clip count for the video
                 result.scalar_one.return_value = 7
@@ -146,6 +149,8 @@ def test_inbox_status_aggregates_jobs_clips_and_calibrations() -> None:
     assert item["succeeded_jobs"] == 1
     assert item["failed_jobs"] == 1
     assert item["clip_count"] == 7
+    # Preliminary clips awaiting nightly upgrade (Issue #147).
+    assert item["preliminary_clip_count"] == 4
     assert item["same_session_job_count"] == 1
     assert item["pose_pipeline_active"] is True
     # 2 of 3 calibrations safe → 66.7 %.

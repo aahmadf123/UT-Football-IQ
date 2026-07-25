@@ -10,17 +10,16 @@ Covers bio_deviation_alert, effort_anomaly, and formation_anomaly:
   - Formation anomaly displacement threshold
 """
 
-import sys
 import os
+import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import math
 
-from alerts.bio_deviation_alert import DEFAULT_DEVIATION_THRESHOLD_SD, run as bio_run
-from alerts.effort_anomaly import DEFAULT_THRESHOLD_SD, run as effort_run
-from alerts.formation_anomaly import DEFAULT_THRESHOLD_YARDS, run as formation_run
-
+from alerts.bio_deviation_alert import run as bio_run
+from alerts.effort_anomaly import run as effort_run
+from alerts.formation_anomaly import run as formation_run
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -33,7 +32,6 @@ _PG = "OL"
 
 def _baseline(mean: float, stdev: float, n: int = 10) -> list[dict]:
     """Build baseline_metrics list with a metric spread around mean ± stdev."""
-    import statistics
 
     values = [mean + (stdev if i % 2 == 0 else -stdev) for i in range(n)]
     return [{"metric_name": "pose_pad_level", "values": values}]

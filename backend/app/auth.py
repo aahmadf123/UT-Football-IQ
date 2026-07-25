@@ -17,12 +17,24 @@ settings = get_settings()
 bearer_scheme = HTTPBearer()
 
 
+# bcrypt only ever hashes the first 72 bytes of a password, and bcrypt 5+
+# raises ValueError on anything longer instead of truncating. Truncate to 72
+# bytes consistently in both hash and verify so a long passphrase (or a
+# multi-byte one that crosses 72 bytes) is accepted rather than 500-ing the
+# register/login endpoints.
+_BCRYPT_MAX_BYTES = 72
+
+
+def _password_bytes(plain: str) -> bytes:
+    return plain.encode("utf-8")[:_BCRYPT_MAX_BYTES]
+
+
 def hash_password(plain: str) -> str:
-    return bcrypt.hashpw(plain.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+    return bcrypt.hashpw(_password_bytes(plain), bcrypt.gensalt()).decode("utf-8")
 
 
 def verify_password(plain: str, hashed: str) -> bool:
-    return bcrypt.checkpw(plain.encode("utf-8"), hashed.encode("utf-8"))
+    return bcrypt.checkpw(_password_bytes(plain), hashed.encode("utf-8"))
 
 
 def create_access_token(subject: str, extra: dict[str, Any] | None = None) -> str:

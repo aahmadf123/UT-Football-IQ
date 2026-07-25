@@ -152,10 +152,13 @@ describe("AnalyticsPage card states", () => {
         .getAttribute("data-card-state"),
     ).toBe("unavailable");
 
-    // Model Quality is gated, not unavailable.
-    expect(
-      screen.getByTestId("analytics-card-model-quality").getAttribute("data-card-state"),
-    ).toBe("gated");
+    // Model Quality / Spatial Heatmap are no longer permanently-empty cards —
+    // they live in one honest "In development" footnote.
+    expect(screen.queryByTestId("analytics-card-model-quality")).toBeNull();
+    expect(screen.queryByTestId("analytics-card-spatial-heatmap")).toBeNull();
+    const footnote = screen.getByTestId("analytics-in-development");
+    expect(footnote.textContent).toContain("Model Quality");
+    expect(footnote.textContent).toContain("Spatial Heatmap");
 
     // No hardcoded xSep="2.64" / xYards="11.8" / xPressure="95%" must appear.
     expect(screen.queryByText("2.64")).toBeNull();
@@ -227,7 +230,7 @@ describe("AnalyticsPage card states", () => {
     ).toBe("unavailable");
   });
 
-  test("renders live formation tendencies and live alerts when backend returns data", async () => {
+  test("renders live formation tendencies when backend returns data; alerts live on /alerts", async () => {
     vi.stubEnv("NEXT_PUBLIC_API_URL", "https://api.test");
     installFetchRoutes([
       { url: "/api/v1/self-scout/tendencies", body: SAMPLE_TENDENCIES },
@@ -248,34 +251,10 @@ describe("AnalyticsPage card states", () => {
     await waitFor(() => {
       expect(screen.getByText("Trips Right")).toBeTruthy();
     });
-    expect(screen.getByTestId("analytics-alert-a-1")).toBeTruthy();
-  });
-
-  test("renders empty alerts state when backend returns no alerts", async () => {
-    vi.stubEnv("NEXT_PUBLIC_API_URL", "https://api.test");
-    installFetchRoutes([
-      { url: "/api/v1/self-scout/tendencies", body: SAMPLE_TENDENCIES },
-      { url: "/api/v1/alerts", body: [] },
-      { url: "/api/v1/videos", body: [] },
-      { url: "/api/v1/players", body: [] },
-      { url: "/api/v1/jobs", body: [] },
-      { url: "/api/v1/inbox/status", body: [] },
-    ]);
-
-    const { AnalyticsPage, AppStateProvider } = await importPage();
-    render(
-      <AppStateProvider>
-        <AnalyticsPage />
-      </AppStateProvider>,
-    );
-
-    await waitFor(() => {
-      expect(
-        screen
-          .getByTestId("analytics-card-coaching-alerts")
-          .getAttribute("data-card-state"),
-      ).toBe("empty");
-    });
+    // The alerts feed has one home (/alerts + dashboard summary) — no
+    // duplicate card here anymore.
+    expect(screen.queryByTestId("analytics-card-coaching-alerts")).toBeNull();
+    expect(screen.queryByTestId("analytics-alert-a-1")).toBeNull();
   });
 
   test("renders error state when analytics endpoints fail", async () => {
@@ -308,10 +287,5 @@ describe("AnalyticsPage card states", () => {
           .getAttribute("data-card-state"),
       ).toBe("error");
     });
-    expect(
-      screen
-        .getByTestId("analytics-card-coaching-alerts")
-        .getAttribute("data-card-state"),
-    ).toBe("error");
   });
 });

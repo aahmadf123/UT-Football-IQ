@@ -18,7 +18,33 @@ BACKEND_API_URL = os.environ.get("BACKEND_API_URL", "")
 
 
 def _client() -> httpx.Client:
-    return httpx.Client(base_url=BACKEND_API_URL, timeout=30)
+    headers: dict[str, str] = {}
+    try:
+        from worker import auth as worker_auth
+
+        bearer = worker_auth.token()
+        if bearer:
+            headers["Authorization"] = f"Bearer {bearer}"
+    except ImportError:  # CLI contexts without the worker package on the path
+        pass
+    return httpx.Client(base_url=BACKEND_API_URL, timeout=30, headers=headers)
+
+
+def _offline() -> bool:
+    """True when no backend is configured (local CLI / --no-backend runs)."""
+    return not BACKEND_API_URL
+
+
+def _offline_record(payload: dict[str, Any]) -> dict[str, Any]:
+    """Synthesise a created-record response for offline runs.
+
+    Keeps the pipeline's data flow intact without a backend: downstream
+    consumers read ``id`` plus the echoed payload fields exactly as they
+    would from a real POST response.
+    """
+    import uuid
+
+    return {"id": str(uuid.uuid4()), "_offline": True, **payload}
 
 
 # ── Job status ────────────────────────────────────────────────────────────────
@@ -76,6 +102,8 @@ def patch_video_status(
         payload["capture_regime"] = capture_regime
     if regime_confidence is not None:
         payload["regime_confidence"] = regime_confidence
+    if _offline():
+        return
     try:
         with _client() as c:
             c.patch(f"/api/v1/videos/{video_id}/status", json=payload)
@@ -95,8 +123,14 @@ def create_clip(
     boundary_confidence: float | None = None,
     play_number: int | None = None,
     job_id: str | None = None,
+    result_state: str | None = None,
 ) -> dict[str, Any]:
-    """POST /api/v1/videos/{video_id}/clips and return the created clip dict."""
+    """POST /api/v1/videos/{video_id}/clips and return the created clip dict.
+
+    ``result_state`` (Issue #147) marks the clip's quality tier — ``preliminary``
+    for same-session first-pass clips, ``final`` for nightly. Omitted (NULL) when
+    unknown, which the UI treats as not-preliminary.
+    """
     payload: dict[str, Any] = {
         "start_time": start_time,
         "end_time": end_time,
@@ -108,10 +142,63 @@ def create_clip(
         payload["play_number"] = play_number
     if job_id is not None:
         payload["job_id"] = job_id
+    if result_state is not None:
+        payload["result_state"] = result_state
+    if _offline():
+        return _offline_record({"video_id": video_id, **payload})
     with _client() as c:
         resp = c.post(f"/api/v1/videos/{video_id}/clips", json=payload)
         resp.raise_for_status()
         return dict(resp.json())
+
+
+def patch_tracklet_player(tracklet_id: str, player_id: str) -> None:
+    """PATCH /api/v1/tracklets/{id} linking a re-identified player."""
+    if _offline():
+        return
+    try:
+        with _client() as c:
+            resp = c.patch(f"/api/v1/tracklets/{tracklet_id}", json={"player_id": player_id})
+            resp.raise_for_status()
+    except Exception as exc:
+        log.warning("tracklet_player_patch_failed", tracklet_id=tracklet_id, error=str(exc))
+
+
+def patch_clip_storage_uri(clip_id: str, storage_uri: str) -> None:
+    """PATCH /api/v1/clips/{clip_id} with the rendered overlay URI.
+
+    Best-effort like the other writers, but 4xx/5xx are surfaced in the log
+    — a silently unauthenticated patch here is exactly how overlays used to
+    vanish (the render stage built its own tokenless client).
+    """
+    if _offline():
+        return
+    try:
+        with _client() as c:
+            resp = c.patch(f"/api/v1/clips/{clip_id}", json={"storage_uri": storage_uri})
+            resp.raise_for_status()
+    except Exception as exc:
+        log.warning("clip_overlay_patch_failed", clip_id=clip_id, error=str(exc))
+
+
+def finalize_video_clips(video_id: str) -> int:
+    """Upgrade a video's same-session ``preliminary`` clips to ``final`` (Issue #147).
+
+    Best-effort POST to ``/api/v1/videos/{video_id}/clips/finalize``, called when
+    nightly full-quality processing for the video lands so the coach's
+    "Preliminary" badge clears. Idempotent on the backend. Returns the number of
+    clips upgraded, or 0 when the backend is unset/unreachable.
+    """
+    if not BACKEND_API_URL:
+        return 0
+    try:
+        with _client() as c:
+            resp = c.post(f"/api/v1/videos/{video_id}/clips/finalize")
+            resp.raise_for_status()
+            return int(resp.json().get("finalized_count", 0))
+    except Exception as exc:
+        log.warning("backend_finalize_clips_failed", video_id=video_id, error=str(exc))
+        return 0
 
 
 # ── Calibrations ──────────────────────────────────────────────────────────────
@@ -161,6 +248,8 @@ def create_calibration(
         payload["kalman_state"] = kalman_state
     if job_id is not None:
         payload["job_id"] = job_id
+    if _offline():
+        return _offline_record(payload)
     with _client() as c:
         resp = c.post("/api/v1/calibrations", json=payload)
         resp.raise_for_status()
@@ -193,6 +282,8 @@ def create_tracklet(
         payload["team_label"] = team_label
     if job_id is not None:
         payload["job_id"] = job_id
+    if _offline():
+        return _offline_record(payload)
     with _client() as c:
         resp = c.post("/api/v1/tracklets", json=payload)
         resp.raise_for_status()
@@ -238,6 +329,8 @@ def create_event(
         payload["timestamp_seconds"] = timestamp_seconds
     if attributes is not None:
         payload["attributes"] = attributes
+    if _offline():
+        return _offline_record(payload)
     with _client() as c:
         resp = c.post("/api/v1/events", json=payload)
         resp.raise_for_status()
@@ -265,6 +358,8 @@ def create_label(
         payload["clip_id"] = clip_id
     if tracklet_id is not None:
         payload["tracklet_id"] = tracklet_id
+    if _offline():
+        return _offline_record(payload)
     with _client() as c:
         resp = c.post("/api/v1/labels", json=payload)
         resp.raise_for_status()
@@ -286,6 +381,11 @@ def create_metric(
     experimental_flag: bool = False,
     analytics_safe: bool = False,
     confidence: float | None = None,
+    effort_zscore: float | None = None,
+    loaf_flag: bool | None = None,
+    sprint_count: int | None = None,
+    asymmetry_index: float | None = None,
+    injury_risk_score: float | None = None,
     job_id: str | None = None,
 ) -> dict[str, Any]:
     """POST /api/v1/metrics and return the created metric dict."""
@@ -308,8 +408,20 @@ def create_metric(
         payload["analytics_safe"] = analytics_safe
     if confidence is not None:
         payload["confidence"] = confidence
+    if effort_zscore is not None:
+        payload["effort_zscore"] = effort_zscore
+    if loaf_flag is not None:
+        payload["loaf_flag"] = loaf_flag
+    if sprint_count is not None:
+        payload["sprint_count"] = sprint_count
+    if asymmetry_index is not None:
+        payload["asymmetry_index"] = asymmetry_index
+    if injury_risk_score is not None:
+        payload["injury_risk_score"] = injury_risk_score
     if job_id is not None:
         payload["job_id"] = job_id
+    if _offline():
+        return _offline_record(payload)
     with _client() as c:
         resp = c.post("/api/v1/metrics", json=payload)
         resp.raise_for_status()
@@ -348,6 +460,37 @@ def create_alerts(payloads: list[dict[str, Any]]) -> int:
     return created
 
 
+# ── Player workload rollup (Issue #149) ──────────────────────────────────────
+
+
+def fetch_daily_cv_loads(date: str) -> list[dict[str, Any]]:
+    """GET /api/v1/health-workload/daily-loads for one day.
+
+    Returns the per-player daily CV load aggregation (identity-confident,
+    player-attributed rows only). Empty list when the backend is disabled.
+    """
+    if not BACKEND_API_URL:
+        return []
+    with _client() as c:
+        resp = c.get("/api/v1/health-workload/daily-loads", params={"date": date})
+        resp.raise_for_status()
+        players = resp.json().get("players", [])
+        return list(players)
+
+
+def upsert_workload_daily(rows: list[dict[str, Any]]) -> int:
+    """POST /api/v1/health-workload/daily to bulk-upsert rollup rows.
+
+    Returns the number of rows the backend accepted; 0 when disabled.
+    """
+    if not BACKEND_API_URL or not rows:
+        return 0
+    with _client() as c:
+        resp = c.post("/api/v1/health-workload/daily", json={"rows": rows})
+        resp.raise_for_status()
+        return int(resp.json().get("upserted", 0))
+
+
 # ── Pose Keypoints (Phase 2 / Issue #6) ──────────────────────────────────────
 
 
@@ -376,6 +519,8 @@ def create_pose_keypoints(
         payload["biomechanics"] = biomechanics
     if job_id is not None:
         payload["job_id"] = job_id
+    if _offline():
+        return _offline_record(payload)
     with _client() as c:
         resp = c.post("/api/v1/pose/keypoints", json=payload)
         resp.raise_for_status()
@@ -392,6 +537,7 @@ def create_play_embedding(
     *,
     visual_vector: list[float] | None = None,
     structured_vector: list[float] | None = None,
+    clip_vector: list[float] | None = None,
     chunk_kind: str = "play",
     snap_anchor: bool = True,
     used_sam_masks: bool = False,
@@ -415,6 +561,8 @@ def create_play_embedding(
         payload["visual_vector"] = visual_vector
     if structured_vector is not None:
         payload["structured_vector"] = structured_vector
+    if clip_vector is not None:
+        payload["clip_vector"] = clip_vector
     if embedding_confidence is not None:
         payload["embedding_confidence"] = embedding_confidence
     if source_label_ids:
@@ -484,14 +632,18 @@ def fetch_opponent_priors(opponent_team: str | None = None) -> list[dict[str, An
 # ── Self-Scout (Phase 2) ─────────────────────────────────────────────────────
 
 
-def fetch_clips_with_labels(
+def _fetch_clips(
     video_id: str | None = None,
     limit: int = 500,
-) -> tuple[list[dict[str, Any]], dict[str, list[dict[str, Any]]]]:
-    """Fetch clips and their labels for self-scout analysis."""
-    if limit <= 0:
-        return [], {}
+) -> list[dict[str, Any]]:
+    """Fetch clip metadata without labels (clips-only, no per-clip label requests).
 
+    Shared by :func:`fetch_clips_with_labels` and
+    :func:`fetch_clips_for_pairing` so the latter can avoid the extra
+    ``/api/v1/labels`` round-trips it does not need.
+    """
+    if limit <= 0:
+        return []
     clips: list[dict[str, Any]] = []
     with _client() as c:
         if video_id:
@@ -542,8 +694,19 @@ def fetch_clips_with_labels(
                 if len(videos) < video_page_limit:
                     break
                 video_offset += len(videos)
+    return clips
 
-        labels_by_clip: dict[str, list[dict[str, Any]]] = {}
+
+def fetch_clips_with_labels(
+    video_id: str | None = None,
+    limit: int = 500,
+) -> tuple[list[dict[str, Any]], dict[str, list[dict[str, Any]]]]:
+    """Fetch clips and their labels for self-scout analysis."""
+    if limit <= 0:
+        return [], {}
+    clips = _fetch_clips(video_id=video_id, limit=limit)
+    labels_by_clip: dict[str, list[dict[str, Any]]] = {}
+    with _client() as c:
         for clip in clips:
             clip_id = clip.get("id", "")
             try:
@@ -552,5 +715,78 @@ def fetch_clips_with_labels(
                 labels_by_clip[clip_id] = labels_resp.json()
             except Exception:
                 labels_by_clip[clip_id] = []
-
     return clips, labels_by_clip
+
+
+# ── Cross-regime distillation (Issue #150) ────────────────────────────────────
+
+
+def fetch_clips_for_pairing(
+    video_id: str | None = None,
+    limit: int = 1000,
+) -> list[dict[str, Any]]:
+    """GET coach-tagged clip metadata for the play-call aligner.
+
+    Returns clip dicts (carrying ``play_call_id``, ``capture_regime``,
+    ``result_state``, ``is_reviewed``, ``confidence``, ``model_version_id``) that
+    :func:`training.play_call_aligner.align_plays` groups into practice<->game
+    pairs. Returns an empty list when the backend is disabled or the call fails.
+
+    Uses :func:`_fetch_clips` directly to avoid the per-clip label requests that
+    :func:`fetch_clips_with_labels` issues; label data is not needed for pairing.
+    """
+    if not BACKEND_API_URL:
+        return []
+    clips = _fetch_clips(video_id=video_id, limit=limit)
+    return [c for c in clips if c.get("play_call_id")]
+
+
+def register_model_version(
+    *,
+    model_name: str,
+    version: str,
+    model_type: str,
+    artifact_uri: str | None = None,
+    metrics: dict[str, Any] | None = None,
+    training_dataset_id: str | None = None,
+) -> dict[str, Any] | None:
+    """POST /api/v1/mlops/models to register a trained model version.
+
+    Used by the cross-regime distillation trainer to register the distilled
+    DRONE_FOLLOW student (created ``experimental`` with auditable ``metrics``).
+    Best-effort: returns ``None`` and logs when the backend is disabled or the
+    call fails — registration never blocks a completed training run.
+    """
+    if not BACKEND_API_URL:
+        return None
+    payload: dict[str, Any] = {
+        "model_name": model_name,
+        "version": version,
+        "model_type": model_type,
+    }
+    if artifact_uri is not None:
+        payload["artifact_uri"] = artifact_uri
+    if metrics is not None:
+        payload["metrics"] = metrics
+    if training_dataset_id is not None:
+        payload["training_dataset_id"] = training_dataset_id
+    try:
+        with _client() as c:
+            resp = c.post("/api/v1/mlops/models", json=payload)
+            resp.raise_for_status()
+            data: dict[str, Any] = resp.json()
+            log.info(
+                "model_version_registered",
+                model_name=model_name,
+                version=version,
+                model_version_id=data.get("id"),
+            )
+            return data
+    except Exception as exc:
+        log.warning(
+            "model_version_register_failed",
+            model_name=model_name,
+            version=version,
+            error=str(exc),
+        )
+        return None

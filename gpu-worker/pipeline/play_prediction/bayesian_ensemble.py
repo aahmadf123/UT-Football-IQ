@@ -73,7 +73,7 @@ class LikelihoodRatioModel:
     is_fitted: bool = False
     laplace_alpha: float = 1.0
 
-    def fit(self, samples: list[tuple[dict[str, Any], str]]) -> "LikelihoodRatioModel":
+    def fit(self, samples: list[tuple[dict[str, Any], str]]) -> LikelihoodRatioModel:
         """Fit from ``(signal_values, label)`` pairs (label in {'pass','run'})."""
         pass_counts: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
         run_counts: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
@@ -119,7 +119,7 @@ class LikelihoodRatioModel:
         return {"log_lr": self.log_lr, "is_fitted": self.is_fitted, "laplace_alpha": self.laplace_alpha}
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "LikelihoodRatioModel":
+    def from_dict(cls, d: dict[str, Any]) -> LikelihoodRatioModel:
         return cls(
             log_lr={k: dict(v) for k, v in d.get("log_lr", {}).items()},
             is_fitted=bool(d.get("is_fitted", False)),
@@ -166,7 +166,7 @@ class BayesianEnsemble:
     lr_model: LikelihoodRatioModel = field(default_factory=LikelihoodRatioModel)
     platt: PlattScaler = field(default_factory=PlattScaler)
     base_pass_rate: float = D1_NEUTRAL_PASS_RATE
-    moe: "MixtureOfExperts | None" = None
+    moe: MixtureOfExperts | None = None
 
     def predict(
         self,
@@ -223,7 +223,7 @@ class BayesianEnsemble:
             multiclass=multiclass,
         )
 
-    def fit(self, samples: list[tuple[dict[str, Any], str]]) -> "BayesianEnsemble":
+    def fit(self, samples: list[tuple[dict[str, Any], str]]) -> BayesianEnsemble:
         """Fit the per-signal likelihood ratios from labelled plays."""
         self.lr_model.fit(samples)
         return self
@@ -233,7 +233,7 @@ class BayesianEnsemble:
         holdout: list[tuple[dict[str, Any], str]],
         *,
         base_log_odds_by_sample: list[float | None] | None = None,
-    ) -> "BayesianEnsemble":
+    ) -> BayesianEnsemble:
         """Fit Platt scaling on held-out plays using raw decision scores."""
         scores: list[float] = []
         labels: list[int] = []
@@ -256,7 +256,7 @@ class BayesianEnsemble:
         }
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "BayesianEnsemble":
+    def from_dict(cls, d: dict[str, Any]) -> BayesianEnsemble:
         return cls(
             lr_model=LikelihoodRatioModel.from_dict(d.get("lr_model", {})),
             platt=PlattScaler.from_dict(d.get("platt", {})),
@@ -292,7 +292,7 @@ class MixtureOfExperts:
         lr: float = 0.1,
         epochs: int = 300,
         seed: int = 0,
-    ) -> "MixtureOfExperts":
+    ) -> MixtureOfExperts:
         x = np.asarray(features, dtype=np.float64)
         y = np.asarray(class_indices, dtype=np.int64)
         if x.ndim != 2 or x.shape[0] != y.shape[0] or x.shape[0] == 0:
@@ -358,7 +358,7 @@ class MixtureOfExperts:
         }
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "MixtureOfExperts":
+    def from_dict(cls, d: dict[str, Any]) -> MixtureOfExperts:
         return cls(
             gate_w=d.get("gate_w"),
             expert_w=d.get("expert_w"),

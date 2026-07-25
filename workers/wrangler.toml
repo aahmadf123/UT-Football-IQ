@@ -23,22 +23,18 @@ bucket_name = "overlays"
 binding = "ARTIFACTS"
 bucket_name = "artifacts"
 
-# Cloudflare Queues
-[[queues.producers]]
-binding = "VIDEO_PROCESSING_QUEUE"
-queue = "video-processing-jobs"
-
-[[queues.producers]]
-binding = "NIGHTLY_TRAINING_QUEUE"
-queue = "nightly-training-exports"
+# Job dispatch and the nightly cron moved off the edge: the backend's
+# processing_jobs table is the queue (claimed by the GPU worker) and the
+# backend scheduler owns the nightly workload rollup. The former queue
+# producer bindings and [triggers] cron were removed with that migration.
 
 # ── Secrets (set via `wrangler secret put <NAME>`) ────────────────────────────
-# JWT_SECRET
-# DATABASE_URL
-# BACKEND_API_URL
+# JWT_SECRET — must equal the backend's SECRET_KEY (the worker verifies
+#              backend-issued HS256 JWTs and HMAC-signs /dl/* stream URLs).
+#              CD syncs it from the repo's SECRET_KEY secret on every deploy;
+#              scripts/sync-worker-secret.ps1 does the same thing locally.
 
-# ── Routes ───────────────────────────────────────────────────────────────────
-[env.production]
-routes = [
-  { pattern = "api-worker.football-iq.workers.dev/*", zone_name = "football-iq.workers.dev" }
-]
+# The worker serves on its workers.dev subdomain
+# (https://football-iq.firas-azfar.workers.dev). The former [env.production]
+# routes block was invalid — workers.dev is not a user zone — and deploys
+# never used it, so it was removed.

@@ -23,7 +23,6 @@ from pipeline.detection.ball_detector import (
 from pipeline.detection.sahi_wrapper import BALL_TILE, SAHIDetectorAdapter
 from pipeline.detector_models import DetectorBase
 
-
 # ── BallDetectorAdapter ───────────────────────────────────────────────────────
 
 

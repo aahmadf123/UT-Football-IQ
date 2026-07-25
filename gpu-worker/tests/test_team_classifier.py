@@ -24,7 +24,6 @@ from pipeline.team_classification.kmeans_team_classifier import (
     estimate_grass_lab,
 )
 
-
 GRASS = (45, 135, 45)
 OFFENSE_RED = (20, 30, 220)
 DEFENSE_BLUE = (220, 50, 30)

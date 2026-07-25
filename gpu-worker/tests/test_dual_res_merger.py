@@ -18,7 +18,6 @@ from pipeline.detection.dual_res_merger import (
 )
 from pipeline.detector_models import DetectorBase
 
-
 # ── IoU ───────────────────────────────────────────────────────────────────────
 
 

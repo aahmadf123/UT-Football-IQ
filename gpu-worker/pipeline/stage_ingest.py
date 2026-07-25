@@ -17,7 +17,6 @@ Output:
 from __future__ import annotations
 
 import json
-import os
 import subprocess
 import tempfile
 from pathlib import Path
@@ -28,6 +27,8 @@ import structlog
 from pipeline import backend, r2
 from pipeline.homography.regime_detector import (
     UNKNOWN as REGIME_UNKNOWN,
+)
+from pipeline.homography.regime_detector import (
     CaptureRegimeDetector,
 )
 
@@ -52,9 +53,7 @@ def run(video_id: str, input_uri: str, job_id: str) -> dict[str, Any]:
 
 
 def _uri_to_r2_key(uri: str) -> str:
-    """Convert r2://<bucket>/<key> or plain key to just the key."""
-    if uri.startswith("r2://"):
-        return "/".join(uri.split("/")[3:])
+    """Pass storage references through — pipeline.storage parses scheme + bucket."""
     return uri
 
 

@@ -140,13 +140,21 @@ async def list_model_versions(
     db: Annotated[AsyncSession, Depends(get_db)],
     _current_user: Annotated[User, Depends(require_analyst_or_above)],
     model_name: str | None = Query(default=None),
+    model_type: str | None = Query(default=None),
     stage: ModelStage | None = Query(default=None),
     limit: int = Query(default=50, ge=1, le=200),
 ) -> list[ModelVersionResponse]:
-    """List registered model versions, optionally filtered by name or stage."""
+    """List registered model versions, optionally filtered by name/type/stage.
+
+    ``model_type`` + ``stage=production`` is the GPU worker's serving query:
+    it resolves the artifact to load for a pipeline stage (see
+    gpu-worker/pipeline/model_registry_client.py).
+    """
     q = select(ModelVersion).order_by(ModelVersion.created_at.desc()).limit(limit)
     if model_name is not None:
         q = q.where(ModelVersion.model_name == model_name)
+    if model_type is not None:
+        q = q.where(ModelVersion.model_type == model_type)
     if stage is not None:
         q = q.where(ModelVersion.promoted_stage == stage)
     result = await db.execute(q)

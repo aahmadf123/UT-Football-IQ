@@ -118,7 +118,7 @@ describe("ClipReviewPage overlays", () => {
       </AppStateProvider>,
     );
     await waitFor(() => {
-      expect(screen.getByText(/Backend not configured/i)).toBeTruthy();
+      expect(screen.getByText(/Clip Review is unavailable offline/i)).toBeTruthy();
     });
   });
 
@@ -261,6 +261,117 @@ describe("ClipReviewPage overlays", () => {
     await waitFor(() => {
       expect(screen.getByTestId("overlay-error")).toBeTruthy();
     });
+  });
+
+  test("shows a dismissable calibration banner + gated spatial metrics when analytics_safe is false", async () => {
+    const payload = {
+      ...EMPTY_OVERLAYS,
+      capture_regime: "unconstrained",
+      layers_available: {
+        tracklets: true,
+        events: false,
+        labels: false,
+        metrics: false,
+      },
+      tracklets: [
+        {
+          id: "t-1",
+          player_id: null,
+          start_frame: 0,
+          end_frame: 30,
+          track_confidence: 0.9,
+          team_label: "home",
+          position_group: null,
+          side_of_ball: null,
+          track_points: [],
+        },
+      ],
+      calibration: {
+        analytics_safe: false,
+        reason:
+          "Not enough yard lines were visible to map the field, so spatial metrics are hidden for this footage.",
+        reason_codes: ["insufficient_yard_lines"],
+        confidence: 0.31,
+      },
+    };
+
+    installFetchRoutes([
+      { url: "/api/v1/videos/download-url", body: { downloadUrl: "https://dl.test/x" } },
+      { url: "/api/v1/clips/c-1/overlays", body: payload },
+      { url: "/api/v1/clips/c-1", body: SAMPLE_CLIP },
+      { url: "/api/v1/videos/v-1", body: SAMPLE_VIDEO },
+      { url: "/api/v1/players", body: [] },
+      { url: "/api/v1/inbox/status", body: [] },
+      { url: "/api/v1/videos", body: [] },
+      { url: "/api/v1/jobs", body: [] },
+      { url: "/api/v1/self-scout/tendencies", body: { pre_snap_tells: [] } },
+    ]);
+
+    const { ClipReviewPage, AppStateProvider } = await importPage();
+    const { container } = render(
+      <AppStateProvider>
+        <ClipReviewPage />
+      </AppStateProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("calibration-banner")).toBeTruthy();
+    });
+    expect(screen.getByTestId("calibration-banner").textContent).toContain(
+      "Not enough yard lines were visible",
+    );
+    // Non-blocking: the video player still renders alongside the banner.
+    expect(container.querySelector("video")).toBeTruthy();
+    // Overlay summary carries the gated Spatial Metrics card with the same
+    // coach-readable reason.
+    expect(screen.getByTestId("card-gated-reason").textContent).toContain(
+      "Not enough yard lines were visible",
+    );
+
+    // Dismiss hides the banner but nothing else.
+    fireEvent.click(screen.getByTestId("calibration-banner-dismiss"));
+    await waitFor(() => {
+      expect(screen.queryByTestId("calibration-banner")).toBeNull();
+    });
+    expect(container.querySelector("video")).toBeTruthy();
+  });
+
+  test("shows no calibration banner when analytics_safe is true", async () => {
+    const payload = {
+      ...EMPTY_OVERLAYS,
+      capture_regime: "drone_follow",
+      calibration: {
+        analytics_safe: true,
+        reason: null,
+        reason_codes: [],
+        confidence: 0.94,
+      },
+    };
+
+    installFetchRoutes([
+      { url: "/api/v1/videos/download-url", body: { downloadUrl: "https://dl.test/x" } },
+      { url: "/api/v1/clips/c-1/overlays", body: payload },
+      { url: "/api/v1/clips/c-1", body: SAMPLE_CLIP },
+      { url: "/api/v1/videos/v-1", body: SAMPLE_VIDEO },
+      { url: "/api/v1/players", body: [] },
+      { url: "/api/v1/inbox/status", body: [] },
+      { url: "/api/v1/videos", body: [] },
+      { url: "/api/v1/jobs", body: [] },
+      { url: "/api/v1/self-scout/tendencies", body: { pre_snap_tells: [] } },
+    ]);
+
+    const { ClipReviewPage, AppStateProvider } = await importPage();
+    render(
+      <AppStateProvider>
+        <ClipReviewPage />
+      </AppStateProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("overlay-empty")).toBeTruthy();
+    });
+    expect(screen.queryByTestId("calibration-banner")).toBeNull();
+    expect(screen.queryByTestId("card-gated-reason")).toBeNull();
   });
 
   test("renders degraded summary when only some overlay layers have data", async () => {

@@ -13,18 +13,15 @@ Covers:
 
 from __future__ import annotations
 
-import sys
 import os
-import time
-from typing import Any
-from unittest.mock import MagicMock, patch, call
+import sys
+from unittest.mock import patch
 
 import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from worker.timeout_handler import JobTimeoutError, run_with_timeout
-
 
 # ── Happy path ────────────────────────────────────────────────────────────────
 

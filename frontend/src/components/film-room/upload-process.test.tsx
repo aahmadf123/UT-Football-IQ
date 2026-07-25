@@ -114,11 +114,69 @@ describe("UploadProcessFilm", () => {
     await waitFor(() => {
       expect(screen.getByTestId("processing-status-vid-1").textContent).toMatch(/Queued/i);
     });
-    // The CTA goes through the sanctioned backend job API with an ingest job.
+    // The CTA goes through the sanctioned backend job API with a full
+    // orchestrated pipeline job.
     expect(postBodies.length).toBeGreaterThan(0);
-    expect(postBodies[0]).toMatchObject({ video_id: "vid-1", job_type: "ingest" });
+    expect(postBodies[0]).toMatchObject({ video_id: "vid-1", job_type: "pipeline" });
     // No longer offering "Process Film" once queued.
     expect(screen.queryByTestId("process-film-vid-1")).toBeNull();
+  });
+
+  test("failed film retries the failed job via POST /jobs/{id}/retry", async () => {
+    vi.stubEnv("NEXT_PUBLIC_API_URL", "https://api.test");
+    const FAILED_VIDEO = {
+      ...UPLOADED_VIDEO,
+      video_id: "vid-2",
+      filename: "failed.mp4",
+      video_status: "failed",
+      failed_jobs: 1,
+      latest_error_stage: "track",
+      latest_error_message: "tracking crashed",
+    };
+    const respond = (body: unknown, status = 200) =>
+      ({
+        ok: status >= 200 && status < 300,
+        status,
+        json: async () => body,
+        text: async () => JSON.stringify(body),
+      }) as Response;
+    const calls: string[] = [];
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      const method = init?.method ?? "GET";
+      calls.push(`${method} ${url}`);
+      if (method === "POST" && url.includes("/api/v1/jobs/job-f1/retry")) {
+        return respond({ id: "job-f2", status: "queued" }, 201);
+      }
+      if (
+        method === "GET" &&
+        url.includes("/api/v1/jobs") &&
+        url.includes("video_id=vid-2") &&
+        url.includes("status=failed")
+      ) {
+        return respond([
+          { id: "job-f1", job_type: "pipeline", status: "failed", priority: 0, created_at: "2026-05-30T10:00:00Z" },
+        ]);
+      }
+      if (url.includes("/api/v1/inbox/status")) {
+        return respond([FAILED_VIDEO]);
+      }
+      return respond([]);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    await renderUploadProcess();
+
+    const button = await screen.findByTestId("retry-process-vid-2");
+    fireEvent.click(button);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("processing-status-vid-2").textContent).toMatch(/Queued/i);
+    });
+    // The retry endpoint was used — not a fresh POST /jobs pipeline job.
+    expect(calls.some((c) => c.startsWith("POST") && c.includes("/api/v1/jobs/job-f1/retry"))).toBe(true);
+    const freshJobPosts = calls.filter(
+      (c) => c.startsWith("POST") && c.includes("/api/v1/jobs") && !c.includes("/retry"),
+    );
+    expect(freshJobPosts).toHaveLength(0);
   });
 
   test("workload-gated (503) surfaces a coach-readable busy message", async () => {

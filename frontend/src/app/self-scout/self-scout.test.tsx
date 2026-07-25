@@ -26,13 +26,15 @@ beforeEach(() => {
   vi.stubEnv("NEXT_PUBLIC_USE_MOCKS", "");
 });
 
+// /self-scout is now a thin redirect into Scouting → Our Tendencies
+// (ADR 0003); the behavior under test lives in the shared SelfScoutView.
 async function importPage() {
   vi.resetModules();
-  const [{ default: SelfScoutPage }, { AppStateProvider }] = await Promise.all([
-    import("./page"),
+  const [{ SelfScoutView }, { AppStateProvider }] = await Promise.all([
+    import("./self-scout-view"),
     import("@/lib/app-state"),
   ]);
-  return { SelfScoutPage, AppStateProvider };
+  return { SelfScoutPage: SelfScoutView, AppStateProvider };
 }
 
 interface RouteSpec {

@@ -1,5 +1,10 @@
-import { PageRenderer } from "@/components/page-renderer";
+import { FootballShell } from "@/components/shell/app-shell";
+import { PlayersView } from "@/components/players-view";
 
 export default function PlayersPage() {
-  return <PageRenderer page="players" />;
+  return (
+    <FootballShell activePage="players">
+      <PlayersView />
+    </FootballShell>
+  );
 }

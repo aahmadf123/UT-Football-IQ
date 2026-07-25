@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.deps import get_current_user, require_any_staff
 from app.models import (
+    PLAY_EMBEDDING_CLIP_DIM,
     PLAY_EMBEDDING_DIM,
     PLAY_EMBEDDING_STRUCTURED_DIM,
     PLAY_EMBEDDING_VISUAL_DIM,
@@ -53,6 +54,14 @@ class PlayEmbeddingCreate(BaseModel):
         min_length=PLAY_EMBEDDING_STRUCTURED_DIM,
         max_length=PLAY_EMBEDDING_STRUCTURED_DIM,
     )
+    # Raw 512-d CLIP image embedding in CLIP shared space (Issue #195).
+    # Optional: only the real CLIP visual encoder produces it; the default
+    # zero encoder leaves it unset and text search simply skips such rows.
+    clip_vector: list[float] | None = Field(
+        default=None,
+        min_length=PLAY_EMBEDDING_CLIP_DIM,
+        max_length=PLAY_EMBEDDING_CLIP_DIM,
+    )
     chunk_kind: str = "play"
     snap_anchor: bool = True
     used_sam_masks: bool = False
@@ -77,6 +86,9 @@ class PlayEmbeddingResponse(BaseModel):
     is_experimental: bool
     source_label_ids: list[str]
     vector_dim: int
+    # True when the raw CLIP image embedding is stored (Issue #195) — i.e.
+    # this row is reachable by CLIP text-tower search (``/search/text``).
+    has_clip_vector: bool
     created_at: str
 
     @classmethod
@@ -93,6 +105,7 @@ class PlayEmbeddingResponse(BaseModel):
             is_experimental=e.is_experimental,
             source_label_ids=[str(sid) for sid in (e.source_label_ids or [])],
             vector_dim=len(e.vector) if e.vector is not None else 0,
+            has_clip_vector=e.clip_vector is not None,
             created_at=e.created_at.isoformat(),
         )
 
@@ -141,6 +154,7 @@ async def create_play_embedding(
         "vector": payload.vector,
         "visual_vector": payload.visual_vector,
         "structured_vector": payload.structured_vector,
+        "clip_vector": payload.clip_vector,
         "model_version_id": payload.model_version_id,
         "calibration_version_id": payload.calibration_version_id,
         "source_label_ids": [sid for sid in payload.source_label_ids],
@@ -157,6 +171,7 @@ async def create_play_embedding(
             "vector": insert_stmt.excluded.vector,
             "visual_vector": insert_stmt.excluded.visual_vector,
             "structured_vector": insert_stmt.excluded.structured_vector,
+            "clip_vector": insert_stmt.excluded.clip_vector,
             "snap_anchor": insert_stmt.excluded.snap_anchor,
             "calibration_version_id": insert_stmt.excluded.calibration_version_id,
             "source_label_ids": insert_stmt.excluded.source_label_ids,

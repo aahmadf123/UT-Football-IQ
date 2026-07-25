@@ -23,8 +23,8 @@ from __future__ import annotations
 
 import enum
 import math
+from collections.abc import Iterable
 from dataclasses import dataclass, field
-from typing import Iterable
 
 import structlog
 

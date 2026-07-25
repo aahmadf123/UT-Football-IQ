@@ -28,7 +28,6 @@ from pipeline.detector_models import (
     polygon_area,
 )
 
-
 # ── Schema invariants ─────────────────────────────────────────────────────────
 
 

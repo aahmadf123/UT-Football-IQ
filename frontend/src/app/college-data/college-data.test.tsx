@@ -26,13 +26,15 @@ beforeEach(() => {
   vi.stubEnv("NEXT_PUBLIC_USE_MOCKS", "");
 });
 
+// /college-data is now a thin redirect into Scouting → College Data
+// (ADR 0003); the behavior under test lives in the shared CollegeDataView.
 async function importPage() {
   vi.resetModules();
-  const [{ default: CollegeDataPage }, { AppStateProvider }] = await Promise.all([
-    import("./page"),
+  const [{ CollegeDataView }, { AppStateProvider }] = await Promise.all([
+    import("./college-data-view"),
     import("@/lib/app-state"),
   ]);
-  return { CollegeDataPage, AppStateProvider };
+  return { CollegeDataPage: CollegeDataView, AppStateProvider };
 }
 
 interface RouteSpec {

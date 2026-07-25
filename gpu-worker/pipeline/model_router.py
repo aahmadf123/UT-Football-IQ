@@ -38,11 +38,10 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+from queue.same_session_queue import NIGHTLY_PRIORITY, SAME_SESSION_PRIORITY
 from typing import Any
 
 import structlog
-
-from queue.same_session_queue import NIGHTLY_PRIORITY, SAME_SESSION_PRIORITY
 
 log = structlog.get_logger(__name__)
 
@@ -101,6 +100,20 @@ PLAY_EMBED_BASELINE: str = "play-embed-clip-vitb32-baseline"
 CALIB_HOUGH_DLT: str = "calib-hough-dlt"
 CALIB_HOUGH_DLT_KALMAN: str = "calib-hough-dlt-kalman"
 
+# Distilled DRONE_FOLLOW student detector — Issue #150. Produced by the nightly
+# cross-regime self-distillation trainer (``training.cross_regime_distill``),
+# which distills the high-quality FIXED_SIDELINE game pipeline (teacher) into the
+# harder drone-follow practice regime (student). It is heavy/experimental, must
+# clear a >= 5 pp drone-follow mAP gate before promotion, and is **only** valid
+# for the ``drone_follow`` regime — so it is nightly-only and regime-gated (never
+# selected for fixed_sideline; see ``select_detect_variant``).
+DRONE_FOLLOW_DISTILLED: str = "yolov8m-drone-distilled"
+
+# Capture-regime string the distilled student is gated to. Mirrors
+# ``pipeline.homography.regime_detector.DRONE_FOLLOW`` without importing it, so
+# this central router stays dependency-light.
+DRONE_FOLLOW_REGIME: str = "drone_follow"
+
 # Variants that are NEVER allowed on the same-session path because they
 # are heavy / experimental / require a HF token at runtime, or — in the
 # case of ``PLAY_EMBED_BASELINE`` — because their work product is only
@@ -109,8 +122,22 @@ CALIB_HOUGH_DLT_KALMAN: str = "calib-hough-dlt-kalman"
 # these in the same_session bucket, the router falls back to the default
 # same-session variant and logs a warning — see ``select_model``.
 NIGHTLY_ONLY_VARIANTS: frozenset[str] = frozenset(
-    {SAM3_1, SAM3_MASK_TRACKER, PLAY_EMBED_BASELINE, BOTSORT, STRONGSORT, PARSEQ_OCR}
+    {
+        SAM3_1,
+        SAM3_MASK_TRACKER,
+        PLAY_EMBED_BASELINE,
+        BOTSORT,
+        STRONGSORT,
+        PARSEQ_OCR,
+        DRONE_FOLLOW_DISTILLED,
+    }
 )
+
+# Deterministic workload-fusion injury-risk heuristic (Issue #149). Nightly-
+# only: the fused score needs multi-day ACWR history that only the nightly
+# rollup has. Registered here so a future learned model swaps in through the
+# routing override file with no code change (#73).
+WORKLOAD_FUSION_HEURISTIC: str = "acwr-asym-heuristic-v1"
 
 # Returned for any stage that is not in the routing table.
 UNKNOWN_STAGE_FALLBACK: str = "default"
@@ -134,6 +161,16 @@ _SAM3_NIGHTLY_ENV = "ENABLE_SAM3_NIGHTLY"
 # (see ``_build_routing``) gives it precedence.
 _BOTSORT_NIGHTLY_ENV = "ENABLE_BOTSORT_NIGHTLY"
 
+# When set to a truthy value, nightly ``drone_follow`` detect jobs route to the
+# distilled DRONE_FOLLOW student (Issue #150). Unlike the SAM 3.1 / BoT-SORT
+# nightly swaps, this is NOT a routing-table swap — the student is regime-
+# specific, so applying it table-wide would wrongly hand fixed_sideline clips a
+# drone-tuned detector. Instead the gate is enforced per-job in
+# ``select_detect_variant`` (nightly AND drone_follow AND this flag). Default off:
+# nightly detect stays on yolov8m for every regime until a distilled student has
+# cleared the >= 5 pp drone-follow mAP gate and been promoted in the registry.
+_DRONE_DISTILL_NIGHTLY_ENV = "ENABLE_DRONE_DISTILL_NIGHTLY"
+
 # Default stage × priority routing.
 #
 # Same-session variants must comfortably fit the 5–10 minute period-break
@@ -148,6 +185,7 @@ DEFAULT_ROUTING: dict[str, dict[str, str]] = {
     "pose":       {_SAME_SESSION_KEY: RTMPOSE_FAST,        _NIGHTLY_KEY: RTMPOSE_MEDIUM},
     "render":     {_SAME_SESSION_KEY: "ffmpeg-overlay",    _NIGHTLY_KEY: "ffmpeg-overlay"},
     "embeddings": {_SAME_SESSION_KEY: "none",              _NIGHTLY_KEY: PLAY_EMBED_BASELINE},
+    "workload_fusion": {_SAME_SESSION_KEY: "none",         _NIGHTLY_KEY: WORKLOAD_FUSION_HEURISTIC},
 }
 
 
@@ -185,6 +223,12 @@ def _sam3_nightly_enabled() -> bool:
 def _botsort_nightly_enabled() -> bool:
     """Whether BoT-SORT should serve the nightly ``track`` bucket."""
     raw = os.environ.get(_BOTSORT_NIGHTLY_ENV, "")
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _drone_distill_nightly_enabled() -> bool:
+    """Whether the distilled DRONE_FOLLOW student should serve nightly ``detect``."""
+    raw = os.environ.get(_DRONE_DISTILL_NIGHTLY_ENV, "")
     return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
@@ -346,6 +390,33 @@ def build_routing_artifact(stage: str, priority: int) -> dict[str, str]:
     completed job records which model variant served it.
     """
     return {stage: select_model(stage, priority)}
+
+
+def select_detect_variant(priority: int, capture_regime: str | None) -> str:
+    """Regime-aware ``detect`` variant selection (Issue #150).
+
+    Returns the distilled DRONE_FOLLOW student
+    (:data:`DRONE_FOLLOW_DISTILLED`) only when **all** hold: the job is nightly,
+    ``capture_regime == "drone_follow"``, and ``ENABLE_DRONE_DISTILL_NIGHTLY`` is
+    set. Otherwise it delegates to ``select_model("detect", priority)``. This
+    keeps the student DRONE_FOLLOW-only — it can never serve a fixed_sideline
+    clip — honoring the two-regime design while leaving ``select_model``'s
+    signature untouched. Stages call this instead of ``select_model("detect", …)``
+    so the audit trail still records the variant that actually ran.
+    """
+    if (
+        is_nightly(priority)
+        and capture_regime == DRONE_FOLLOW_REGIME
+        and _drone_distill_nightly_enabled()
+    ):
+        log.info(
+            "select_detect_variant_distilled",
+            priority=priority,
+            capture_regime=capture_regime,
+            model=DRONE_FOLLOW_DISTILLED,
+        )
+        return DRONE_FOLLOW_DISTILLED
+    return select_model("detect", priority)
 
 
 def is_same_session(priority: int) -> bool:
