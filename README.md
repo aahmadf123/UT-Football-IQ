@@ -2,14 +2,6 @@
 
 Football-IQ is the Toledo Rockets' video intelligence platform. Coaches upload practice and game film — **from any camera, any angle, any height** — and the system tracks players, detects formations and coverages, generates analytics, and surfaces clips for review, all without manual tagging. Occasional one-click corrections feed a nightly learning loop that improves the models over time.
 
-It runs **fully locally with no cloud accounts and no GPU** (CPU works; a GPU is a speed upgrade).
-
-> **Deployment is intentionally unconfigured.** This repo ships application code
-> and no hosting wiring: no deploy manifests, no provider credentials, no
-> baked-in hostnames. Every connection point — database, object storage,
-> frontend origin, CORS — is an environment variable with a local default. Pick
-> your own providers and fill them in. See [Deploying](#deploying).
-
 ## Service map
 
 | Service | Role | Tech |
