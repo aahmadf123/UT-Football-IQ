@@ -11,6 +11,13 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.active_learning import (
+    annotation_priority,
+    basis_for,
+    parse_uncertainty,
+    signal_from_label_value,
+)
+from app.config import get_settings
 from app.database import get_db
 from app.deps import require_admin, require_analyst_or_above
 from app.models import (
@@ -93,10 +100,39 @@ class ActiveLearningQueueItemResponse(BaseModel):
     label_type: str
     queue_reason: ActiveLearningReason
     priority_score: float
+    # ``model_confidence`` is calibration-honest (#146): populated ONLY when the
+    # stored uncertainty signal is calibrated. An uncalibrated raw score is never
+    # surfaced here as a confidence — use ``calibrated`` / ``basis`` instead.
     model_confidence: float | None
+    calibrated: bool
+    entropy: float | None
+    basis: str
+    uncertainty_method: str | None
     source_model_version_id: uuid.UUID | None
     status: str
     created_at: str
+
+    @classmethod
+    def from_orm_item(cls, item: ActiveLearningQueueItem) -> "ActiveLearningQueueItemResponse":
+        meta = item.metadata_ if isinstance(item.metadata_, dict) else None
+        signal = parse_uncertainty(meta.get("uncertainty") if meta is not None else None)
+        return cls(
+            id=item.id,
+            clip_id=item.clip_id,
+            label_type=item.label_type,
+            queue_reason=item.queue_reason,
+            priority_score=item.priority_score,
+            model_confidence=(
+                signal.confidence if signal is not None and signal.calibrated else None
+            ),
+            calibrated=signal.calibrated if signal is not None else False,
+            entropy=signal.entropy if signal is not None else None,
+            basis=basis_for(signal),
+            uncertainty_method=signal.method if signal is not None else None,
+            source_model_version_id=item.source_model_version_id,
+            status=item.status.value,
+            created_at=item.created_at.isoformat(),
+        )
 
 
 @router.get("/models", response_model=list[ModelVersionResponse])
@@ -237,20 +273,7 @@ async def list_active_learning_queue(
         q = q.where(ActiveLearningQueueItem.queue_reason == reason)
     result = await db.execute(q)
     rows = result.scalars().all()
-    return [
-        ActiveLearningQueueItemResponse(
-            id=r.id,
-            clip_id=r.clip_id,
-            label_type=r.label_type,
-            queue_reason=r.queue_reason,
-            priority_score=r.priority_score,
-            model_confidence=r.model_confidence,
-            source_model_version_id=r.source_model_version_id,
-            status=r.status.value,
-            created_at=r.created_at.isoformat(),
-        )
-        for r in rows
-    ]
+    return [ActiveLearningQueueItemResponse.from_orm_item(r) for r in rows]
 
 
 @router.post("/active-learning/nightly", response_model=NightlyRunResponse)
@@ -354,18 +377,35 @@ async def run_nightly_active_learning(
     regression_count = 0
     hard_negative_count = 0
 
+    al_settings = get_settings()
     for label in model_labels:
         confidence = _confidence(label.label_value)
         if confidence is not None and confidence < low_confidence_threshold:
+            # Route the priority through the calibrated-uncertainty policy (#146):
+            # a calibrated ``label_value["uncertainty"]`` drives a calibrated
+            # priority; a bare confidence is demoted to a ranking-only raw score
+            # and is never re-presented as a calibrated confidence.
+            signal = signal_from_label_value(label.label_value)
+            decision = annotation_priority(
+                signal,
+                entropy_weight=al_settings.active_learning_entropy_weight,
+                uncalibrated_priority=al_settings.active_learning_uncalibrated_priority,
+                missing_priority=al_settings.active_learning_missing_priority,
+            )
             queue_rows.append(
                 ActiveLearningQueueItem(
                     id=uuid.uuid4(),
                     clip_id=label.clip_id,
                     label_type=label.label_type,
-                    queue_reason=ActiveLearningReason.low_confidence,
-                    priority_score=1 - confidence,
+                    queue_reason=decision.reason,
+                    priority_score=decision.priority,
+                    # Raw score kept in the column for audit; the API only
+                    # surfaces it when calibrated.
                     model_confidence=confidence,
                     source_model_version_id=label.model_version_id,
+                    metadata_=(
+                        {"uncertainty": signal.as_payload()} if signal is not None else None
+                    ),
                 )
             )
             low_confidence_count += 1

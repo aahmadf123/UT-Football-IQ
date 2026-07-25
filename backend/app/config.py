@@ -98,6 +98,19 @@ class Settings(BaseSettings):
     # football data refreshes roughly weekly, so the default is 7 days.
     cfbd_cache_stale_after_hours: int = 168
 
+    # ── Active-learning queue (Issues #145 / #146) ─────────────────────────
+    # Tunables for the calibrated-uncertainty prioritisation policy in
+    # ``app.active_learning`` (consumed by the MLOps nightly sampler). All are
+    # read by the backend only; see docs/active-learning.md.
+    # Blend weight on normalised entropy vs. (1 - calibrated confidence) for a
+    # calibrated signal (0 = confidence only, 1 = entropy only).
+    active_learning_entropy_weight: float = 0.5
+    # Fixed priority floor for an uncalibrated output that carries no usable
+    # ranking signal — kept reviewable, never shown as confident.
+    active_learning_uncalibrated_priority: float = 0.6
+    # Fallback priority for a model output with no uncertainty signal at all.
+    active_learning_missing_priority: float = 0.5
+
     # ── Zero-shot concept search (Issue #144) ─────────────────────────────
     # When true, ``GET /api/v1/concept-search`` may expand its grounded
     # structured-label matches with an *experimental* pgvector similarity pass
