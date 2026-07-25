@@ -79,3 +79,6 @@ frontend/blob-report/
 # HLS test byproducts written to gpu-worker/ cwd by the render tests
 gpu-worker/seg_*.ts
 gpu-worker/-encoders
+
+# Local backend virtualenv (created for migration/schema verification)
+backend/.venv/

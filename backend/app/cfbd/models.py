@@ -17,7 +17,6 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy import (
-    JSON,
     BigInteger,
     Boolean,
     DateTime,
@@ -30,7 +29,7 @@ from sqlalchemy import (
     func,
     text,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -90,7 +89,7 @@ class CFBDTeam(Base):
     classification: Mapped[str | None] = mapped_column(String(64), nullable=True)
     color: Mapped[str | None] = mapped_column(String(32), nullable=True)
     alt_color: Mapped[str | None] = mapped_column(String(32), nullable=True)
-    logos: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    logos: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = _created_at()
     updated_at: Mapped[datetime] = _updated_at()
 
@@ -192,7 +191,7 @@ class CFBDTeamGameStat(Base):
     opponent: Mapped[str | None] = mapped_column(String(120), nullable=True, index=True)
     home_away: Mapped[str | None] = mapped_column(String(8), nullable=True)
     points: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    stats: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON, nullable=True)
+    stats: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = _created_at()
     updated_at: Mapped[datetime] = _updated_at()
 
@@ -244,7 +243,7 @@ class CFBDSyncRun(Base):
 
     id: Mapped[uuid.UUID] = _uuid_pk()
     endpoint: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
-    params: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    params: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     season: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     season_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
     status: Mapped[CFBDSyncStatus] = mapped_column(
