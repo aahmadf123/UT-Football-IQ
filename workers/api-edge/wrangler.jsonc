@@ -1,0 +1,57 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "footiq-api-edge",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-06-08",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+
+  // ── The FastAPI backend, as a container ────────────────────────────────────
+  // Requires the Workers Paid plan. `wrangler deploy` builds backend/Dockerfile,
+  // pushes it to Cloudflare's registry, and provisions the instances.
+  // max_instances is 1 deliberately: alerts_sse.py holds its subscriber map in
+  // process memory, so a second instance would silently drop alert streams.
+  // See the note in src/proxy.ts before raising this.
+  "containers": [
+    {
+      "class_name": "BackendContainer",
+      "image": "../../backend/Dockerfile",
+      "max_instances": 1,
+      "instance_type": "standard"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [{ "class_name": "BackendContainer", "name": "BACKEND" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["BackendContainer"] }],
+
+  // ── Object storage ─────────────────────────────────────────────────────────
+  // Create these first: `wrangler r2 bucket create footiq-raw-video` etc.
+  // See docs/setup/cloudflare.md.
+  "r2_buckets": [
+    { "binding": "RAW_VIDEO", "bucket_name": "footiq-raw-video" },
+    { "binding": "CLIPS", "bucket_name": "footiq-clips" },
+    { "binding": "OVERLAYS", "bucket_name": "footiq-overlays" },
+    { "binding": "ARTIFACTS", "bucket_name": "footiq-artifacts" }
+  ],
+
+  // ── Nightly tick ───────────────────────────────────────────────────────────
+  // 08:00 UTC, matching the SCHEDULER_HOUR_UTC the backend used to gate on.
+  // The backend still takes a Postgres advisory lock, so a duplicate delivery
+  // is harmless.
+  "triggers": { "crons": ["0 8 * * *"] },
+
+  "vars": {
+    "ENVIRONMENT": "production",
+    // Exact browser origins allowed to call the API. Replace with the real
+    // Vercel domain before deploying.
+    "CORS_ORIGINS": "http://localhost:3000",
+    // Optional anchored regex for per-deploy Vercel preview URLs, e.g.
+    // "https://footiq-[a-z0-9-]+\\.vercel\\.app"
+    "CORS_ORIGIN_REGEX": ""
+  }
+
+  // ── Secrets (never in this file) ───────────────────────────────────────────
+  // wrangler secret put SECRET_KEY        # identical to the backend's
+  // wrangler secret put SCHEDULER_TOKEN   # identical to the backend's
+}

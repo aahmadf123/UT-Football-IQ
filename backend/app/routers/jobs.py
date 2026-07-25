@@ -3,8 +3,10 @@
 The ``processing_jobs`` table IS the queue: the GPU worker claims queued
 rows via ``POST /claim`` (single ``UPDATE … WHERE id = (SELECT … FOR UPDATE
 SKIP LOCKED)``) and keeps its lease alive via ``POST /{id}/heartbeat``.
-Expired leases are lazily reclaimed by the next claim call; rows whose
-``attempt_count`` reaches ``max_attempts`` are swept to ``failed``.
+Expired leases are reclaimed by :func:`app.services.job_sweeper.sweep_expired_leases`,
+which runs here before every claim *and* on the nightly tick — the claim-time
+sweep alone leaves stalled rows sitting in ``running`` whenever no worker is
+polling.
 """
 
 import json
@@ -21,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.deps import get_current_user, require_any_staff
 from app.models import JobStatus, JobType, PipelineMode, ProcessingJob, User, UserRole, Video
+from app.services.job_sweeper import sweep_expired_leases
 from app.workload import WorkloadSnapshot, require_workload_capacity
 
 log = structlog.get_logger(__name__)
@@ -209,23 +212,11 @@ async def claim_job(
     """
     now = datetime.now(UTC)
 
-    # Sweep: expired-lease rows that exhausted their attempts fail terminally.
-    await db.execute(
-        update(ProcessingJob)
-        .where(
-            ProcessingJob.status == JobStatus.running,
-            ProcessingJob.lease_expires_at.is_not(None),
-            ProcessingJob.lease_expires_at < now,
-            ProcessingJob.attempt_count >= ProcessingJob.max_attempts,
-        )
-        .values(
-            status=JobStatus.failed,
-            error_message="lease expired; attempts exhausted",
-            finished_at=now,
-            leased_by=None,
-            lease_expires_at=None,
-        )
-    )
+    # Reclaim anything a dead worker left behind: exhausted attempts fail
+    # terminally, the rest go back to ``queued``. The claim below would pick up
+    # an expired-lease ``running`` row regardless, so this is about keeping the
+    # queue's reported state honest as much as about retrying.
+    await sweep_expired_leases(db, now)
 
     claimable = or_(
         ProcessingJob.status == JobStatus.queued,

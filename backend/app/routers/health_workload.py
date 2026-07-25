@@ -46,7 +46,11 @@ from app.health_workload import (
     build_surface_status,
 )
 from app.models import Alert, AlertType, Metric, Player, PlayerWorkloadDaily, User, UserRole
-from app.workload_fusion import fetch_daily_state_inputs, fuse_daily_athlete_state
+from app.workload_fusion import (
+    fetch_daily_state_inputs,
+    fuse_daily_athlete_state,
+    integration_source_counts,
+)
 
 router = APIRouter(prefix="/api/v1/health-workload", tags=["health-workload"])
 log = structlog.get_logger(__name__)
@@ -93,14 +97,20 @@ class DailyWorkloadBatch(BaseModel):
 
 @router.get("/surface")
 async def health_workload_surface(
+    db: Annotated[AsyncSession, Depends(get_db)],
     user: Annotated[User, Depends(_require_health_read)],
 ) -> dict[str, object]:
     """Return the policy-safe athlete health/workload surface status.
 
     Restricted to sports-performance / analyst / admin roles.  The payload
-    contains only the viewer's role, the placeholder integration contracts,
-    the approved-role list, and the non-medical disclaimer — never per-athlete
+    contains only the viewer's role, the integration contracts, the
+    approved-role list, and the non-medical disclaimer — never per-athlete
     health data, names, or other PII.
+
+    The source counts are what let a contract report ``connected``. Without
+    them every source read ``not_connected`` forever, even after the ingest
+    endpoints had written real rows — so the UI claimed nothing was hooked up
+    while the dashboard next to it served data from those same tables.
     """
     audit_event(
         "audit.health_workload.surface.read",
@@ -110,7 +120,8 @@ async def health_workload_surface(
         action=Action.READ.value,
         surface="status",
     )
-    return build_surface_status(role=user.role)
+    counts = await integration_source_counts(db)
+    return build_surface_status(role=user.role, source_counts=counts)
 
 
 @router.get("/injury-risk")

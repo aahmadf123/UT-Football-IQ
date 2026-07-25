@@ -177,8 +177,11 @@ async def test_dev_login_returns_admin_tokens_in_development(
     db: async_sessionmaker[AsyncSession],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    # Both are patched on the cached Settings instance rather than through the
+    # environment: the instance already exists by this point, so a setenv here
+    # would never be read.
     monkeypatch.setattr(get_settings(), "environment", "development")
-    monkeypatch.setenv("DEV_AUTOLOGIN", "1")
+    monkeypatch.setattr(get_settings(), "dev_autologin", True)
     async with db() as session:
         await register(_register_request("root@example.com"), session)
         await session.commit()

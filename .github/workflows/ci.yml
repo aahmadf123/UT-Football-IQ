@@ -204,6 +204,38 @@ jobs:
       - name: Build
         run: npm run build
 
+  # ── Edge Worker: typecheck + workerd test suite ─────────────────────────
+  # Runs inside workerd via vitest-pool-workers, not Node, so the R2, Range,
+  # and WebCrypto behaviour under test is the real thing. The signing suite
+  # asserts byte-compatibility with the Python backend's HMAC scheme — if that
+  # breaks, every video URL the API mints starts returning 403.
+  api-edge:
+    name: Edge Worker (TypeScript)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: workers/api-edge
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: workers/api-edge/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Run tests
+        run: npm test
+
   # ── Frontend E2E: Playwright deterministic suite ────────────────────────
   frontend-e2e:
     name: Frontend E2E (Playwright)

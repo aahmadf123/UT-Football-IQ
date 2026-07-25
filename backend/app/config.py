@@ -155,6 +155,69 @@ class Settings(BaseSettings):
     # When true and seeding is enabled, rotate passwords for configured seed
     # users on startup. Keep false unless intentionally recovering access.
     seed_reset_passwords: bool = False
+    seed_admin_email: str = ""
+    seed_admin_password: str = ""
+    seed_worker_email: str = ""
+    seed_worker_password: str = ""
+
+    # ── Scheduler ─────────────────────────────────────────────────────────
+    # ``scheduler_enabled`` controls the in-process asyncio loop only. Turn it
+    # off when an external scheduler (a Cloudflare cron trigger, a Kubernetes
+    # CronJob) drives POST /internal/scheduler/tick instead — which is the right
+    # setup on any platform that suspends an idle container, because a suspended
+    # process never reaches the scheduled hour to notice it is due.
+    scheduler_enabled: bool | None = None  # None = on, except under tests
+    scheduler_hour_utc: int = 8
+    # Bearer token the external scheduler presents to /internal/scheduler/tick.
+    # Empty disables the endpoint entirely (404) — a tick route with no
+    # credential is worse than no tick route.
+    scheduler_token: str = ""
+    # Human labels that must accumulate since the last training job before the
+    # tick enqueues another one.
+    training_min_new_labels: int = 200
+
+    # ── Workload gating ───────────────────────────────────────────────────
+    # Backpressure on job creation. Above these depths, POST /jobs and the retry
+    # endpoint return 503 with Retry-After rather than growing the queue.
+    workload_gating_disabled: bool = False
+    workload_queue_threshold: int = 50
+    workload_running_threshold: int = 20
+
+    # ── Development conveniences ──────────────────────────────────────────
+    # Enables POST /api/v1/auth/dev-login. Only honoured when ``environment``
+    # is "development"; it 404s everywhere else regardless of this flag.
+    dev_autologin: bool = False
+
+    # ── Signed download URLs ──────────────────────────────────────────────
+    # How ``generate_download_url`` mints playback URLs:
+    #   "auto"      — local backend → HMAC-signed /api/v1/storage URL,
+    #                 s3 backend → S3 presigned URL. The historical behaviour.
+    #   "worker"    — always the HMAC-signed /api/v1/storage URL, even on s3.
+    #                 Use when an edge Worker fronts the API and serves that
+    #                 route from R2: it keeps object-store credentials out of
+    #                 browser-visible URLs and gives correct Range handling for
+    #                 <video> scrubbing.
+    #   "presigned" — always an S3 presigned URL. Requires the s3 backend.
+    signed_url_mode: str = "auto"
+
+    @field_validator("signed_url_mode")
+    @classmethod
+    def validate_signed_url_mode(cls, v: str) -> str:
+        allowed = {"auto", "worker", "presigned"}
+        value = v.strip().lower() or "auto"
+        if value not in allowed:
+            raise ValueError(f"SIGNED_URL_MODE must be one of {sorted(allowed)}, got {v!r}")
+        return value
+
+    @field_validator("scheduler_hour_utc")
+    @classmethod
+    def clamp_scheduler_hour(cls, v: int) -> int:
+        return max(0, min(23, v))
+
+    @field_validator("training_min_new_labels")
+    @classmethod
+    def floor_min_new_labels(cls, v: int) -> int:
+        return max(1, v)
 
     @field_validator("database_sync_url", mode="before")
     @classmethod
@@ -170,6 +233,21 @@ class Settings(BaseSettings):
     @property
     def cors_origins_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+    @property
+    def is_test(self) -> bool:
+        return self.environment.strip().lower() == "test"
+
+    @property
+    def in_process_scheduler_enabled(self) -> bool:
+        """Whether to start the asyncio scheduler loop.
+
+        Defaults on, except under tests — hundreds of ``TestClient`` lifespans
+        would otherwise each spawn their own loop task.
+        """
+        if self.scheduler_enabled is not None:
+            return self.scheduler_enabled
+        return not self.is_test
 
 
 @lru_cache

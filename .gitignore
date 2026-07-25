@@ -82,3 +82,5 @@ gpu-worker/-encoders
 
 # Local backend virtualenv (created for migration/schema verification)
 backend/.venv/
+workers/*/node_modules/
+workers/*/.wrangler/

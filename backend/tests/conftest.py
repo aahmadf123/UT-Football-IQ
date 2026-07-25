@@ -1,11 +1,30 @@
 """Pytest configuration and shared fixtures for the backend test suite."""
 
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Iterator
 from typing import Any
 
 import pytest
+from app.config import get_settings
 from app.main import app
 from fastapi.testclient import TestClient
+
+
+@pytest.fixture(autouse=True)
+def reset_settings_cache() -> Iterator[None]:
+    """Let ``monkeypatch.setenv`` actually reach ``Settings``.
+
+    ``get_settings`` is ``lru_cache``d, so the first call in the session pins
+    every value for the rest of it. A test that sets an env var would otherwise
+    silently have no effect -- and, worse, a test that *did* manage to change a
+    setting would leak it into every test that ran afterwards.
+
+    Clearing on both sides makes each test start from the real environment and
+    hand back a clean cache. Note this does not affect module-level snapshots
+    such as ``app.main.settings``, which are read once at import.
+    """
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
 
 
 @pytest.fixture(scope="session")

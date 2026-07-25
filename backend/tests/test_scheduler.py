@@ -147,6 +147,9 @@ async def test_tick_below_threshold_does_not_train(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("TRAINING_MIN_NEW_LABELS", "5")
+    # The db fixture already read (and cached) Settings, so drop the cache
+    # to make this override the value the tick actually sees.
+    get_settings.cache_clear()
     await _seed_human_labels(db, 3)
     async with db() as session:
         summary = await run_nightly_tick(session)
@@ -161,6 +164,9 @@ async def test_tick_at_threshold_enqueues_train_once(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("TRAINING_MIN_NEW_LABELS", "5")
+    # The db fixture already read (and cached) Settings, so drop the cache
+    # to make this override the value the tick actually sees.
+    get_settings.cache_clear()
     await _seed_human_labels(db, 6)
     async with db() as session:
         summary = await run_nightly_tick(session)
