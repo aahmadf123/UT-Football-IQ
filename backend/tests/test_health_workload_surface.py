@@ -12,9 +12,12 @@ Covers the role-gated, audit-logged groundwork surface:
 from __future__ import annotations
 
 import uuid
+from collections.abc import AsyncGenerator, Iterator
+from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
+from app.database import get_db
 from app.deps import get_current_user
 from app.health_workload import (
     INTEGRATION_CONTRACTS,
@@ -40,6 +43,37 @@ def _make_user(role: UserRole) -> User:
     u.role = role
     u.is_active = True
     return u
+
+
+class _CountingSession:
+    """Minimal async-session stand-in returning a fixed row count.
+
+    The surface route counts rows in the health-ingest tables to decide which
+    integrations report ``connected``. These tests are about the RBAC gate and
+    the payload shape, so the count is stubbed rather than requiring the whole
+    health-fusion schema to exist.
+    """
+
+    def __init__(self, count: int) -> None:
+        self._count = count
+
+    async def execute(self, *_args: Any, **_kwargs: Any) -> Any:
+        result = MagicMock()
+        result.scalar_one_or_none.return_value = self._count
+        return result
+
+
+def _override_db(count: int) -> None:
+    async def _session() -> AsyncGenerator[Any, None]:
+        yield _CountingSession(count)
+
+    app.dependency_overrides[get_db] = _session
+
+
+@pytest.fixture(autouse=True)
+def _clean_overrides() -> Iterator[None]:
+    yield
+    app.dependency_overrides.clear()
 
 
 # ── Pure surface contract ────────────────────────────────────────────────────
@@ -90,11 +124,9 @@ def test_build_surface_status_flips_connected_from_source_counts() -> None:
 @pytest.mark.parametrize("role", APPROVED)
 def test_surface_allowed_for_approved_roles(role: UserRole) -> None:
     app.dependency_overrides[get_current_user] = lambda: _make_user(role)
-    try:
-        with TestClient(app) as c:
-            resp = c.get(SURFACE_URL)
-    finally:
-        app.dependency_overrides.clear()
+    _override_db(count=0)
+    with TestClient(app) as c:
+        resp = c.get(SURFACE_URL)
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["data_available"] is False
@@ -109,13 +141,40 @@ def test_surface_allowed_for_approved_roles(role: UserRole) -> None:
     assert all(i["status"] == "not_connected" for i in body["integrations"])
 
 
+def test_surface_reports_connected_once_rows_exist() -> None:
+    """The regression this endpoint used to have.
+
+    ``build_surface_status`` was called without ``source_counts``, so every
+    integration reported ``not_connected`` forever — the UI insisted nothing was
+    hooked up while the dashboard beside it served data from those same tables.
+    """
+    app.dependency_overrides[get_current_user] = lambda: _make_user(UserRole.sportsperformance)
+    _override_db(count=7)
+    with TestClient(app) as c:
+        resp = c.get(SURFACE_URL)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["data_available"] is True
+    by_source = {i["source"]: i["status"] for i in body["integrations"]}
+    for source in ("wellness", "gps_wearables", "strength_conditioning"):
+        assert by_source[source] == "connected"
+
+
+def test_surface_carries_no_athlete_data_even_when_connected() -> None:
+    app.dependency_overrides[get_current_user] = lambda: _make_user(UserRole.sportsperformance)
+    _override_db(count=42)
+    with TestClient(app) as c:
+        body = c.get(SURFACE_URL).json()
+    # Counts prove a feed is live; they must never become a data channel.
+    forbidden = {"player_id", "players", "name", "athlete", "metrics", "health", "source_counts"}
+    assert forbidden.isdisjoint(body.keys())
+
+
 @pytest.mark.parametrize("role", DENIED)
 def test_surface_denied_for_unapproved_roles(role: UserRole) -> None:
     app.dependency_overrides[get_current_user] = lambda: _make_user(role)
-    try:
-        with TestClient(app) as c:
-            resp = c.get(SURFACE_URL)
-    finally:
-        app.dependency_overrides.clear()
+    _override_db(count=0)
+    with TestClient(app) as c:
+        resp = c.get(SURFACE_URL)
     assert resp.status_code == 403
     assert resp.json()["detail"]["error_code"] == "policy_denied"

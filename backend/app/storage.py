@@ -173,6 +173,23 @@ def put_object(bucket: str, key: str, body: bytes, content_type: str) -> str:
     return f"s3://{bucket}/{key}"
 
 
+def _use_signed_app_url(scheme: str) -> bool:
+    """Whether to mint an HMAC-signed ``/api/v1/storage`` URL rather than presign.
+
+    ``local://`` objects have no presigned form, so they always take the signed
+    path. For ``s3://`` it is a deployment choice (``SIGNED_URL_MODE``):
+
+    * ``worker`` — an edge Worker fronts the API and serves that route from R2.
+      Preferred there: no object-store credentials end up in a browser-visible
+      URL, and the Worker handles Range correctly, which is what makes ``<video>``
+      scrubbing work rather than forcing a full download before a seek.
+    * ``presigned``/``auto`` — hand out a normal S3 presigned URL.
+    """
+    if scheme == "local":
+        return True
+    return get_settings().signed_url_mode == "worker"
+
+
 def generate_download_url(bucket: str, key: str, ttl: int | None = None) -> str:
     """Return a short-lived download URL for ``bucket/key`` on the active backend.
 
@@ -180,7 +197,7 @@ def generate_download_url(bucket: str, key: str, ttl: int | None = None) -> str:
     """
     settings = get_settings()
     expires = ttl if ttl is not None else settings.s3_presign_ttl
-    if active_storage_backend() == "local":
+    if _use_signed_app_url(active_storage_backend()):
         return signed_local_url(bucket, key, expires)
     client = get_s3_client()
     url = client.generate_presigned_url(
@@ -196,7 +213,7 @@ def generate_download_url_for_uri(uri: str, ttl: int | None = None) -> str:
     settings = get_settings()
     expires = ttl if ttl is not None else settings.s3_presign_ttl
     scheme, bucket, key = parse_storage_uri(uri)
-    if scheme == "local":
+    if _use_signed_app_url(scheme):
         return signed_local_url(bucket, key, expires)
     client = get_s3_client()
     url = client.generate_presigned_url(

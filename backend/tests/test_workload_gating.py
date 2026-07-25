@@ -174,7 +174,12 @@ def test_jobs_create_allowed_under_normal_load() -> None:
 
 
 def test_jobs_create_bypasses_gating_when_env_disabled(monkeypatch: Any) -> None:
+    from app.config import get_settings
+
     monkeypatch.setenv("WORKLOAD_GATING_DISABLED", "true")
+    # Settings are cached; drop it so this value is the one that gets read.
+    # The autouse fixture in conftest clears it again on the way out.
+    get_settings.cache_clear()
     _override_workload_counts(queued=10_000, running=10_000)
     app.dependency_overrides[get_current_user] = lambda: _make_user(UserRole.coach)
     try:
@@ -190,6 +195,7 @@ def test_jobs_create_bypasses_gating_when_env_disabled(monkeypatch: Any) -> None
     finally:
         app.dependency_overrides.clear()
         os.environ.pop("WORKLOAD_GATING_DISABLED", None)
+        get_settings.cache_clear()
     # Should pass the gate even at extreme load; downstream may 404/500
     # because the video doesn't exist — both confirm gating was skipped.
     assert resp.status_code != 503

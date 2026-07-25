@@ -156,6 +156,21 @@ async def _count(db: AsyncSession, model: type) -> int:
     return int(value or 0)
 
 
+async def integration_source_counts(db: AsyncSession) -> dict[str, int]:
+    """Row counts per upstream health source, keyed by ``IntegrationSource``.
+
+    ``GET /health-workload/surface`` needs these to report a source as
+    ``connected``. It only cares whether a count is non-zero, but the same shape
+    is what ``build_surface_status`` takes from the dashboard path, so the two
+    surfaces cannot disagree about which feeds are live.
+    """
+    return {
+        "wellness": await _count(db, WellnessEntry),
+        "gps_wearables": await _count(db, GpsWorkloadDaily),
+        "strength_conditioning": await _count(db, ScSession),
+    }
+
+
 def fuse_daily_athlete_state(inputs: DailyStateInputs, *, role: UserRole) -> dict[str, Any]:
     """Shape the fused daily athlete state for ``role`` (pure function).
 

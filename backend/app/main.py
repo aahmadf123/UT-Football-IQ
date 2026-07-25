@@ -1,6 +1,5 @@
 """Football-IQ backend — FastAPI application entrypoint."""
 
-import os
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
@@ -33,6 +32,7 @@ from app.routers.frontier_analytics import router as frontier_analytics_router
 from app.routers.health_ingest import router as health_ingest_router
 from app.routers.health_workload import router as health_workload_router
 from app.routers.inbox_integration import router as inbox_router
+from app.routers.internal import router as internal_router
 from app.routers.jobs import router as jobs_router
 from app.routers.labels import router as labels_router
 from app.routers.metrics import router as metrics_router
@@ -64,10 +64,10 @@ log = structlog.get_logger(__name__)
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     log.info("startup", environment=settings.environment)
     if settings.seed_users_on_startup:
-        admin_email = os.environ.get("SEED_ADMIN_EMAIL", "")
-        admin_password = os.environ.get("SEED_ADMIN_PASSWORD", "")
-        worker_email = os.environ.get("SEED_WORKER_EMAIL", "")
-        worker_password = os.environ.get("SEED_WORKER_PASSWORD", "")
+        admin_email = settings.seed_admin_email
+        admin_password = settings.seed_admin_password
+        worker_email = settings.seed_worker_email
+        worker_password = settings.seed_worker_password
         if (admin_email and admin_password) or (worker_email and worker_password):
             stats = await seed_configured_users(
                 database_url=settings.database_url,
@@ -152,6 +152,7 @@ async def prometheus_metrics() -> Response:
 
 # ── Routers ───────────────────────────────────────────────────────────────────
 app.include_router(health.router)
+app.include_router(internal_router)
 app.include_router(health_workload_router)
 app.include_router(health_ingest_router)
 app.include_router(auth_router)

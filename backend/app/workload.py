@@ -25,7 +25,6 @@ routers and tests without dragging in the full ORM.
 from __future__ import annotations
 
 import enum
-import os
 from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
 from typing import Annotated, Any
@@ -35,6 +34,7 @@ from fastapi import Depends, HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import get_settings
 from app.database import get_db
 from app.deps import get_current_user
 from app.governance import audit_event
@@ -46,29 +46,22 @@ log = structlog.get_logger("app.workload")
 # ── Configuration ────────────────────────────────────────────────────────────
 
 
+#: Mirrors the ``Settings`` defaults; kept as module constants because the test
+#: suite and the docs refer to them by name.
 DEFAULT_QUEUE_THRESHOLD = 50  # queued jobs before we start gating
 DEFAULT_RUNNING_THRESHOLD = 20  # concurrently-running jobs before gating
 
 
-def _env_int(name: str, default: int) -> int:
-    raw = os.environ.get(name)
-    if not raw:
-        return default
-    try:
-        value = int(raw)
-    except ValueError:
-        log.warning("workload.invalid_threshold_env", env=name, value=raw)
-        return default
-    return max(0, value)
+def _queue_threshold() -> int:
+    return max(0, get_settings().workload_queue_threshold)
+
+
+def _running_threshold() -> int:
+    return max(0, get_settings().workload_running_threshold)
 
 
 def _gating_disabled() -> bool:
-    return os.environ.get("WORKLOAD_GATING_DISABLED", "").strip().lower() in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }
+    return get_settings().workload_gating_disabled
 
 
 # ── Data model ───────────────────────────────────────────────────────────────
@@ -141,8 +134,8 @@ async def assess_workload(db: AsyncSession) -> WorkloadSnapshot:
     queued_total = (await db.execute(queued_stmt)).scalar_one() or 0
     running_total = (await db.execute(running_stmt)).scalar_one() or 0
 
-    queue_threshold = _env_int("WORKLOAD_QUEUE_THRESHOLD", DEFAULT_QUEUE_THRESHOLD)
-    running_threshold = _env_int("WORKLOAD_RUNNING_THRESHOLD", DEFAULT_RUNNING_THRESHOLD)
+    queue_threshold = _queue_threshold()
+    running_threshold = _running_threshold()
     status_bucket = _classify(
         queued=int(queued_total),
         running=int(running_total),

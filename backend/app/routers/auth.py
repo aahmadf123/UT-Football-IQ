@@ -7,7 +7,6 @@ closes the self-serve privilege-escalation hole where a client-supplied
 ``role: "admin"`` was honoured verbatim.
 """
 
-import os
 import uuid
 from typing import Annotated
 
@@ -266,8 +265,7 @@ async def dev_login(
     404s otherwise so the route is invisible in production.
     """
     settings = get_settings()
-    autologin = os.environ.get("DEV_AUTOLOGIN", "").strip().lower() in {"1", "true", "yes", "on"}
-    if settings.environment.strip().lower() != "development" or not autologin:
+    if settings.environment.strip().lower() != "development" or not settings.dev_autologin:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
 
     result = await db.execute(

@@ -1,32 +1,36 @@
-"""In-process nightly scheduler — the set-and-forget half of the learning loop.
+"""Nightly scheduler — the set-and-forget half of the learning loop.
 
-Runs as an asyncio task started from the FastAPI lifespan (works identically
-wherever the API runs — no external cron service required). Once
-per UTC day at ``SCHEDULER_HOUR_UTC``:
+Once per UTC day the tick:
 
-  1. Export new coach corrections to Labels + a TrainingDataset snapshot
+  1. Reclaims jobs whose worker died holding the lease.
+  2. Exports new coach corrections to Labels + a TrainingDataset snapshot
      (same service the manual /api/v1/corrections/export endpoint uses).
-  2. When the accumulated human-label count since the last training job
-     reaches ``TRAINING_MIN_NEW_LABELS``, enqueue a ``train`` ProcessingJob
+  3. When the accumulated human-label count since the last training job
+     reaches ``TRAINING_MIN_NEW_LABELS``, enqueues a ``train`` ProcessingJob
      for the GPU worker. Training output registers as ``experimental``;
      PROMOTION REMAINS A HUMAN DECISION (POST /mlops/models/{id}/promote) —
      the scheduler never promotes.
-  3. Enqueue the nightly ``workload_rollup`` job (previously the lone
-     an external cron's responsibility).
+  4. Enqueues the nightly ``workload_rollup`` job.
 
-Multi-instance deployments are safe: a Postgres *transaction-scoped* advisory
-lock makes exactly one instance run the tick; the others skip. It is bound to
-the tick's transaction and released automatically on commit/rollback — a
+**Two ways to fire it.** The in-process asyncio loop below polls every five
+minutes and acts on the hour, which is right for a long-lived process. It is
+useless on a platform that suspends an idle container — the process is simply
+not running at 08:00 UTC to notice. So the tick is also exposed as
+``POST /internal/scheduler/tick`` (see ``app.routers.internal``) for an external
+scheduler such as a Cloudflare cron trigger to call. Set ``SCHEDULER_ENABLED=0``
+when using the external trigger so the two do not both fire.
+
+Either way, running twice is safe: a Postgres *transaction-scoped* advisory lock
+admits one caller at a time, and every step is individually idempotent. The lock
+is bound to the tick's transaction and released on commit/rollback — a
 session-scoped lock would leak, because after ``db.commit()`` returns the
 connection to the pool a manual unlock could run on a different connection and
-never release the original, wedging every later tick. ``SCHEDULER_ENABLED=0``
-disables the loop entirely (e.g. one-off maintenance containers).
+never release the original, wedging every later tick.
 """
 
 from __future__ import annotations
 
 import asyncio
-import os
 import uuid
 from datetime import UTC, datetime, timedelta
 
@@ -34,6 +38,7 @@ import structlog
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import get_settings
 from app.models import JobStatus, JobType, Label, PipelineMode, ProcessingJob
 
 log = structlog.get_logger(__name__)
@@ -42,29 +47,6 @@ log = structlog.get_logger(__name__)
 _ADVISORY_LOCK_KEY = 987_654_321
 
 _CHECK_INTERVAL_SECONDS = 300
-
-
-def _enabled() -> bool:
-    explicit = os.environ.get("SCHEDULER_ENABLED", "").strip().lower()
-    if explicit:
-        return explicit not in {"0", "false", "no"}
-    # Default on, except under the test environment (hundreds of TestClient
-    # lifespans would otherwise each spawn a loop task).
-    return os.environ.get("ENVIRONMENT", "").strip().lower() != "test"
-
-
-def _scheduled_hour() -> int:
-    try:
-        return max(0, min(23, int(os.environ.get("SCHEDULER_HOUR_UTC", "8"))))
-    except ValueError:
-        return 8
-
-
-def _min_new_labels() -> int:
-    try:
-        return max(1, int(os.environ.get("TRAINING_MIN_NEW_LABELS", "200")))
-    except ValueError:
-        return 200
 
 
 async def _acquire_lock(db: AsyncSession) -> bool:
@@ -105,14 +87,22 @@ async def _new_human_labels_since_last_train(db: AsyncSession) -> int:
 
 
 async def run_nightly_tick(db: AsyncSession) -> dict[str, object]:
-    """One nightly tick: export corrections, maybe enqueue train, enqueue rollup.
+    """One nightly tick: sweep leases, export corrections, enqueue train + rollup.
 
     Returns a summary dict (also used by tests). The caller owns the commit.
     """
     from app.services.corrections_export import export_corrections
+    from app.services.job_sweeper import sweep_expired_leases
 
     now = datetime.now(UTC)
     summary: dict[str, object] = {"ran_at": now.isoformat()}
+
+    # Runs first: a job stuck in ``running`` behind a dead worker's lease is
+    # invisible to ``/claim`` if nothing is polling, and it inflates the
+    # workload-gating counters that decide whether new uploads are accepted.
+    sweep = await sweep_expired_leases(db, now)
+    summary["swept_failed"] = sweep.failed
+    summary["swept_requeued"] = sweep.requeued
 
     export = await export_corrections(db)
     summary["exported_corrections"] = export.exported_count
@@ -122,7 +112,8 @@ async def run_nightly_tick(db: AsyncSession) -> dict[str, object]:
 
     new_labels = await _new_human_labels_since_last_train(db)
     summary["new_human_labels"] = new_labels
-    if new_labels >= _min_new_labels() and not await _already_ran_today(db, JobType.train, now):
+    min_new_labels = get_settings().training_min_new_labels
+    if new_labels >= min_new_labels and not await _already_ran_today(db, JobType.train, now):
         train_job = ProcessingJob(
             id=uuid.uuid4(),
             job_type=JobType.train,
@@ -160,36 +151,53 @@ async def run_nightly_tick(db: AsyncSession) -> dict[str, object]:
     return summary
 
 
+async def run_locked_tick(db: AsyncSession) -> dict[str, object] | None:
+    """Run one tick under the advisory lock, committing on success.
+
+    Returns the summary, or ``None`` when another caller already holds the lock
+    (which is the normal outcome for the losing instance, not an error). Shared
+    by the in-process loop and the external ``/internal/scheduler/tick`` route so
+    both get identical locking and error semantics.
+    """
+    if not await _acquire_lock(db):
+        log.info("scheduler_tick_skipped_locked")
+        return None
+    try:
+        # Idempotence inside the hour: the per-day job checks in
+        # run_nightly_tick keep repeat ticks from double-enqueueing;
+        # corrections export is naturally idempotent (flag-driven).
+        summary = await run_nightly_tick(db)
+        await db.commit()
+        log.info("scheduler_tick_complete", **{k: v for k, v in summary.items()})
+        return summary
+    except Exception as exc:
+        await db.rollback()
+        log.error("scheduler_tick_failed", error=str(exc))
+        raise
+
+
 async def _tick_if_due() -> None:
     from app.database import AsyncSessionLocal
 
     now = datetime.now(UTC)
-    if now.hour != _scheduled_hour():
+    if now.hour != get_settings().scheduler_hour_utc:
         return
     async with AsyncSessionLocal() as db:
         # The lock is taken inside this transaction and released by the
-        # commit/rollback below — no finally-unlock (which would run on a
-        # possibly-different pooled connection after commit and leak the lock).
-        if not await _acquire_lock(db):
-            return
-        try:
-            # Idempotence inside the hour: the per-day job checks in
-            # run_nightly_tick keep repeat ticks from double-enqueueing;
-            # corrections export is naturally idempotent (flag-driven).
-            summary = await run_nightly_tick(db)
-            await db.commit()
-            log.info("scheduler_tick_complete", **{k: v for k, v in summary.items()})
-        except Exception as exc:
-            await db.rollback()
-            log.error("scheduler_tick_failed", error=str(exc))
+        # commit/rollback in run_locked_tick — no finally-unlock (which would
+        # run on a possibly-different pooled connection after commit and leak
+        # the lock). A failure propagates to scheduler_loop, which logs it and
+        # keeps looping; run_locked_tick has already logged the detail.
+        await run_locked_tick(db)
 
 
 async def scheduler_loop() -> None:
     """Long-lived loop; started/cancelled by the app lifespan."""
+    settings = get_settings()
     log.info(
         "scheduler_started",
-        hour_utc=_scheduled_hour(),
-        min_new_labels=_min_new_labels(),
+        hour_utc=settings.scheduler_hour_utc,
+        min_new_labels=settings.training_min_new_labels,
     )
     while True:
         try:
@@ -201,7 +209,7 @@ async def scheduler_loop() -> None:
 
 def start_scheduler() -> asyncio.Task[None] | None:
     """Create the scheduler task if enabled; caller cancels it on shutdown."""
-    if not _enabled():
+    if not get_settings().in_process_scheduler_enabled:
         log.info("scheduler_disabled")
         return None
     return asyncio.create_task(scheduler_loop(), name="nightly-scheduler")
