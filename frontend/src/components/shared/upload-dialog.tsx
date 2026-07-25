@@ -115,8 +115,10 @@ export function UploadDialog({
             const seeded = draftFromFiles(merged);
             return {
               ...seeded,
+              ...existing,
               sessionKind: existing.sessionKind ?? seeded.sessionKind,
               recordedAt: existing.recordedAt ?? seeded.recordedAt,
+              sourceType: existing.sourceType ?? seeded.sourceType,
             };
           });
         }
