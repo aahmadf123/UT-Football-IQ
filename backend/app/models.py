@@ -25,22 +25,23 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy import (
-    JSON,
     Boolean,
     Date,
     DateTime,
     Enum,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
     UniqueConstraint,
     false,
     func,
+    text,
     true,
 )
-from sqlalchemy.dialects.postgresql import ARRAY, UUID
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -331,7 +332,7 @@ class Player(Base):
     user_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
-    metadata_: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSON, nullable=True)
+    metadata_: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSONB, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     # Outward-facing visibility state (Issue #114).  Defaults to staff_only —
     # nothing leaks to player or recruiting projections until explicitly
@@ -401,7 +402,7 @@ class Video(Base):
         index=True,
     )
     regime_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
-    metadata_: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSON, nullable=True)
+    metadata_: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -419,7 +420,7 @@ class Clip(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     video_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("videos.id", ondelete="CASCADE"), nullable=False
+        UUID(as_uuid=True), ForeignKey("videos.id", ondelete="CASCADE"), nullable=False, index=True
     )
     storage_uri: Mapped[str | None] = mapped_column(Text, nullable=True)
     start_time: Mapped[float] = mapped_column(Float, nullable=False)  # seconds
@@ -433,7 +434,7 @@ class Clip(Base):
     # game pseudo-labels onto the practice clip via this key. Indexed because the
     # aligner groups clips by it.
     play_call_id: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
-    label_data: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    label_data: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     is_reviewed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     reviewed_by: Mapped[uuid.UUID | None] = mapped_column(
@@ -447,13 +448,30 @@ class Clip(Base):
     model_version_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("model_versions.id", ondelete="SET NULL"), nullable=True
     )
+    # ``use_alter`` on the next two FKs breaks the create-order cycles
+    # ``clips → processing_jobs → clips`` and
+    # ``clips → field_calibrations → processing_jobs → clips``. They are emitted
+    # as standalone ALTER TABLE statements after every table exists, which is
+    # what lets the schema be created in one migration.
     calibration_version_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("field_calibrations.id", ondelete="SET NULL"),
+        ForeignKey(
+            "field_calibrations.id",
+            ondelete="SET NULL",
+            use_alter=True,
+            name="clips_calibration_version_id_fkey",
+        ),
         nullable=True,
     )
     job_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("processing_jobs.id", ondelete="SET NULL"), nullable=True
+        UUID(as_uuid=True),
+        ForeignKey(
+            "processing_jobs.id",
+            ondelete="SET NULL",
+            use_alter=True,
+            name="clips_job_id_fkey",
+        ),
+        nullable=True,
     )
     # ── Phase 2 columns ───────────────────────────────────────────────────
     personnel_grouping: Mapped[str | None] = mapped_column(String(20), nullable=True)
@@ -550,14 +568,14 @@ class ProcessingJob(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     video_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("videos.id", ondelete="SET NULL"), nullable=True
+        UUID(as_uuid=True), ForeignKey("videos.id", ondelete="SET NULL"), nullable=True, index=True
     )
     clip_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("clips.id", ondelete="SET NULL"), nullable=True
     )
     job_type: Mapped[JobType] = mapped_column(Enum(JobType, name="job_type"), nullable=False)
     status: Mapped[JobStatus] = mapped_column(
-        Enum(JobStatus, name="job_status"), nullable=False, default=JobStatus.queued
+        Enum(JobStatus, name="job_status"), nullable=False, default=JobStatus.queued, index=True
     )
     priority: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     pipeline_mode: Mapped[str | None] = mapped_column(
@@ -576,7 +594,7 @@ class ProcessingJob(Base):
     max_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=3)
     #: Per-stage progress map maintained by the orchestrator via heartbeat:
     #: ``{stage[:clip] : {"status": ..., "at": ..., ...headline numbers}}``.
-    progress: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    progress: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     error_stage: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -584,8 +602,8 @@ class ProcessingJob(Base):
     nightly_followup_job_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), nullable=True
     )
-    input_artifacts: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
-    output_artifacts: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    input_artifacts: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    output_artifacts: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     model_version_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("model_versions.id", ondelete="SET NULL"),
@@ -608,6 +626,19 @@ class ProcessingJob(Base):
         "ModelVersion", back_populates="jobs"
     )
 
+    __table_args__ = (
+        # The job-queue hot path. ``POST /jobs/claim`` selects the next runnable
+        # row with ``ORDER BY priority DESC, created_at ... FOR UPDATE SKIP
+        # LOCKED``; a partial index keeps it tiny (only queued rows) and lets the
+        # planner serve the ORDER BY straight from the index.
+        Index(
+            "ix_processing_jobs_claim",
+            text("priority DESC"),
+            "created_at",
+            postgresql_where=text("status = 'queued'::job_status"),
+        ),
+    )
+
 
 class ModelVersion(Base):
     __tablename__ = "model_versions"
@@ -622,7 +653,7 @@ class ModelVersion(Base):
         ForeignKey("training_datasets.id", ondelete="SET NULL"),
         nullable=True,
     )
-    metrics: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    metrics: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     promoted_stage: Mapped[ModelStage] = mapped_column(
         Enum(ModelStage, name="model_stage"),
         nullable=False,
@@ -650,19 +681,19 @@ class FieldCalibration(Base):
         UUID(as_uuid=True), ForeignKey("videos.id", ondelete="CASCADE"), nullable=False, index=True
     )
     # Homography matrix stored as a flat 9-element JSON array (row-major)
-    homography: Mapped[list[float] | None] = mapped_column(JSON, nullable=True)
+    homography: Mapped[list[float] | None] = mapped_column(JSONB, nullable=True)
     # 0.0–1.0 confidence from calibration pipeline; metrics are suppressed below threshold
     confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     confidence_threshold: Mapped[float] = mapped_column(Float, nullable=False, default=0.7)
     # True when confidence >= threshold AND no disqualifying reason codes
     analytics_safe: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     # Calibration failure/warning reason codes (e.g. ["low_contrast", "partial_field"])
-    reason_codes: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    reason_codes: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
     # Key pixel-to-field point pairs used for calibration
-    calibration_points: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    calibration_points: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     # ── Regime-aware calibration diagnostics (Issue #127 / #138) ──────────────
     # 9-vector Kalman state vec(H) for DRONE_FOLLOW nightly smoothing
-    kalman_state: Mapped[list[float] | None] = mapped_column(JSON, nullable=True)
+    kalman_state: Mapped[list[float] | None] = mapped_column(JSONB, nullable=True)
     # RANSAC inlier ratio of the chosen homography fit
     inlier_ratio: Mapped[float | None] = mapped_column(Float, nullable=True)
     # Count of field lines detected on the calibration frame
@@ -750,7 +781,7 @@ class TrackPoint(Base):
     field_x: Mapped[float | None] = mapped_column(Float, nullable=True)
     field_y: Mapped[float | None] = mapped_column(Float, nullable=True)
     # Pixel bounding box [x1, y1, x2, y2]
-    bbox: Mapped[list[float] | None] = mapped_column(JSON, nullable=True)
+    bbox: Mapped[list[float] | None] = mapped_column(JSONB, nullable=True)
     detection_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     tracklet: Mapped["Tracklet"] = relationship("Tracklet", back_populates="track_points")
@@ -768,7 +799,7 @@ class Event(Base):
     event_type: Mapped[str] = mapped_column(String(100), nullable=False)
     frame_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
     timestamp_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
-    attributes: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    attributes: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     created_by: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
@@ -798,7 +829,7 @@ class Label(Base):
         UUID(as_uuid=True), ForeignKey("tracklets.id", ondelete="SET NULL"), nullable=True
     )
     label_type: Mapped[str] = mapped_column(String(100), nullable=False)
-    label_value: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    label_value: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     annotated_by: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
@@ -835,9 +866,9 @@ class CoachCorrection(Base):
         Enum(CorrectionType, name="correction_type"), nullable=False
     )
     # Original model output before correction
-    original_value: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    original_value: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     # Corrected value provided by the coach/analyst
-    corrected_value: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    corrected_value: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     corrected_by: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
@@ -870,7 +901,7 @@ class Metric(Base):
         index=True,
     )
     metric_name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
-    metric_value: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    metric_value: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     unit: Mapped[str | None] = mapped_column(String(50), nullable=True)
     # Suppressed when field calibration confidence is below threshold
     is_suppressed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
@@ -944,13 +975,13 @@ class PoseKeypoints(Base):
     )
     frame_number: Mapped[int] = mapped_column(Integer, nullable=False)
     # Full keypoint array: list of {name, x, y, confidence} dicts from RTMPose/ViTPose
-    keypoints: Mapped[list[dict[str, Any]]] = mapped_column(JSON, nullable=False)
+    keypoints: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False)
     # Derived head-direction yaw angle in degrees (0° = facing field direction)
     head_yaw_degrees: Mapped[float | None] = mapped_column(Float, nullable=True)
     # 0.0–1.0 confidence based on keypoint visibility and head occlusion
     head_orientation_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     # Per-frame computed biomechanics angles (hip_flexion_degrees, torso_angle_degrees, etc.)
-    biomechanics: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    biomechanics: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     model_version_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("model_versions.id", ondelete="SET NULL"),
@@ -966,6 +997,12 @@ class PoseKeypoints(Base):
     )
 
     tracklet: Mapped["Tracklet"] = relationship("Tracklet")
+
+    __table_args__ = (
+        # Pose lookups are always "this tracklet, in frame order" — the
+        # composite serves both the filter and the sort.
+        Index("ix_pose_keypoints_tracklet_frame", "tracklet_id", "frame_number"),
+    )
 
 
 class HeadOrientationReview(Base):
@@ -1018,11 +1055,11 @@ class TrainingDataset(Base):
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
     model_scope: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
-    source_label_ids: Mapped[list[str]] = mapped_column(JSON, nullable=False)
-    source_correction_ids: Mapped[list[str]] = mapped_column(JSON, nullable=False)
+    source_label_ids: Mapped[list[str]] = mapped_column(JSONB, nullable=False)
+    source_correction_ids: Mapped[list[str]] = mapped_column(JSONB, nullable=False)
     row_count: Mapped[int] = mapped_column(Integer, nullable=False)
     artifact_uri: Mapped[str] = mapped_column(Text, nullable=False)
-    changelog: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    changelog: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     created_by: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
@@ -1060,7 +1097,7 @@ class Alert(Base):
     )
     confidence: Mapped[float] = mapped_column(Float, nullable=False)
     metric_name: Mapped[str] = mapped_column(String(255), nullable=False)
-    metric_value: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    metric_value: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     deviation_sd: Mapped[float | None] = mapped_column(Float, nullable=True)
     clip_uri: Mapped[str | None] = mapped_column(Text, nullable=True)
     period_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
@@ -1124,7 +1161,7 @@ class ActiveLearningQueueItem(Base):
         nullable=False,
         default=ActiveLearningStatus.queued,
     )
-    metadata_: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSON, nullable=True)
+    metadata_: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -1193,6 +1230,7 @@ class PlayEmbedding(Base):
         UUID(as_uuid=True),
         ForeignKey("model_versions.id", ondelete="RESTRICT"),
         nullable=False,
+        index=True,
     )
     calibration_version_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
@@ -1221,6 +1259,34 @@ class PlayEmbedding(Base):
 
     clip: Mapped["Clip"] = relationship("Clip")
     model_version: Mapped["ModelVersion"] = relationship("ModelVersion")
+
+    __table_args__ = (
+        # Upsert key for the nightly embed stage.
+        UniqueConstraint(
+            "clip_id",
+            "chunk_kind",
+            "model_version_id",
+            name="uq_playembeddings_clip_chunk_modelversion",
+        ),
+        # ivfflat ANN indexes for cosine similarity search. ``lists=100`` suits
+        # the expected corpus size (thousands of plays); raise it if the table
+        # grows past ~1M rows. These cannot be expressed as a plain Index()
+        # without the pgvector opclass, hence postgresql_using/_ops/_with.
+        Index(
+            "playembeddings_vector_ivfflat",
+            "vector",
+            postgresql_using="ivfflat",
+            postgresql_ops={"vector": "vector_cosine_ops"},
+            postgresql_with={"lists": 100},
+        ),
+        Index(
+            "playembeddings_clip_vector_ivfflat",
+            "clip_vector",
+            postgresql_using="ivfflat",
+            postgresql_ops={"clip_vector": "vector_cosine_ops"},
+            postgresql_with={"lists": 100},
+        ),
+    )
 
 
 class EmbeddingClusterProposal(Base):
@@ -1346,7 +1412,7 @@ class PlayerProfile(Base):
     # Staff-facing role description (e.g. "slot receiver / gunner").
     role_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Position-specific development goals, configurable per position group.
-    development_goals: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    development_goals: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     # PRIVATE — coaches/analysts only. Never exposed to player/recruiting views.
     coach_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Player-facing summary, written/approved by staff.
@@ -1354,7 +1420,7 @@ class PlayerProfile(Base):
     # Benchmark cohort: "position_group" | "class_year" | "role".
     benchmark_group: Mapped[str | None] = mapped_column(String(40), nullable=True)
     # Curated best teaching / recruiting clip ids (list of uuid strings).
-    favorite_clip_ids: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    favorite_clip_ids: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
     generated_by: Mapped[ProfileGenerationSource] = mapped_column(
         Enum(ProfileGenerationSource, name="profile_generation_source"),
         nullable=False,
@@ -1369,7 +1435,7 @@ class PlayerProfile(Base):
     # (Issue #9): {"field_or_category": "workload" | "rehab" | "medical"}.
     # Overrides may only ESCALATE a field to a stricter tier — they can never
     # widen access (enforced by app.governance.effective_field_tier).
-    restricted_context_flags: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    restricted_context_flags: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -1420,10 +1486,10 @@ class PlayerProfileSnapshot(Base):
     )
     # The Monday (or chosen anchor) of the snapshot week.
     week_start: Mapped[Any] = mapped_column(Date, nullable=False, index=True)
-    summary_metrics: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
-    strengths: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
-    development_focus: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
-    evidence_clip_ids: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    summary_metrics: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    strengths: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
+    development_focus: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
+    evidence_clip_ids: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
     # ── Confidence-scored identity (Issue #7 — MP4-only, no face recognition) ──
     identity_state: Mapped[PlayerIdentityState] = mapped_column(
         Enum(PlayerIdentityState, name="player_identity_state"),
@@ -1435,7 +1501,7 @@ class PlayerProfileSnapshot(Base):
     # Source signals that produced the identity, e.g.
     # {"jersey_ocr": 0.4, "appearance": 0.6, "trajectory": 0.7,
     #  "roster_mapping": true, "manual_correction": true}. Never face data.
-    identity_signals: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    identity_signals: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     generated_by: Mapped[ProfileGenerationSource] = mapped_column(
         Enum(ProfileGenerationSource, name="profile_generation_source", create_type=False),
         nullable=False,
@@ -1498,7 +1564,7 @@ class PlayerWorkloadDaily(Base):
     chronic_load_28d: Mapped[float | None] = mapped_column(Float, nullable=True)
     acwr: Mapped[float | None] = mapped_column(Float, nullable=True)
     injury_risk_score: Mapped[float | None] = mapped_column(Float, nullable=True)
-    risk_reason_codes: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    risk_reason_codes: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
     clip_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     attribution: Mapped[str] = mapped_column(
         String(20), nullable=False, default="player", server_default="player"
@@ -1691,7 +1757,7 @@ class SystemSetting(Base):
     __tablename__ = "system_settings"
 
     key: Mapped[str] = mapped_column(String(128), primary_key=True)
-    value: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    value: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     updated_by: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
@@ -1719,7 +1785,7 @@ class UserSetting(Base):
         primary_key=True,
     )
     key: Mapped[str] = mapped_column(String(128), primary_key=True)
-    value: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    value: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
@@ -1754,7 +1820,7 @@ class ReportJob(Base):
         default=JobStatus.queued,
     )
     # Section selections + filters (date range, session kind, etc.)
-    parameters: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    parameters: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     # object storage URI of the generated artifact, populated on success.
     output_uri: Mapped[str | None] = mapped_column(Text, nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -1797,7 +1863,7 @@ class PlayPrediction(Base):
     # Opponent identified by team name (matches the derived-opponent model).
     opponent_team: Mapped[str | None] = mapped_column(String(120), nullable=True, index=True)
     # The 6 pre-snap signals (Issue #135), each with its own confidence.
-    signal_vector: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    signal_vector: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     logit_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     predicted_class: Mapped[str | None] = mapped_column(String(32), nullable=True)
     # Filled in by the coach-correction flywheel once the play is confirmed.
@@ -1904,8 +1970,8 @@ class PlaybookConcept(Base):
     structure_kind: Mapped[str] = mapped_column(String(32), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     # List of assignment definition dicts (see app.analytics.assignment_scoring).
-    assignments: Mapped[list[dict[str, Any]]] = mapped_column(JSON, nullable=False)
-    coaching_points: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    assignments: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False)
+    coaching_points: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
     is_active: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default=true()
     )
@@ -1947,7 +2013,7 @@ class PlayConcept(Base):
         String(16), nullable=False, default="coach", server_default="coach"
     )
     confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
-    assignment_player_map: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    assignment_player_map: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     validated: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default=false()
     )
@@ -1999,9 +2065,9 @@ class AssignmentScore(Base):
     uncertainty: Mapped[float] = mapped_column(
         Float, nullable=False, default=1.0, server_default="1"
     )
-    reason_codes: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    reason_codes: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
     # Snapshot of the signal confidences that produced the grade.
-    inputs: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    inputs: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     experimental: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default=true()
     )
