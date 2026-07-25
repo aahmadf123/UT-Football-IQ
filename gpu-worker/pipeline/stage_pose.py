@@ -113,7 +113,7 @@ def run(
 
     Args:
         clip_id:       DB UUID of the clip being processed.
-        video_source:  Any VideoSource (local .mp4, R2, or Mock).
+        video_source:  Any VideoSource (local .mp4, object store, or Mock).
         tracklets:     List of tracklet dicts from the track stage.
         events:        List of event dicts (snap, throw, handoff, contact, …).
         analytics_safe: Whether field calibration passed; passed through to

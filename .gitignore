@@ -32,7 +32,6 @@ out/
 dist/
 .turbo/
 *.tsbuildinfo
-.wrangler/
 
 # Docker
 .dockerignore

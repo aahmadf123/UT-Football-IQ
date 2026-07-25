@@ -45,7 +45,7 @@ from typing import Any
 import cv2
 import structlog
 
-from pipeline import r2
+from pipeline import object_store
 from pipeline.detection.ball_detector import (
     ball_strategy,
     build_ball_detector,
@@ -159,8 +159,8 @@ def run(
     if suppressor is None:
         suppressor = OfficialSuppressor()
 
-    r2_key = _uri_to_r2_key(input_uri)
-    video_path = r2.download_to_temp(r2_key)
+    object_key = _uri_to_object_key(input_uri)
+    video_path = object_store.download_to_temp(object_key)
     try:
         result = _detect(video_path, player, ball, suppressor)
     finally:
@@ -180,7 +180,7 @@ def run(
     return result
 
 
-def _uri_to_r2_key(uri: str) -> str:
+def _uri_to_object_key(uri: str) -> str:
     """Pass storage references through — pipeline.storage parses scheme + bucket."""
     return uri
 

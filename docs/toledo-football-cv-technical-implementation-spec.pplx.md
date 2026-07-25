@@ -1,5 +1,16 @@
 # Toledo Football CV Technical Implementation Spec
 
+> **Historical research document — the infrastructure sections are superseded.**
+> The schema, pipeline, API, and validation-gate content here still tracks the
+> implementation. The hosting and infrastructure sections (Cloudflare Pages /
+> Workers / R2 / Queues, Fly.io, Redis/Celery queues) describe a deployment
+> that no longer exists in this repo. Football-IQ now ships **no deployment
+> configuration at all**: the backend's `processing_jobs` table is the job
+> queue, object storage is any S3-compatible endpoint (or local disk), and
+> hosting is an open decision. Treat every vendor named below as an option
+> that was considered, never as a requirement. See `README.md` for the
+> architecture that actually exists.
+
 ## Purpose
 
 This document converts the Toledo Football computer vision blueprint into an implementation-ready technical plan. It defines the phased must-haves, database schema, model pipeline, API endpoints, dashboard surfaces, validation gates, MVP sprint plan, and Phase 3 advanced-learning extensions needed to build a budget-conscious football analytics platform from drone and practice film.

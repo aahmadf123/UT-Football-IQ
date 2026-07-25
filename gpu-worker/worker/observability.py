@@ -2,7 +2,7 @@
 
 Provides:
   - Standard Prometheus counters, histograms, and gauges for job processing,
-    R2 storage interactions, and heartbeat liveness.
+    object-store interactions, and heartbeat liveness.
   - A ``/metrics`` HTTP handler for the optional lightweight metrics server.
 
 Metric cardinality is intentionally limited: labels use job_type and
@@ -84,18 +84,18 @@ QUEUE_MESSAGES_RECEIVED = Counter(
     registry=REGISTRY,
 )
 
-# ── R2 / storage metrics ─────────────────────────────────────────────────────
+# ── Object storage metrics ─────────────────────────────────────────────────────
 
-R2_OPERATIONS_TOTAL = Counter(
-    "gpu_r2_operations_total",
-    "Total R2 storage operations by type and outcome.",
+S3_OPERATIONS_TOTAL = Counter(
+    "gpu_s3_operations_total",
+    "Total object-store operations by type and outcome.",
     ["operation", "outcome", "bucket", "service", "env"],
     registry=REGISTRY,
 )
 
-R2_OPERATION_DURATION_SECONDS = Histogram(
-    "gpu_r2_operation_duration_seconds",
-    "R2 operation latency in seconds.",
+S3_OPERATION_DURATION_SECONDS = Histogram(
+    "gpu_s3_operation_duration_seconds",
+    "Object-store operation latency in seconds.",
     ["operation", "bucket", "service", "env"],
     buckets=(0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0),
     registry=REGISTRY,
@@ -175,17 +175,17 @@ def record_queue_poll(outcome: str, messages_received: int = 0) -> None:
         ).inc(messages_received)
 
 
-def record_r2_operation(
+def record_s3_operation(
     operation: str,
     bucket: str,
     outcome: str,
     duration_seconds: float,
 ) -> None:
-    R2_OPERATIONS_TOTAL.labels(
+    S3_OPERATIONS_TOTAL.labels(
         operation=operation, outcome=outcome, bucket=bucket,
         service=SERVICE_NAME, env=ENVIRONMENT,
     ).inc()
-    R2_OPERATION_DURATION_SECONDS.labels(
+    S3_OPERATION_DURATION_SECONDS.labels(
         operation=operation, bucket=bucket,
         service=SERVICE_NAME, env=ENVIRONMENT,
     ).observe(duration_seconds)

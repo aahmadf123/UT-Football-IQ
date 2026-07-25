@@ -1,7 +1,7 @@
 """DB-as-queue: job lease columns, per-stage progress, and new job types.
 
 The GPU worker now claims jobs straight from ``processing_jobs`` (POST
-/api/v1/jobs/claim, FOR UPDATE SKIP LOCKED) instead of a Cloudflare Queue,
+/api/v1/jobs/claim, FOR UPDATE SKIP LOCKED) instead of an external queue,
 so the table needs lease bookkeeping and a claim-ordered partial index.
 
 ``job_type`` gains the orchestrated ``pipeline`` type (full stage chain in

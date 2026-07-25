@@ -2,8 +2,7 @@
  * Football-IQ API client — upload pipeline, library, inbox, alerts, clips.
  *
  * Environment variables consumed (public, browser-safe):
- *   NEXT_PUBLIC_API_URL    — backend base URL (FastAPI)
- *   NEXT_PUBLIC_WORKER_URL — Cloudflare Worker base URL
+ *   NEXT_PUBLIC_API_URL — backend base URL (FastAPI)
  */
 
 import type {
@@ -81,48 +80,28 @@ export async function requestUploadUrl(
   filename: string,
   token?: string,
 ): Promise<UploadUrlResponse> {
-  const workerUrl = process.env.NEXT_PUBLIC_WORKER_URL;
   const apiUrl = apiBase();
-
-  // Try the Worker first when one is explicitly configured (this is the
-  // E2E/prod path). If the Worker rejects the token (JWT secret mismatch) or
-  // is unreachable, fall back to the backend, which exposes the same contract.
-  if (workerUrl) {
-    try {
-      return await _requestUploadUrlFrom(workerUrl, filename, token);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      if (!apiUrl || (!message.includes("401") && !message.includes("403"))) {
-        throw err;
-      }
-      // Fall through to backend on auth failure.
-    }
-  }
-
   if (!apiUrl) {
-    throw new Error(
-      "No upload endpoint configured: set NEXT_PUBLIC_WORKER_URL (edge Worker) " +
-        "or NEXT_PUBLIC_API_URL (backend fallback).",
-    );
+    throw new Error("No upload endpoint configured: set NEXT_PUBLIC_API_URL.");
   }
   return _requestUploadUrlFrom(apiUrl, filename, token);
 }
 
-// ── R2 Upload ────────────────────────────────────────────────────────────────
+// ── Object Upload ────────────────────────────────────────────────────────────
 
-export interface R2UploadResult {
+export interface ObjectUploadResult {
   key: string;
   size: number;
   etag: string;
   storageUri: string;
 }
 
-export async function uploadToR2(
+export async function uploadToObjectStore(
   uploadUrl: string,
   file: File,
   token?: string,
   onProgress?: (loaded: number, total: number) => void,
-): Promise<R2UploadResult> {
+): Promise<ObjectUploadResult> {
   if (onProgress && typeof XMLHttpRequest !== "undefined") {
     return uploadWithXhr(uploadUrl, file, token, onProgress);
   }
@@ -138,9 +117,9 @@ export async function uploadToR2(
   });
   if (!res.ok) {
     const body = await res.text();
-    throw new Error(`R2 upload failed (${res.status}): ${body}`);
+    throw new Error(`Upload failed (${res.status}): ${body}`);
   }
-  return res.json() as Promise<R2UploadResult>;
+  return res.json() as Promise<ObjectUploadResult>;
 }
 
 function uploadWithXhr(
@@ -148,7 +127,7 @@ function uploadWithXhr(
   file: File,
   token: string | undefined,
   onProgress: (loaded: number, total: number) => void,
-): Promise<R2UploadResult> {
+): Promise<ObjectUploadResult> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open("PUT", url);
@@ -162,17 +141,17 @@ function uploadWithXhr(
     xhr.addEventListener("load", () => {
       if (xhr.status >= 200 && xhr.status < 300) {
         try {
-          resolve(JSON.parse(xhr.responseText) as R2UploadResult);
+          resolve(JSON.parse(xhr.responseText) as ObjectUploadResult);
         } catch {
-          reject(new Error("Invalid JSON response from R2 upload"));
+          reject(new Error("Invalid JSON response from upload"));
         }
       } else {
-        reject(new Error(`R2 upload failed (${xhr.status}): ${xhr.responseText}`));
+        reject(new Error(`Upload failed (${xhr.status}): ${xhr.responseText}`));
       }
     });
 
-    xhr.addEventListener("error", () => reject(new Error("R2 upload network error")));
-    xhr.addEventListener("abort", () => reject(new Error("R2 upload aborted")));
+    xhr.addEventListener("error", () => reject(new Error("Upload network error")));
+    xhr.addEventListener("abort", () => reject(new Error("Upload aborted")));
     xhr.send(file);
   });
 }
@@ -612,7 +591,7 @@ export class WorkloadGatedError extends Error {
  * (the full orchestrated chain: ingest → detect → track → … → render)
  * through the **backend** job API (``POST /api/v1/jobs``). This is the
  * sanctioned, workload-gated entry point — it does not bypass the backend job
- * API or the Worker/R2 flow, and it never calls an external API. Defaults to
+ * API or the upload flow, and it never calls an external API. Defaults to
  * nightly (full-quality) priority; ``same_session`` (priority 10) is the
  * period-break fast path.
  */
@@ -986,10 +965,10 @@ export function subscribeAlerts(
   };
 }
 
-// ── Worker download URL ──────────────────────────────────────────────────────
+// ── Signed download URL ──────────────────────────────────────────────────────
 
 /**
- * Parse a storage URI of the form `r2://<bucket>/<key>` or
+ * Parse a storage URI of the form `s3://<bucket>/<key>` or
  * `local://<bucket>/<key>` into its parts. Returns null if the URI is missing
  * or malformed.
  */
@@ -997,7 +976,7 @@ export function parseStorageUri(
   uri: string | null | undefined,
 ): { bucket: string; key: string } | null {
   if (!uri) return null;
-  const m = /^(?:r2|local):\/\/([^/]+)\/(.+)$/.exec(uri);
+  const m = /^(?:s3|local):\/\/([^/]+)\/(.+)$/.exec(uri);
   return m ? { bucket: m[1], key: m[2] } : null;
 }
 
@@ -1119,7 +1098,7 @@ async function _fetchVideoDownloadUrlFrom(
 }
 
 /**
- * Fetch a signed download/streaming URL for an R2-backed video object.
+ * Fetch a signed download/streaming URL for an object-store-backed video object.
  * The returned URL can be used directly as a `<video src>`.
  */
 export async function fetchVideoDownloadUrl(
@@ -1127,21 +1106,7 @@ export async function fetchVideoDownloadUrl(
   key: string,
   token?: string,
 ): Promise<string | null> {
-  const workerUrl = process.env.NEXT_PUBLIC_WORKER_URL;
   const apiUrl = apiBase();
-
-  // Try the Worker first when one is explicitly configured. If the Worker
-  // rejects the token (wrong JWT secret) or is unreachable, fall back to the
-  // backend's identical endpoint.
-  if (workerUrl) {
-    try {
-      const url = await _fetchVideoDownloadUrlFrom(workerUrl, bucket, key, token);
-      if (url) return url;
-    } catch {
-      // Fall through to API.
-    }
-  }
-
   if (!apiUrl) return null;
   try {
     return await _fetchVideoDownloadUrlFrom(apiUrl, bucket, key, token);

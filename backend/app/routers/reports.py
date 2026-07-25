@@ -2,7 +2,7 @@
 
 Replaces the client-side text-blob "report" with a real backend export
 service.  Reports are generated in-process via FastAPI ``BackgroundTasks`` —
-they're cheap aggregations and don't belong in the GPU/Cloudflare-Queues
+they're cheap aggregations and don't belong in the GPU pipeline's
 pipeline that powers :mod:`app.routers.jobs`.
 
 Endpoints:
@@ -110,7 +110,7 @@ def _ensure_can_access(user: User, job: ReportJob) -> None:
 
 
 async def _run_report_job(job_id: uuid.UUID) -> None:
-    """Background task: generate the report, upload to R2, update job row.
+    """Background task: generate the report, upload to the object store, update job row.
 
     Owns its own DB session because FastAPI's request-scoped session is no
     longer alive once the response has been sent.  Catches everything so a
@@ -139,7 +139,7 @@ async def _run_report_job(job_id: uuid.UUID) -> None:
             key = f"reports/{job.id}.{ext}"
             uri = await anyio.to_thread.run_sync(
                 put_object,
-                settings.r2_bucket_artifacts,
+                settings.s3_bucket_artifacts,
                 key,
                 body,
                 content_type,
@@ -250,7 +250,7 @@ async def get_report_download_url(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)],
 ) -> ReportDownloadResponse:
-    """Return a short-lived presigned R2 URL for the generated artifact."""
+    """Return a short-lived presigned URL for the generated artifact."""
     result = await db.execute(select(ReportJob).where(ReportJob.id == report_id))
     job = result.scalar_one_or_none()
     if job is None:
@@ -265,5 +265,5 @@ async def get_report_download_url(
 
     settings = get_settings()
     url = generate_download_url_for_uri(job.output_uri)
-    expires_at = datetime.now(UTC) + timedelta(seconds=settings.r2_presign_ttl)
+    expires_at = datetime.now(UTC) + timedelta(seconds=settings.s3_presign_ttl)
     return ReportDownloadResponse(download_url=url, expires_at=expires_at.isoformat())

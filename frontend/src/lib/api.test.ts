@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 beforeEach(() => {
-  vi.stubEnv("NEXT_PUBLIC_WORKER_URL", "https://worker.test");
   vi.stubEnv("NEXT_PUBLIC_API_URL", "https://api.test");
 });
 
@@ -17,8 +16,8 @@ async function freshImport() {
 }
 
 describe("requestUploadUrl", () => {
-  test("requests upload URL from configured Worker and returns uploadUrl + key", async () => {
-    const mockResponse = { uploadUrl: "https://worker.test/api/v1/videos/upload/raw/123-test.mp4", key: "raw/123-test.mp4" };
+  test("requests an upload URL from the configured API and returns uploadUrl + key", async () => {
+    const mockResponse = { uploadUrl: "https://api.test/api/v1/videos/upload/raw/123-test.mp4", key: "raw/123-test.mp4" };
     const fetchMock = vi.fn(async () => ({
       ok: true,
       status: 200,
@@ -32,38 +31,11 @@ describe("requestUploadUrl", () => {
 
     expect(fetchMock).toHaveBeenCalledOnce();
     const [url, opts] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-    expect(url).toBe("https://worker.test/api/v1/videos/upload-url");
+    expect(url).toBe("https://api.test/api/v1/videos/upload-url");
     expect(opts.method).toBe("POST");
     expect(JSON.parse(opts.body as string)).toEqual({ filename: "test.mp4" });
     expect((opts.headers as Record<string, string>)["Authorization"]).toBe("Bearer tok123");
     expect(result).toEqual(mockResponse);
-  });
-
-  test("falls back to backend when Worker rejects the token", async () => {
-    const workerResponse = { error: "Authentication failed" };
-    const apiResponse = { uploadUrl: "https://api.test/api/v1/videos/upload/raw/x", key: "raw/x" };
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce({
-        ok: false,
-        status: 401,
-        json: async () => workerResponse,
-        text: async () => JSON.stringify(workerResponse),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => apiResponse,
-        text: async () => JSON.stringify(apiResponse),
-      });
-    vi.stubGlobal("fetch", fetchMock);
-
-    const { requestUploadUrl } = await freshImport();
-    const result = await requestUploadUrl("test.mp4", "tok123");
-
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(fetchMock.mock.calls[0][0]).toBe("https://worker.test/api/v1/videos/upload-url");
-    expect(fetchMock.mock.calls[1][0]).toBe("https://api.test/api/v1/videos/upload-url");
-    expect(result).toEqual(apiResponse);
   });
 
   test("throws on non-ok response", async () => {
@@ -79,55 +51,33 @@ describe("requestUploadUrl", () => {
     await expect(requestUploadUrl("test.mp4")).rejects.toThrow(/400/);
   });
 
-  test("falls back to the API base when NEXT_PUBLIC_WORKER_URL is not set", async () => {
-    // Local / single-box mode: the backend mirrors the Worker's upload
-    // contract, so an empty worker URL routes upload calls to the API base.
-    vi.stubEnv("NEXT_PUBLIC_WORKER_URL", "");
-    vi.stubEnv("NEXT_PUBLIC_API_URL", "https://api.test");
-    const fetchMock = vi.fn(async () => ({
-      ok: true,
-      status: 200,
-      json: async () => ({ uploadUrl: "https://api.test/api/v1/videos/upload/raw%2Fx", key: "raw/x" }),
-      text: async () => "",
-    }));
-    vi.stubGlobal("fetch", fetchMock);
-    const { requestUploadUrl } = await freshImport();
-    await requestUploadUrl("test.mp4");
-    const [url] = fetchMock.mock.calls[0] as unknown as [string];
-    expect(url).toBe("https://api.test/api/v1/videos/upload-url");
-  });
-
-  test("throws naming both env vars when neither worker nor API base is configured", async () => {
-    vi.stubEnv("NEXT_PUBLIC_WORKER_URL", "");
+  test("throws naming the API base when no upload endpoint is configured", async () => {
     vi.stubEnv("NEXT_PUBLIC_API_URL", "");
     const { requestUploadUrl } = await freshImport();
-    // The message must name both vars — with the API-base fallback, requiring
-    // only NEXT_PUBLIC_WORKER_URL would be misleading.
     await expect(requestUploadUrl("test.mp4")).rejects.toThrow(/NEXT_PUBLIC_API_URL/);
-    await expect(requestUploadUrl("test.mp4")).rejects.toThrow(/NEXT_PUBLIC_WORKER_URL/);
   });
 });
 
-describe("uploadToR2", () => {
-  test("PUTs file to given URL and returns R2UploadResult", async () => {
-    const r2Result = { key: "raw/123-test.mp4", size: 1024, etag: "abc", storageUri: "r2://raw-video/raw/123-test.mp4" };
+describe("uploadToObjectStore", () => {
+  test("PUTs file to given URL and returns ObjectUploadResult", async () => {
+    const uploadResult = { key: "raw/123-test.mp4", size: 1024, etag: "abc", storageUri: "s3://raw-video/raw/123-test.mp4" };
     const fetchMock = vi.fn(async () => ({
       ok: true,
       status: 201,
-      json: async () => r2Result,
-      text: async () => JSON.stringify(r2Result),
+      json: async () => uploadResult,
+      text: async () => JSON.stringify(uploadResult),
     }));
     vi.stubGlobal("fetch", fetchMock);
 
-    const { uploadToR2 } = await freshImport();
+    const { uploadToObjectStore } = await freshImport();
     const file = new File(["test content"], "test.mp4", { type: "video/mp4" });
-    const result = await uploadToR2("https://worker.test/api/v1/videos/upload/raw/123-test.mp4", file);
+    const result = await uploadToObjectStore("https://api.test/api/v1/videos/upload/raw/123-test.mp4", file);
 
     expect(fetchMock).toHaveBeenCalledOnce();
     const [url, opts] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-    expect(url).toBe("https://worker.test/api/v1/videos/upload/raw/123-test.mp4");
+    expect(url).toBe("https://api.test/api/v1/videos/upload/raw/123-test.mp4");
     expect(opts.method).toBe("PUT");
-    expect(result).toEqual(r2Result);
+    expect(result).toEqual(uploadResult);
   });
 
   test("throws on upload failure", async () => {
@@ -139,9 +89,9 @@ describe("uploadToR2", () => {
     }));
     vi.stubGlobal("fetch", fetchMock);
 
-    const { uploadToR2 } = await freshImport();
+    const { uploadToObjectStore } = await freshImport();
     const file = new File(["test content"], "test.mp4", { type: "video/mp4" });
-    await expect(uploadToR2("https://worker.test/upload", file)).rejects.toThrow(/500/);
+    await expect(uploadToObjectStore("https://api.test/upload", file)).rejects.toThrow(/500/);
   });
 });
 
@@ -159,7 +109,7 @@ describe("registerVideo", () => {
     const { registerVideo } = await freshImport();
     const result = await registerVideo({
       filename: "test.mp4",
-      storage_uri: "r2://raw-video/raw/123-test.mp4",
+      storage_uri: "s3://raw-video/raw/123-test.mp4",
       session_kind: "practice",
       source_type: "drone",
     }, "tok123");
@@ -170,7 +120,7 @@ describe("registerVideo", () => {
     expect(opts.method).toBe("POST");
     const body = JSON.parse(opts.body as string);
     expect(body.filename).toBe("test.mp4");
-    expect(body.storage_uri).toBe("r2://raw-video/raw/123-test.mp4");
+    expect(body.storage_uri).toBe("s3://raw-video/raw/123-test.mp4");
     expect(body.session_kind).toBe("practice");
     expect(result.id).toBe("vid-1");
   });
@@ -178,7 +128,7 @@ describe("registerVideo", () => {
   test("throws when NEXT_PUBLIC_API_URL is not set", async () => {
     vi.stubEnv("NEXT_PUBLIC_API_URL", "");
     const { registerVideo } = await freshImport();
-    await expect(registerVideo({ filename: "x.mp4", storage_uri: "r2://test" })).rejects.toThrow(/NEXT_PUBLIC_API_URL/);
+    await expect(registerVideo({ filename: "x.mp4", storage_uri: "s3://test" })).rejects.toThrow(/NEXT_PUBLIC_API_URL/);
   });
 });
 

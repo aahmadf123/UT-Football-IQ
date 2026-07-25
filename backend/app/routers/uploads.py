@@ -1,15 +1,14 @@
-"""Uploads router — Worker-parity upload/download endpoints on the backend.
+"""Uploads router — presigned upload/download endpoints.
 
-Mirrors the Cloudflare Worker's edge contract exactly, so the frontend uses
-one code path in both deployments (``workerBase()`` falls back to the API
-base when ``NEXT_PUBLIC_WORKER_URL`` is unset):
+The single upload contract the frontend uses, whichever storage backend is
+active (``local`` disk or an S3-compatible bucket):
 
     POST /api/v1/videos/upload-url         -> { uploadUrl, key }
     PUT  /api/v1/videos/upload/{key}       -> { key, size, etag, storageUri }
     GET  /api/v1/videos/download-url       -> { downloadUrl }
 
-The response field names are camelCase on purpose — they are the Worker's
-wire shapes (see workers/src/index.ts), not backend conventions.
+The response field names are camelCase on purpose — they are the browser-facing
+wire shapes consumed by ``frontend/src/lib/api.ts``, not backend conventions.
 
 NOTE: this router must be registered BEFORE the videos router so the
 literal ``/download-url`` path wins over ``/{video_id}``.
@@ -33,7 +32,7 @@ from app.storage import (
     DOWNLOADABLE_BUCKETS,
     active_storage_backend,
     generate_download_url,
-    get_r2_client,
+    get_s3_client,
     is_valid_key,
     local_object_path,
 )
@@ -143,8 +142,8 @@ async def upload_object(
     else:
         import tempfile
 
-        client = get_r2_client()
-        exists = await to_thread.run_sync(_r2_object_exists, client, key)
+        client = get_s3_client()
+        exists = await to_thread.run_sync(_object_exists, client, key)
         if exists:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT, detail="Object already exists"
@@ -163,13 +162,13 @@ async def upload_object(
                     tmp, _RAW_BUCKET, key, ExtraArgs={"ContentType": content_type}
                 )
             )
-        storage_uri = f"r2://{_RAW_BUCKET}/{key}"
+        storage_uri = f"s3://{_RAW_BUCKET}/{key}"
 
     log.info("upload_stored", key=key, size=size, backend=active_storage_backend())
     return {"key": key, "size": size, "etag": md5.hexdigest(), "storageUri": storage_uri}
 
 
-def _r2_object_exists(client: object, key: str) -> bool:
+def _object_exists(client: object, key: str) -> bool:
     try:
         client.head_object(Bucket=_RAW_BUCKET, Key=key)  # type: ignore[attr-defined]
         return True

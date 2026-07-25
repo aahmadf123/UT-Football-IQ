@@ -148,7 +148,7 @@ def _make_mock_model(
     m.model_name = "player_detector"
     m.version = "v1"
     m.model_type = "YOLO"
-    m.artifact_uri = "r2://artifacts/v1.pt"
+    m.artifact_uri = "s3://artifacts/v1.pt"
     m.training_dataset_id = None
     m.metrics = metrics
     m.promoted_stage = stage

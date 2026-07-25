@@ -86,7 +86,7 @@ def _fetch_clips(
 def _video_uri(
     *, backend_url: str, token: str, video_id: str, timeout: float = 30.0
 ) -> str | None:
-    """GET /api/v1/videos/{id} and return its R2 storage URI."""
+    """GET /api/v1/videos/{id} and return its object storage URI."""
     with httpx.Client(base_url=backend_url, timeout=timeout) as c:
         resp = c.get(
             f"/api/v1/videos/{video_id}",
@@ -101,23 +101,23 @@ def _video_uri(
 def _predict_for_clip(clip: dict[str, Any], video_uri: str | None) -> dict[str, Any]:
     """Run the detector on the clip's parent video (best-effort).
 
-    Falls back to ``unknown`` if R2 is unreachable or the detector raises
+    Falls back to ``unknown`` if the object store is unreachable or the detector raises
     — the CLI is for offline review, not a gate.
     """
-    from pipeline import r2
+    from pipeline import object_store
     from pipeline.homography.regime_detector import UNKNOWN, CaptureRegimeDetector
 
     if not video_uri:
         return {"regime": UNKNOWN, "confidence": 0.0, "features": {}}
 
-    r2_key = (
-        video_uri[len("r2://") :].split("/", 1)[1]
-        if video_uri.startswith("r2://")
+    object_key = (
+        video_uri[len("s3://") :].split("/", 1)[1]
+        if video_uri.startswith("s3://")
         else video_uri
     )
     video_path: Path | None = None
     try:
-        video_path = r2.download_to_temp(r2_key)
+        video_path = object_store.download_to_temp(object_key)
         detector = CaptureRegimeDetector()
         result = detector.detect(video_path)
         return {
@@ -205,7 +205,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Skip detector + R2 fetch; emit zeroed predictions only.",
+        help="Skip detector + object fetch; emit zeroed predictions only.",
     )
     return parser
 

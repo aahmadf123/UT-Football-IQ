@@ -66,9 +66,9 @@ VideoSource (Protocol)
   .metadata: dict          ← DJI GPS / altitude from ffprobe (graceful no-op if absent)
 
 LocalFileVideoSource(path)   ← Real .mp4 via cv2.VideoCapture
-R2VideoSource(r2_key)        ← Downloads from Cloudflare R2 to temp file
+ObjectStoreVideoSource(object_key)        ← Downloads from the object store to a temp file
 MockVideoSource(...)         ← Deterministic synthetic frames (CI / unit tests)
-open_video(uri) ctxmgr       ← Routes: None → Mock, r2://… → R2, else → Local
+open_video(uri) ctxmgr       ← Routes: None → Mock, s3://… → R2, else → Local
 ```
 
 ### Pose Estimation Layer (`pose_estimator.py`)
@@ -193,10 +193,10 @@ No .mp4 footage was available during development. The system is ready for it:
 
 1. `LocalFileVideoSource(path)` opens any .mp4 via `cv2.VideoCapture`.
 2. DJI GPS / altitude metadata is extracted via `ffprobe` JSON parsing; absent `ffprobe` falls back to `{}` gracefully.
-3. `open_video("r2://bucket/key.mp4")` downloads to a temp file and cleans up on exit.
+3. `open_video("s3://bucket/key.mp4")` downloads to a temp file and cleans up on exit.
 4. `MODEL_POSE_PATH` env var activates RTMPose-m; unset → stub (zero config for CI).
 
-When drone footage is available: set `MODEL_POSE_PATH=/weights/rtmpose-m.pth` and `BACKEND_API_URL`, then submit a `pose` job with `input_uri=r2://...`.
+When drone footage is available: set `MODEL_POSE_PATH=/weights/rtmpose-m.pth` and `BACKEND_API_URL`, then submit a `pose` job with `input_uri=s3://...`.
 
 ---
 

@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 beforeEach(() => {
-  vi.stubEnv("NEXT_PUBLIC_WORKER_URL", "https://worker.test");
   vi.stubEnv("NEXT_PUBLIC_API_URL", "https://api.test");
 });
 

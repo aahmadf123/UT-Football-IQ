@@ -2,7 +2,7 @@
 
 Provides:
   - Standard Prometheus counters, histograms, and gauges for API requests,
-    job execution, and R2 storage interactions.
+    job execution, and object-store interactions.
   - A ``/metrics`` endpoint compatible with any Prometheus scraper.
   - A ``PrometheusMiddleware`` that auto-instruments every HTTP request.
 
@@ -88,18 +88,18 @@ JOB_DURATION_SECONDS = Histogram(
     registry=REGISTRY,
 )
 
-# ── R2 / storage metrics ─────────────────────────────────────────────────────
+# ── Object storage metrics ─────────────────────────────────────────────────────
 
-R2_OPERATIONS_TOTAL = Counter(
-    "r2_operations_total",
-    "Total R2 storage operations by operation type and outcome.",
+S3_OPERATIONS_TOTAL = Counter(
+    "s3_operations_total",
+    "Total object-store operations by operation type and outcome.",
     ["operation", "outcome", "bucket", "service", "env"],
     registry=REGISTRY,
 )
 
-R2_OPERATION_DURATION_SECONDS = Histogram(
-    "r2_operation_duration_seconds",
-    "R2 operation latency in seconds.",
+S3_OPERATION_DURATION_SECONDS = Histogram(
+    "s3_operation_duration_seconds",
+    "Object-store operation latency in seconds.",
     ["operation", "bucket", "service", "env"],
     buckets=(0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0),
     registry=REGISTRY,
@@ -182,26 +182,26 @@ class PrometheusMiddleware(BaseHTTPMiddleware):
         return response
 
 
-# ── Convenience: record R2 operations ─────────────────────────────────────────
+# ── Convenience: record object-store operations ─────────────────────────────────────────
 
 
-def record_r2_operation(
+def record_s3_operation(
     operation: str,
     bucket: str,
     outcome: str,
     duration_seconds: float,
     service: str = SERVICE_NAME,
 ) -> None:
-    """Record a single R2 storage operation for metrics.
+    """Record a single object-store operations for metrics.
 
     Args:
         operation: One of ``upload``, ``download``, ``upload_bytes``, ``list``, ``delete``.
-        bucket: The R2 bucket name.
+        bucket: The bucket name.
         outcome: ``success`` or ``error``.
         duration_seconds: Wall-clock time of the operation.
         service: Originating service label (defaults to backend).
     """
-    R2_OPERATIONS_TOTAL.labels(
+    S3_OPERATIONS_TOTAL.labels(
         operation=operation,
         outcome=outcome,
         bucket=bucket,
@@ -209,7 +209,7 @@ def record_r2_operation(
         env=ENVIRONMENT,
     ).inc()
 
-    R2_OPERATION_DURATION_SECONDS.labels(
+    S3_OPERATION_DURATION_SECONDS.labels(
         operation=operation,
         bucket=bucket,
         service=service,

@@ -277,7 +277,7 @@ def _patch_stage(
         stage_segment, "get_segmenter", lambda _v: segmenter
     )
     monkeypatch.setattr(
-        stage_segment.r2,
+        stage_segment.object_store,
         "download_to_temp",
         lambda _k: Path("/tmp/__segment_test_video.mp4"),
     )
@@ -293,7 +293,7 @@ def test_stage_segment_routes_through_adapter_and_writes_clips(
     seg = StubSegmenter(duration_s=120.0, period_s=30.0, confidence=0.8)
     fake = _patch_stage(monkeypatch, segmenter=seg, duration=120.0)
 
-    result = stage_segment.run("vid-1", "r2://bucket/key/foo.mp4", "job-1")
+    result = stage_segment.run("vid-1", "s3://bucket/key/foo.mp4", "job-1")
 
     # 3 internal boundaries → 4 clips spanning [0, 30, 60, 90, 120].
     assert result["clip_count"] == 4
@@ -319,7 +319,7 @@ def test_stage_segment_no_boundaries_writes_single_clip(
     seg = StubSegmenter(no_boundaries=True)
     fake = _patch_stage(monkeypatch, segmenter=seg, duration=45.0)
 
-    result = stage_segment.run("vid-2", "r2://b/k/x.mp4", "job-2")
+    result = stage_segment.run("vid-2", "s3://b/k/x.mp4", "job-2")
 
     assert result["clip_count"] == 1
     assert len(fake.calls) == 1
@@ -349,7 +349,7 @@ def test_stage_segment_drops_too_short_segments(
             ]
 
     fake = _patch_stage(monkeypatch, segmenter=_DenseSegmenter(), duration=60.0)
-    result = stage_segment.run("vid-3", "r2://b/k/x.mp4", "job-3")
+    result = stage_segment.run("vid-3", "s3://b/k/x.mp4", "job-3")
     # Only the trailing segment (1.4 → 60.0) clears MIN_PLAY_DURATION.
     assert result["clip_count"] == 1
     assert fake.calls[0]["start_time"] == pytest.approx(1.4)
@@ -371,8 +371,8 @@ def test_stage_segment_env_var_selects_variant(
     monkeypatch.setattr(stage_segment.backend, "create_clip",
                         lambda *_a, **k: {"id": "x", **k})
     monkeypatch.setattr(stage_segment, "_video_duration", lambda _p: 60.0)
-    monkeypatch.setattr(stage_segment.r2, "download_to_temp",
+    monkeypatch.setattr(stage_segment.object_store, "download_to_temp",
                         lambda _k: Path("/tmp/__seg_env.mp4"))
 
-    stage_segment.run("vid-env", "r2://b/k/x.mp4", "job-env")
+    stage_segment.run("vid-env", "s3://b/k/x.mp4", "job-env")
     assert captured["variant"] == LEARNED_PLAY

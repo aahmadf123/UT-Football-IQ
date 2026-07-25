@@ -1735,9 +1735,9 @@ class ReportJob(Base):
     """Async report export tracking.
 
     Deliberately separate from :class:`ProcessingJob` (which is wired to the
-    GPU pipeline + Cloudflare Queues): report generation runs in-process via
+    GPU pipeline queue): report generation runs in-process via
     FastAPI ``BackgroundTasks`` and produces lightweight artifacts (PDF/CSV/
-    JSON) uploaded to R2. Status reuses :class:`JobStatus` so the frontend can
+    JSON) uploaded to the object store. Status reuses :class:`JobStatus` so the frontend can
     share status pill rendering across both job kinds.
     """
 
@@ -1755,7 +1755,7 @@ class ReportJob(Base):
     )
     # Section selections + filters (date range, session kind, etc.)
     parameters: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
-    # R2 URI of the generated artifact, populated on success.
+    # object storage URI of the generated artifact, populated on success.
     output_uri: Mapped[str | None] = mapped_column(Text, nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     requested_by: Mapped[uuid.UUID] = mapped_column(

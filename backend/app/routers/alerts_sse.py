@@ -4,7 +4,7 @@ Endpoint:
   GET /api/v1/alerts/stream
 
 Streams real-time coaching alerts to the coaching app on laptop/iPad using
-Server-Sent Events (SSE).  Aligns with Cloudflare Workers edge streaming
+Server-Sent Events (SSE).  Aligns with standard HTTP streaming
 architecture — no WebSocket infra needed for this one-way push.
 
 SSE event format (per W3C EventSource spec):

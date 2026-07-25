@@ -1,22 +1,14 @@
-const PRODUCTION_API_URL = "https://football-iq-backend.fly.dev";
-
-const LOCALHOST_RE = /^https?:\/\/(localhost|127\.\d+\.\d+\.\d+)(:\d+)?$/i;
-
 /**
- * Resolve the backend origin. Production static exports need a usable default
- * because NEXT_PUBLIC_* values are embedded at build time.
+ * Resolve the backend origin.
  *
- * If a build accidentally embeds a localhost URL in production (the common
- * copy-from-.env.example mistake), ignore it and fall back to the real backend.
+ * `NEXT_PUBLIC_API_URL` is embedded at build time (this app is a static
+ * export), so a production bundle must be built with the deployed backend's
+ * origin set. There is no baked-in fallback host: shipping one would silently
+ * point every deployment at somebody else's API.
+ *
+ * An empty result means "same origin / relative fetch", which is what
+ * development and test builds want.
  */
 export function apiBase(): string {
-  const configured = (process.env.NEXT_PUBLIC_API_URL ?? "").trim().replace(/\/+$/, "");
-  if (configured) {
-    if (process.env.NODE_ENV === "production" && LOCALHOST_RE.test(configured)) {
-      const hostname = typeof window !== "undefined" ? window.location.hostname : "";
-      if (hostname !== "localhost" && hostname !== "127.0.0.1") return PRODUCTION_API_URL;
-    }
-    return configured;
-  }
-  return process.env.NODE_ENV === "production" ? PRODUCTION_API_URL : "";
+  return (process.env.NEXT_PUBLIC_API_URL ?? "").trim().replace(/\/+$/, "");
 }

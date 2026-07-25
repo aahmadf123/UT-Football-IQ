@@ -3,10 +3,10 @@ import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = dirname(fileURLToPath(import.meta.url));
-const productionApiUrl = "https://football-iq-backend.fly.dev";
 
 const nextConfig: NextConfig = {
-  output: "export", // static export for Cloudflare Pages
+  // Static export: the app is a bundle of files any static host can serve.
+  output: "export",
   trailingSlash: true,
   turbopack: {
     root,
@@ -15,10 +15,9 @@ const nextConfig: NextConfig = {
     unoptimized: true, // required for static export
   },
   env: {
-    NEXT_PUBLIC_API_URL:
-      process.env.NEXT_PUBLIC_API_URL ??
-      (process.env.NODE_ENV === "production" ? productionApiUrl : ""),
-    NEXT_PUBLIC_WORKER_URL: process.env.NEXT_PUBLIC_WORKER_URL ?? "",
+    // Embedded at build time. Set this to the deployed backend's origin when
+    // building for a real environment; empty means same-origin/relative.
+    NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL ?? "",
   },
 };
 

@@ -36,7 +36,7 @@ from typing import Any
 import numpy as np
 import structlog
 
-from pipeline import backend, r2
+from pipeline import backend, object_store
 from pipeline.homography import camera_motion_ecc as ecc
 from pipeline.homography import confidence_scorer as cs
 from pipeline.homography import dlt_ransac, kalman_smoother
@@ -92,15 +92,15 @@ def run(
         variant=variant,
     )
 
-    r2_key = _uri_to_r2_key(input_uri)
-    video_path = r2.download_to_temp(r2_key)
+    object_key = _uri_to_object_key(input_uri)
+    video_path = object_store.download_to_temp(object_key)
     try:
         return _calibrate(video_id, video_path, job_id, regime, variant)
     finally:
         video_path.unlink(missing_ok=True)
 
 
-def _uri_to_r2_key(uri: str) -> str:
+def _uri_to_object_key(uri: str) -> str:
     """Pass storage references through — pipeline.storage parses scheme + bucket."""
     return uri
 

@@ -115,7 +115,7 @@ NVIDIA DeepStream SDK is **explicitly deferred** from Phase 2.5 for the followin
 
 1. **Licensing:** DeepStream SDK is free to use but the runtime is closed-source (proprietary NVIDIA license). It cannot be modified, and the dependency on `libnvds_*` shared libraries creates a hard coupling to NVIDIA's release cadence. Our current stack (OpenCV + ffmpeg + PyTorch) is fully open-source.
 
-2. **Architecture mismatch:** DeepStream is designed as a monolithic streaming pipeline (GStreamer-based). Football-IQ's architecture is stage-based (ingest → segment → detect → track → …) with each stage reading from R2 and writing back. Adopting DeepStream would require rewriting the entire pipeline orchestration, not just swapping a decode/encode layer.
+2. **Architecture mismatch:** DeepStream is designed as a monolithic streaming pipeline (GStreamer-based). Football-IQ's architecture is stage-based (ingest → segment → detect → track → …) with each stage reading from the object store and writing back. Adopting DeepStream would require rewriting the entire pipeline orchestration, not just swapping a decode/encode layer.
 
 3. **Marginal benefit at current scale:** Our workload is batch-oriented (process one 5-min practice clip at a time). DeepStream's strengths — multi-stream concurrent inference, zero-copy GPU pipelines — shine at 10+ simultaneous streams. We process 1 stream at a time.
 

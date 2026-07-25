@@ -31,7 +31,7 @@ from typing import Any
 import cv2
 import structlog
 
-from pipeline import backend, r2
+from pipeline import backend, object_store
 from pipeline.detection.official_suppressor import filter_non_players
 from pipeline.team_classification import (
     ClassificationResult,
@@ -279,7 +279,7 @@ def _load_team_frames(
         if local_path is not None and local_path.exists():
             video_path = local_path
         else:
-            video_path = r2.download_to_temp(_uri_to_r2_key(input_uri))
+            video_path = object_store.download_to_temp(_uri_to_object_key(input_uri))
             delete_after = True
 
         from pipeline.hwaccel import nvdec_video_capture
@@ -375,7 +375,7 @@ def _write_team_labels(
     return written_ids
 
 
-def _uri_to_r2_key(uri: str) -> str:
+def _uri_to_object_key(uri: str) -> str:
     """Pass storage references through — pipeline.storage parses scheme + bucket."""
     return uri
 

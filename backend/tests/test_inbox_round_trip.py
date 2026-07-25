@@ -43,7 +43,7 @@ def _make_video(**overrides: Any) -> Video:
     v = MagicMock(spec=Video)
     v.id = overrides.get("id", uuid.uuid4())
     v.filename = overrides.get("filename", "practice.mp4")
-    v.storage_uri = overrides.get("storage_uri", "r2://x/practice.mp4")
+    v.storage_uri = overrides.get("storage_uri", "s3://x/practice.mp4")
     v.status = overrides.get("status", VideoStatus.processing)
     v.created_at = overrides.get("created_at", datetime.now(UTC))
     return v

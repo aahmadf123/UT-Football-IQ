@@ -117,7 +117,7 @@ jobs:
 
   # ── Cross-service integration: API → job queue → worker → clips ──────────
   # Boots the real backend (its own venv, mirroring local dev) against
-  # Postgres, uploads a synthetic clip through the Worker-parity endpoints,
+  # Postgres, uploads a synthetic clip through the API's upload endpoints,
   # and runs one in-process worker claim/process cycle. Detection and
   # segmentation are pinned to their deterministic stubs — this proves the
   # wiring (auth, storage, claim/heartbeat, writebacks, overlays), not model
@@ -172,37 +172,6 @@ jobs:
       - name: Run integration suite
         working-directory: gpu-worker
         run: pytest -m integration tests/integration/ -v
-
-  # ── Cloudflare Workers: lint, typecheck ──────────────────────────────────
-  workers:
-    name: Cloudflare Workers (TypeScript)
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    defaults:
-      run:
-        working-directory: workers
-
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: actions/setup-node@v7
-        with:
-          node-version: "22"
-          cache: npm
-          cache-dependency-path: workers/package-lock.json
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Lint (eslint)
-        run: npm run lint
-
-      - name: Type check
-        run: npm run typecheck
-
-      - name: Build
-        run: npm run build
 
   # ── Frontend: lint, typecheck, build ────────────────────────────────────
   frontend:

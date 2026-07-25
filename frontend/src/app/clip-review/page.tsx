@@ -363,7 +363,7 @@ function ClipReviewReady({
                 <p className="mt-2 text-xs">
                   {playbackUnavailable === "no_storage_uri"
                     ? "No storage URI found. The video may not have been uploaded or rendered yet."
-                    : "Video playback failed or is unavailable. The Worker may not be deployed, the signed URL may have been rejected, or the file may be missing from storage."}
+                    : "Video playback failed or is unavailable. The signed URL may have expired or been rejected, or the file may be missing from storage."}
                 </p>
               </div>
             )}

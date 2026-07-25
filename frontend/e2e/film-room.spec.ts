@@ -5,7 +5,7 @@ import { mockBackend, type Route, sampleInboxItem } from "./helpers";
  * Film Room consolidation (ADR 0003 / #184) + explicit upload-to-processing
  * (#187). Uploaded film surfaces in Film Room → Upload / Process Film with a
  * clear "Process Film" CTA; clicking it enqueues a full orchestrated
- * pipeline job through the backend job API (no Worker/R2 bypass).
+ * pipeline job through the backend job API (no direct object-store bypass).
  */
 test("film room exposes consolidated tabs and an explicit Process Film CTA", async ({
   page,

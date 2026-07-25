@@ -1,19 +1,17 @@
-"""Storage facade — Cloudflare R2 (S3-compatible) or local-filesystem backends.
+"""Storage facade — S3-compatible object storage or local-filesystem backends.
 
 URI schemes:
-    ``r2://bucket/key``     — Cloudflare R2 via boto3 (cloud deployments)
+    ``s3://bucket/key``     — S3-compatible object store via boto3
     ``local://bucket/key``  — files under ``settings.local_storage_root``
                               (single-box / no-cloud deployments)
 
 Writes go to the *active* backend (``settings.storage_backend``, or
-auto-detected from R2 credentials). Reads and URL minting dispatch on the
-**URI scheme**, so a database holding a mix of ``r2://`` and ``local://``
+auto-detected from object-store credentials). Reads and URL minting dispatch on the
+**URI scheme**, so a database holding a mix of ``s3://`` and ``local://``
 rows keeps working after a backend switch.
 
 Local objects are served by ``app.routers.storage`` through HMAC-signed
-URLs that mirror the Cloudflare Worker's ``/dl/*`` scheme (same message
-format and derived signing key), because ``<video>`` tags cannot send
-Authorization headers.
+URLs, because ``<video>`` tags cannot send Authorization headers.
 """
 
 from __future__ import annotations
@@ -42,7 +40,7 @@ DOWNLOADABLE_BUCKETS = frozenset({"raw-video", "clips", "overlays"})
 
 def parse_storage_uri(uri: str) -> tuple[str, str, str]:
     """Split ``scheme://bucket/key`` into ``(scheme, bucket, key)``."""
-    for scheme in ("r2", "local"):
+    for scheme in ("s3", "local"):
         prefix = f"{scheme}://"
         if uri.startswith(prefix):
             rest = uri[len(prefix) :]
@@ -52,7 +50,7 @@ def parse_storage_uri(uri: str) -> tuple[str, str, str]:
             if not bucket or not key:
                 raise ValueError(f"Malformed {scheme}:// URI: {uri!r}")
             return scheme, bucket, key
-    raise ValueError(f"Not a storage URI (expected r2:// or local://): {uri!r}")
+    raise ValueError(f"Not a storage URI (expected s3:// or local://): {uri!r}")
 
 
 def is_valid_key(key: str) -> bool:
@@ -67,14 +65,14 @@ def is_valid_key(key: str) -> bool:
 
 
 def active_storage_backend() -> str:
-    """Return the backend new writes go to: ``"r2"`` or ``"local"``."""
+    """Return the backend new writes go to: ``"s3"`` or ``"local"``."""
     settings = get_settings()
-    if settings.storage_backend in ("r2", "local"):
+    if settings.storage_backend in ("s3", "local"):
         return settings.storage_backend
     configured = (
-        settings.r2_endpoint_url and settings.r2_access_key_id and settings.r2_secret_access_key
+        settings.s3_endpoint_url and settings.s3_access_key_id and settings.s3_secret_access_key
     )
-    return "r2" if configured else "local"
+    return "s3" if configured else "local"
 
 
 # ── Local backend ─────────────────────────────────────────────────────────────
@@ -95,7 +93,7 @@ def local_object_path(bucket: str, key: str) -> Path:
     return path
 
 
-# ── Signed local-stream URLs (mirror of the Worker /dl/* scheme) ──────────────
+# ── Signed local-stream URLs ─────────────────────────────────────────────────
 
 
 def _derived_stream_key() -> bytes:
@@ -129,32 +127,32 @@ def signed_local_url(bucket: str, key: str, ttl: int) -> str:
     return f"{base}/api/v1/storage/{quote(bucket, safe='')}/{encoded_key}?exp={exp}&sig={sig}"
 
 
-# ── R2 backend ────────────────────────────────────────────────────────────────
+# ── S3-compatible backend ────────────────────────────────────────────────────────────────
 
 
 @lru_cache(maxsize=1)
-def get_r2_client() -> Any:
-    """Return a lazily-built boto3 R2 client configured from app settings.
+def get_s3_client() -> Any:
+    """Return a lazily-built boto3 S3 client configured from app settings.
 
     Memoised so the same client is reused for the process lifetime. Raises
-    a clear error when R2 credentials are not configured.
+    a clear error when object-store credentials are not configured.
     """
     settings = get_settings()
     if (
-        not settings.r2_endpoint_url
-        or not settings.r2_access_key_id
-        or not settings.r2_secret_access_key
+        not settings.s3_endpoint_url
+        or not settings.s3_access_key_id
+        or not settings.s3_secret_access_key
     ):
         raise RuntimeError(
-            "R2 storage is not configured. Set R2_ENDPOINT_URL, "
-            "R2_ACCESS_KEY_ID, and R2_SECRET_ACCESS_KEY in the environment, "
+            "Object storage is not configured. Set S3_ENDPOINT_URL, "
+            "S3_ACCESS_KEY_ID, and S3_SECRET_ACCESS_KEY in the environment, "
             "or set STORAGE_BACKEND=local to use local-filesystem storage."
         )
     return boto3.client(
         "s3",
-        endpoint_url=settings.r2_endpoint_url,
-        aws_access_key_id=settings.r2_access_key_id,
-        aws_secret_access_key=settings.r2_secret_access_key,
+        endpoint_url=settings.s3_endpoint_url,
+        aws_access_key_id=settings.s3_access_key_id,
+        aws_secret_access_key=settings.s3_secret_access_key,
         region_name="auto",
         config=Config(signature_version="s3v4"),
     )
@@ -170,21 +168,21 @@ def put_object(bucket: str, key: str, body: bytes, content_type: str) -> str:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(body)
         return f"local://{bucket}/{key}"
-    client = get_r2_client()
+    client = get_s3_client()
     client.put_object(Bucket=bucket, Key=key, Body=body, ContentType=content_type)
-    return f"r2://{bucket}/{key}"
+    return f"s3://{bucket}/{key}"
 
 
 def generate_download_url(bucket: str, key: str, ttl: int | None = None) -> str:
     """Return a short-lived download URL for ``bucket/key`` on the active backend.
 
-    Falls back to the configured ``R2_PRESIGN_TTL`` when ``ttl`` is not given.
+    Falls back to the configured ``S3_PRESIGN_TTL`` when ``ttl`` is not given.
     """
     settings = get_settings()
-    expires = ttl if ttl is not None else settings.r2_presign_ttl
+    expires = ttl if ttl is not None else settings.s3_presign_ttl
     if active_storage_backend() == "local":
         return signed_local_url(bucket, key, expires)
-    client = get_r2_client()
+    client = get_s3_client()
     url = client.generate_presigned_url(
         "get_object",
         Params={"Bucket": bucket, "Key": key},
@@ -196,11 +194,11 @@ def generate_download_url(bucket: str, key: str, ttl: int | None = None) -> str:
 def generate_download_url_for_uri(uri: str, ttl: int | None = None) -> str:
     """Mint a download URL for a full storage URI, dispatching on its scheme."""
     settings = get_settings()
-    expires = ttl if ttl is not None else settings.r2_presign_ttl
+    expires = ttl if ttl is not None else settings.s3_presign_ttl
     scheme, bucket, key = parse_storage_uri(uri)
     if scheme == "local":
         return signed_local_url(bucket, key, expires)
-    client = get_r2_client()
+    client = get_s3_client()
     url = client.generate_presigned_url(
         "get_object",
         Params={"Bucket": bucket, "Key": key},

@@ -6,7 +6,7 @@ HLS (HTTP Live Streaming) package consisting of:
   - A media playlist   ``hls/{clip_id}/index.m3u8``
   - Segment files      ``hls/{clip_id}/seg_NNN.ts``
 
-All outputs are uploaded to R2 so the frontend can stream via the R2 public
+All outputs are uploaded to the object store so the frontend can stream via the object store public
 endpoint or through the backend's signed-URL proxy.
 
 Encoding relies on the ``ffmpeg`` binary which must be available in PATH inside
@@ -16,7 +16,7 @@ Environment variables:
   HLS_SEGMENT_DURATION — target HLS segment length in seconds (default: 4)
   HLS_VIDEO_BITRATE    — video bitrate string passed to ffmpeg (default: 2000k)
   HLS_AUDIO_BITRATE    — audio bitrate string (default: 128k)
-  R2_*                 — forwarded to pipeline.r2 upload helpers
+  S3_*                 — forwarded to pipeline.object_store upload helpers
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ from typing import Any
 
 import structlog
 
-from pipeline import r2
+from pipeline import object_store
 
 log = structlog.get_logger(__name__)
 
@@ -46,18 +46,18 @@ def run(
     overlay_path: Path,
     fps: float = 30.0,
 ) -> dict[str, Any]:
-    """Encode overlay video to HLS and upload all segments to R2.
+    """Encode overlay video to HLS and upload all segments to the object store.
 
     Args:
-        clip_id:      Clip UUID used as the R2 key prefix.
+        clip_id:      Clip UUID used as the object key prefix.
         overlay_path: Local path to the full-resolution overlay MP4.
         fps:          Source frame rate (informational; ffmpeg probes the file).
 
     Returns:
         Dict with keys:
-          ``master_playlist_uri`` — R2 URI of the HLS master playlist.
-          ``media_playlist_uri``  — R2 URI of the media playlist.
-          ``segment_uris``        — List of R2 URIs for all TS segments.
+          ``master_playlist_uri`` — object storage URI of the HLS master playlist.
+          ``media_playlist_uri``  — object storage URI of the media playlist.
+          ``segment_uris``        — List of object storage URI for all TS segments.
     """
     log.info("hls_encode_start", clip_id=clip_id, source=str(overlay_path))
 
@@ -128,19 +128,19 @@ def _encode_hls(source: Path, playlist_path: Path) -> None:
 def _upload_segments(hls_dir: Path, clip_id: str) -> list[str]:
     uris: list[str] = []
     for seg in sorted(hls_dir.glob("seg_*.ts")):
-        r2_key = f"hls/{clip_id}/{seg.name}"
-        uri = r2.upload_file(seg, r2_key, content_type="video/MP2T")
+        object_key = f"hls/{clip_id}/{seg.name}"
+        uri = object_store.upload_file(seg, object_key, content_type="video/MP2T")
         uris.append(uri)
     return uris
 
 
 def _upload_playlist(playlist_path: Path, clip_id: str, filename: str) -> str:
-    r2_key = f"hls/{clip_id}/{filename}"
-    return r2.upload_file(playlist_path, r2_key, content_type="application/vnd.apple.mpegurl")
+    object_key = f"hls/{clip_id}/{filename}"
+    return object_store.upload_file(playlist_path, object_key, content_type="application/vnd.apple.mpegurl")
 
 
 def _write_and_upload_master(clip_id: str, fps: float) -> str:
-    """Write a minimal HLS master playlist and upload it to R2."""
+    """Write a minimal HLS master playlist and upload it to the object store."""
     import tempfile as _tf
 
     master_content = (

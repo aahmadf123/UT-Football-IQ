@@ -329,12 +329,12 @@ def test_map50_proxy_perfect_and_empty():
 def test_registration_payload_shape_and_regime_metadata():
     report = _report(0.55, 0.63)
     payload = build_registration_payload(
-        report, version="distill-20260610", artifact_uri="r2://artifacts/x.pt"
+        report, version="distill-20260610", artifact_uri="s3://artifacts/x.pt"
     )
     assert payload["model_type"] == "detector"
     assert payload["model_name"] == DRONE_FOLLOW_DISTILLED
     assert payload["version"] == "distill-20260610"
-    assert payload["artifact_uri"] == "r2://artifacts/x.pt"
+    assert payload["artifact_uri"] == "s3://artifacts/x.pt"
     m = payload["metrics"]
     assert m["baseline_map"] == 0.55
     assert m["student_map"] == 0.63

@@ -1,23 +1,24 @@
 """Offline upload queue — clips auto-queue when drone connectivity restores.
 
-Drone uploads to a local SQLite-backed queue when the tablet/drone has no
-internet connection.  When connectivity is detected the queue is flushed: each
-pending entry is dispatched to Cloudflare Queue via ``queue.cf_trigger``.
+Drone uploads land in a local SQLite-backed queue when the tablet/drone has no
+connection to the backend. When connectivity returns the queue is flushed: each
+pending entry is dispatched via ``queue.job_dispatch``, which inserts a
+claimable ``processing_jobs`` row.
 
 Design:
   - Storage: SQLite file at OFFLINE_QUEUE_DB_PATH (default: /tmp/offline_queue.db)
-  - Connectivity check: HEAD request to CONNECTIVITY_CHECK_URL (default: CF API)
+  - Connectivity check: HEAD request to CONNECTIVITY_CHECK_URL, which defaults
+    to the backend's own /health endpoint — reaching the backend is what
+    actually matters, not general internet access.
   - Flush loop: runs in a background thread, polls every FLUSH_POLL_INTERVAL s
   - Thread-safe: all DB access is serialised with a threading.Lock
 
 Environment variables:
-  OFFLINE_QUEUE_DB_PATH      — path to SQLite DB (default: /tmp/offline_queue.db)
-  CONNECTIVITY_CHECK_URL     — URL used to probe internet access
-                               (default: https://api.cloudflare.com/client/v4/user/tokens/verify)
-  FLUSH_POLL_INTERVAL        — seconds between flush attempts (default: 15)
-  CLOUDFLARE_ACCOUNT_ID      — forwarded to cf_trigger
-  CLOUDFLARE_API_TOKEN       — forwarded to cf_trigger
-  BACKEND_API_URL            — forwarded to cf_trigger
+  OFFLINE_QUEUE_DB_PATH  — path to SQLite DB (default: /tmp/offline_queue.db)
+  CONNECTIVITY_CHECK_URL — URL used to probe reachability (default:
+                           ``{BACKEND_API_URL}/health``)
+  FLUSH_POLL_INTERVAL    — seconds between flush attempts (default: 15)
+  BACKEND_API_URL        — forwarded to job_dispatch
 """
 
 from __future__ import annotations
@@ -27,7 +28,7 @@ import os
 import sqlite3
 import threading
 import time
-from queue.cf_trigger import dispatch_on_upload
+from queue.job_dispatch import dispatch_on_upload
 from typing import Any
 
 import httpx
@@ -36,11 +37,21 @@ import structlog
 log = structlog.get_logger(__name__)
 
 OFFLINE_QUEUE_DB_PATH = os.environ.get("OFFLINE_QUEUE_DB_PATH", "/tmp/offline_queue.db")
-CONNECTIVITY_CHECK_URL = os.environ.get(
-    "CONNECTIVITY_CHECK_URL",
-    "https://api.cloudflare.com/client/v4/user/tokens/verify",
-)
 FLUSH_POLL_INTERVAL = int(os.environ.get("FLUSH_POLL_INTERVAL", "15"))
+
+
+def _connectivity_check_url() -> str:
+    """Probe target for :func:`is_online`.
+
+    Resolved lazily so a late ``BACKEND_API_URL`` still takes effect. Returns
+    an empty string when there is no backend configured, which makes
+    :func:`is_online` report offline rather than probing an unrelated host.
+    """
+    explicit = os.environ.get("CONNECTIVITY_CHECK_URL", "").strip()
+    if explicit:
+        return explicit
+    backend = os.environ.get("BACKEND_API_URL", "").strip()
+    return f"{backend.rstrip('/')}/health" if backend else ""
 
 _db_lock = threading.Lock()
 _flush_thread: threading.Thread | None = None
@@ -223,10 +234,13 @@ def _increment_attempts(row_id: int) -> None:
 
 
 def is_online(*, timeout: float = 5.0) -> bool:
-    """Return True when the device has internet connectivity."""
+    """Return True when the backend is reachable from this device."""
+    url = _connectivity_check_url()
+    if not url:
+        return False
     try:
         with httpx.Client(timeout=timeout) as c:
-            resp = c.head(CONNECTIVITY_CHECK_URL)
+            resp = c.head(url)
             return resp.status_code < 500
     except Exception:
         return False

@@ -2,7 +2,7 @@
 
 Produces a reduced-resolution (540 p) annotated video for period-break
 delivery to coaching staff.  Omits full HLS encoding — the output is a
-single MP4 file that can be streamed directly from R2.
+single MP4 file that can be streamed directly from the object store.
 
 Design goals:
   - Fast: target < 90 s render for a 5-min clip on a GTX 1660 Ti.
@@ -14,7 +14,7 @@ The nightly full-resolution render is handled by ``renderer.hls_encoder``.
 
 Environment variables:
   PERIOD_RENDER_HEIGHT — target output height in pixels (default: 540)
-  R2_*                 — forwarded to pipeline.r2 upload helpers
+  S3_*                 — forwarded to pipeline.object_store upload helpers
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ from typing import Any
 import cv2
 import structlog
 
-from pipeline import r2
+from pipeline import object_store
 
 log = structlog.get_logger(__name__)
 
@@ -54,10 +54,10 @@ def run(
     analytics_safe: bool,
     fps: float,
 ) -> dict[str, Any]:
-    """Render a reduced-resolution period-break overlay and upload to R2.
+    """Render a reduced-resolution period-break overlay and upload to the object store.
 
     Args:
-        clip_id:       Clip UUID used as the R2 key prefix.
+        clip_id:       Clip UUID used as the object key prefix.
         video_path:    Local path to the source clip video.
         tracklets:     List of tracklet dicts (same schema as stage_render).
         labels:        List of label dicts for formation HUD.
@@ -65,7 +65,7 @@ def run(
         fps:           Source frame rate.
 
     Returns:
-        Dict with key ``period_overlay_uri`` pointing to the R2 object.
+        Dict with key ``period_overlay_uri`` pointing to the stored object.
     """
     log.info("period_render_start", clip_id=clip_id, target_height=PERIOD_RENDER_HEIGHT)
 
@@ -73,8 +73,8 @@ def run(
         out_path = Path(tmp_dir) / "period_overlay.mp4"
         _render_reduced(video_path, out_path, tracklets, labels, analytics_safe, fps)
 
-        r2_key = f"period_overlays/{clip_id}/period_overlay.mp4"
-        overlay_uri = r2.upload_file(out_path, r2_key, content_type="video/mp4")
+        object_key = f"period_overlays/{clip_id}/period_overlay.mp4"
+        overlay_uri = object_store.upload_file(out_path, object_key, content_type="video/mp4")
 
     log.info("period_render_done", clip_id=clip_id, overlay_uri=overlay_uri)
     return {"period_overlay_uri": overlay_uri}

@@ -161,7 +161,7 @@ describe("reports api helpers", () => {
   });
 
   test("getReportDownloadUrl returns the presigned response", async () => {
-    const body = { download_url: "https://r2.test/abc.pdf", expires_at: "2026-05-28T01:00:00Z" };
+    const body = { download_url: "https://storage.test/abc.pdf", expires_at: "2026-05-28T01:00:00Z" };
     const fetchMock = vi.fn(async () => mockResponse(body));
     vi.stubGlobal("fetch", fetchMock);
 

@@ -220,7 +220,7 @@ CFBD precedent. Nothing here is wired in this spike.
 
 Pattern requirements (carried from CFBD + repo hard constraints):
 - **Backend-only.** Read only by the FastAPI backend / ingestion jobs. **Never**
-  exposed to frontend, browser bundles, Cloudflare Workers, logs, PR/issue text,
+  exposed to frontend, browser bundles, logs, PR/issue text,
   R2 artifacts, or coach-visible errors; never stored in the database. Send the
   key as the **`x-api-key` header**, not a query parameter.
 - **Config wiring (deferred):** add the vars to `.env.example` *and* to

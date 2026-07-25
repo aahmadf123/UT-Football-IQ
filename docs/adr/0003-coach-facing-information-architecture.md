@@ -107,7 +107,7 @@ Uploaded  →  Queued  →  Processing  →  Processed        (happy path)
 
 - The "Process Film" CTA calls the **backend** job API (`POST /api/v1/jobs`,
   workload-gated) to create an `ingest` job at nightly (full-quality) priority.
-  It does **not** bypass the backend job API or the Worker/R2 flow, and it does
+  It does **not** bypass the backend job API or the upload flow, and it does
   not talk to any external API.
 - A `503 workload_gated` response is surfaced as a coach-readable "system is
   busy" message rather than a raw error.

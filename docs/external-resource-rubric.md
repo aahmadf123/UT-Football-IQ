@@ -78,7 +78,7 @@ does, the resource stays offline / local-only.
 - [ ] **Terms / license summary** — license name and a one-line summary.
 - [ ] **Allowed usage** — research, non-commercial, commercial, internal only;
       redistribution allowed / not allowed.
-- [ ] **Storage location** — where it lives (R2 bucket, local disk, runtime
+- [ ] **Storage location** — where it lives (object-store bucket, local disk, runtime
       download only).
 - [ ] **Raw data handling** — may the raw data be committed, cached, or must it
       remain local?

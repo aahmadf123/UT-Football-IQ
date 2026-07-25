@@ -26,7 +26,7 @@ from alerts.formation_anomaly import run as formation_run
 
 _PLAYER = "player-uuid-001"
 _CLIP = "clip-uuid-001"
-_CLIP_URI = "r2://clips/test.mp4"
+_CLIP_URI = "s3://clips/test.mp4"
 _PG = "OL"
 
 

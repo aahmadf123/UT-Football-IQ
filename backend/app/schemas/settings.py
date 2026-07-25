@@ -25,7 +25,7 @@ class SystemConfig(BaseModel):
     (team name, capture camera, storage bucket, auto-export access). Only an
     admin may update these values.
 
-    ``storage_bucket`` is **display-only / informational**: the actual R2
+    ``storage_bucket`` is **display-only / informational**: the actual object-store
     bucket bindings are env-driven and cannot be hot-swapped at runtime. The
     PATCH endpoint accepts writes so admins can record intent, but the value
     is not consumed by the file-IO path.

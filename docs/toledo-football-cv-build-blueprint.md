@@ -1,5 +1,17 @@
 # Toledo Football Computer Vision Build Blueprint
 
+> **Historical research document — the hosting sections are superseded.**
+> This blueprint captures the original product research and remains a good
+> reference for *what to build* and *in what order*. Its infrastructure
+> recommendations (Cloudflare Pages / Workers / R2 / Queues, Fly.io for the
+> backend) describe a deployment that no longer exists in this repo and that
+> nothing here is wired to. Football-IQ now ships **no deployment
+> configuration at all**: the backend's `processing_jobs` table is the job
+> queue, object storage is any S3-compatible endpoint (or local disk), and
+> hosting is an open decision. Treat every vendor named below as an option
+> that was considered, never as a requirement. See `README.md` for the
+> architecture that actually exists.
+
 ## Executive summary
 
 Toledo should build this as a coach-trusted football intelligence system, not as a generic computer vision demo. The attached plans already aim high with drone-based overhead capture, homography, player tracking, pose-based biomechanics, Re-ID, play embeddings, self-scouting, opponent scouting, health fusion, and same-session feedback. The critical next step is to stage those ideas into a system that can earn trust quickly on a small-school budget.

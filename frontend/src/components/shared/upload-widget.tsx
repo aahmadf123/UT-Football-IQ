@@ -9,7 +9,7 @@
  *   - `widget`         — render once near the top of the page; it contains the
  *                        hidden `<input type="file">` and the status notice
  *
- * Uploads flow through `useAppState().addUploads` (Worker upload-url → R2 PUT
+ * Uploads flow through `useAppState().addUploads` (backend upload-url → PUT
  * → backend register), so this widget is purely the trigger + feedback shell.
  */
 

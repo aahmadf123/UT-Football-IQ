@@ -1,46 +1,43 @@
 import path from "node:path";
 import { expect, test } from "@playwright/test";
-import { mockBackend, mockWorker, type Route, sampleInboxItem } from "./helpers";
+import { mockBackend, type Route, sampleInboxItem } from "./helpers";
 
 const FIXTURE_MP4 = path.resolve(__dirname, "fixtures/sample.mp4");
 
 /**
- * End-to-end upload path: a coach selects an MP4, the Worker issues an
- * upload URL, the file is PUT to a (mocked) R2 endpoint, the backend
+ * End-to-end upload path: a coach selects an MP4, the backend issues a
+ * presigned upload URL, the file is PUT to that (mocked) URL, the backend
  * registers the resulting video, and the Practice Inbox refreshes to
  * surface the new row.
  *
- * Every Worker/API call is intercepted; no real R2 or Fly.io is required.
+ * Every API call is intercepted; no real backend or object store is required.
  */
-test("upload flow drives Worker → R2 → backend register → inbox refresh", async ({
+test("upload flow drives upload-url → PUT → backend register → inbox refresh", async ({
   page,
 }) => {
   let uploadUrlRequested = false;
-  let r2PutInvoked = false;
+  let objectPutInvoked = false;
   let videoRegistered = false;
 
-  const r2PutUrl = "http://worker.e2e.local/r2/put/PR_e2e.mp4";
-
-  await mockWorker(page, {
-    "POST /api/v1/videos/upload-url": () => {
-      uploadUrlRequested = true;
-      return { uploadUrl: r2PutUrl, key: "raw/PR_e2e.mp4" };
-    },
-    "PUT /r2/put/PR_e2e.mp4": () => {
-      r2PutInvoked = true;
-      return {
-        key: "raw/PR_e2e.mp4",
-        size: 32,
-        etag: "etag-e2e",
-        storageUri: "r2://raw-video/raw/PR_e2e.mp4",
-      };
-    },
-  });
+  const objectPutUrl = "http://api.e2e.local/api/v1/videos/upload/raw%2FPR_e2e.mp4";
 
   // Inbox starts empty, then returns the freshly-registered video after
   // the upload completes. We swap the responder mid-test.
   let inboxRows: ReturnType<typeof sampleInboxItem>[] = [];
   await mockBackend(page, {
+    "POST /api/v1/videos/upload-url": () => {
+      uploadUrlRequested = true;
+      return { uploadUrl: objectPutUrl, key: "raw/PR_e2e.mp4" };
+    },
+    "PUT /api/v1/videos/upload/raw%2FPR_e2e.mp4": () => {
+      objectPutInvoked = true;
+      return {
+        key: "raw/PR_e2e.mp4",
+        size: 32,
+        etag: "etag-e2e",
+        storageUri: "s3://raw-video/raw/PR_e2e.mp4",
+      };
+    },
     "GET /api/v1/videos": [],
     "GET /api/v1/jobs": [],
     "GET /api/v1/self-scout/tendencies": { tendencies: [] },
@@ -52,7 +49,7 @@ test("upload flow drives Worker → R2 → backend register → inbox refresh", 
         storage_uri: string;
       };
       expect(body.filename).toBe("sample.mp4");
-      expect(body.storage_uri).toBe("r2://raw-video/raw/PR_e2e.mp4");
+      expect(body.storage_uri).toBe("s3://raw-video/raw/PR_e2e.mp4");
       // After register, populate the inbox so the refresh-after-upload
       // surfaces the new row.
       inboxRows = [
@@ -74,7 +71,7 @@ test("upload flow drives Worker → R2 → backend register → inbox refresh", 
         width: null,
         height: null,
         created_at: "2025-10-01T10:00:00Z",
-        storage_uri: "r2://raw-video/raw/PR_e2e.mp4",
+        storage_uri: "s3://raw-video/raw/PR_e2e.mp4",
       };
     },
   });
@@ -88,9 +85,9 @@ test("upload flow drives Worker → R2 → backend register → inbox refresh", 
     FIXTURE_MP4,
   );
 
-  // Confirm the upload pipeline executed Worker → R2 PUT → backend register.
+  // Confirm the upload pipeline executed upload-url → PUT → backend register.
   await expect.poll(() => uploadUrlRequested).toBe(true);
-  await expect.poll(() => r2PutInvoked).toBe(true);
+  await expect.poll(() => objectPutInvoked).toBe(true);
   await expect.poll(() => videoRegistered).toBe(true);
 
   // Upload toast confirms the UI saw the upload as complete.

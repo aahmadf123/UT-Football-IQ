@@ -38,9 +38,9 @@ players, reviewed clips, coach corrections.
 
 ## Storage
 
-Generated artifacts land in the `R2_BUCKET_ARTIFACTS` bucket under the key
+Generated artifacts land in the `S3_BUCKET_ARTIFACTS` bucket under the key
 `reports/{report_id}.{ext}`. The download endpoint mints a presigned GET URL
-with TTL = `R2_PRESIGN_TTL` (default: 1 hour).
+with TTL = `S3_PRESIGN_TTL` (default: 1 hour).
 
 ## Adding a new report type
 

@@ -1,7 +1,7 @@
 """In-process nightly scheduler — the set-and-forget half of the learning loop.
 
 Runs as an asyncio task started from the FastAPI lifespan (works identically
-in local compose and cloud deployments — no Cloudflare cron required). Once
+wherever the API runs — no external cron service required). Once
 per UTC day at ``SCHEDULER_HOUR_UTC``:
 
   1. Export new coach corrections to Labels + a TrainingDataset snapshot
@@ -12,7 +12,7 @@ per UTC day at ``SCHEDULER_HOUR_UTC``:
      PROMOTION REMAINS A HUMAN DECISION (POST /mlops/models/{id}/promote) —
      the scheduler never promotes.
   3. Enqueue the nightly ``workload_rollup`` job (previously the lone
-     Cloudflare cron responsibility).
+     an external cron's responsibility).
 
 Multi-instance deployments are safe: a Postgres *transaction-scoped* advisory
 lock makes exactly one instance run the tick; the others skip. It is bound to
