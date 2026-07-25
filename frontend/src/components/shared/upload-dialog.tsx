@@ -30,6 +30,7 @@ import {
   SOURCE_TYPES,
   draftFromFiles,
   fromLocalInputValue,
+  MAX_TAGS,
   parseTags,
   toLocalInputValue,
   validateDraft,
@@ -143,7 +144,7 @@ export function UploadDialog({
     if (files.length === 0 || Object.keys(errors).length > 0) return;
     setSubmitting(true);
     try {
-      await onSubmit(files, { ...draft, tags: parseTags(tagInput) });
+      await onSubmit(files, draft);
       reset();
       onOpenChange(false);
     } finally {
@@ -348,9 +349,23 @@ export function UploadDialog({
               id="upload-tags"
               placeholder="red zone, third down, install"
               value={tagInput}
-              onChange={(e) => setTagInput(e.target.value)}
+              onChange={(e) => {
+                // Parsed into the draft as they are typed, not at submit, so
+                // validateDraft can see the count. Left until submit, going
+                // over the cap uploads the whole batch and only then 422s,
+                // orphaning every object in it.
+                setTagInput(e.target.value);
+                update("tags", parseTags(e.target.value));
+              }}
+              aria-invalid={showErrors && !!errors.tags}
             />
-            <p className="text-muted-foreground text-xs">Comma separated. Optional.</p>
+            {showErrors && errors.tags ? (
+              <p className="text-status-danger text-xs">{errors.tags}</p>
+            ) : (
+              <p className="text-muted-foreground text-xs">
+                Comma or line separated. Optional, up to {MAX_TAGS}.
+              </p>
+            )}
           </div>
         </div>
 

@@ -7,7 +7,9 @@ import {
   parseTags,
   toLocalInputValue,
   validateDraft,
+  excessTagCount,
   EMPTY_DRAFT,
+  MAX_TAGS,
 } from "./upload-metadata";
 
 function file(name: string): File {
@@ -210,5 +212,47 @@ describe("datetime-local round trip", () => {
 
   it("returns null for an unparseable input value", () => {
     expect(fromLocalInputValue("nonsense")).toBeNull();
+  });
+});
+
+describe("tag cap", () => {
+  it("splits on newlines as well as commas", () => {
+    // Pasting a list is the common way to get newlines in here.
+    expect(parseTags("red zone\nthird down,install")).toEqual([
+      "red zone",
+      "third down",
+      "install",
+    ]);
+  });
+
+  it("reports the overflow rather than silently dropping tags", () => {
+    // Truncating would stop the 422 but lose the coach's labels without
+    // saying so; validateDraft blocks and explains instead.
+    const many = Array.from({ length: 25 }, (_, i) => `tag-${i}`).join(",");
+    const tags = parseTags(many);
+    expect(tags).toHaveLength(25);
+    expect(excessTagCount(many)).toBe(5);
+  });
+
+  it("blocks submission when over the cap", () => {
+    // Caught before upload: a batch that 422s on register leaves every object
+    // orphaned in R2, and the retry repeats the same invalid metadata.
+    const errors = validateDraft({
+      ...EMPTY_DRAFT,
+      sessionKind: "practice",
+      recordedAt: new Date().toISOString(),
+      tags: Array.from({ length: 21 }, (_, i) => `tag-${i}`),
+    });
+    expect(errors.tags).toContain("At most 20");
+  });
+
+  it("allows exactly the cap", () => {
+    const errors = validateDraft({
+      ...EMPTY_DRAFT,
+      sessionKind: "practice",
+      recordedAt: new Date().toISOString(),
+      tags: Array.from({ length: MAX_TAGS }, (_, i) => `tag-${i}`),
+    });
+    expect(errors.tags).toBeUndefined();
   });
 });

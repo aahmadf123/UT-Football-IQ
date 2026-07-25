@@ -31,8 +31,41 @@ from app.config import get_settings
 
 _STREAM_KEY_CONTEXT = b"football-iq:stream-signing"
 
+#: The logical bucket namespace. These names appear in ``s3://bucket/key`` URIs,
+#: in the streaming route, and in the Worker's binding lookup — they are part of
+#: the data model, not of any one deployment.
+RAW_VIDEO = "raw-video"
+CLIPS = "clips"
+OVERLAYS = "overlays"
+ARTIFACTS = "artifacts"
+
 #: Buckets the download/streaming endpoints are allowed to serve.
-DOWNLOADABLE_BUCKETS = frozenset({"raw-video", "clips", "overlays"})
+DOWNLOADABLE_BUCKETS = frozenset({RAW_VIDEO, CLIPS, OVERLAYS})
+
+
+def physical_bucket(logical: str) -> str:
+    """Translate a logical bucket name to the one this deployment provisioned.
+
+    Logical names are stable and portable: a stored ``s3://raw-video/key`` URI
+    keeps resolving after the buckets are renamed or the whole thing moves to
+    another account, and the edge Worker looks its R2 bindings up by the same
+    names. The physical name is deployment configuration and belongs nowhere
+    except the call that talks to the object store.
+
+    Getting this wrong is not subtle. Hard-coding ``"raw-video"`` at the boto3
+    boundary while the account actually provisions ``footiq-raw-video`` makes
+    every upload fail with NoSuchBucket before the video is ever registered.
+
+    Unknown names pass through unchanged so a caller can still reach a bucket
+    that predates this mapping.
+    """
+    settings = get_settings()
+    return {
+        RAW_VIDEO: settings.s3_bucket_raw,
+        CLIPS: settings.s3_bucket_clips,
+        OVERLAYS: settings.s3_bucket_overlays,
+        ARTIFACTS: settings.s3_bucket_artifacts,
+    }.get(logical, logical)
 
 
 # ── URI helpers ───────────────────────────────────────────────────────────────
@@ -162,14 +195,41 @@ def get_s3_client() -> Any:
 
 
 def put_object(bucket: str, key: str, body: bytes, content_type: str) -> str:
-    """Upload ``body`` to ``bucket/key`` on the active backend; return its URI."""
+    """Upload ``body`` to ``bucket/key`` on the active backend; return its URI.
+
+    ``bucket`` is a logical name throughout — including in the returned URI. Only
+    the object-store call sees the physical one.
+    """
     if active_storage_backend() == "local":
         path = local_object_path(bucket, key)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(body)
         return f"local://{bucket}/{key}"
     client = get_s3_client()
-    client.put_object(Bucket=bucket, Key=key, Body=body, ContentType=content_type)
+    client.put_object(Bucket=physical_bucket(bucket), Key=key, Body=body, ContentType=content_type)
+    return f"s3://{bucket}/{key}"
+
+
+def object_exists(bucket: str, key: str) -> bool:
+    """Whether ``bucket/key`` is already present on the active backend."""
+    if active_storage_backend() == "local":
+        return local_object_path(bucket, key).exists()
+    try:
+        get_s3_client().head_object(Bucket=physical_bucket(bucket), Key=key)
+        return True
+    except Exception:
+        return False
+
+
+def upload_fileobj(bucket: str, key: str, fileobj: Any, content_type: str) -> str:
+    """Stream an open file object into ``bucket/key``; return its logical URI.
+
+    Used by the upload route, which spools the request body to a temp file
+    rather than holding a whole practice video in memory.
+    """
+    get_s3_client().upload_fileobj(
+        fileobj, physical_bucket(bucket), key, ExtraArgs={"ContentType": content_type}
+    )
     return f"s3://{bucket}/{key}"
 
 
@@ -202,7 +262,7 @@ def generate_download_url(bucket: str, key: str, ttl: int | None = None) -> str:
     client = get_s3_client()
     url = client.generate_presigned_url(
         "get_object",
-        Params={"Bucket": bucket, "Key": key},
+        Params={"Bucket": physical_bucket(bucket), "Key": key},
         ExpiresIn=expires,
     )
     return str(url)
@@ -218,7 +278,7 @@ def generate_download_url_for_uri(uri: str, ttl: int | None = None) -> str:
     client = get_s3_client()
     url = client.generate_presigned_url(
         "get_object",
-        Params={"Bucket": bucket, "Key": key},
+        Params={"Bucket": physical_bucket(bucket), "Key": key},
         ExpiresIn=expires,
     )
     return str(url)
