@@ -132,6 +132,7 @@ export interface UploadMetadata {
   source_type?: SourceType | null;
   opponent_team?: string | null;
   our_possession?: OurPossession | null;
+  tags?: string[];
 }
 
 interface PersistedState {
@@ -516,6 +517,7 @@ export function AppStateProvider({
         source_type: metadata?.source_type,
         opponent_team: metadata?.opponent_team,
         our_possession: metadata?.our_possession,
+        tags: metadata?.tags,
       }, registerToken);
 
       updateUpload(clip.id, {

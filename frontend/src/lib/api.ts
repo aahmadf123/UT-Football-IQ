@@ -167,6 +167,8 @@ export interface RegisterVideoRequest {
   opponent_team?: string | null;
   practice_session_id?: string | null;
   our_possession?: OurPossession | null;
+  /** Free-form coach labels, stored in the video's metadata bag. */
+  tags?: string[];
 }
 
 export async function registerVideo(

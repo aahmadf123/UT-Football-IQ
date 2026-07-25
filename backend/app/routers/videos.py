@@ -6,7 +6,7 @@ from typing import Annotated, Any
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, field_validator, model_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -31,6 +31,10 @@ from app.workload import WorkloadStatus, assess_workload
 
 log = structlog.get_logger(__name__)
 router = APIRouter(prefix="/api/v1/videos", tags=["videos"])
+
+#: Enough for how a coach actually labels film; a bound stops the metadata bag
+#: from becoming an unbounded write surface.
+MAX_TAGS_PER_VIDEO = 20
 
 
 async def _auto_process_enabled(db: AsyncSession) -> bool:
@@ -89,6 +93,31 @@ class VideoCreate(BaseModel):
     opponent_team: str | None = None
     practice_session_id: uuid.UUID | None = None
     our_possession: SideOfBall | None = None
+    #: Free-form coach labels ("red zone", "install", "period 4"). Stored in the
+    #: ``metadata`` bag rather than as a column: they are a browsing aid, not
+    #: something any model or metric branches on.
+    tags: list[str] | None = None
+
+    @field_validator("tags")
+    @classmethod
+    def _clean_tags(cls, value: list[str] | None) -> list[str] | None:
+        """Normalise to lowercase, de-duplicated, non-empty tags.
+
+        Done server-side as well as in the UI so an API client cannot create
+        ``Red Zone`` and ``red zone`` as two different browsing buckets.
+        """
+        if value is None:
+            return None
+        seen: set[str] = set()
+        cleaned: list[str] = []
+        for raw in value:
+            tag = raw.strip().lower()[:60]
+            if tag and tag not in seen:
+                seen.add(tag)
+                cleaned.append(tag)
+        if len(cleaned) > MAX_TAGS_PER_VIDEO:
+            raise ValueError(f"At most {MAX_TAGS_PER_VIDEO} tags per video")
+        return cleaned or None
 
     @model_validator(mode="after")
     def _opponent_required_for_game(self) -> "VideoCreate":
@@ -233,6 +262,7 @@ async def create_video(
         opponent_team=body.opponent_team,
         practice_session_id=body.practice_session_id,
         our_possession=body.our_possession,
+        metadata_={"tags": body.tags} if body.tags else None,
     )
     db.add(video)
     await db.flush()
