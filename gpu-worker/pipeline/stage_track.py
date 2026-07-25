@@ -20,6 +20,11 @@ from typing import Any
 import structlog
 
 from pipeline import backend
+from pipeline.homography.project import (
+    apply_homography_many,
+    ground_anchor,
+    homography_from_flat,
+)
 from pipeline.tracker_models import TrackerBase, get_tracker
 
 log = structlog.get_logger(__name__)
@@ -36,6 +41,8 @@ def run(
     *,
     tracker: TrackerBase | None = None,
     variant: str | None = None,
+    homography: list[float] | None = None,
+    analytics_safe: bool = False,
 ) -> dict[str, Any]:
     """Run tracking and write tracklets to the backend.
 
@@ -44,6 +51,11 @@ def run(
         tracker:  Pre-built tracker adapter; overrides ``variant``.
         variant:  Routing variant id (e.g. ``"iou-tracker"``,
                   ``"sam3-mask-tracker"``).  Defaults to ``"iou-tracker"``.
+        homography: Flat 9-element pixel→yard matrix from the calibrate stage.
+        analytics_safe: Whether that calibration cleared its confidence gate.
+            Coordinates are only written when it did — a homography nobody
+            trusts produces plausible-looking yard values that are wrong, which
+            is worse than none at all.
     """
     log.info("stage_track_start", clip_id=clip_id, variant=variant)
 
@@ -55,6 +67,7 @@ def run(
         )
 
     results = tracker.track(detections)
+    projected_points = _project_tracks(results, homography, analytics_safe)
 
     tracklet_ids: list[str] = []
     tracklets: list[dict[str, Any]] = []
@@ -89,8 +102,7 @@ def run(
             if any("mask" in p for p in track.points):
                 masked_tracklet_count += 1
         except Exception as exc:
-            log.warning("tracklet_write_failed", track_id=track.track_id,
-                        error=str(exc))
+            log.warning("tracklet_write_failed", track_id=track.track_id, error=str(exc))
 
     log.info(
         "stage_track_done",
@@ -98,10 +110,56 @@ def run(
         tracklet_count=len(tracklet_ids),
         masked_tracklet_count=masked_tracklet_count,
         mask_aware=tracker.mask_aware,
+        projected_points=projected_points,
     )
     return {
         "tracklet_count": len(tracklet_ids),
         "tracklet_ids": tracklet_ids,
         "tracklets": tracklets,
         "mask_aware": tracker.mask_aware,
+        "projected_points": projected_points,
     }
+
+
+def _project_tracks(
+    results: list[Any],
+    homography: list[float] | None,
+    analytics_safe: bool,
+) -> int:
+    """Attach field coordinates to every track point, in place.
+
+    This is the step whose absence made ``field_x`` a column that a dozen
+    modules read and none wrote. Mutating the point dicts here means both the
+    backend write (``create_tracklet(track_points=track.points)``) and the
+    in-memory tracklets handed to later stages pick the coordinates up with no
+    further plumbing.
+
+    The projected point is the detection's **ground anchor** -- bottom-centre of
+    the box, i.e. the player's feet. A homography describes the ground plane, so
+    projecting the box centre would place every player a yard or two downfield,
+    consistently and undetectably.
+
+    Returns the number of points projected, for the stage log.
+    """
+    if not analytics_safe:
+        # Not an error. Film with no visible yard lines still tracks, renders,
+        # and produces clips; it just cannot produce spatial metrics, and the
+        # readers all guard on `field_x is not None`.
+        return 0
+
+    matrix = homography_from_flat(homography)
+    if matrix is None:
+        log.warning("stage_track_homography_unusable", analytics_safe=analytics_safe)
+        return 0
+
+    projected = 0
+    for track in results:
+        points = [p for p in track.points if p.get("bbox")]
+        if not points:
+            continue
+        field_xy = apply_homography_many(matrix, [ground_anchor(p["bbox"]) for p in points])
+        for point, (fx, fy) in zip(points, field_xy, strict=True):
+            point["field_x"] = fx
+            point["field_y"] = fy
+        projected += len(points)
+    return projected

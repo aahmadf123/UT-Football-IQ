@@ -41,11 +41,22 @@ log = structlog.get_logger(__name__)
 VIDEO_STAGES: tuple[str, ...] = ("ingest", "segment", "calibrate", "detect")
 
 #: Stages that operate per clip, in canonical order.
+#:
+#: ``events`` precedes ``pose`` and ``labels`` because both consume the snap it
+#: detects: ``stage_pose`` anchors its biomechanics at the snap frame and
+#: ``stage_labels`` reads formation at the snap. With ``pose`` running first it
+#: was handed an events list that was always empty, so every pose metric was
+#: computed against no snap at all.
+#:
+#: The reverse dependency is real but weaker: ``stage_events`` can take
+#: ``pose_by_frame`` as one of five snap signals. It is optional, ``stage_pose``
+#: does not currently return it, and the other four signals do not need it --
+#: so events goes first. Feeding pose back in would need a second pass.
 CLIP_STAGES: tuple[str, ...] = (
     "track",
     "reid",
-    "pose",
     "events",
+    "pose",
     "labels",
     "metrics",
     "routes",
@@ -58,9 +69,7 @@ CLIP_STAGES: tuple[str, ...] = (
 
 #: Stages that only make sense against a live backend (they read aggregate
 #: data back out of the API rather than transforming this video's artifacts).
-BACKEND_COUPLED_STAGES: frozenset[str] = frozenset(
-    {"self_scout", "embeddings", "workload_rollup"}
-)
+BACKEND_COUPLED_STAGES: frozenset[str] = frozenset({"self_scout", "embeddings", "workload_rollup"})
 
 ProgressCallback = Callable[[str, str | None, str, dict[str, Any]], None]
 """(stage, clip_id | None, status: started|succeeded|failed|skipped, extra)"""
@@ -196,6 +205,11 @@ class PipelineContext:
     regime_confidence: float = 0.0
     analytics_safe: bool = False
     calibration: dict[str, Any] = field(default_factory=dict)
+    #: Flat 9-element row-major homography from the calibrate stage, mapping
+    #: pixels to field yards. Kept as a plain list so it survives the artifact
+    #: sink's JSON round-trip on resume; call sites normalise it with
+    #: ``homography.homography_from_flat`` before doing any matrix maths.
+    homography: list[float] | None = None
     detections: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
     clips: list[dict[str, Any]] = field(default_factory=list)
 
@@ -215,12 +229,31 @@ def _clip_frame_window(clip: dict[str, Any], fps: float) -> tuple[int, int]:
     return int(start_t * fps), max(int(end_t * fps), int(start_t * fps))
 
 
+def _ball_only(
+    detections: dict[str, list[dict[str, Any]]],
+) -> dict[str, list[dict[str, Any]]] | None:
+    """Split the ball out of the per-frame detection map.
+
+    ``stage_detect`` merges the dedicated ball model's output into the same
+    frame-keyed dict as the players, tagged ``class="ball"``, but
+    ``stage_events`` wants the ball on its own -- it fits a trajectory to it and
+    drives the snap/throw/catch state machine from that.
+
+    Returns ``None`` when no ball was detected anywhere in the clip, which is
+    the signal the stage already understands for "run without the ball track".
+    """
+    ball: dict[str, list[dict[str, Any]]] = {}
+    for frame, dets in detections.items():
+        hits = [d for d in dets if d.get("class") == "ball"]
+        if hits:
+            ball[frame] = hits
+    return ball or None
+
+
 def _slice_detections(
     detections: dict[str, list[dict[str, Any]]], start_frame: int, end_frame: int
 ) -> dict[str, list[dict[str, Any]]]:
-    return {
-        f: dets for f, dets in detections.items() if start_frame <= int(f) <= end_frame
-    }
+    return {f: dets for f, dets in detections.items() if start_frame <= int(f) <= end_frame}
 
 
 def _offense_direction(labels: list[dict[str, Any]]) -> int:
@@ -260,9 +293,7 @@ def _run_video_stage(stage: str, ctx: PipelineContext) -> dict[str, Any]:
     if stage == "segment":
         from pipeline import stage_segment
 
-        artifacts = stage_segment.run(
-            ctx.video_id, local_uri, ctx.job_id, priority=ctx.priority
-        )
+        artifacts = stage_segment.run(ctx.video_id, local_uri, ctx.job_id, priority=ctx.priority)
         ctx.clips = [c for c in artifacts.get("clips", []) if c.get("id")]
         return artifacts
 
@@ -279,6 +310,7 @@ def _run_video_stage(stage: str, ctx: PipelineContext) -> dict[str, Any]:
         )
         ctx.analytics_safe = bool(artifacts.get("analytics_safe", False))
         ctx.calibration = artifacts
+        ctx.homography = artifacts.get("homography")
         return artifacts
 
     if stage == "detect":
@@ -301,9 +333,7 @@ def _run_video_stage(stage: str, ctx: PipelineContext) -> dict[str, Any]:
     raise ValueError(f"Unknown video-scoped stage: {stage}")
 
 
-def _run_clip_stage(
-    stage: str, ctx: PipelineContext, clip: dict[str, Any]
-) -> dict[str, Any]:
+def _run_clip_stage(stage: str, ctx: PipelineContext, clip: dict[str, Any]) -> dict[str, Any]:
     """Run one clip-scoped stage for ``clip`` and fold outputs into context."""
     from pipeline import model_router
 
@@ -321,7 +351,18 @@ def _run_clip_stage(
 
         variant = model_router.select_model("track", ctx.priority)
         clip_dets = _slice_detections(ctx.detections, start_frame, end_frame)
-        return stage_track.run(clip_id, clip_dets, ctx.fps, ctx.job_id, variant=variant)
+        return stage_track.run(
+            clip_id,
+            clip_dets,
+            ctx.fps,
+            ctx.job_id,
+            variant=variant,
+            # Field coordinates are attached here, at the one place that sees
+            # both the tracks and the calibration. Every downstream spatial
+            # metric reads them off the track points.
+            homography=ctx.homography,
+            analytics_safe=ctx.analytics_safe,
+        )
 
     if stage == "reid":
         from pipeline import stage_reid
@@ -364,12 +405,25 @@ def _run_clip_stage(
         from pipeline import stage_events
 
         clip_dets = _slice_detections(ctx.detections, start_frame, end_frame)
+        # `homography` and `ball_detections` are the two that matter. Without
+        # them the stage skips its entire ball state machine, so no throw, catch
+        # or interception can be emitted and only `snap` survives -- which is
+        # why event_count was 0 on every archived baseline clip.
+        #
+        # The remaining optional inputs stay unset on purpose. `pose_by_frame`
+        # would need stage_pose to return it (it does not) and pose now runs
+        # after this stage anyway; the OL/QB/centre track ids would come from
+        # stage_labels, which consumes events and therefore cannot precede them.
+        # Both are genuine ordering constraints, not oversights -- see the note
+        # on CLIP_STAGES.
         return stage_events.run(
             clip_id,
             clip_dets,
             ctx.fps,
             ctx.job_id,
             tracklets=tracklets or None,
+            ball_detections=_ball_only(clip_dets),
+            homography=ctx.homography,
         )
 
     if stage == "labels":
@@ -659,9 +713,7 @@ def run_pipeline(
     return summary
 
 
-def _fold_cached_video_stage(
-    stage: str, ctx: PipelineContext, cached: dict[str, Any]
-) -> None:
+def _fold_cached_video_stage(stage: str, ctx: PipelineContext, cached: dict[str, Any]) -> None:
     """Rehydrate context fields from a resumed stage's ledger snapshot."""
     ctx.stage_artifacts[stage] = cached
     _merge_routing(ctx, cached)
@@ -676,6 +728,10 @@ def _fold_cached_video_stage(
     elif stage == "calibrate":
         ctx.analytics_safe = bool(cached.get("analytics_safe", False))
         ctx.calibration = cached
+        # Mirror of the live branch above. Miss this and a resumed run loses the
+        # homography, so every spatial metric silently degrades on exactly the
+        # jobs that were interrupted and retried.
+        ctx.homography = cached.get("homography")
     elif stage == "detect":
         ctx.detections = cached.get("detections", {})
         if cached.get("fps"):

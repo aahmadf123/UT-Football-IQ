@@ -27,14 +27,22 @@ import type { Env } from "./env";
  * Exported so a test can assert the mapping without starting a container.
  */
 export function buildContainerEnv(env: Env): Record<string, string> {
+  // Hyperdrive is the default source; BACKEND_DATABASE_URL overrides it.
+  //
+  // The override exists because Cloudflare documents the Hyperdrive connection
+  // string as resolvable only from inside the Workers runtime, and the
+  // container is a separate sandbox -- container-to-Worker outbound is HTTP
+  // only, which a Postgres TCP connection cannot use. If the container fails to
+  // connect, the symptom looks like a database outage; setting this secret to
+  // the origin Postgres URL restores service without a code change or redeploy.
+  const databaseUrl = env.BACKEND_DATABASE_URL || env.HYPERDRIVE?.connectionString;
+
   const vars: Record<string, string | undefined> = {
     // ── Database ────────────────────────────────────────────────────────
-    // Direct to Postgres, NOT via Hyperdrive: a Hyperdrive connection string
-    // only resolves inside the Workers runtime, so the container cannot use it.
-    // A long-lived container holds its own SQLAlchemy pool, which is the thing
-    // Hyperdrive exists to substitute for.
-    DATABASE_URL: env.BACKEND_DATABASE_URL,
-    DATABASE_SYNC_URL: env.BACKEND_DATABASE_SYNC_URL ?? toSyncUrl(env.BACKEND_DATABASE_URL),
+    // Hyperdrive hands out a `postgres(ql)://` URL. SQLAlchemy needs the async
+    // driver spelled out, and Alembic needs the plain psycopg2 form.
+    DATABASE_URL: toAsyncUrl(databaseUrl),
+    DATABASE_SYNC_URL: env.BACKEND_DATABASE_SYNC_URL ?? toSyncUrl(databaseUrl),
 
     // ── Core ────────────────────────────────────────────────────────────
     SECRET_KEY: env.SECRET_KEY,
@@ -91,9 +99,24 @@ export function buildContainerEnv(env: Env): Record<string, string> {
   return out;
 }
 
-/** Derive the psycopg2 URL Alembic wants from the asyncpg one. */
-function toSyncUrl(asyncUrl: string | undefined): string | undefined {
-  return asyncUrl?.replace("+asyncpg", "");
+/**
+ * Normalise any Postgres URL to the async driver SQLAlchemy expects.
+ *
+ * Hyperdrive emits `postgresql://` (and `postgres://` is equally valid), while
+ * SQLAlchemy needs the driver named explicitly or it picks psycopg2 and the
+ * async engine fails at startup. Already-qualified URLs pass through untouched
+ * so an operator override can name its own driver.
+ */
+function toAsyncUrl(url: string | undefined): string | undefined {
+  if (!url) return undefined;
+  if (url.includes("+")) return url;
+  return url.replace(/^postgres(ql)?:\/\//, "postgresql+asyncpg://");
+}
+
+/** Normalise to the plain psycopg2 form Alembic wants. */
+function toSyncUrl(url: string | undefined): string | undefined {
+  if (!url) return undefined;
+  return url.replace(/^postgres(ql)?(\+\w+)?:\/\//, "postgresql://");
 }
 
 export class BackendContainer extends Container<Env> {

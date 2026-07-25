@@ -38,24 +38,22 @@
   ],
 
   // ── Database ───────────────────────────────────────────────────────────────
-  // For Worker-side queries. The CONTAINER does not use this: a Hyperdrive
-  // connection string only resolves inside the Workers runtime, so the backend
-  // dials Postgres directly via the BACKEND_DATABASE_URL secret (see
-  // src/container.ts). A long-lived container holds its own SQLAlchemy pool,
-  // which is what Hyperdrive substitutes for in a Worker.
+  // Query caching is disabled on this config, and must stay that way:
+  // Hyperdrive does not invalidate cached reads when you write, and the auth,
+  // job-claim, and upload paths are all read-after-write. A coach would log in
+  // and not exist yet; a worker would claim a job a cached read still shows as
+  // queued.
   //
-  // Create the config with caching OFF -- the id below is a placeholder:
-  //   wrangler hyperdrive create footiq-db \
-  //     --connection-string="postgres://..." --caching-disabled
-  //
-  // Caching must stay disabled. Hyperdrive does not invalidate cached reads
-  // when you write, and the auth, job-claim, and upload paths are all
-  // read-after-write: a coach would log in and not exist yet, and a worker
-  // would claim a job that a cached read still shows as queued.
+  // src/container.ts derives the container's DATABASE_URL from this binding's
+  // connectionString. See the note there about BACKEND_DATABASE_URL, which
+  // overrides it — Cloudflare documents the Hyperdrive string as resolvable
+  // only inside the Workers runtime, so that override is the recovery path if
+  // the container cannot dial it.
   "hyperdrive": [
     {
       "binding": "HYPERDRIVE",
-      "id": "REPLACE_WITH_HYPERDRIVE_CONFIG_ID",
+      "id": "149ffd9184e74ec2a9c2d73d3688355d",
+      // Used only by `wrangler dev`; never in a deployed Worker.
       "localConnectionString": "postgresql://footiq:footiq@localhost:5432/footiq"
     }
   ],
