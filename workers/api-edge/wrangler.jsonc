@@ -9,15 +9,18 @@
   // ── The FastAPI backend, as a container ────────────────────────────────────
   // Requires the Workers Paid plan. `wrangler deploy` builds backend/Dockerfile,
   // pushes it to Cloudflare's registry, and provisions the instances.
-  // max_instances is 1 deliberately: alerts_sse.py holds its subscriber map in
-  // process memory, so a second instance would silently drop alert streams.
-  // See the note in src/proxy.ts before raising this.
+  //
+  // max_instances is 1 deliberately, and the image runs a single uvicorn worker
+  // for the same reason: alerts_sse.py holds its subscriber map in process
+  // memory, so a second process -- whether another instance or a forked worker
+  // -- silently drops alert streams. See backend/Dockerfile and src/proxy.ts
+  // before raising either.
   "containers": [
     {
       "class_name": "BackendContainer",
       "image": "../../backend/Dockerfile",
       "max_instances": 1,
-      "instance_type": "standard"
+      "instance_type": "standard-1"
     }
   ],
   "durable_objects": {
@@ -26,8 +29,7 @@
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["BackendContainer"] }],
 
   // ── Object storage ─────────────────────────────────────────────────────────
-  // Create these first: `wrangler r2 bucket create footiq-raw-video` etc.
-  // See docs/setup/cloudflare.md.
+  // These buckets already exist; do not recreate them.
   "r2_buckets": [
     { "binding": "RAW_VIDEO", "bucket_name": "footiq-raw-video" },
     { "binding": "CLIPS", "bucket_name": "footiq-clips" },
@@ -35,10 +37,34 @@
     { "binding": "ARTIFACTS", "bucket_name": "footiq-artifacts" }
   ],
 
+  // ── Database ───────────────────────────────────────────────────────────────
+  // For Worker-side queries. The CONTAINER does not use this: a Hyperdrive
+  // connection string only resolves inside the Workers runtime, so the backend
+  // dials Postgres directly via the BACKEND_DATABASE_URL secret (see
+  // src/container.ts). A long-lived container holds its own SQLAlchemy pool,
+  // which is what Hyperdrive substitutes for in a Worker.
+  //
+  // Create the config with caching OFF -- the id below is a placeholder:
+  //   wrangler hyperdrive create footiq-db \
+  //     --connection-string="postgres://..." --caching-disabled
+  //
+  // Caching must stay disabled. Hyperdrive does not invalidate cached reads
+  // when you write, and the auth, job-claim, and upload paths are all
+  // read-after-write: a coach would log in and not exist yet, and a worker
+  // would claim a job that a cached read still shows as queued.
+  "hyperdrive": [
+    {
+      "binding": "HYPERDRIVE",
+      "id": "REPLACE_WITH_HYPERDRIVE_CONFIG_ID",
+      "localConnectionString": "postgresql://footiq:footiq@localhost:5432/footiq"
+    }
+  ],
+
   // ── Nightly tick ───────────────────────────────────────────────────────────
-  // 08:00 UTC, matching the SCHEDULER_HOUR_UTC the backend used to gate on.
-  // The backend still takes a Postgres advisory lock, so a duplicate delivery
-  // is harmless.
+  // 08:00 UTC, matching the SCHEDULER_HOUR_UTC the backend used to gate on. The
+  // backend still takes a Postgres advisory lock, so a duplicate delivery is
+  // harmless. The container's own in-process loop is disabled (SCHEDULER_ENABLED=0,
+  // set in src/container.ts) so the two do not both fire.
   "triggers": { "crons": ["0 8 * * *"] },
 
   "vars": {
@@ -48,10 +74,31 @@
     "CORS_ORIGINS": "http://localhost:3000",
     // Optional anchored regex for per-deploy Vercel preview URLs, e.g.
     // "https://footiq-[a-z0-9-]+\\.vercel\\.app"
-    "CORS_ORIGIN_REGEX": ""
+    "CORS_ORIGIN_REGEX": "",
+    // This Worker's public origin. The backend mints absolute upload and
+    // playback URLs from it; left unset it falls back to X-Forwarded-*.
+    "PUBLIC_API_BASE_URL": "",
+    "R2_BUCKET_RAW": "footiq-raw-video",
+    "R2_BUCKET_CLIPS": "footiq-clips",
+    "R2_BUCKET_OVERLAYS": "footiq-overlays",
+    "R2_BUCKET_ARTIFACTS": "footiq-artifacts",
+    "SEED_USERS_ON_STARTUP": "false"
   }
 
   // ── Secrets (never in this file) ───────────────────────────────────────────
-  // wrangler secret put SECRET_KEY        # identical to the backend's
-  // wrangler secret put SCHEDULER_TOKEN   # identical to the backend's
+  // Every one of these is forwarded into the container by src/container.ts;
+  // none of them reach it automatically.
+  //
+  //   wrangler secret put SECRET_KEY            # identical to the backend's
+  //   wrangler secret put SCHEDULER_TOKEN       # authenticates the cron tick
+  //   wrangler secret put BACKEND_DATABASE_URL  # postgresql+asyncpg://...
+  //   wrangler secret put R2_ACCESS_KEY_ID      # R2 S3-API token
+  //   wrangler secret put R2_SECRET_ACCESS_KEY
+  //   wrangler secret put R2_ENDPOINT_URL       # https://<account>.r2.cloudflarestorage.com
+  //
+  // Optional bootstrap, only read when SEED_USERS_ON_STARTUP is true:
+  //   wrangler secret put SEED_ADMIN_EMAIL / SEED_ADMIN_PASSWORD
+  //   wrangler secret put SEED_WORKER_EMAIL / SEED_WORKER_PASSWORD
+  //
+  // See docs/setup/cloudflare.md.
 }

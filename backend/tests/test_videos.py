@@ -334,3 +334,73 @@ def test_list_videos_rejects_invalid_session_kind() -> None:
         app.dependency_overrides.clear()
 
     assert resp.status_code == 422
+
+
+# ── Tags (upload metadata) ───────────────────────────────────────────────────
+
+
+def test_create_video_normalizes_tags() -> None:
+    """Tags are lowercased and de-duplicated before they reach the metadata bag.
+
+    Done server-side as well as in the upload dialog so an API client cannot
+    create "Red Zone" and "red zone" as two separate browsing buckets.
+    """
+    captured: list[Video] = []
+    _override_auth(captured)
+    try:
+        with TestClient(app) as c:
+            resp = c.post(
+                "/api/v1/videos",
+                json={
+                    "filename": "practice.mp4",
+                    "storage_uri": "s3://x/practice.mp4",
+                    "session_kind": "practice",
+                    "tags": ["Red Zone", "red zone", "  Install  ", ""],
+                },
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert resp.status_code == 201, resp.text
+    assert captured[0].metadata_ == {"tags": ["red zone", "install"]}
+
+
+def test_create_video_without_tags_leaves_metadata_unset() -> None:
+    captured: list[Video] = []
+    _override_auth(captured)
+    try:
+        with TestClient(app) as c:
+            resp = c.post(
+                "/api/v1/videos",
+                json={
+                    "filename": "practice.mp4",
+                    "storage_uri": "s3://x/practice.mp4",
+                    "session_kind": "practice",
+                },
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert resp.status_code == 201, resp.text
+    # An empty bag rather than {"tags": null}: nothing downstream has to special
+    # case a key that is present but meaningless.
+    assert captured[0].metadata_ is None
+
+
+def test_create_video_rejects_too_many_tags() -> None:
+    app.dependency_overrides[get_current_user] = lambda: _make_user()
+    try:
+        with TestClient(app) as c:
+            resp = c.post(
+                "/api/v1/videos",
+                json={
+                    "filename": "practice.mp4",
+                    "storage_uri": "s3://x/practice.mp4",
+                    "session_kind": "practice",
+                    "tags": [f"tag-{i}" for i in range(25)],
+                },
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert resp.status_code == 422
