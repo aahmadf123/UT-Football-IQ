@@ -36,6 +36,9 @@ IOU_THRESHOLD = 0.3
 # to cover a receiver carried out of bounds and a defender chasing into the
 # bench area, without admitting a field twice its true width.
 MAX_OUT_OF_BOUNDS_YD = 15.0
+#: Fraction trimmed from each end before measuring spread, so a few false-positive
+#: tracks cannot veto a good calibration.
+EXTENT_TAIL_FRACTION = 0.05
 
 
 def run(
@@ -184,20 +187,35 @@ def _project_tracks(
     return len(pending)
 
 
+def _spread(values: list[float]) -> float:
+    """Range of ``values`` ignoring the outermost ``EXTENT_TAIL_FRACTION`` each end.
+
+    Min-to-max would let a single bad track speak for the whole clip. Detectors
+    do produce false positives on field markings and sideline furniture, and
+    those sit at the edges of the frame -- exactly where projection error is
+    largest -- so the raw range is the one statistic guaranteed to be dominated
+    by the least trustworthy points.
+    """
+    ordered = sorted(values)
+    if len(ordered) < 20:  # too few to spare any; use the full range
+        return ordered[-1] - ordered[0]
+    cut = int(len(ordered) * EXTENT_TAIL_FRACTION)
+    return ordered[-1 - cut] - ordered[cut]
+
+
 def _extent_is_possible(points: list[tuple[float, float]]) -> bool:
     """Could these projected positions be players on a football field?
 
     A tolerance, not a boundary test: players legitimately stand out of bounds,
     behind the end line, and on the sideline. This only rejects a spread that no
     football field could contain -- the signature of a homography whose scale is
-    wrong on one axis.
+    wrong on one axis, which fits its own correspondences perfectly and reports
+    a clean inlier ratio while placing players tens of yards from where they are.
     """
     tmpl = default_template()
-    ys = [y for _, y in points]
-    xs = [x for x, _ in points]
     # Generous: the full width plus a first down of room on each side, and the
     # full length plus both end zones and then some.
     return (
-        max(ys) - min(ys) <= tmpl.width + 2 * MAX_OUT_OF_BOUNDS_YD
-        and max(xs) - min(xs) <= tmpl.length + 2 * MAX_OUT_OF_BOUNDS_YD
+        _spread([y for _, y in points]) <= tmpl.width + 2 * MAX_OUT_OF_BOUNDS_YD
+        and _spread([x for x, _ in points]) <= tmpl.length + 2 * MAX_OUT_OF_BOUNDS_YD
     )

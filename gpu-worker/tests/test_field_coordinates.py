@@ -252,3 +252,22 @@ class TestProjectionPlausibility:
 
     def test_a_double_width_field_is_rejected(self) -> None:
         assert not stage_track._extent_is_possible([(10.0, -55.0), (60.0, 55.0)])
+
+    def test_a_few_bad_tracks_do_not_veto_a_good_calibration(self) -> None:
+        # Detectors fire on field markings and sideline furniture, and those
+        # land at the frame edges where projection error is largest. Measuring
+        # min-to-max lets one such track speak for the whole clip.
+        good = [(50.0, y) for y in range(-20, 21)]  # 41 points, 40 yards wide
+        with_outliers = [*good, (50.0, -400.0), (50.0, 400.0)]
+        assert stage_track._extent_is_possible(with_outliers)
+
+    def test_a_wrong_scale_is_still_caught_through_the_trim(self) -> None:
+        # The trim must not be so generous that a genuinely stretched axis
+        # survives it -- that is the failure the guard exists for.
+        stretched = [(50.0, float(y)) for y in range(-100, 101, 2)]
+        assert not stage_track._extent_is_possible(stretched)
+
+    def test_a_small_sample_keeps_its_full_range(self) -> None:
+        # With only a handful of points there is nothing to spare; trimming 5%
+        # of six points would discard real signal.
+        assert not stage_track._extent_is_possible([(50.0, -60.0), (50.0, 60.0)])

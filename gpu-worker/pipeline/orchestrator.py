@@ -355,11 +355,25 @@ def _uncertainty_heads(artifacts: dict[str, dict[str, Any]]) -> dict[str, Any]:
             continue
         heads[name] = CalibratedOutput(
             value=name,
-            confidence=float(source.get("confidence") or source.get("coverage_confidence") or 0.0),
+            confidence=_head_confidence(source),
             is_calibrated=bool(source.get("is_calibrated")),
             entropy=float(entropy),
         )
     return heads
+
+
+def _head_confidence(source: dict[str, Any]) -> float:
+    """The head's confidence, under whichever key that stage happens to use.
+
+    Explicit ``is None`` rather than ``a or b``: a head that legitimately
+    reports ``0.0`` -- no confidence at all, which is a real answer -- would
+    otherwise be treated as absent and silently replaced by the next key.
+    """
+    for key in ("confidence", "coverage_confidence"):
+        value = source.get(key)
+        if value is not None:
+            return float(value)
+    return 0.0
 
 
 def _score_clip_uncertainty(ctx: PipelineContext, clip_id: str) -> None:

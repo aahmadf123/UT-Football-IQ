@@ -156,3 +156,25 @@ class TestUncertaintyReachesTheClip:
         with patch.object(orchestrator_backend, "_client") as client:
             orchestrator_backend.patch_clip_uncertainty("c1", None, False)
         client.assert_not_called()
+
+    def test_a_zero_confidence_head_is_not_treated_as_missing(self) -> None:
+        # `a or b` reads a legitimate 0.0 -- no confidence at all, which is a
+        # real answer -- as absent, and silently substitutes the next key.
+        heads = orchestrator._uncertainty_heads(
+            {"coverage": {"uncertainty": 0.5, "confidence": 0.0,
+                          "coverage_confidence": 0.9, "is_calibrated": True}}
+        )
+        assert heads["coverage"].confidence == pytest.approx(0.0)
+
+    def test_it_falls_back_only_when_the_key_is_absent(self) -> None:
+        heads = orchestrator._uncertainty_heads(
+            {"coverage": {"uncertainty": 0.5, "coverage_confidence": 0.9,
+                          "is_calibrated": True}}
+        )
+        assert heads["coverage"].confidence == pytest.approx(0.9)
+
+    def test_no_confidence_key_at_all_is_zero(self) -> None:
+        heads = orchestrator._uncertainty_heads(
+            {"coverage": {"uncertainty": 0.5, "is_calibrated": False}}
+        )
+        assert heads["coverage"].confidence == pytest.approx(0.0)
