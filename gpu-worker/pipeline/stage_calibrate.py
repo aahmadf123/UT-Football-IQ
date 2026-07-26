@@ -40,6 +40,7 @@ from pipeline import backend, object_store
 from pipeline.homography import camera_motion_ecc as ecc
 from pipeline.homography import confidence_scorer as cs
 from pipeline.homography import dlt_ransac, kalman_smoother
+from pipeline.homography import field_boundary as fb
 from pipeline.homography import yardline_keypoints as yk
 from pipeline.homography.project import projects_onto_field
 
@@ -178,6 +179,7 @@ def _calibrate_fixed_sideline(
         inlier_ratio=inlier_ratio,
         line_count=kp.line_count,
         parallel_variance=_variance(kp.yardline_angles),
+        field_boundary=_field_boundary_diagnostics(frames),
         temporal_drift=0.0,
         kalman_state=None,
         is_game_anchor=True,
@@ -280,6 +282,7 @@ def _calibrate_drone(
         inlier_ratio=best_inlier,
         line_count=best_kp.line_count,
         parallel_variance=_variance(best_kp.yardline_angles),
+        field_boundary=_field_boundary_diagnostics(frames),
         temporal_drift=temporal_drift,
         kalman_state=kalman_state,
         is_game_anchor=False,
@@ -328,6 +331,24 @@ def _best_frame_fit(
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
+
+
+def _field_boundary_diagnostics(frames: list[np.ndarray]) -> dict[str, Any] | None:
+    """Boundary from the most informative sampled frame.
+
+    "Most informative" is the one showing the most real touchline, not the one
+    with the most turf. A drone that drifts wide for a moment reveals a sideline
+    the tight frames never contain, and one such frame is enough to know which
+    cross-field rows the clip has been looking at all along.
+    """
+    best: fb.FieldBoundary | None = None
+    for frame in frames:
+        boundary = fb.detect_field_boundary(frame)
+        if boundary is None:
+            continue
+        if best is None or len(boundary.visible_edges) > len(best.visible_edges):
+            best = boundary
+    return fb.diagnostics(best) if best is not None else None
 
 
 def _series_drift(homographies: list[np.ndarray], shape: tuple[int, int]) -> float:
@@ -510,6 +531,7 @@ def _persist_and_return(
     is_game_anchor: bool,
     reason_codes: list[str],
     extra_diagnostics: dict[str, Any] | None = None,
+    field_boundary: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Write the calibration record and return the stage output artifacts."""
     confidence = breakdown.confidence if breakdown is not None else 0.0
@@ -543,6 +565,8 @@ def _persist_and_return(
     }
     if extra_diagnostics:
         calibration_points["motion_compensation"] = extra_diagnostics
+    if field_boundary is not None:
+        calibration_points["field_boundary"] = field_boundary
 
     try:
         backend.create_calibration(
@@ -586,4 +610,9 @@ def _persist_and_return(
         # through JSON in the resume ledger, and several call sites test the
         # value for truthiness, which raises on a numpy array.
         "homography": homography_list,
+        # Where the playing surface ends, and -- the part that matters --
+        # whether any of that edge is a real touchline rather than the frame
+        # border. Downstream this gates filtering detections to the field: with
+        # no visible edge there is nothing to be outside of.
+        "field_boundary": field_boundary,
     }
