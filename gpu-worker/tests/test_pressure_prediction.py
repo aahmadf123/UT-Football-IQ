@@ -166,10 +166,20 @@ def test_stage_suppresses_without_calibration() -> None:
     assert result["pressure"]["reason"] == "calibration_not_analytics_safe"
 
 
+def test_stage_suppresses_without_field_orientation() -> None:
+    """Confirmed coordinates are not enough — the sign has to be measured too."""
+    result = stage_pressure.run(
+        "clip-1", _heavy_blitz_front(), [{"event_type": "snap", "frame_number": 10}],
+        analytics_safe=True, fps=30.0, job_id="job-1", persist=False,
+    )
+    assert result["suppressed"] is True
+    assert result["pressure"]["reason"] == "field_orientation_unresolved"
+
+
 def test_stage_predicts_when_calibrated_offline() -> None:
     result = stage_pressure.run(
         "clip-1", _heavy_blitz_front(), [{"event_type": "snap", "frame_number": 10}],
-        analytics_safe=True, fps=30.0, job_id="job-1",
+        analytics_safe=True, fps=30.0, job_id="job-1", offense_direction=1,
         down=3, distance_yards=10.0, persist=False,
     )
     assert result["suppressed"] is False
@@ -191,7 +201,8 @@ def test_stage_persists_experimental_metric(monkeypatch) -> None:  # type: ignor
     monkeypatch.setattr(stage_pressure.backend, "create_metric", _fake_metric)
     result = stage_pressure.run(
         "clip-1", _heavy_blitz_front(), [{"event_type": "snap", "frame_number": 10}],
-        analytics_safe=True, fps=30.0, job_id="job-1", persist=True,
+        analytics_safe=True, fps=30.0, job_id="job-1", offense_direction=1,
+        persist=True,
     )
     assert result["metric_id"] == "metric-1"
     assert captured["metric_name"] == "pressure_prob"

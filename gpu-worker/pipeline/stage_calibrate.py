@@ -41,6 +41,7 @@ from pipeline.homography import camera_motion_ecc as ecc
 from pipeline.homography import confidence_scorer as cs
 from pipeline.homography import dlt_ransac, kalman_smoother
 from pipeline.homography import field_boundary as fb
+from pipeline.homography import field_orientation as fo
 from pipeline.homography import yardline_keypoints as yk
 from pipeline.homography.project import projects_onto_field
 
@@ -204,14 +205,17 @@ def _calibrate_drone(
     ``video_path`` is optional: when omitted, chained-ECC is treated as
     unavailable and the temporal-stability signal falls back to ``series_drift``.
     """
-    fits: list[tuple[np.ndarray, yk.KeypointResult, float] | None] = []
+    # Codes are carried per window, not dropped. ``KeypointResult.reason_codes``
+    # only describes line detection; the fit-level codes -- handedness_corrected,
+    # low_inlier_ratio -- exist solely on what ``_best_frame_fit`` returns, and
+    # this path is the one the drone footage actually takes.
+    fits: list[tuple[np.ndarray, yk.KeypointResult, float, list[str]] | None] = []
     for frame in frames:
         best = _best_frame_fit([frame])
         if best is None:
             fits.append(None)
             continue
-        H, kp, inlier_ratio, _ = best
-        fits.append((H, kp, inlier_ratio))
+        fits.append(best)
 
     valid = [f for f in fits if f is not None]
     if not valid:
@@ -265,6 +269,7 @@ def _calibrate_drone(
     best_idx = int(np.argmax(confidences))
     best_kp = valid[best_idx][1]
     best_inlier = valid[best_idx][2]
+    best_codes = valid[best_idx][3]
     parallel = cs.parallel_line_score(best_kp.yardline_angles)
     breakdown = cs.compute_confidence(
         inlier_ratio=best_inlier,
@@ -286,7 +291,7 @@ def _calibrate_drone(
         temporal_drift=temporal_drift,
         kalman_state=kalman_state,
         is_game_anchor=False,
-        reason_codes=list(best_kp.reason_codes),
+        reason_codes=list(best_codes),
         extra_diagnostics=ecc_diag,
     )
 
@@ -316,6 +321,14 @@ def _best_frame_fit(
         )
         if H is None:
             continue
+        # The paint cannot distinguish a labelling from its mirror image, so
+        # roughly half of all fits come back describing a camera *underneath*
+        # the field, with left and right swapped and every other diagnostic
+        # clean. Handedness settles that from geometry alone; re-labelling onto
+        # the mirrored landmarks costs no re-projection error.
+        mirrored = fo.is_mirrored(H, frame.shape)
+        if mirrored:
+            H = fo.unmirror(H)
         if not projects_onto_field(H, frame.shape):
             # A fit can satisfy RANSAC and still be physically impossible. Skip
             # rather than score it: the only quality signal here is inlier
@@ -329,6 +342,8 @@ def _best_frame_fit(
             reason_codes = list(kp.reason_codes)
             if inlier_ratio < 0.5:
                 reason_codes.append("low_inlier_ratio")
+            if mirrored:
+                reason_codes.append("handedness_corrected")
             best = (H, kp, inlier_ratio, reason_codes)
     return best
 

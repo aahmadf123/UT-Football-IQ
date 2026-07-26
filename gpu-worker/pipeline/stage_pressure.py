@@ -45,7 +45,7 @@ def run(
     fps: float,
     job_id: str,
     *,
-    offense_direction: int = 1,
+    offense_direction: int | None = None,
     down: int | None = None,
     distance_yards: float | None = None,
     classifier: PressureClassifier | None = None,
@@ -62,6 +62,15 @@ def run(
     if not analytics_safe:
         return _suppress(
             clip_id, job_id, "calibration_not_analytics_safe", persist=persist
+        )
+
+    # Every feature here is signed by the attacking direction -- the offence /
+    # defence split itself is "which side of the ball", and the DL gap labels
+    # follow from it. With the direction unresolved the two teams change places,
+    # so this is not a degraded number but an inverted one.
+    if offense_direction is None:
+        return _suppress(
+            clip_id, job_id, "field_orientation_unresolved", persist=persist
         )
 
     los_x = estimate_los_x(tracklets, snap_frame)

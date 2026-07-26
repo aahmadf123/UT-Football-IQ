@@ -45,7 +45,7 @@ def run(
     fps: float,
     *,
     analytics_safe: bool = False,
-    offense_direction: int = 1,
+    offense_direction: int | None = None,
     classifier: CoverageClassifier | None = None,
 ) -> dict[str, Any]:
     """Analyse coverage shell and leverage, write labels.
@@ -298,7 +298,7 @@ def _classify_shell(
     los_x: float,
     *,
     analytics_safe: bool,
-    offense_direction: int,
+    offense_direction: int | None,
     classifier: CoverageClassifier | None,
 ) -> dict[str, Any]:
     """Classify the coverage shell with calibrated uncertainty (Issue #139).
@@ -306,8 +306,13 @@ def _classify_shell(
     Uses the GNN/baseline classifier over the shared spatial graph when
     calibration is confirmed; otherwise falls back to the legacy depth heuristic
     and flags the result uncalibrated (coordinates unconfirmed).
+
+    An unresolved ``offense_direction`` takes the same fallback. Confirmed
+    coordinates are not enough on their own: ``depth_behind_los`` is signed by
+    the attacking direction, so guessing it puts every defender's depth the
+    wrong way round and the shell is read off a mirror image of the play.
     """
-    if analytics_safe:
+    if analytics_safe and offense_direction is not None:
         try:
             receiver_positions = [
                 pos
