@@ -305,7 +305,10 @@ def _best_frame_fit(
     best: tuple[np.ndarray, yk.KeypointResult, float, list[str]] | None = None
     best_inliers = -1
     for frame in frames:
-        kp = yk.detect_keypoints(frame)
+        grass = yk.grass_mask(frame)
+        kp = yk.detect_keypoints(
+            frame, boundary=fb.detect_field_boundary(frame, grass=grass), grass=grass
+        )
         if not kp.has_enough():
             continue
         H, mask = dlt_ransac.ransac_homography(
@@ -343,7 +346,7 @@ def _field_boundary_diagnostics(frames: list[np.ndarray]) -> dict[str, Any] | No
     """
     best: fb.FieldBoundary | None = None
     for frame in frames:
-        boundary = fb.detect_field_boundary(frame)
+        boundary = fb.detect_field_boundary(frame, grass=yk.grass_mask(frame))
         if boundary is None:
             continue
         if best is None or len(boundary.visible_edges) > len(best.visible_edges):

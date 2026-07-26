@@ -10,6 +10,7 @@ rows against a fiction.
 
 from __future__ import annotations
 
+import math
 import os
 import sys
 
@@ -127,6 +128,46 @@ class TestDetectOnSyntheticFrames:
         assert fb.detect_field_boundary(np.zeros((360, 640, 3), dtype=np.uint8)) is None
 
 
+class TestOnSurfaceVersusContains:
+    """Two questions that must be allowed to disagree.
+
+    ``contains`` answers "should this detection be discarded", so with no real
+    edge visible it has to say yes to everything. ``on_surface`` answers "is
+    this pixel turf", and calibration needs that one literal -- deciding whether
+    a row has field on both sides is impossible if both sides always say yes.
+    """
+
+    def test_they_agree_when_a_real_edge_is_visible(self) -> None:
+        b = fb.FieldBoundary(polygon=INSET, coverage=0.8, clipped_edges=())
+        assert b.contains((300.0, 180.0)) and b.on_surface((300.0, 180.0))
+        assert not b.contains((10.0, 180.0), margin=5.0)
+        assert not b.on_surface((10.0, 180.0))
+
+    def test_they_diverge_when_the_frame_is_all_field(self) -> None:
+        b = fb.FieldBoundary(polygon=INSET, coverage=0.96, clipped_edges=fb.EDGE_NAMES)
+        assert b.contains((10.0, 180.0)), "nothing to be outside of"
+        assert not b.on_surface((10.0, 180.0)), "but the polygon is still a polygon"
+
+
+class TestMarginScalesWithResolution:
+    def test_a_bigger_frame_gets_a_proportionally_bigger_margin(self) -> None:
+        # As a fixed pixel count the slack tightens as resolution rises, so the
+        # identical shot would start rejecting players near the sideline purely
+        # because it was recorded on a better camera.
+        at_720p = fb.FieldBoundary(
+            polygon=INSET, coverage=0.8, clipped_edges=(), frame_shape=(1280, 720)
+        )
+        at_4k = fb.FieldBoundary(
+            polygon=INSET, coverage=0.8, clipped_edges=(), frame_shape=(3840, 2160)
+        )
+        assert at_720p.margin_px == pytest.approx(fb.CONTAINS_MARGIN_PX)
+        assert at_4k.margin_px == pytest.approx(fb.CONTAINS_MARGIN_PX * 3)
+
+    def test_an_unknown_frame_size_falls_back_to_the_quoted_value(self) -> None:
+        b = fb.FieldBoundary(polygon=INSET, coverage=0.8, clipped_edges=())
+        assert b.margin_px == pytest.approx(fb.CONTAINS_MARGIN_PX)
+
+
 class TestDiagnostics:
     def test_none_is_serialisable(self) -> None:
         assert fb.diagnostics(None) == {"found": False}
@@ -228,3 +269,84 @@ class TestBoundaryRoundTrip:
         # A clip with no boundary must still detect and track; it just filters
         # nothing.
         assert fb.boundary_from_diagnostics(payload) is None  # type: ignore[arg-type]
+
+
+class TestTouchlines:
+    """Only a real field edge may be offered to the calibrator as a sideline."""
+
+    def test_a_fully_cropped_boundary_offers_none(self) -> None:
+        # The tight-clip case. The polygon still has corners that do not
+        # individually hug a border, and returning those would hand calibration
+        # two confident "sidelines" that are nothing of the kind.
+        b = fb.FieldBoundary(
+            polygon=np.array([[0.0, 0.0], [640.0, 0.0], [640.0, 360.0], [0.0, 360.0]]),
+            coverage=0.96,
+            clipped_edges=fb.EDGE_NAMES,
+            frame_shape=(640, 360),
+        )
+        assert b.touchlines() == []
+
+    def test_a_real_edge_is_offered(self) -> None:
+        b = fb.FieldBoundary(
+            polygon=np.array([[0.0, 100.0], [640.0, 120.0], [640.0, 360.0], [0.0, 360.0]]),
+            coverage=0.73,
+            clipped_edges=("left", "right", "bottom"),
+            frame_shape=(640, 360),
+        )
+        lines = b.touchlines()
+        assert len(lines) == 1, "only the top edge turns away from the border"
+
+    def test_no_frame_shape_means_no_claim(self) -> None:
+        # Without the frame dimensions there is no way to tell a touchline from
+        # a crop, so the honest answer is to offer nothing.
+        b = fb.FieldBoundary(polygon=INSET, coverage=0.8, clipped_edges=())
+        assert b.touchlines() == []
+
+    def test_collinear_fragments_become_one_line(self) -> None:
+        # A turf/track transition is ragged and the contour approximation breaks
+        # one painted sideline into several short edges. Offered unmerged they
+        # behave as several independent sidelines, and on the wide Toledo frame
+        # that anchored four detected rows as sidelines -- which no field has.
+        pieces = [
+            (10.0, 100.0, 200.0, 101.0),
+            (200.0, 101.0, 400.0, 99.0),
+            (400.0, 99.0, 600.0, 100.0),
+        ]
+        merged = fb._merge_collinear(pieces, 735.0)
+        assert len(merged) == 1
+        rho, theta = merged[0]
+        assert theta == pytest.approx(math.pi / 2, abs=0.02)
+        assert rho == pytest.approx(100.0, abs=2.0)
+
+    def test_edges_at_genuinely_different_angles_stay_apart(self) -> None:
+        far_apart = [(0.0, 0.0, 300.0, 0.0), (0.0, 0.0, 0.0, 300.0)]
+        assert len(fb._merge_collinear(far_apart, 735.0)) == 2
+
+    def test_a_long_edge_outweighs_a_short_ragged_one(self) -> None:
+        # The short pieces are exactly the ones whose angles are noise, so the
+        # fit is weighted by length: averaging the two angles would land 2.3
+        # degrees off horizontal, and the long edge pulls it back to 0.1.
+        pieces = [(0.0, 100.0, 600.0, 100.0), (600.0, 100.0, 700.0, 108.0)]
+        ((_, theta),) = fb._merge_collinear(pieces, 735.0)
+        assert abs(math.degrees(theta) - 90.0) < 0.5
+
+    def test_fragments_far_from_the_origin_still_merge(self) -> None:
+        # Grouping on rho alone fails here: a degree of angular difference moves
+        # rho by hundreds of pixels once an edge is far from the origin, so two
+        # touching pieces of one sideline look like separate lines. A sideline
+        # is exactly such an edge.
+        pieces = [(1000.0, 900.0, 1400.0, 905.0), (1400.0, 905.0, 1800.0, 898.0)]
+        assert len(fb._merge_collinear(pieces, 735.0)) == 1
+
+    def test_the_line_form_matches_the_hough_convention(self) -> None:
+        # A horizontal edge at y=100 is theta=pi/2, rho=100.
+        b = fb.FieldBoundary(
+            polygon=np.array([[10.0, 100.0], [600.0, 100.0], [600.0, 300.0], [10.0, 300.0]]),
+            coverage=0.5,
+            clipped_edges=(),
+            frame_shape=(640, 360),
+        )
+        rho, theta = next(
+            (r, t) for r, t in b.touchlines() if abs(t - math.pi / 2) < 0.01
+        )
+        assert rho == pytest.approx(100.0, abs=1.0)
