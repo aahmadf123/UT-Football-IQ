@@ -10,6 +10,7 @@ rows against a fiction.
 
 from __future__ import annotations
 
+import math
 import os
 import sys
 
@@ -228,3 +229,48 @@ class TestBoundaryRoundTrip:
         # A clip with no boundary must still detect and track; it just filters
         # nothing.
         assert fb.boundary_from_diagnostics(payload) is None  # type: ignore[arg-type]
+
+
+class TestTouchlines:
+    """Only a real field edge may be offered to the calibrator as a sideline."""
+
+    def test_a_fully_cropped_boundary_offers_none(self) -> None:
+        # The tight-clip case. The polygon still has corners that do not
+        # individually hug a border, and returning those would hand calibration
+        # two confident "sidelines" that are nothing of the kind.
+        b = fb.FieldBoundary(
+            polygon=np.array([[0.0, 0.0], [640.0, 0.0], [640.0, 360.0], [0.0, 360.0]]),
+            coverage=0.96,
+            clipped_edges=fb.EDGE_NAMES,
+            frame_shape=(640, 360),
+        )
+        assert b.touchlines() == []
+
+    def test_a_real_edge_is_offered(self) -> None:
+        b = fb.FieldBoundary(
+            polygon=np.array([[0.0, 100.0], [640.0, 120.0], [640.0, 360.0], [0.0, 360.0]]),
+            coverage=0.73,
+            clipped_edges=("left", "right", "bottom"),
+            frame_shape=(640, 360),
+        )
+        lines = b.touchlines()
+        assert len(lines) == 1, "only the top edge turns away from the border"
+
+    def test_no_frame_shape_means_no_claim(self) -> None:
+        # Without the frame dimensions there is no way to tell a touchline from
+        # a crop, so the honest answer is to offer nothing.
+        b = fb.FieldBoundary(polygon=INSET, coverage=0.8, clipped_edges=())
+        assert b.touchlines() == []
+
+    def test_the_line_form_matches_the_hough_convention(self) -> None:
+        # A horizontal edge at y=100 is theta=pi/2, rho=100.
+        b = fb.FieldBoundary(
+            polygon=np.array([[10.0, 100.0], [600.0, 100.0], [600.0, 300.0], [10.0, 300.0]]),
+            coverage=0.5,
+            clipped_edges=(),
+            frame_shape=(640, 360),
+        )
+        rho, theta = next(
+            (r, t) for r, t in b.touchlines() if abs(t - math.pi / 2) < 0.01
+        )
+        assert rho == pytest.approx(100.0, abs=1.0)

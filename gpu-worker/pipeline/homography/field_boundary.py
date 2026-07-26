@@ -61,6 +61,57 @@ class FieldBoundary:
     #: Frame edges the surface runs along, i.e. where it is merely cropped.
     clipped_edges: tuple[str, ...] = ()
     reason_codes: list[str] = field(default_factory=list)
+    #: ``(width, height)`` of the frame it was found in. Needed to tell a
+    #: polygon edge that is a real touchline from one that is the frame border.
+    frame_shape: tuple[int, int] | None = None
+
+    def touchline_segments(self) -> list[tuple[float, float, float, float]]:
+        """Polygon edges that are real field boundary, as ``(x1, y1, x2, y2)``.
+
+        An edge running along the frame border is where the camera stopped, not
+        where the field ended, so it says nothing about where a sideline is.
+        Only the edges that turn away from the border are returned.
+        """
+        if self.frame_shape is None or self.polygon.shape[0] < 3:
+            return []
+        if not self.has_visible_boundary:
+            # Every side is a crop. The polygon still has corners that do not
+            # individually hug a border -- a diagonal cut across the frame's own
+            # corner -- and returning those would hand calibration two confident
+            # "sidelines" that are nothing of the kind, which is precisely the
+            # mistake this module exists to prevent.
+            return []
+        w, h = self.frame_shape
+        tol_x = max(2.0, w * EDGE_TOUCH_FRACTION)
+        tol_y = max(2.0, h * EDGE_TOUCH_FRACTION)
+        pts = np.asarray(self.polygon, dtype=np.float64)
+
+        out: list[tuple[float, float, float, float]] = []
+        for (x1, y1), (x2, y2) in zip(pts, np.roll(pts, -1, axis=0), strict=True):
+            # Both endpoints hugging the same border ⇒ the edge *is* that border.
+            on_border = (
+                (x1 <= tol_x and x2 <= tol_x)
+                or (x1 >= w - tol_x and x2 >= w - tol_x)
+                or (y1 <= tol_y and y2 <= tol_y)
+                or (y1 >= h - tol_y and y2 >= h - tol_y)
+            )
+            if not on_border:
+                out.append((float(x1), float(y1), float(x2), float(y2)))
+        return out
+
+    def touchlines(self) -> list[tuple[float, float]]:
+        """Real field edges as ``(rho, theta)``, matching the Hough convention.
+
+        Lets the calibrator compare a detected cross-field row against a known
+        sideline directly, instead of assuming which rows it found.
+        """
+        lines: list[tuple[float, float]] = []
+        for x1, y1, x2, y2 in self.touchline_segments():
+            if math.hypot(x2 - x1, y2 - y1) < 1e-6:
+                continue
+            theta = (math.atan2(y2 - y1, x2 - x1) + math.pi / 2) % math.pi
+            lines.append((x1 * math.cos(theta) + y1 * math.sin(theta), theta))
+        return lines
 
     @property
     def visible_edges(self) -> tuple[str, ...]:
@@ -198,6 +249,7 @@ def detect_field_boundary(frame: np.ndarray) -> FieldBoundary | None:
         coverage=float(coverage),
         clipped_edges=clipped,
         reason_codes=reason_codes,
+        frame_shape=(w, h),
     )
 
 
@@ -217,6 +269,7 @@ def diagnostics(boundary: FieldBoundary | None) -> dict[str, Any]:
         # re-deriving it. A handful of vertices -- it costs nothing to carry,
         # and it round-trips through the artifact sink's JSON.
         "polygon": [[round(float(x), 1), round(float(y), 1)] for x, y in boundary.polygon],
+        "frame_shape": list(boundary.frame_shape) if boundary.frame_shape else None,
     }
 
 
@@ -244,4 +297,5 @@ def boundary_from_diagnostics(payload: dict[str, Any] | None) -> FieldBoundary |
         coverage=float(payload.get("coverage") or 0.0),
         clipped_edges=tuple(payload.get("clipped_edges") or ()),
         reason_codes=list(payload.get("reason_codes") or []),
+        frame_shape=tuple(shape) if (shape := payload.get("frame_shape")) else None,
     )

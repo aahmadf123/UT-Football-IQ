@@ -412,3 +412,65 @@ class TestProjectionPlausibilityGuard:
     def test_a_degenerate_matrix_is_refused_rather_than_raising(self):
         H = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 0]], dtype=np.float64)
         assert not project.projects_onto_field(H, (720, 1280))
+
+
+class TestSidelineAnchoring:
+    """A visible touchline identifies a row outright instead of inferring it.
+
+    Without it the labelling has only the solid/dashed pattern, which cannot
+    separate "two hashes" (26.67 yd apart) from "a hash and a sideline" (13.335)
+    -- and that choice sets the entire lateral scale. Guessing produces a
+    homography that fits its own mislabelled correspondences perfectly and puts
+    every player ~13 yards sideways.
+    """
+
+    def test_a_lone_dashed_row_is_still_refused_without_a_touchline(self) -> None:
+        assert yk._match_rows_to_template([True], default_template()) is None
+
+    def test_knowing_a_row_is_a_sideline_does_not_say_which_sideline(self) -> None:
+        # Both ends of the field are solid, so an anchor alone cannot separate
+        # north from south. The anchor is a veto, not yet a disambiguator --
+        # resolving the reflection needs the *off-field direction*, which the
+        # boundary knows and this does not yet ask it for.
+        tmpl = default_template()
+        assert yk._match_rows_to_template([False], tmpl) is None
+        assert yk._match_rows_to_template([False], tmpl, sideline_indices={0}) is None
+
+    def test_an_anchor_that_contradicts_the_pattern_yields_nothing(self) -> None:
+        # A dashed row cannot be a sideline; sidelines are painted solid. The
+        # right answer is to refuse, not to trust one signal over the other.
+        assert yk._match_rows_to_template(
+            [True, True], default_template(), sideline_indices={0}
+        ) is None
+
+    def test_rows_are_matched_to_the_touchline_by_position_and_angle(self) -> None:
+        rows = [(100.0, math.radians(90.0), False), (400.0, math.radians(90.0), True)]
+        # A touchline sitting on the first row only.
+        found = yk._sideline_indices(rows, [(102.0, math.radians(88.0))])
+        assert found == {0}
+
+    def test_a_touchline_far_from_every_row_anchors_nothing(self) -> None:
+        rows = [(100.0, math.radians(90.0), False)]
+        assert yk._sideline_indices(rows, [(900.0, math.radians(90.0))]) == set()
+
+    def test_a_touchline_at_the_wrong_angle_anchors_nothing(self) -> None:
+        # The far end line is a real boundary too, and it is not a sideline.
+        rows = [(100.0, math.radians(90.0), False)]
+        assert yk._sideline_indices(rows, [(100.0, math.radians(10.0))]) == set()
+
+    def test_the_flipped_line_representation_still_matches(self) -> None:
+        # (rho, theta) and (-rho, theta+pi) are the same line; a row and a
+        # touchline derived by different routes can disagree on which they used.
+        rows = [(-250.0, math.radians(2.0), False)]
+        assert yk._sideline_indices(rows, [(250.0, math.radians(179.0))]) == {0}
+
+    def test_the_reason_code_distinguishes_anchored_from_assumed(self) -> None:
+        verticals = [(float(x), 0.0) for x in (100, 250, 400, 550)]
+        rows = [(80.0, math.pi / 2), (300.0, math.pi / 2)]
+        assumed = yk.build_correspondences(verticals + rows, (360, 640))
+        assert "field_orientation_unanchored" in assumed.reason_codes
+        anchored = yk.build_correspondences(
+            verticals + rows, (360, 640), touchlines=[(80.0, math.pi / 2)]
+        )
+        assert "sideline_anchored" in anchored.reason_codes
+        assert "field_orientation_unanchored" not in anchored.reason_codes

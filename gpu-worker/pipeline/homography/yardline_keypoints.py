@@ -336,8 +336,42 @@ def _representative(
     return pool[len(pool) // 2]
 
 
+#: How close a detected row must sit to a boundary touchline, in angle and in
+#: perpendicular offset, to be considered the same painted line.
+TOUCHLINE_ANGLE_TOL_RAD = math.radians(8.0)
+TOUCHLINE_OFFSET_TOL_PX = 30.0
+
+
+def _sideline_indices(
+    rows: list[tuple[float, float, bool]], touchlines: list[tuple[float, float]]
+) -> set[int]:
+    """Which ordered rows coincide with a real field boundary edge.
+
+    This is the whole point of detecting the boundary. Without it the row
+    labelling infers identity from the solid/dashed pattern alone, which cannot
+    separate "two hashes" from "a hash and a sideline" -- and that choice sets
+    the entire lateral scale. A row lying on a touchline is not inferred to be a
+    sideline; it is observed to be one.
+    """
+    found: set[int] = set()
+    for i, (rho, theta, _) in enumerate(rows):
+        for t_rho, t_theta in touchlines:
+            if _angle_delta(theta, t_theta) > TOUCHLINE_ANGLE_TOL_RAD:
+                continue
+            # rho is signed against the normal direction, so a line and its
+            # flipped representation differ in sign as well as angle.
+            same = abs(rho - t_rho)
+            flipped = abs(rho + t_rho)
+            if min(same, flipped) <= TOUCHLINE_OFFSET_TOL_PX:
+                found.add(i)
+                break
+    return found
+
+
 def _match_rows_to_template(
-    dashed_pattern: list[bool], tmpl: FieldTemplate
+    dashed_pattern: list[bool],
+    tmpl: FieldTemplate,
+    sideline_indices: set[int] | None = None,
 ) -> list[float] | None:
     """Label detected cross-field rows by matching solid/dashed against the field.
 
@@ -361,10 +395,14 @@ def _match_rows_to_template(
         tmpl.hash_y_north,
         tmpl.sideline_y_north,
     )
+    sideline_rows = {0, len(rows_y) - 1}
     matches = [
         combo
         for combo in itertools.combinations(range(len(rows_y)), len(dashed_pattern))
         if [_ROW_IS_DASHED[i] for i in combo] == dashed_pattern
+        # An observed touchline pins that detected row to an actual sideline,
+        # which is what turns the pattern match from a guess into a deduction.
+        and all(combo[i] in sideline_rows for i in (sideline_indices or set()))
     ]
     if len(matches) != 1:
         return None
@@ -377,6 +415,7 @@ def build_correspondences(
     template: FieldTemplate | None = None,
     *,
     dashed_lines: list[tuple[float, float]] | None = None,
+    touchlines: list[tuple[float, float]] | None = None,
 ) -> KeypointResult:
     """Match detected lines to the field template and emit pixel↔yard pairs.
 
@@ -468,7 +507,10 @@ def build_correspondences(
         yard_ordered = yard_ordered[: len(chosen_yard_x)]
 
     cross_ordered = cross_ordered[: len(_ROW_IS_DASHED)]
-    chosen_rows = _match_rows_to_template([ln[2] for ln in cross_ordered], tmpl)
+    anchored = _sideline_indices(cross_ordered, touchlines or [])
+    chosen_rows = _match_rows_to_template(
+        [ln[2] for ln in cross_ordered], tmpl, sideline_indices=anchored
+    )
     if chosen_rows is None:
         return _empty("ambiguous_field_rows")
 
@@ -478,7 +520,10 @@ def build_correspondences(
     # 180° rotation. Lengths, separations and speeds are invariant under it;
     # only the *direction* of a gain is not, which is why the offset is
     # re-anchored from play context rather than from geometry.
-    reason_codes.append("field_orientation_unanchored")
+    if not anchored:
+        reason_codes.append("field_orientation_unanchored")
+    else:
+        reason_codes.append("sideline_anchored")
 
     src: list[list[float]] = []
     dst: list[list[float]] = []
@@ -548,7 +593,17 @@ def detect_keypoints(
     # a two-row fit into a four-row one across the full width of the field.
     dashed = detect_dashed_lines(paint)
 
-    result = build_correspondences(lines, frame.shape[:2], template, dashed_lines=dashed)
+    # A visible touchline identifies a detected row outright, instead of the
+    # solid/dashed pattern having to infer it. Costs one grass threshold and a
+    # contour on a frame already in memory.
+    from pipeline.homography.field_boundary import detect_field_boundary
+
+    boundary = detect_field_boundary(frame)
+    touchlines = boundary.touchlines() if boundary is not None else []
+
+    result = build_correspondences(
+        lines, frame.shape[:2], template, dashed_lines=dashed, touchlines=touchlines
+    )
     result.field_coverage = coverage
     result.reason_codes = reason_codes + result.reason_codes
     return result
