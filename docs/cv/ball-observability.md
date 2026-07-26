@@ -62,6 +62,54 @@ and every one scores **R−G between −15 and −18**, i.e. *greener* than its
 surroundings. Across 1,481 candidates in the highest-motion clip, the maximum
 brownness is −15.2. Nothing brown, compact and moving exists to be found.
 
+### 4. A trained detector fails too, and fails confidently
+
+The three probes above test *heuristics*. The obvious objection is that a
+trained model does not need hand-tuned colour and motion rules, and this
+document previously left that objection open. It is now tested, with a resource
+already in the tree and no external dependency: `yolov8n.pt`, whose COCO class
+32 is `sports ball`.
+
+Run over 80 frames from 10 clips at a deliberately permissive `conf ≥ 0.10`,
+three ways — native 1280 × 720, a 2× upscale, and 4× magnified 320 px tiles,
+the most generous thing this checkpoint can be given:
+
+| input | sports-ball detections |
+|---|---|
+| native 1280 × 720 | 82 |
+| 2× upscale | 72 |
+| 4× on 320 px tiles | 181 |
+
+**It fires about once per frame, up to 0.68 confidence, and it is wrong every
+time.** All sixteen of the highest-confidence detections are the painted white
+directional arrow beside a yard numeral. Across all 82 native detections:
+
+| | |
+|---|---|
+| leather-coloured (R > G > B) | **0 of 82** |
+| mean R − G over the detection boxes | **−18.6** |
+| centred inside a detected person box | 5 of 82 (6%) |
+
+Mean R − G of −18.6 means the average "ball" this model found is *greener than
+it is red*. That is turf. The 6% person-overlap figure looks encouraging at a
+glance — the detections are not on players, so they are not helmets — but it is
+the opposite: they are on the ground, on the paint.
+
+Note where that number lands. The motion probe independently scored its top
+candidates at R − G between −15 and −18 and identified them as painted turf.
+A trained detector, a colour heuristic and a motion heuristic converge on the
+same wrong object from three unrelated directions, and none of them finds a
+football, because there is no football in the pixels to find.
+
+This does not prove a football-specific model would also fail — a fine-tune has
+a prior for shape and context that COCO's generic ball class does not. What it
+does show is that "just use a trained model" is not the missing step, and that a
+model reporting detections on this footage should be assumed to be reporting
+paint until shown otherwise. Confirming a football-specific model still requires
+either `detect.roboflow.com` allowlisted with an API key, or a football `.pt`
+checkpoint the worker can read; as of this writing the host returns
+`CONNECT tunnel failed, 403` from the agent proxy and no `ROBOFLOW_*` key is set.
+
 ## What this means for the benchmark
 
 The planned work is **not worth running on this footage**:
@@ -92,15 +140,28 @@ ball becomes visible; it is not a way around occlusion.
 
 ## What would change the answer
 
-In descending order of leverage:
+An earlier draft of this document asked the video team for two things: a higher
+capture resolution (at 4K the ball is ~45 px rather than ~15 px, a different
+detection problem entirely) and a camera angle that does not put the exchange
+behind the two nearest players. **Both are withdrawn.** Per @aahmadf123 there
+will be no single angle, height, resolution or recording method to standardise
+on, so the pipeline has to cope with whatever arrives. Asking the capture side
+to change is not an available move, and this document should not read as though
+it is.
 
-1. **Capture at higher resolution.** At 4K the ball is ~45 px rather than ~15 px
-   — a different detection problem entirely. Check what the SD card holds: DJI
-   records at a higher resolution than it streams, so the originals may already
-   exist. This is the single cheapest thing to try and it costs one card read.
-2. **Change the camera angle.** The occlusion is a line-of-sight problem. A
-   sideline or endzone angle sees the exchange the current position cannot.
-3. **Accept a different signal for events.** See below.
+That constraint sharpens rather than weakens the finding. What it means is:
+
+1. **This is a determination about *this footage*, not about the program.**
+   Capture varies by design, so some future clip may well show the ball — shot
+   wider, closer, from the side, or at a higher resolution. Nothing here should
+   be compiled into an assumption that the ball is never visible.
+2. **So the observability check belongs in the pipeline, not in a document.**
+   A clip where the ball is visible and a clip where it is not should be
+   distinguished by measurement, the way the field orientation now is, rather
+   than by a global constant. `eval/ball_benchmark.py` exists precisely so a
+   later capture can be scored against this determination on the same terms.
+3. **Accept a different signal for events.** See below. This is the part that is
+   actionable today, and it is unaffected by how any future clip is shot.
 
 ## Recommended path: events without the ball
 
