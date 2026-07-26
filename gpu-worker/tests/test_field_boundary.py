@@ -137,3 +137,94 @@ class TestDiagnostics:
         assert d["found"] is True
         assert d["visible_edges"] == ["left", "right", "top"]
         assert d["has_visible_boundary"] is True
+
+
+# ── Consuming the boundary: dropping people who are not in the play ──────────
+
+
+class TestOffFieldFilter:
+    """Bench, staff and spectators are people the detector is right to find.
+
+    Left in, each becomes a tracklet that inflates formation counts, joins
+    coverage shells, and accrues workload against whoever re-ID eventually
+    guesses. The wide Toledo frame has a row of staff standing off the turf on
+    the left, well inside the image.
+    """
+
+    @staticmethod
+    def _det(x: float, y: float) -> dict[str, object]:
+        # A person-shaped box whose feet sit at (x, y).
+        return {"bbox": [x - 10, y - 60, x + 10, y], "class": "player"}
+
+    def _boundary(self, clipped: tuple[str, ...] = ()) -> fb.FieldBoundary:
+        return fb.FieldBoundary(polygon=INSET, coverage=0.8, clipped_edges=clipped)
+
+    def test_someone_off_the_surface_is_dropped(self) -> None:
+        from pipeline.stage_detect import _off_field
+
+        kept, dropped = _off_field([self._det(20.0, 180.0)], self._boundary())
+        assert kept == [] and dropped == 1
+
+    def test_a_player_on_the_field_is_kept(self) -> None:
+        from pipeline.stage_detect import _off_field
+
+        kept, dropped = _off_field([self._det(300.0, 200.0)], self._boundary())
+        assert len(kept) == 1 and dropped == 0
+
+    def test_it_tests_the_feet_not_the_box_centre(self) -> None:
+        # A box centre sits a yard or so up the body, so someone standing just
+        # off the sideline would be kept on the strength of their head.
+        from pipeline.stage_detect import _off_field
+
+        # The polygon's bottom edge is y=300. This box has its centre at y=290,
+        # comfortably inside, and its feet at y=350 -- 50px out, past the 40px
+        # tolerance. Someone standing just off the sideline, in other words.
+        det = {"bbox": [300.0, 230.0, 320.0, 350.0], "class": "player"}
+        boundary = self._boundary()
+        assert boundary.contains((310.0, 290.0)), "the centre alone would be kept"
+        kept, dropped = _off_field([det], boundary)
+        assert dropped == 1, "but the feet are what decide"
+
+    def test_nothing_is_dropped_when_no_touchline_is_visible(self) -> None:
+        # The tight-clip case: the boundary is the frame border, everything is
+        # nominally inside it, and rejecting anything discards real players.
+        from pipeline.stage_detect import _off_field
+
+        kept, dropped = _off_field(
+            [self._det(20.0, 180.0)], self._boundary(clipped=fb.EDGE_NAMES)
+        )
+        assert len(kept) == 1 and dropped == 0
+
+    def test_no_boundary_at_all_is_a_no_op(self) -> None:
+        from pipeline.stage_detect import _off_field
+
+        dets = [self._det(20.0, 180.0), self._det(300.0, 200.0)]
+        kept, dropped = _off_field(dets, None)
+        assert kept == dets and dropped == 0
+
+    def test_a_detection_without_a_box_survives(self) -> None:
+        from pipeline.stage_detect import _off_field
+
+        kept, dropped = _off_field([{"class": "player"}], self._boundary())
+        assert len(kept) == 1 and dropped == 0
+
+
+class TestBoundaryRoundTrip:
+    """The artifact goes through JSON, so what comes back is lists."""
+
+    def test_it_survives_serialisation(self) -> None:
+        original = fb.FieldBoundary(polygon=INSET, coverage=0.73, clipped_edges=("bottom",))
+        restored = fb.boundary_from_diagnostics(fb.diagnostics(original))
+        assert restored is not None
+        assert restored.visible_edges == original.visible_edges
+        assert restored.contains((300.0, 180.0))
+
+    @pytest.mark.parametrize(
+        "payload",
+        [None, {}, {"found": False}, {"found": True}, {"found": True, "polygon": [[0, 0]]}],
+        ids=["none", "empty", "not-found", "no-polygon", "degenerate"],
+    )
+    def test_unusable_payloads_yield_none(self, payload: object) -> None:
+        # A clip with no boundary must still detect and track; it just filters
+        # nothing.
+        assert fb.boundary_from_diagnostics(payload) is None  # type: ignore[arg-type]

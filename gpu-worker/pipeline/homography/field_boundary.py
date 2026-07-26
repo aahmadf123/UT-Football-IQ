@@ -213,4 +213,35 @@ def diagnostics(boundary: FieldBoundary | None) -> dict[str, Any]:
         "visible_edges": list(boundary.visible_edges),
         "has_visible_boundary": boundary.has_visible_boundary,
         "reason_codes": list(boundary.reason_codes),
+        # The outline itself, so later stages can test containment without
+        # re-deriving it. A handful of vertices -- it costs nothing to carry,
+        # and it round-trips through the artifact sink's JSON.
+        "polygon": [[round(float(x), 1), round(float(y), 1)] for x, y in boundary.polygon],
     }
+
+
+def boundary_from_diagnostics(payload: dict[str, Any] | None) -> FieldBoundary | None:
+    """Rebuild a boundary from its serialised form.
+
+    The artifact round-trips through JSON, so what comes back is lists rather
+    than the array :class:`FieldBoundary` holds. Returns ``None`` for anything
+    unusable -- a clip with no boundary must still detect and track, it just
+    filters nothing.
+    """
+    if not payload or not payload.get("found"):
+        return None
+    polygon = payload.get("polygon")
+    if not polygon or len(polygon) < 3:
+        return None
+    try:
+        pts = np.asarray(polygon, dtype=np.float64)
+    except (TypeError, ValueError):
+        return None
+    if pts.ndim != 2 or pts.shape[1] != 2:
+        return None
+    return FieldBoundary(
+        polygon=pts,
+        coverage=float(payload.get("coverage") or 0.0),
+        clipped_edges=tuple(payload.get("clipped_edges") or ()),
+        reason_codes=list(payload.get("reason_codes") or []),
+    )

@@ -57,6 +57,8 @@ from pipeline.detector_models import (
     get_detector,
     player_detection_strategy,
 )
+from pipeline.homography.field_boundary import FieldBoundary, boundary_from_diagnostics
+from pipeline.homography.project import ground_anchor
 from pipeline.model_router import select_model
 
 log = structlog.get_logger(__name__)
@@ -85,6 +87,7 @@ def run(
     priority: int = 0,
     ball_detector: DetectorBase | None = None,
     suppressor: OfficialSuppressor | None = None,
+    field_boundary: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Run Stage 4 detection and return per-frame detections + routing.
 
@@ -101,6 +104,10 @@ def run(
         ball_detector: Pre-built ball detector; overrides ball composition.
         suppressor: Pre-built :class:`OfficialSuppressor`; defaults to one
                   configured from the environment.
+        field_boundary: Serialised boundary from ``stage_calibrate``. When it
+                  contains a real touchline, detections whose feet fall off the
+                  playing surface are dropped -- bench, staff and spectators are
+                  people the detector is right to find and wrong to track.
     """
     player_variant = variant or "yolov8n"
     log.info(
@@ -162,7 +169,9 @@ def run(
     object_key = _uri_to_object_key(input_uri)
     video_path = object_store.download_to_temp(object_key)
     try:
-        result = _detect(video_path, player, ball, suppressor)
+        result = _detect(
+            video_path, player, ball, suppressor, boundary_from_diagnostics(field_boundary)
+        )
     finally:
         video_path.unlink(missing_ok=True)
 
@@ -185,11 +194,42 @@ def _uri_to_object_key(uri: str) -> str:
     return uri
 
 
+def _off_field(
+    detections: list[dict[str, Any]], boundary: FieldBoundary | None
+) -> tuple[list[dict[str, Any]], int]:
+    """Drop detections standing off the playing surface.
+
+    Bench players, position coaches, trainers, camera operators and spectators
+    are all people, and the detector is right to find them -- they are simply
+    not in the play. Left in, each becomes a tracklet that inflates formation
+    counts, joins coverage shells, and accrues workload against whoever re-ID
+    eventually guesses.
+
+    Tested at the **ground anchor**, the bottom-centre of the box, because that
+    is where the person meets the ground plane the boundary describes. A box
+    centre sits a yard or so up the body and would keep someone standing just
+    off the sideline.
+
+    A no-op when no real touchline is in frame: the boundary is then the frame
+    border, everything is nominally inside it, and rejecting anything would
+    discard real players. Returns the kept detections and the drop count.
+    """
+    if boundary is None or not boundary.has_visible_boundary:
+        return detections, 0
+    kept = [
+        det
+        for det in detections
+        if not det.get("bbox") or boundary.contains(ground_anchor(det["bbox"]))
+    ]
+    return kept, len(detections) - len(kept)
+
+
 def _detect(
     video_path: Path,
     player: DetectorBase,
     ball: DetectorBase | None,
     suppressor: OfficialSuppressor,
+    boundary: FieldBoundary | None = None,
 ) -> dict[str, Any]:
     from pipeline.hwaccel import nvdec_video_capture
 
@@ -201,6 +241,7 @@ def _detect(
     masked_frame_count = 0
     official_count = 0
     ball_count = 0
+    off_field_count = 0
 
     while True:
         ret, frame = cap.read()
@@ -210,6 +251,8 @@ def _detect(
         if frame_idx % FRAME_STEP == 0:
             player_dets = player.detect(frame)
             player_dets = suppressor.suppress(frame, player_dets)
+            player_dets, dropped = _off_field(player_dets, boundary)
+            off_field_count += dropped
             official_count += sum(
                 1 for d in player_dets if d.get("class") in ("official", "sideline")
             )
@@ -234,6 +277,7 @@ def _detect(
         detection_frame_count=len(detections),
         masked_frame_count=masked_frame_count,
         official_detections=official_count,
+        off_field_detections=off_field_count,
         ball_detections=ball_count,
         produces_masks=player.produces_masks,
     )
@@ -242,4 +286,5 @@ def _detect(
         "total_frames": frame_idx,
         "detections": detections,
         "produces_masks": player.produces_masks,
+        "off_field_detections": off_field_count,
     }
