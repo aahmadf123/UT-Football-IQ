@@ -21,6 +21,7 @@ takes a homography from outside this module should go through
 
 from __future__ import annotations
 
+import math
 from collections.abc import Iterable, Sequence
 from typing import Any
 
@@ -31,7 +32,15 @@ __all__ = [
     "apply_homography_many",
     "ground_anchor",
     "homography_from_flat",
+    "projects_onto_field",
 ]
+
+# How far outside the playing surface a camera may plausibly be looking, in
+# yards. Generous on purpose: end zones, team areas and a wide sideline angle
+# are all legitimate, so this is not a field-boundary test. It exists only to
+# reject fits that are arithmetically fine and physically absurd.
+PLAUSIBLE_X_YD = (-40.0, 140.0)
+PLAUSIBLE_Y_YD = (-70.0, 70.0)
 
 
 def homography_from_flat(value: Any) -> np.ndarray | None:
@@ -60,6 +69,33 @@ def homography_from_flat(value: Any) -> np.ndarray | None:
     if not np.all(np.isfinite(arr)):
         return None
     return arr
+
+
+def projects_onto_field(H: np.ndarray, frame_shape: tuple[int, ...]) -> bool:
+    """Does this homography put the middle of the frame anywhere near a field?
+
+    A degenerate fit can satisfy RANSAC and still be nonsense. On real footage
+    one frame produced a homography with 6 of 10 correspondences as inliers that
+    placed the frame centre 733 yards off the side of the field -- arithmetically
+    consistent with its own inliers, physically impossible.
+
+    That failure mode is the dangerous one, because inlier count is the only
+    quality signal the fit reports and a wrong-but-consistent fit scores well on
+    it. Everything downstream then treats the yard values as real.
+
+    Only the centre is tested. Frame corners may legitimately project enormous
+    distances -- near the horizon they approach infinity -- so bounding them
+    would reject good calibrations of low camera angles, exactly the ones the
+    "works at any camera height" goal depends on.
+    """
+    h, w = frame_shape[:2]
+    x, y = apply_homography(H, (w / 2.0, h / 2.0))
+    if not (math.isfinite(x) and math.isfinite(y)):
+        return False
+    return (
+        PLAUSIBLE_X_YD[0] <= x <= PLAUSIBLE_X_YD[1]
+        and PLAUSIBLE_Y_YD[0] <= y <= PLAUSIBLE_Y_YD[1]
+    )
 
 
 def apply_homography(H: np.ndarray, point: tuple[float, float]) -> tuple[float, float]:

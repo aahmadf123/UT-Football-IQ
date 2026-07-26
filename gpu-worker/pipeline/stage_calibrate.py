@@ -41,6 +41,7 @@ from pipeline.homography import camera_motion_ecc as ecc
 from pipeline.homography import confidence_scorer as cs
 from pipeline.homography import dlt_ransac, kalman_smoother
 from pipeline.homography import yardline_keypoints as yk
+from pipeline.homography.project import projects_onto_field
 
 log = structlog.get_logger(__name__)
 
@@ -309,6 +310,12 @@ def _best_frame_fit(
         )
         if H is None:
             continue
+        if not projects_onto_field(H, frame.shape):
+            # A fit can satisfy RANSAC and still be physically impossible. Skip
+            # rather than score it: the only quality signal here is inlier
+            # count, and a degenerate fit consistent with its own inliers scores
+            # as well as a correct one.
+            continue
         n_in = int(np.count_nonzero(mask))
         inlier_ratio = n_in / max(len(mask), 1)
         if n_in > best_inliers:
@@ -516,6 +523,11 @@ def _persist_and_return(
         "insufficient_structured_lines",
         "insufficient_yard_lines",
         "insufficient_intersections",
+        # Cross-field rows were found but could not be told apart -- one lone
+        # dashed row is either hash. Blocking, because the alternative is a
+        # homography that fits its own mislabelled correspondences perfectly and
+        # places every player ~13 yards off.
+        "ambiguous_field_rows",
     }
     has_blocking = any(rc in blocking for rc in reason_codes)
     analytics_safe = (confidence >= CONFIDENCE_THRESHOLD) and not has_blocking

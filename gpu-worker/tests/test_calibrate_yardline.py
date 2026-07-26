@@ -19,6 +19,7 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from pipeline import stage_calibrate
+from pipeline.homography import project
 from pipeline.homography import yardline_keypoints as yk
 from pipeline.homography.confidence_scorer import (
     compute_confidence,
@@ -165,9 +166,17 @@ def test_detect_keypoints_five_frames_yield_homography():
 
 
 def _good_keypoints() -> yk.KeypointResult:
-    """A clean coplanar correspondence set that fits cleanly under RANSAC."""
+    """A clean coplanar correspondence set that fits cleanly under RANSAC.
+
+    ``H_true`` maps field yards → pixels, and is scaled so the correspondences
+    span a 640×360 frame the way a real camera's would. That matters: an earlier
+    version put the whole field inside a 100×30 pixel patch, which RANSAC fits
+    perfectly well but which no camera could produce. The stage now rejects a
+    homography that places the middle of the frame off the planet, so a fixture
+    has to be geometrically coherent, not merely self-consistent.
+    """
     H_true = np.array(
-        [[1.1, 0.05, 30.0], [-0.04, 0.9, 12.0], [0.0003, 0.0001, 1.0]],
+        [[5.8, 0.2, 30.0], [-0.15, 6.0, 180.0], [0.0003, 0.0001, 1.0]],
         dtype=np.float64,
     )
     xs, ys = np.meshgrid(np.linspace(5, 95, 4), np.linspace(-20, 20, 3))
@@ -245,3 +254,161 @@ def test_no_frames_marks_unsafe(_stub_detection, monkeypatch):
     )
     assert out["analytics_safe"] is False
     assert "no_frames" in out["reason_codes"]
+
+
+# ── Orientation-agnostic family assignment ────────────────────────────────────
+
+
+def _rot(lines, degrees, centre=(320.0, 180.0)):
+    """Rotate a set of ``(rho, theta)`` lines about a point.
+
+    About the *frame centre*, not the origin: rotating a 640×360 grid about its
+    top-left corner swings most of it out of frame, and the detector drops
+    crossings that land outside — so such a fixture would test the margin filter
+    rather than the orientation handling.
+
+    For a rotation R about ``c``, the normal turns with the line and the offset
+    picks up the movement of ``c`` along it: ``rho' = rho - n·c + (Rn)·c``.
+    """
+    r = math.radians(degrees)
+    cx, cy = centre
+    out = []
+    for rho, theta in lines:
+        nx, ny = math.cos(theta), math.sin(theta)
+        t2 = (theta + r) % math.pi
+        mx, my = math.cos(theta + r), math.sin(theta + r)
+        rho2 = rho - (nx * cx + ny * cy) + (mx * cx + my * cy)
+        # theta is taken modulo pi, so flipping the normal flips rho with it.
+        if (theta + r) % (2 * math.pi) != t2:
+            rho2 = -rho2
+        out.append((rho2, t2))
+    return out
+
+
+class TestFamilyAssignment:
+    """Which image direction the yard lines take depends only on the camera.
+
+    The detector used to bin lines into fixed bands -- yard lines assumed
+    near-vertical, rows near-horizontal. On the Toledo drone footage the yard
+    lines land at 84-90 degrees and the hash rows at ~4 and ~150, so every line
+    was binned as a row, none as a yard line, and calibration returned
+    no_calibration on every frame of every clip.
+    """
+
+    @staticmethod
+    def _grid(h=360, w=640):
+        verticals = [(float(x), 0.0) for x in (100, 250, 400, 550)]
+        horizontals = [(80.0, math.pi / 2), (300.0, math.pi / 2)]
+        return verticals + horizontals, (h, w)
+
+    @pytest.mark.parametrize("degrees", [0, 15, 30, 45, 60, 75, 90, 120, 160])
+    def test_finds_correspondences_at_any_orientation(self, degrees):
+        # A grid is a grid however the camera is rolled. Rotating it must not
+        # change whether the field is found.
+        lines, shape = self._grid()
+        result = yk.build_correspondences(_rot(lines, degrees), shape)
+        assert result.has_enough(), (degrees, result.reason_codes)
+
+    def test_the_larger_family_is_taken_as_the_yard_lines(self):
+        # Not "the more vertical one": on real film the yard lines are the
+        # near-horizontal family, and they are always the numerous one because
+        # a yard line is a long solid stripe and a hash row is a few ticks.
+        lines, shape = self._grid()
+        result = yk.build_correspondences(lines, shape)
+        # 4 yard lines x 2 rows.
+        assert len(result.src_pts) == 8
+
+    def test_families_need_not_be_perpendicular_in_the_image(self):
+        # Perspective does not preserve angles. The two hash rows on the real
+        # footage sit 146 degrees apart in the image, not 90.
+        verticals = [(float(x), 0.0) for x in (100, 250, 400, 550)]
+        # 40 degrees apart from each other, and neither perpendicular to the
+        # yard lines -- the arrangement two converging hash rows actually make.
+        skewed = [(179.5, math.radians(70.0)), (177.7, math.radians(110.0))]
+        result = yk.build_correspondences(verticals + skewed, (360, 640))
+        assert result.has_enough(), result.reason_codes
+
+
+class TestDuplicateCollapse:
+    def test_a_chain_of_near_duplicates_stays_one_line(self):
+        # Hough returns many votes per painted stripe. Collapsing against the
+        # last *kept* line lets a chain drift past the threshold and invent an
+        # extra line -- which is then labelled as a yard line five yards along,
+        # shifting every correspondence after it.
+        chain = [(100.0 + i * 3.0, 0.0) for i in range(8)]
+        others = [(400.0, 0.0), (550.0, 0.0)]
+        rows = [(80.0, math.pi / 2), (300.0, math.pi / 2)]
+        result = yk.build_correspondences(chain + others + rows, (360, 640))
+        # 3 distinct yard lines (the chain collapses to one) x 2 rows.
+        assert len(result.src_pts) == 6
+
+
+class TestRowLabelling:
+    """Sidelines are solid, hashes are dashed. That is what tells rows apart."""
+
+    def test_two_dashed_rows_are_the_hashes(self):
+        tmpl = default_template()
+        ys = yk._match_rows_to_template([True, True], tmpl)
+        assert ys == [pytest.approx(tmpl.hash_y_south), pytest.approx(tmpl.hash_y_north)]
+
+    def test_two_solid_rows_are_the_sidelines(self):
+        tmpl = default_template()
+        ys = yk._match_rows_to_template([False, False], tmpl)
+        assert ys == [
+            pytest.approx(tmpl.sideline_y_south),
+            pytest.approx(tmpl.sideline_y_north),
+        ]
+
+    def test_the_full_set_is_identified(self):
+        tmpl = default_template()
+        ys = yk._match_rows_to_template([False, True, True, False], tmpl)
+        assert len(ys) == 4
+        assert ys[0] == pytest.approx(tmpl.sideline_y_south)
+        assert ys[-1] == pytest.approx(tmpl.sideline_y_north)
+
+    def test_one_dashed_row_is_refused_rather_than_guessed(self):
+        # It is either hash. Guessing puts the whole field 13 yards sideways,
+        # and the fit reports a perfect inlier ratio either way.
+        assert yk._match_rows_to_template([True], default_template()) is None
+
+    def test_an_unlabelable_pattern_blocks_the_frame(self):
+        rows = [(80.0, math.pi / 2), (200.0, math.pi / 2), (300.0, math.pi / 2)]
+        verticals = [(float(x), 0.0) for x in (100, 250, 400)]
+        result = yk.build_correspondences(verticals, (360, 640), dashed_lines=rows)
+        assert "ambiguous_field_rows" in result.reason_codes
+        assert not result.has_enough()
+
+    def test_a_row_seen_both_ways_counts_as_solid(self):
+        # The solid pass fits a whole stripe; the dashed pass a fragment of the
+        # same one. Reporting it dashed would relabel a sideline as a hash.
+        group = [(0.0, (10.0, 0.5, True)), (1.0, (10.1, 0.5, False))]
+        assert yk._representative(group)[2] is False
+
+
+class TestOffFrameStructures:
+    def test_a_row_crossing_far_outside_the_frame_is_dropped(self):
+        # Boundary paint and corner artifacts extend to meet the yard lines
+        # 1700px off-frame. They yield no correspondence either way, but left
+        # in they inflate the row pattern past anything a field can match.
+        verticals = [(float(x), 0.0) for x in (100, 250, 400, 550)]
+        rows = [(80.0, math.pi / 2), (300.0, math.pi / 2)]
+        far = [(5000.0, math.radians(80.0))]
+        result = yk.build_correspondences(verticals + rows + far, (360, 640))
+        assert result.has_enough(), result.reason_codes
+        assert len(result.src_pts) == 8
+
+
+class TestProjectionPlausibilityGuard:
+    def test_a_sane_homography_passes(self):
+        H = np.array([[0.1, 0, 0], [0, 0.1, -20], [0, 0, 1]], dtype=np.float64)
+        assert project.projects_onto_field(H, (720, 1280))
+
+    def test_a_fit_placing_the_frame_off_the_planet_is_refused(self):
+        # Observed on real footage: 6 of 10 inliers, frame centre 733 yards off
+        # the side of the field. RANSAC is satisfied; the world is not.
+        H = np.array([[0.1, 0, 0], [0, 10.0, -8000.0], [0, 0, 1]], dtype=np.float64)
+        assert not project.projects_onto_field(H, (720, 1280))
+
+    def test_a_degenerate_matrix_is_refused_rather_than_raising(self):
+        H = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 0]], dtype=np.float64)
+        assert not project.projects_onto_field(H, (720, 1280))

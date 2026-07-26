@@ -20,6 +20,7 @@ from typing import Any
 import structlog
 
 from pipeline import backend
+from pipeline.homography.field_template import default_template
 from pipeline.homography.project import (
     apply_homography_many,
     ground_anchor,
@@ -31,6 +32,10 @@ log = structlog.get_logger(__name__)
 
 MAX_LOST_FRAMES = 30  # frames a track can be "lost" before it is closed
 IOU_THRESHOLD = 0.3
+# How far past the playing surface a real player can be, in yards. Deep enough
+# to cover a receiver carried out of bounds and a defender chasing into the
+# bench area, without admitting a field twice its true width.
+MAX_OUT_OF_BOUNDS_YD = 15.0
 
 
 def run(
@@ -152,14 +157,47 @@ def _project_tracks(
         log.warning("stage_track_homography_unusable", analytics_safe=analytics_safe)
         return 0
 
-    projected = 0
+    pending: list[tuple[dict[str, Any], tuple[float, float]]] = []
     for track in results:
         points = [p for p in track.points if p.get("bbox")]
         if not points:
             continue
         field_xy = apply_homography_many(matrix, [ground_anchor(p["bbox"]) for p in points])
-        for point, (fx, fy) in zip(points, field_xy, strict=True):
-            point["field_x"] = fx
-            point["field_y"] = fy
-        projected += len(points)
-    return projected
+        pending.extend(zip(points, field_xy, strict=True))
+
+    if not pending:
+        return 0
+
+    if not _extent_is_possible([xy for _, xy in pending]):
+        # Written nowhere rather than written wrong. A homography can be exactly
+        # right along one axis and badly scaled along the other -- that is what
+        # happens when the two detected field rows are assumed to be the hashes
+        # and are really a hash and a sideline -- and the fit reports a perfect
+        # inlier ratio either way, because it is consistent with its own
+        # correspondences. Players standing 40 yards out of bounds is the only
+        # signal that survives, so it is the one checked here.
+        return 0
+
+    for point, (fx, fy) in pending:
+        point["field_x"] = fx
+        point["field_y"] = fy
+    return len(pending)
+
+
+def _extent_is_possible(points: list[tuple[float, float]]) -> bool:
+    """Could these projected positions be players on a football field?
+
+    A tolerance, not a boundary test: players legitimately stand out of bounds,
+    behind the end line, and on the sideline. This only rejects a spread that no
+    football field could contain -- the signature of a homography whose scale is
+    wrong on one axis.
+    """
+    tmpl = default_template()
+    ys = [y for _, y in points]
+    xs = [x for x, _ in points]
+    # Generous: the full width plus a first down of room on each side, and the
+    # full length plus both end zones and then some.
+    return (
+        max(ys) - min(ys) <= tmpl.width + 2 * MAX_OUT_OF_BOUNDS_YD
+        and max(xs) - min(xs) <= tmpl.length + 2 * MAX_OUT_OF_BOUNDS_YD
+    )

@@ -196,3 +196,59 @@ class TestStageOrder:
 
     def test_video_stages_are_disjoint_from_clip_stages(self) -> None:
         assert not set(VIDEO_STAGES) & set(CLIP_STAGES)
+
+
+class TestProjectionPlausibility:
+    """A homography can be right on one axis and badly scaled on the other.
+
+    That is the live failure on the Toledo indoor footage: the yard lines pin
+    the downfield axis exactly, but the two cross-field rows are dashed hash
+    marks with no sideline in frame to identify them against, so whether they
+    are 13.3 or 26.7 yards apart is an assumption. Guess high and every player
+    spreads across ~98 yards of a 53-yard field -- with a perfect inlier ratio,
+    because the fit is consistent with its own correspondences.
+    """
+
+    def _spread(self, scale: float) -> dict[str, Any]:
+        # `scale` is the yards-per-pixel applied to the lateral (field_y) axis;
+        # the boxes step down the frame so that axis is the one that spreads.
+        H = [0.1, 0.0, 0.0, 0.0, scale, 0.0, 0.0, 0.0, 1.0]
+        points = [
+            {"frame_number": i, "bbox": [0.0, i * 100.0, 40.0, i * 100.0 + 100]}
+            for i in range(6)
+        ]
+        track = _FakeTrack(points)
+        with patch.object(stage_track.backend, "create_tracklet", return_value={"id": "tr-1"}):
+            result = stage_track.run(
+                "clip-1", {}, 30.0, "job-1",
+                tracker=_FakeTracker([track]), homography=H, analytics_safe=True,
+            )
+        return {"result": result, "points": track.points}
+
+    def test_accepts_a_spread_that_fits_on_a_field(self) -> None:
+        out = self._spread(0.05)  # ~5 yards of lateral spread
+        assert out["result"]["projected_points"] == 6
+
+    def test_rejects_a_spread_no_field_could_contain(self) -> None:
+        out = self._spread(1.0)  # ~100 yards of lateral spread
+        assert out["result"]["projected_points"] == 0
+
+    def test_rejection_writes_no_coordinates_at_all(self) -> None:
+        # Not "writes some": a partial write is worse, because the readers
+        # guard on presence and would treat the survivors as trustworthy.
+        out = self._spread(1.0)
+        for point in out["points"]:
+            assert "field_x" not in point
+            assert "field_y" not in point
+
+    def test_rejection_still_produces_tracklets(self) -> None:
+        # An uncalibrated clip must still track, render and be reviewable.
+        assert self._spread(1.0)["result"]["tracklet_count"] == 1
+
+    def test_out_of_bounds_players_are_not_rejected(self) -> None:
+        # Players are carried out of bounds and chase into the bench area; the
+        # guard rejects impossible fields, not legal positions.
+        assert stage_track._extent_is_possible([(10.0, -30.0), (60.0, 30.0)])
+
+    def test_a_double_width_field_is_rejected(self) -> None:
+        assert not stage_track._extent_is_possible([(10.0, -55.0), (60.0, 55.0)])
