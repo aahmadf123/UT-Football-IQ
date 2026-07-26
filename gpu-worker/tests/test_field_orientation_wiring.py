@@ -199,3 +199,37 @@ def test_calibrate_corrects_a_mirrored_fit() -> None:
     H, _kp, _ratio, codes = best
     assert fo.is_mirrored(H, frame.shape) is False
     assert "handedness_corrected" in codes
+
+
+def test_drone_path_persists_fit_level_reason_codes() -> None:
+    """The drone path used to drop them, which is the path this footage takes.
+
+    ``KeypointResult.reason_codes`` only describes line detection. The fit-level
+    codes -- ``handedness_corrected``, ``low_inlier_ratio`` -- exist only on what
+    ``_best_frame_fit`` returns, and ``_calibrate_drone`` was unpacking them into
+    ``_`` and then persisting the keypoint codes instead. A corrected drone
+    calibration therefore reached the backend with no sign it had been corrected.
+    """
+    from pipeline import stage_calibrate
+
+    frames = [np.zeros((720, 1280, 3), dtype=np.uint8) for _ in range(3)]
+    H = np.array([[0.06, 0.0, -20.0], [0.0, -0.05, 18.0], [0.0, 0.0, 1.0]])
+
+    class _KP:
+        line_count = 12
+        field_coverage = 0.6
+        yardline_angles = [0.1, 0.11]
+        reason_codes = ["rows_observed"]
+
+    fit = (H, _KP(), 0.9, ["rows_observed", "handedness_corrected"])
+
+    with (
+        patch.object(stage_calibrate, "_best_frame_fit", return_value=fit),
+        patch.object(stage_calibrate, "_field_boundary_diagnostics", return_value=None),
+        patch.object(stage_calibrate.backend, "create_calibration", return_value={}),
+    ):
+        result = stage_calibrate._calibrate_drone(
+            "video-1", "job-1", frames, "drone_follow", stage_calibrate.VARIANT_LITE
+        )
+
+    assert "handedness_corrected" in result["reason_codes"]

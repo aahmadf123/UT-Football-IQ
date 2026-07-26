@@ -52,9 +52,10 @@ log = structlog.get_logger(__name__)
 
 TEAM_CLASSIFICATION_MAX_FRAMES = 30
 
-# Frames voted over when resolving which way the offence attacks. The vote is
-# already decided well before this many; the cap keeps the O(n²) nearest-point
-# work in the estimator bounded on a long clip.
+# Frames voted over when resolving which way the offence attacks. Per frame the
+# estimator sorts the players twice, so the cost is small and the cap is about
+# the vote rather than the arithmetic: 60 evenly spaced frames span the whole
+# clip, and agreement over that many has long since stopped moving.
 ORIENTATION_MAX_FRAMES = 60
 
 

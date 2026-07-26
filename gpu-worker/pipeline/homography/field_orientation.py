@@ -219,7 +219,8 @@ def _dense_cluster_centre(xs: np.ndarray) -> float | None:
 
     Same single sorted sweep as ``events.los_estimator``: split on gaps wider
     than eps, keep runs of at least min_samples, take the one with the smallest
-    spread. At a set formation that run is the two lines pressed together.
+    standard deviation. At a set formation that run is the two lines pressed
+    together.
     """
     if len(xs) < _LOS_MIN_SAMPLES:
         return None
