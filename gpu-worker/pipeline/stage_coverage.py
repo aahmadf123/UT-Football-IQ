@@ -181,6 +181,11 @@ def run(
         "calibration_method": shell_value["calibration_method"],
         "coverage_bust_flag": bust["coverage_bust_flag"],
         "alignments": alignment_results,
+        # Entropy of the shell head, carried out so the orchestrator can reduce
+        # it with the other heads into the clip's review-queue priority. It was
+        # computed here and dropped, which is why nothing was ever queued.
+        "uncertainty": shell_value["uncertainty"],
+        "is_calibrated": shell_value["is_calibrated"],
     }
 
 

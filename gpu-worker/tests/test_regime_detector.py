@@ -10,6 +10,7 @@ deterministic and runnable in any container that has numpy.
 
 from __future__ import annotations
 
+import math
 import os
 import sys
 
@@ -225,3 +226,79 @@ def test_custom_coefs_override_fallback(tmp_path, monkeypatch):
         }
     )
     assert result.regime == DRONE_FOLLOW
+
+
+# ── The vanishing-point feature must actually be a feature ────────────────────
+
+
+def _lines_frame(angle_deg: float, converge: bool, size: int = 400) -> np.ndarray:
+    """A frame of straight white lines, either converging or parallel.
+
+    Converging lines put the vanishing point near the frame (an elevated
+    sideline look); parallel lines put it at infinity (a near-nadir look).
+    """
+    cv2 = pytest.importorskip("cv2")
+    frame = np.zeros((size, size, 3), dtype=np.uint8)
+    centre = size / 2.0
+    rad = math.radians(angle_deg)
+    for i in range(-3, 4):
+        offset = i * size / 9.0
+        if converge:
+            # All lines aimed at one point just off the top of the frame.
+            x0, y0 = centre + offset, float(size)
+            x1, y1 = centre + offset * 0.15, -size * 0.5
+        else:
+            x0, y0 = centre + offset, float(size)
+            x1, y1 = centre + offset, -float(size)
+
+        def rot(x: float, y: float) -> tuple[int, int]:
+            dx, dy = x - centre, y - centre
+            return (
+                int(centre + dx * math.cos(rad) - dy * math.sin(rad)),
+                int(centre + dx * math.sin(rad) + dy * math.cos(rad)),
+            )
+
+        cv2.line(frame, rot(x0, y0), rot(x1, y1), (255, 255, 255), 2)
+    return frame
+
+
+class TestVanishingPointFeature:
+    """It returned exactly 0.5 on all 30 real clips -- a constant, not a signal.
+
+    The cause was a filter keeping only lines within 35 degrees of vertical,
+    which assumes the yard lines recede away from the camera. That holds for a
+    sideline camera and nothing else. Weighted at 1.1, the fallback added a
+    fixed 0.55 to every logit: an intercept wearing a feature's name.
+    """
+
+    def test_parallel_lines_read_as_overhead(self) -> None:
+        pytest.importorskip("cv2")
+        assert rd._vanishing_point_score(_lines_frame(0.0, converge=False)) > 0.5
+
+    def test_converging_lines_read_as_elevated_sideline(self) -> None:
+        pytest.importorskip("cv2")
+        assert rd._vanishing_point_score(_lines_frame(0.0, converge=True)) < 0.5
+
+    @pytest.mark.parametrize("angle", [0.0, 30.0, 60.0, 90.0, 135.0])
+    def test_the_reading_does_not_depend_on_orientation(self, angle: float) -> None:
+        # The camera's roll is not evidence about its altitude. Rotating the
+        # same geometry must not change the answer -- that equivalence is
+        # exactly what the old near-vertical filter broke.
+        pytest.importorskip("cv2")
+        assert rd._vanishing_point_score(_lines_frame(angle, converge=False)) > 0.5
+
+    def test_it_is_not_constant_across_inputs(self) -> None:
+        # The regression that matters. Any single-value implementation passes
+        # every threshold test above by luck; none passes this.
+        pytest.importorskip("cv2")
+        scores = {
+            rd._vanishing_point_score(_lines_frame(a, converge=c))
+            for a in (0.0, 45.0, 90.0)
+            for c in (True, False)
+        }
+        assert len(scores) > 1
+
+    def test_a_blank_frame_still_reports_no_evidence(self) -> None:
+        pytest.importorskip("cv2")
+        blank = np.zeros((200, 200, 3), dtype=np.uint8)
+        assert rd._vanishing_point_score(blank) == pytest.approx(0.5)

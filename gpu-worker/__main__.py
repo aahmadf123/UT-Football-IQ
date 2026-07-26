@@ -236,6 +236,9 @@ def process_pipeline_job(job: dict[str, Any]) -> None:
             job_id=job_id,
             progress_cb=progress_cb,
             artifact_sink=StorageArtifactSink(video_id),
+            # Without this stage_reid's jersey map is empty, so a correctly read
+            # number has no player to attribute to.
+            roster=backend_client.fetch_roster(),
         )
         _update_job_status(job_id, "succeeded", output_artifacts=summary)
         backend_client.patch_video_status(video_id, "ready")

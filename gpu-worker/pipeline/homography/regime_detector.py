@@ -50,6 +50,8 @@ from typing import Any
 import numpy as np
 import structlog
 
+from pipeline.homography import yardline_keypoints as yk
+
 log = structlog.get_logger(__name__)
 
 
@@ -65,6 +67,11 @@ WORK_LONG_EDGE = 480
 # Logistic threshold + uncertainty band. ``margin`` widens the dead zone
 # that maps to ``unknown`` (see module docstring).
 DEFAULT_MARGIN = 0.05
+
+# Angular spread of the dominant line family, below/above which the camera reads
+# as fully overhead / low and elevated. See ``_vanishing_point_score``.
+VP_SPREAD_OVERHEAD = 0.010
+VP_SPREAD_SIDELINE = 0.050
 
 UNKNOWN = "unknown"
 DRONE_FOLLOW = "drone_follow"
@@ -318,11 +325,22 @@ def _static_background_score(stack: np.ndarray) -> float:
 
 
 def _vanishing_point_score(frame: np.ndarray) -> float:
-    """Estimate vertical position of the vanishing point of near-vertical
-    lines and translate to a 0..1 score where ``1`` favors drone-follow
-    (very-high VP / near-nadir view) and ``0`` favors elevated sideline.
+    """How far the field lines' vanishing point sits from the frame.
 
-    Falls back to ``0.5`` when not enough lines are found.
+    Measures how close to nadir the camera is. A near-overhead view leaves
+    parallel field lines nearly parallel in the image, so their vanishing point
+    is enormously far away; a low elevated sideline view makes them converge
+    hard, bringing it close. ``1`` favours drone-follow, ``0`` elevated
+    sideline, and ``0.5`` means "no evidence".
+
+    Direction is deliberately not part of it. This used to keep only lines
+    within 35 degrees of vertical, on the assumption that yard lines recede
+    away from the camera -- which holds for a sideline camera and for nothing
+    else. On the Toledo drone footage the yard lines run across the frame at
+    84-90 degrees, so every line was discarded and the function returned its
+    "not enough lines" fallback of 0.5 on **all 30 clips**. A constant is not a
+    neutral value here: weighted at 1.1 it added a fixed 0.55 to every logit,
+    an intercept wearing a feature's name.
     """
     try:
         import cv2
@@ -338,46 +356,45 @@ def _vanishing_point_score(frame: np.ndarray) -> float:
     if lines is None or len(lines) < 2:
         return 0.5
 
-    h, w = gray.shape[:2]
-    # Keep near-vertical lines only (yard lines projected toward VP).
-    vert_lines: list[tuple[float, float]] = []
-    for line in lines[:50]:
-        rho, theta = line[0]
-        # Vertical-ish in image space: theta near 0 or pi.
-        if min(abs(theta), abs(theta - math.pi)) > math.radians(35):
-            continue
-        vert_lines.append((float(rho), float(theta)))
-    if len(vert_lines) < 2:
+    # The dominant parallel family, whatever direction it points. Field lines
+    # out-vote everything else in the frame for the same reason they do in the
+    # calibrator: they are the longest continuous edges on a football field.
+    candidates = [(float(r), float(t)) for r, t in (ln[0] for ln in lines[:50])]
+    clusters = yk.cluster_lines_by_angle(candidates)
+    if not clusters or len(clusters[0]) < 2:
         return 0.5
 
-    intersections_y: list[float] = []
-    for i in range(len(vert_lines)):
-        r1, t1 = vert_lines[i]
-        for j in range(i + 1, len(vert_lines)):
-            r2, t2 = vert_lines[j]
-            # Solve [cos(t1) sin(t1); cos(t2) sin(t2)] · [x; y] = [r1; r2]
-            # for y via Cramer's rule. Determinant: sin(t2 - t1).
-            denom = math.sin(t2 - t1)
-            if abs(denom) < 1e-3:
-                continue
-            y = (r2 * math.cos(t1) - r1 * math.cos(t2)) / denom
-            intersections_y.append(y)
-    if not intersections_y:
+    # Score the family's angular spread rather than locating the vanishing point.
+    # Both measure the same thing -- how hard the lines converge -- but the spread
+    # is far steadier. Hough quantises theta to one degree, so two genuinely
+    # parallel lines can land in adjacent bins and "intersect" at an arbitrary
+    # point a few hundred pixels away; a median over pairwise intersections
+    # inherits that noise, and on synthetic parallel lines it swung the score
+    # between 0.0 and 1.0 with nothing but the frame's rotation changing.
+    #
+    # The smallest singular value of the matrix of unit normals, relative to the
+    # largest, is exactly that spread: a perfectly parallel family makes the
+    # matrix rank one and drives it to zero. Singular values are unchanged by
+    # rotating every line together, so this is orientation-invariant by
+    # construction rather than by tuning.
+    normals = np.array([[math.cos(t), math.sin(t)] for _, t in clusters[0]])
+    singular = np.linalg.svd(normals, compute_uv=False)
+    if singular[0] <= 0.0:
         return 0.5
+    spread = float(singular[-1] / singular[0])
 
-    y_vp = float(np.median(intersections_y))
-    # ``y_vp`` is measured in pixels from the top of the image; negative
-    # values mean the VP is above the frame. Convert to "image heights
-    # above the top of the frame": positive == above.
-    heights_above = max(0.0, -y_vp) / max(1.0, float(h))
-
-    # Map heights_above → score. <2 image heights or below frame → fixed
-    # (score 0); >10 → drone (score 1); linear in between.
-    if heights_above <= 2.0:
-        return 0.0
-    if heights_above >= 10.0:
+    # Thresholds measured, not guessed: synthetic parallel lines span 0.000-0.013
+    # and synthetic converging lines 0.030-0.056, with the 30 real drone clips at
+    # 0.010-0.028 -- between the two and nearer the parallel end, which is what a
+    # camera at height should look like. The elevated-sideline end is anchored on
+    # synthetic geometry, since there is no game film in the sample yet.
+    if spread <= VP_SPREAD_OVERHEAD:
         return 1.0
-    return float((heights_above - 2.0) / 8.0)
+    if spread >= VP_SPREAD_SIDELINE:
+        return 0.0
+    return float(
+        1.0 - (spread - VP_SPREAD_OVERHEAD) / (VP_SPREAD_SIDELINE - VP_SPREAD_OVERHEAD)
+    )
 
 
 def _global_affine_score(stack: np.ndarray) -> float:

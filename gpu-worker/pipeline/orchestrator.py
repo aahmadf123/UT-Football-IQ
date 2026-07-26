@@ -333,6 +333,52 @@ def _run_video_stage(stage: str, ctx: PipelineContext) -> dict[str, Any]:
     raise ValueError(f"Unknown video-scoped stage: {stage}")
 
 
+def _uncertainty_heads(artifacts: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    """Pull each classifier head's entropy out of the stage artifacts.
+
+    Heads that ran but could not calibrate report ``uncertainty: None`` -- there
+    is no distribution to take the entropy of, so they contribute nothing rather
+    than a zero, which would read as "completely certain" and sink the clip to
+    the bottom of the review queue.
+    """
+    from pipeline.calibration.calibrated_output import CalibratedOutput
+
+    heads: dict[str, Any] = {}
+    sources = {
+        "coverage": artifacts.get("coverage") or {},
+        # stage_pressure nests its CalibratedOutput under the metric it writes.
+        "pressure": (artifacts.get("pressure") or {}).get("pressure") or {},
+    }
+    for name, source in sources.items():
+        entropy = source.get("uncertainty")
+        if entropy is None:
+            continue
+        heads[name] = CalibratedOutput(
+            value=name,
+            confidence=float(source.get("confidence") or source.get("coverage_confidence") or 0.0),
+            is_calibrated=bool(source.get("is_calibrated")),
+            entropy=float(entropy),
+        )
+    return heads
+
+
+def _score_clip_uncertainty(ctx: PipelineContext, clip_id: str) -> None:
+    """Reduce the clip's heads to one review-queue priority and write it back."""
+    from pipeline import backend
+    from pipeline.calibration import clip_uncertainty
+
+    heads = _uncertainty_heads(ctx.clip_artifacts.get(clip_id, {}))
+    result = clip_uncertainty(heads)
+    log.info(
+        "clip_uncertainty_scored",
+        clip_id=clip_id,
+        score=result.score,
+        calibrated=result.is_calibrated,
+        contributing=list(result.contributing),
+    )
+    backend.patch_clip_uncertainty(clip_id, result.score, result.is_calibrated)
+
+
 def _run_clip_stage(stage: str, ctx: PipelineContext, clip: dict[str, Any]) -> dict[str, Any]:
     """Run one clip-scoped stage for ``clip`` and fold outputs into context."""
     from pipeline import model_router
@@ -664,6 +710,11 @@ def run_pipeline(
                 _merge_routing(ctx, artifacts)
                 sink.write(stage, artifacts, clip_id)
                 report(stage, clip_id, "succeeded", **_stage_headline(stage, artifacts))
+
+            # Outside the stage loop, and deliberately after a `break`: a clip
+            # whose pipeline fell over part-way is precisely one a human should
+            # look at, so it gets scored on whatever heads did run.
+            _score_clip_uncertainty(ctx, clip_id)
     finally:
         if ctx.video_path is not None:
             ctx.video_path.unlink(missing_ok=True)

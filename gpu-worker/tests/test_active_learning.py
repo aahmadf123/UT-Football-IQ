@@ -9,6 +9,11 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
+from types import SimpleNamespace
+from unittest.mock import patch
+
+from pipeline import backend as orchestrator_backend
+from pipeline import orchestrator
 from pipeline.calibration import CalibratedOutput, ClipUncertainty, clip_uncertainty
 
 
@@ -74,3 +79,80 @@ def test_payload_shape_matches_clip_patch_contract() -> None:
     assert isinstance(out, ClipUncertainty)
     assert 0.0 <= payload["uncertainty_score"] <= 1.0
     assert payload["uncertainty_calibrated"] is True
+
+
+# ── Wiring: the score has to reach the clip, or the queue stays empty ─────────
+
+
+class TestUncertaintyReachesTheClip:
+    """``clip_uncertainty`` was tested and never called.
+
+    ``clips.uncertainty_score`` was therefore never written, and the review
+    queue orders by that column -- so every clip came back ``reason="unscored"``
+    and sorted last. The queue looked empty because nothing had ever scored
+    anything, not because the model was confident.
+    """
+
+    def test_extracts_both_heads_from_stage_artifacts(self) -> None:
+        heads = orchestrator._uncertainty_heads(
+            {
+                "coverage": {"uncertainty": 0.4, "is_calibrated": True,
+                             "coverage_confidence": 0.8},
+                "pressure": {"pressure": {"uncertainty": 0.9, "is_calibrated": True,
+                                          "confidence": 0.6}},
+            }
+        )
+        assert set(heads) == {"coverage", "pressure"}
+        assert heads["pressure"].entropy == pytest.approx(0.9)
+
+    def test_pressure_entropy_is_read_from_its_nested_metric(self) -> None:
+        # stage_pressure returns {"pressure": {**CalibratedOutput.to_dict()}},
+        # so a flat lookup finds nothing and the head silently vanishes.
+        heads = orchestrator._uncertainty_heads(
+            {"pressure": {"pressure": {"uncertainty": 0.7, "is_calibrated": False}}}
+        )
+        assert heads["pressure"].entropy == pytest.approx(0.7)
+
+    def test_a_head_with_no_distribution_contributes_nothing(self) -> None:
+        # The uncalibrated fallback reports uncertainty=None. Coercing that to
+        # 0.0 would read as "completely certain" and bury the clip.
+        heads = orchestrator._uncertainty_heads(
+            {"coverage": {"uncertainty": None, "is_calibrated": False}}
+        )
+        assert heads == {}
+
+    def test_missing_stages_are_not_an_error(self) -> None:
+        assert orchestrator._uncertainty_heads({}) == {}
+
+    def test_the_max_head_drives_the_score(self) -> None:
+        # Uncertainty sampling: the head the model is least sure about decides
+        # review. Averaging would let confident heads mask one very unsure head.
+        heads = orchestrator._uncertainty_heads(
+            {
+                "coverage": {"uncertainty": 0.1, "is_calibrated": True},
+                "pressure": {"pressure": {"uncertainty": 0.95, "is_calibrated": True}},
+            }
+        )
+        assert clip_uncertainty(heads).score == pytest.approx(0.95)
+
+    def test_the_score_is_patched_to_the_backend(self) -> None:
+        ctx = SimpleNamespace(
+            clip_artifacts={"c1": {"coverage": {"uncertainty": 0.6, "is_calibrated": True}}}
+        )
+        with patch.object(orchestrator_backend, "patch_clip_uncertainty") as patched:
+            orchestrator._score_clip_uncertainty(ctx, "c1")
+        patched.assert_called_once()
+        assert patched.call_args.args[1] == pytest.approx(0.6)
+
+    def test_an_unscorable_clip_patches_none_rather_than_zero(self) -> None:
+        ctx = SimpleNamespace(clip_artifacts={"c1": {}})
+        with patch.object(orchestrator_backend, "patch_clip_uncertainty") as patched:
+            orchestrator._score_clip_uncertainty(ctx, "c1")
+        assert patched.call_args.args[1] is None
+
+    def test_the_backend_client_skips_a_null_score(self) -> None:
+        # The column means "not scored yet" and PATCH ignores nulls, so sending
+        # one is a wasted round trip that reads like an attempt to clear it.
+        with patch.object(orchestrator_backend, "_client") as client:
+            orchestrator_backend.patch_clip_uncertainty("c1", None, False)
+        client.assert_not_called()

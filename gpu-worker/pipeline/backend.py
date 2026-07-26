@@ -181,6 +181,35 @@ def patch_clip_storage_uri(clip_id: str, storage_uri: str) -> None:
         log.warning("clip_overlay_patch_failed", clip_id=clip_id, error=str(exc))
 
 
+def patch_clip_uncertainty(
+    clip_id: str, score: float | None, calibrated: bool
+) -> None:
+    """PATCH a clip's active-learning uncertainty (Issues #145 / #146).
+
+    This is what puts a clip in the coach's review queue. ``clip_uncertainty()``
+    and its payload builder existed and were tested, but nothing called them, so
+    ``clips.uncertainty_score`` was never written -- and the queue orders by that
+    column, so every clip came back ``reason="unscored"`` and sorted last. The
+    review queue was not empty because the model was confident; it was empty
+    because nothing had ever scored anything.
+
+    ``score=None`` is skipped rather than sent: the column means "not scored
+    yet", and PATCH ignores nulls anyway, so sending one is a wasted round trip
+    that reads like an attempt to clear the value.
+    """
+    if _offline() or score is None:
+        return
+    try:
+        with _client() as c:
+            resp = c.patch(
+                f"/api/v1/clips/{clip_id}",
+                json={"uncertainty_score": score, "uncertainty_calibrated": calibrated},
+            )
+            resp.raise_for_status()
+    except Exception as exc:
+        log.warning("clip_uncertainty_patch_failed", clip_id=clip_id, error=str(exc))
+
+
 def finalize_video_clips(video_id: str) -> int:
     """Upgrade a video's same-session ``preliminary`` clips to ``final`` (Issue #147).
 
@@ -461,6 +490,45 @@ def create_alerts(payloads: list[dict[str, Any]]) -> int:
 
 
 # ── Player workload rollup (Issue #149) ──────────────────────────────────────
+
+
+#: NCAA roster limits sit far below this; it is a page size, not a policy.
+ROSTER_PAGE_LIMIT = 500
+
+
+def fetch_roster() -> list[dict[str, Any]]:
+    """GET the active roster for jersey → player re-identification.
+
+    ``stage_reid`` builds its ``jersey_number -> player_id`` map from this. No
+    caller passed ``roster=`` to ``run_pipeline``, so that map was always empty
+    and OCR could read a jersey correctly and still have nobody to attribute it
+    to -- identity could not work even in principle, however good the model got.
+
+    Best-effort, like every other read here: an unreachable backend degrades to
+    unidentified tracklets, which is what the pipeline did before anyway.
+    """
+    if not BACKEND_API_URL:
+        return []
+    try:
+        with _client() as c:
+            resp = c.get(
+                "/api/v1/players",
+                params={"is_active": True, "limit": ROSTER_PAGE_LIMIT},
+            )
+            resp.raise_for_status()
+            players = resp.json()
+    except Exception as exc:
+        log.warning("roster_fetch_failed", error=str(exc))
+        return []
+
+    if not isinstance(players, list):
+        log.warning("roster_fetch_unexpected_shape", shape=type(players).__name__)
+        return []
+    if len(players) >= ROSTER_PAGE_LIMIT:
+        # Silently truncating identity data would show up as a handful of
+        # players who can never be identified, with nothing pointing at why.
+        log.warning("roster_page_limit_reached", limit=ROSTER_PAGE_LIMIT)
+    return players
 
 
 def fetch_daily_cv_loads(date: str) -> list[dict[str, Any]]:
