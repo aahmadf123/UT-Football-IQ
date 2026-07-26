@@ -39,6 +39,43 @@ ANGLE_TOL_RAD = math.radians(5.0)
 # yard lines span ~6° across one frame.
 FAMILY_TOL_RAD = math.radians(12.0)
 
+# ── Length thresholds, and why none of them is a plain pixel count ────────────
+#
+# Every threshold below was tuned on 720p drone film, and every one of them is a
+# *length*: how many edge pixels make a line, how long a dash is, how far apart
+# two markings sit. Left as absolute pixels they encode the capture resolution,
+# and the footage will not have one -- angle, height, resolution and recording
+# method all vary shot to shot.
+#
+# The failure is silent and expensive. Feed the same frame in at 3x and a hash
+# tick becomes three times longer, clears the *solid* Hough threshold, and the
+# row reports as solid paint. Solid rows are sidelines, so two hash rows 26.7 yd
+# apart get labelled as two sidelines 53.3 yd apart: every lateral measurement
+# in the clip comes out 2x wrong, from a fit that has more correspondences than
+# the correct one and raises no warning.
+#
+# So thresholds are stated at their tuned 720p value and scaled to the frame in
+# hand. Scaling *all* of them together is what matters -- it makes detection
+# commute with image scaling, so a tick too short to be solid at 720p is still
+# too short at 4K.
+REFERENCE_DIAGONAL_PX = math.hypot(1280, 720)
+
+
+def _px(reference_px: float, diagonal: float, minimum: float = 1.0) -> float:
+    """A threshold tuned at 720p, expressed for a frame of this diagonal."""
+    return max(minimum, reference_px * diagonal / REFERENCE_DIAGONAL_PX)
+
+
+def _diagonal(shape: tuple[int, ...]) -> float:
+    return math.hypot(float(shape[1]), float(shape[0]))
+
+
+# Solid-line Hough. The threshold counts edge pixels lying on the line, so it is
+# a length; the rho resolution is one too, and holding it at 1px would spread a
+# real line's votes across more bins at higher resolution and lower its peak.
+SOLID_HOUGH_THRESHOLD = 100
+SOLID_HOUGH_RHO_PX = 1.0
+
 # Dash bridging. Hash marks are individually tiny and set roughly a yard apart,
 # so a row of them carries no long run of collinear edge pixels and the solid
 # `cv2.HoughLines` pass never sees it. `HoughLinesP` with a gap this large jumps
@@ -46,6 +83,11 @@ FAMILY_TOL_RAD = math.radians(12.0)
 DASH_BRIDGE_GAP_PX = 80
 DASH_MIN_LEN_PX = 60
 DASH_HOUGH_THRESHOLD = 50
+
+# Paint-mask morphology: the grass gate dilation, and the close that joins the
+# two edges of one painted stripe into a single blob.
+PAINT_GRASS_GATE_PX = 15
+PAINT_CLOSE_PX = 5
 
 # How far outside the frame a crossing may fall and still count, as a fraction
 # of frame size. A field row that matters has to meet the yard lines somewhere
@@ -99,13 +141,21 @@ def white_paint_mask(frame: np.ndarray, grass: np.ndarray) -> np.ndarray:
     lower = np.array([0, 0, 170])
     upper = np.array([180, 60, 255])
     paint = cv2.inRange(hsv, lower, upper)
+    diag = _diagonal(frame.shape)
     # Only keep paint adjacent to grass (dilate grass to form a gate).
-    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (15, 15))
+    gate_px = _odd(_px(PAINT_GRASS_GATE_PX, diag, minimum=3.0))
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (gate_px, gate_px))
     grass_gate = cv2.dilate(grass, kernel, iterations=1)
     paint = cv2.bitwise_and(paint, grass_gate)
     # Close to bridge dashed hash marks into continuous lines.
-    close_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
+    close_px = _odd(_px(PAINT_CLOSE_PX, diag, minimum=3.0))
+    close_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (close_px, close_px))
     return cv2.morphologyEx(paint, cv2.MORPH_CLOSE, close_kernel)
+
+
+def _odd(value: float) -> int:
+    """Nearest odd integer >= 3 -- structuring elements need a centre pixel."""
+    return max(3, int(round(value)) | 1)
 
 
 def _rows(result: np.ndarray, width: int) -> np.ndarray:
@@ -124,8 +174,14 @@ def detect_hough_lines(paint: np.ndarray) -> list[tuple[float, float]]:
     """Return solid Hough lines as ``(rho, theta)`` from the paint mask edges."""
     import cv2
 
+    diag = _diagonal(paint.shape)
     edges = cv2.Canny(paint, 50, 150)
-    raw = cv2.HoughLines(edges, 1, np.pi / 180, threshold=100)
+    raw = cv2.HoughLines(
+        edges,
+        _px(SOLID_HOUGH_RHO_PX, diag),
+        np.pi / 180,
+        threshold=int(_px(SOLID_HOUGH_THRESHOLD, diag, minimum=20.0)),
+    )
     if raw is None:
         return []
     return [(float(r), float(t)) for r, t in _rows(raw, 2)]
@@ -150,14 +206,15 @@ def detect_dashed_lines(paint: np.ndarray) -> list[tuple[float, float]]:
     """
     import cv2
 
+    diag = _diagonal(paint.shape)
     edges = cv2.Canny(paint, 50, 150)
     segments = cv2.HoughLinesP(
         edges,
         1,
         np.pi / 180,
-        threshold=DASH_HOUGH_THRESHOLD,
-        minLineLength=DASH_MIN_LEN_PX,
-        maxLineGap=DASH_BRIDGE_GAP_PX,
+        threshold=int(_px(DASH_HOUGH_THRESHOLD, diag, minimum=10.0)),
+        minLineLength=_px(DASH_MIN_LEN_PX, diag),
+        maxLineGap=_px(DASH_BRIDGE_GAP_PX, diag),
     )
     if segments is None:
         return []
@@ -214,6 +271,120 @@ def _intersect(
         return None
     x, y = np.linalg.solve(a, b)
     return float(x), float(y)
+
+
+#: How far to either side of a row to look for playing surface, at 720p. Far
+#: enough to clear the painted stripe itself and the ragged edge of the turf
+#: mask, short enough that the answer is still about *this* row.
+SIDE_PROBE_PX = 45.0
+#: Points sampled along a row's visible span before taking the majority verdict.
+#: A single sample would be decided by whoever happened to be standing there.
+SIDE_PROBE_SAMPLES = 9
+
+ROW_SIDELINE = "sideline"
+ROW_INTERIOR = "interior"
+ROW_UNKNOWN = "unknown"
+
+
+def _frame_span(
+    line: tuple[float, float], w: int, h: int
+) -> tuple[np.ndarray, np.ndarray] | None:
+    """Where a ``(rho, theta)`` line enters and leaves the frame, or ``None``."""
+    rho, theta = line
+    cos_t, sin_t = math.cos(theta), math.sin(theta)
+    hits: list[np.ndarray] = []
+    # Solving for x on the horizontal borders needs cos != 0, and for y on the
+    # vertical borders needs sin != 0 -- guarding each on the *other* one leaves
+    # an exactly horizontal or vertical line with no span at all, which is the
+    # orientation a fixed-sideline camera produces.
+    if abs(cos_t) > 1e-9:
+        for y in (0.0, float(h)):
+            x = (rho - y * sin_t) / cos_t
+            if -1.0 <= x <= w + 1.0:
+                hits.append(np.array([x, y]))
+    if abs(sin_t) > 1e-9:
+        for x in (0.0, float(w)):
+            y = (rho - x * cos_t) / sin_t
+            if -1.0 <= y <= h + 1.0:
+                hits.append(np.array([x, y]))
+    if len(hits) < 2:
+        return None
+    pts = np.asarray(hits)
+    # The two furthest apart are the entry and exit; the others are duplicates
+    # where the line passes through a corner.
+    best = max(
+        itertools.combinations(range(len(pts)), 2),
+        key=lambda ij: float(np.linalg.norm(pts[ij[0]] - pts[ij[1]])),
+    )
+    p0, p1 = pts[best[0]], pts[best[1]]
+    return (p0, p1) if float(np.linalg.norm(p1 - p0)) > 1.0 else None
+
+
+def _row_verdict(
+    line: tuple[float, float],
+    boundary: Any,
+    frame_shape: tuple[int, int],
+) -> str:
+    """Is this row a sideline, an interior row, or undecidable — by observation.
+
+    A sideline is the edge of the playing surface: there is no field beyond it.
+    An inbound hash row has field on both sides. That is a *visible* difference,
+    and unlike the solid-vs-dashed distinction it is one this footage actually
+    supports.
+
+    The alternative, which this replaces, was to infer identity from whether the
+    solid Hough pass happened to find the line. That tag is not a property of
+    the paint but of the threshold: rescaling one frame flips hash rows to
+    "solid" and back, and because the tag decides whether two rows are the
+    hashes (26.7 yd apart) or the sidelines (53.3 yd), the flip silently doubles
+    every lateral measurement in the clip -- from a fit that reports more
+    correspondences and no warning. Measured on the Toledo film, no continuity
+    statistic separates the two populations: known-solid yard lines span
+    0.03-1.00 of longest-run fraction against 0.01-0.90 for the mixed rows.
+
+    Known limitation: on a field with grass beyond the sidelines the surface
+    does not end at the paint, so a real sideline reads as ``interior``. The
+    caller sees ``unknown`` and ``interior`` differently for exactly this reason
+    -- ``interior`` is only asserted where the turf mask is trustworthy.
+    """
+    w, h = frame_shape[1], frame_shape[0]
+    span = _frame_span(line, w, h)
+    if span is None or boundary is None:
+        return ROW_UNKNOWN
+    p0, p1 = span
+    probe = _px(SIDE_PROBE_PX, math.hypot(w, h))
+    normal = np.array([math.cos(line[1]), math.sin(line[1])]) * probe
+
+    votes: list[str] = []
+    for t in np.linspace(0.15, 0.85, SIDE_PROBE_SAMPLES):
+        centre = p0 + (p1 - p0) * t
+        a, b = centre + normal, centre - normal
+        if not (_inside(a, w, h) and _inside(b, w, h)):
+            # One side is off-frame, so "is there field beyond it" is not a
+            # question this frame can answer.
+            continue
+        on_a = boundary.on_surface((float(a[0]), float(a[1])))
+        on_b = boundary.on_surface((float(b[0]), float(b[1])))
+        if on_a and on_b:
+            votes.append(ROW_INTERIOR)
+        elif on_a != on_b:
+            votes.append(ROW_SIDELINE)
+    if not votes:
+        return ROW_UNKNOWN
+    verdict = max(set(votes), key=votes.count)
+
+    if verdict == ROW_SIDELINE and not boundary.has_visible_boundary:
+        # The boundary has already established that no field edge is in view --
+        # the surface runs off all four sides of the frame. A probe landing
+        # outside the polygon here is a hole in the turf mask, a shadow or a
+        # worn patch, not the end of the field, and calling it a sideline is the
+        # expensive direction to be wrong in.
+        return ROW_UNKNOWN
+    return verdict
+
+
+def _inside(point: np.ndarray, w: int, h: int) -> bool:
+    return 0.0 <= float(point[0]) <= w and 0.0 <= float(point[1]) <= h
 
 
 def _angle_delta(a: float, b: float) -> float:
@@ -337,13 +508,66 @@ def _representative(
 
 
 #: How close a detected row must sit to a boundary touchline, in angle and in
-#: perpendicular offset, to be considered the same painted line.
+#: perpendicular offset, to be considered the same painted line. The offset is
+#: quoted at 720p and scaled with the frame, like every other length here.
 TOUCHLINE_ANGLE_TOL_RAD = math.radians(8.0)
 TOUCHLINE_OFFSET_TOL_PX = 30.0
 
 
+def _row_verdicts(
+    rows: list[tuple[float, float, bool]],
+    boundary: Any,
+    frame_shape: tuple[int, int],
+    touchlines: list[tuple[float, float]] | None = None,
+) -> list[str]:
+    """Classify each detected row against what the boundary can actually see.
+
+    Two independent observations, strongest first: lying on a real touchline
+    makes a row a sideline outright, and failing that, having playing surface on
+    both sides rules a sideline out.
+    """
+    diagonal = math.hypot(float(frame_shape[1]), float(frame_shape[0]))
+    usable = _plausible_touchlines(touchlines or [], rows)
+    on_touchline = _sideline_indices(rows, usable, diagonal)
+    if len(on_touchline) > 2:
+        # A field has two sidelines. More rows than that landing on a
+        # "touchline" means the boundary was mis-read, so the evidence is
+        # dropped rather than allowed to pin a labelling it cannot support.
+        on_touchline = set()
+    return [
+        ROW_SIDELINE
+        if i in on_touchline
+        else _row_verdict((rho, theta), boundary, frame_shape)
+        for i, (rho, theta, _) in enumerate(rows)
+    ]
+
+
+def _plausible_touchlines(
+    touchlines: list[tuple[float, float]], rows: list[tuple[float, float, bool]]
+) -> list[tuple[float, float]]:
+    """Keep only boundary edges that could actually be a sideline.
+
+    The surface outline is not all sideline. Where the field ends, the polygon
+    turns a corner and runs along the end line; the turf mask also throws off
+    spikes at shadows and worn patches. On the wide Toledo frame the far
+    sideline is one edge at 91°, and the four others -- corners at 62° and 119°,
+    and a mask spike -- are boundary in the sense that turf stops there, but no
+    sideline lies at those angles.
+
+    Sidelines belong to the cross-field family by definition, so an edge that
+    does not share that family's orientation is something else. Left in, each
+    is a chance for a row to anchor to a corner and be declared a sideline.
+    """
+    if not rows or not touchlines:
+        return []
+    family = _mean_angle([theta for _, theta, _ in rows])
+    return [ln for ln in touchlines if _angle_delta(ln[1], family) <= FAMILY_TOL_RAD]
+
+
 def _sideline_indices(
-    rows: list[tuple[float, float, bool]], touchlines: list[tuple[float, float]]
+    rows: list[tuple[float, float, bool]],
+    touchlines: list[tuple[float, float]],
+    diagonal: float = REFERENCE_DIAGONAL_PX,
 ) -> set[int]:
     """Which ordered rows coincide with a real field boundary edge.
 
@@ -353,41 +577,52 @@ def _sideline_indices(
     the entire lateral scale. A row lying on a touchline is not inferred to be a
     sideline; it is observed to be one.
     """
-    found: set[int] = set()
+    tol = _px(TOUCHLINE_OFFSET_TOL_PX, diagonal)
+    matches: dict[int, set[int]] = {}
     for i, (rho, theta, _) in enumerate(rows):
-        for t_rho, t_theta in touchlines:
+        for j, (t_rho, t_theta) in enumerate(touchlines):
             if _angle_delta(theta, t_theta) > TOUCHLINE_ANGLE_TOL_RAD:
                 continue
             # rho is signed against the normal direction, so a line and its
             # flipped representation differ in sign as well as angle.
             same = abs(rho - t_rho)
             flipped = abs(rho + t_rho)
-            if min(same, flipped) <= TOUCHLINE_OFFSET_TOL_PX:
-                found.add(i)
-                break
-    return found
+            if min(same, flipped) <= tol:
+                matches.setdefault(j, set()).add(i)
+
+    # One painted sideline is one row. A touchline that fits two rows has not
+    # identified either of them -- it means the tolerance swallowed the gap
+    # between them -- so that evidence is dropped rather than used to declare
+    # both rows sidelines, which would place them 53.3 yd apart when they are
+    # adjacent.
+    return {next(iter(rs)) for rs in matches.values() if len(rs) == 1}
 
 
 def _match_rows_to_template(
     dashed_pattern: list[bool],
     tmpl: FieldTemplate,
-    sideline_indices: set[int] | None = None,
-) -> list[float] | None:
-    """Label detected cross-field rows by matching solid/dashed against the field.
+    verdicts: list[str] | None = None,
+) -> tuple[list[float], str] | None:
+    """Label detected cross-field rows, and say what evidence did the labelling.
 
-    The four template rows south→north are sideline, hash, hash, sideline, and
-    only the hashes are dashed. So the pattern of what was detected usually
-    picks out exactly one subset: two dashed rows can only be the two hashes,
-    and ``solid, dashed, dashed, solid`` can only be the full set.
+    The four template rows south→north are sideline, hash, hash, sideline. Which
+    subset was detected sets the entire lateral scale: two rows read as the
+    hashes are 26.7 yd apart, the same two read as the sidelines are 53.3 yd, so
+    a mislabelling doubles every across-field measurement in the clip. The DLT
+    fits mislabelled correspondences as happily as correct ones and reports a
+    high inlier ratio either way, so nothing downstream catches it.
 
-    Returns ``None`` when more than one subset fits — one lone dashed row is
-    either hash — rather than guessing. Guessing here is the expensive failure:
-    the DLT fits mislabelled correspondences just as happily as correct ones and
-    reports a high inlier ratio either way, so a wrong label survives every
-    downstream check and simply moves the whole field.
+    Evidence is therefore ranked, not pooled:
 
-    The result is in detected order, which fixes Y up to a reflection — see
-    ``build_correspondences``.
+    1. **What the boundary observed.** A row on a real touchline is a sideline;
+       a row with playing surface on both sides is not. This is measured.
+    2. **The solid/dashed pattern**, and only to break a remaining tie. It is a
+       property of the Hough threshold as much as of the paint -- rescaling one
+       frame flips hash rows to solid -- so it may narrow a choice the
+       observation left open, and may never overrule it.
+
+    Returns ``(row_y_values, evidence)`` or ``None`` when the choice is still
+    open. Refusing is the cheap failure; guessing is the expensive one.
     """
     rows_y = (
         tmpl.sideline_y_south,
@@ -396,17 +631,72 @@ def _match_rows_to_template(
         tmpl.sideline_y_north,
     )
     sideline_rows = {0, len(rows_y) - 1}
-    matches = [
+    allowed = {
+        ROW_SIDELINE: sideline_rows,
+        ROW_INTERIOR: set(range(len(rows_y))) - sideline_rows,
+    }
+
+    def observed(combo: tuple[int, ...]) -> bool:
+        for i, verdict in enumerate(verdicts or []):
+            if i < len(combo) and verdict in allowed and combo[i] not in allowed[verdict]:
+                return False
+        return True
+
+    candidates = [
         combo
         for combo in itertools.combinations(range(len(rows_y)), len(dashed_pattern))
-        if [_ROW_IS_DASHED[i] for i in combo] == dashed_pattern
-        # An observed touchline pins that detected row to an actual sideline,
-        # which is what turns the pattern match from a guess into a deduction.
-        and all(combo[i] in sideline_rows for i in (sideline_indices or set()))
+        if observed(combo)
     ]
-    if len(matches) != 1:
-        return None
-    return [float(rows_y[i]) for i in matches[0]]
+    if len(candidates) == 1:
+        return [float(rows_y[i]) for i in candidates[0]], "rows_observed"
+
+    narrowed = [
+        combo
+        for combo in candidates
+        if [_ROW_IS_DASHED[i] for i in combo] == dashed_pattern
+    ]
+    if len(narrowed) == 1:
+        return [float(rows_y[i]) for i in narrowed[0]], "row_identity_unverified"
+    return None
+
+
+#: How far the across-field and down-field scales may differ before the
+#: labelling is rejected. Perspective genuinely stretches one axis against the
+#: other -- a low camera looking down the field compresses the far yard lines
+#: hard -- so this is deliberately loose. It is not a calibration check; it is
+#: an absurdity check.
+MAX_SCALE_ANISOTROPY = 25.0
+
+
+def _scale_is_plausible(src: list[list[float]], dst: list[list[float]]) -> bool:
+    """Does the labelling imply a physically possible pair of scales?
+
+    A mislabelling is not a small error. Two rows 22 px apart called the two
+    sidelines assert that 53.3 yd of field fits in 22 px, while the yard lines
+    in the same frame put 5 yd in a couple of hundred -- a scale disagreement of
+    nearly fifty times, from a fit that satisfies RANSAC perfectly because it is
+    self-consistent. Comparing the two directions *within one image* catches
+    that without knowing anything about the camera, which is the point: there is
+    no fixed height, angle or resolution to check against.
+    """
+    s = np.asarray(src, dtype=np.float64)
+    d = np.asarray(dst, dtype=np.float64)
+    scales: list[float] = []
+    for axis in (0, 1):
+        # Pairs separated along one field axis only, so each ratio measures a
+        # single direction rather than a diagonal.
+        other = 1 - axis
+        for i, j in itertools.combinations(range(len(d)), 2):
+            if abs(d[i][other] - d[j][other]) > 1e-6:
+                continue
+            field_gap = abs(d[i][axis] - d[j][axis])
+            pixel_gap = float(np.linalg.norm(s[i] - s[j]))
+            if field_gap > 1e-6 and pixel_gap > 1e-6:
+                scales.append(field_gap / pixel_gap)
+    if not scales:
+        return True  # nothing to compare; not this check's call to make
+    lo, hi = min(scales), max(scales)
+    return hi <= lo * MAX_SCALE_ANISOTROPY
 
 
 def build_correspondences(
@@ -416,6 +706,7 @@ def build_correspondences(
     *,
     dashed_lines: list[tuple[float, float]] | None = None,
     touchlines: list[tuple[float, float]] | None = None,
+    boundary: Any = None,
 ) -> KeypointResult:
     """Match detected lines to the field template and emit pixel↔yard pairs.
 
@@ -507,23 +798,20 @@ def build_correspondences(
         yard_ordered = yard_ordered[: len(chosen_yard_x)]
 
     cross_ordered = cross_ordered[: len(_ROW_IS_DASHED)]
-    anchored = _sideline_indices(cross_ordered, touchlines or [])
-    chosen_rows = _match_rows_to_template(
-        [ln[2] for ln in cross_ordered], tmpl, sideline_indices=anchored
-    )
-    if chosen_rows is None:
+    verdicts = _row_verdicts(cross_ordered, boundary, (h, w), touchlines)
+    matched = _match_rows_to_template([ln[2] for ln in cross_ordered], tmpl, verdicts)
+    if matched is None:
         return _empty("ambiguous_field_rows")
+    chosen_rows, evidence = matched
+    reason_codes.append(evidence)
 
-    # Both axes are recovered only up to a reflection: nothing in the markings
-    # says which end zone is which, or which sideline is north. Enforcing a
-    # right-handed homography downstream couples the two, leaving a single
-    # 180° rotation. Lengths, separations and speeds are invariant under it;
+    # Which *particular* hash or sideline each row is remains open, and no
+    # amount of boundary evidence closes it: the field is genuinely symmetric
+    # under a 180° rotation, so both ends look alike and both sidelines look
+    # alike. Lengths, separations and speeds are invariant under that rotation;
     # only the *direction* of a gain is not, which is why the offset is
     # re-anchored from play context rather than from geometry.
-    if not anchored:
-        reason_codes.append("field_orientation_unanchored")
-    else:
-        reason_codes.append("sideline_anchored")
+    reason_codes.append("field_orientation_unanchored")
 
     src: list[list[float]] = []
     dst: list[list[float]] = []
@@ -541,6 +829,8 @@ def build_correspondences(
 
     if len(src) < 4:
         reason_codes.append("insufficient_intersections")
+    elif not _scale_is_plausible(src, dst):
+        return _empty("implausible_row_scale")
 
     return KeypointResult(
         src_pts=np.asarray(src, dtype=np.float64) if src else np.empty((0, 2)),
@@ -553,13 +843,22 @@ def build_correspondences(
 
 
 def detect_keypoints(
-    frame: np.ndarray, template: FieldTemplate | None = None
+    frame: np.ndarray,
+    template: FieldTemplate | None = None,
+    *,
+    boundary: Any = None,
+    grass: tuple[np.ndarray, float] | None = None,
 ) -> KeypointResult:
     """Full single-frame detection: masks → Hough → cluster → correspondences.
 
     Requires OpenCV. Failures degrade to an empty :class:`KeypointResult`
     with a reason code rather than raising, so the calibrate stage can record
     ``analytics_safe=False`` instead of crashing the pipeline.
+
+    ``boundary`` and ``grass`` let a caller that has already computed them hand
+    them in. The calibrate stage samples the same frames for its own boundary
+    diagnostics, so without this the grass threshold runs three times per frame
+    and the contour pass twice.
     """
     try:
         import cv2  # noqa: F401
@@ -572,11 +871,11 @@ def detect_keypoints(
             reason_codes=["cv2_unavailable"],
         )
 
-    grass, coverage = grass_mask(frame)
+    grass_mask_, coverage = grass if grass is not None else grass_mask(frame)
     reason_codes: list[str] = []
     if coverage < 0.25:
         reason_codes.append("low_field_coverage")
-    paint = white_paint_mask(frame, grass)
+    paint = white_paint_mask(frame, grass_mask_)
     lines = detect_hough_lines(paint)
     if len(lines) < 4:
         return KeypointResult(
@@ -593,16 +892,22 @@ def detect_keypoints(
     # a two-row fit into a four-row one across the full width of the field.
     dashed = detect_dashed_lines(paint)
 
-    # A visible touchline identifies a detected row outright, instead of the
-    # solid/dashed pattern having to infer it. Costs one grass threshold and a
-    # contour on a frame already in memory.
-    from pipeline.homography.field_boundary import detect_field_boundary
+    # Where the surface ends is what identifies a row, so the boundary is not
+    # optional enrichment here -- without it the labelling falls back to the
+    # unreliable solid/dashed tag. Reuses the grass mask already in hand.
+    if boundary is None:
+        from pipeline.homography.field_boundary import detect_field_boundary
 
-    boundary = detect_field_boundary(frame)
+        boundary = detect_field_boundary(frame, grass=(grass_mask_, coverage))
     touchlines = boundary.touchlines() if boundary is not None else []
 
     result = build_correspondences(
-        lines, frame.shape[:2], template, dashed_lines=dashed, touchlines=touchlines
+        lines,
+        frame.shape[:2],
+        template,
+        dashed_lines=dashed,
+        touchlines=touchlines,
+        boundary=boundary,
     )
     result.field_coverage = coverage
     result.reason_codes = reason_codes + result.reason_codes

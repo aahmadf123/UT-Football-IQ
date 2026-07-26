@@ -45,7 +45,13 @@ POLY_EPSILON_FRACTION = 0.01
 #: How far outside the polygon a detection may sit and still be on the field.
 #: Players are carried out of bounds and defenders chase into the bench area,
 #: and the boundary itself is only accurate to a few pixels.
+#:
+#: Quoted at 720p and scaled with the frame. As a fixed pixel count it would
+#: tighten as resolution rises -- 40px is 2.7% of a 720p diagonal but 0.9% of a
+#: 4K one -- so the identical shot would start rejecting players near the
+#: sideline purely because it was recorded on a better camera.
 CONTAINS_MARGIN_PX = 40.0
+REFERENCE_DIAGONAL_PX = math.hypot(1280, 720)
 
 EDGE_NAMES = ("left", "right", "top", "bottom")
 
@@ -104,14 +110,27 @@ class FieldBoundary:
 
         Lets the calibrator compare a detected cross-field row against a known
         sideline directly, instead of assuming which rows it found.
+
+        Collinear segments are merged first, because one painted sideline does
+        not arrive as one polygon edge. A turf/track transition is ragged and
+        the contour approximation breaks it into several short edges at slightly
+        different angles -- the wide Toledo clip yields five for a single
+        visible touchline. Offered unmerged they behave as five independent
+        sidelines, and a detected row lands within tolerance of one of them by
+        chance: on one frame that anchored all four detected rows as sidelines,
+        which no field has.
         """
-        lines: list[tuple[float, float]] = []
-        for x1, y1, x2, y2 in self.touchline_segments():
-            if math.hypot(x2 - x1, y2 - y1) < 1e-6:
-                continue
-            theta = (math.atan2(y2 - y1, x2 - x1) + math.pi / 2) % math.pi
-            lines.append((x1 * math.cos(theta) + y1 * math.sin(theta), theta))
-        return lines
+        segments = [
+            seg for seg in self.touchline_segments() if math.hypot(seg[2] - seg[0], seg[3] - seg[1]) > 1e-6
+        ]
+        if not segments:
+            return []
+        diag = (
+            math.hypot(*self.frame_shape)
+            if self.frame_shape
+            else math.hypot(*np.ptp(self.polygon, axis=0))
+        )
+        return _merge_collinear(segments, diag)
 
     @property
     def visible_edges(self) -> tuple[str, ...]:
@@ -128,7 +147,29 @@ class FieldBoundary:
         """
         return bool(self.visible_edges)
 
-    def contains(self, point: tuple[float, float], margin: float = CONTAINS_MARGIN_PX) -> bool:
+    @property
+    def margin_px(self) -> float:
+        """Containment slack for this frame's resolution."""
+        if self.frame_shape is None:
+            return CONTAINS_MARGIN_PX
+        scale = math.hypot(*self.frame_shape) / REFERENCE_DIAGONAL_PX
+        return max(1.0, CONTAINS_MARGIN_PX * scale)
+
+    def on_surface(self, point: tuple[float, float], margin: float = 0.0) -> bool:
+        """Is this pixel playing surface? Raw polygon containment.
+
+        Deliberately *not* :meth:`contains`. That one answers the filtering
+        question -- "should this detection be discarded" -- and so has to answer
+        ``True`` for everything when no real edge is visible, because with the
+        whole frame inside the surface there is nothing to be outside of.
+
+        This one answers the geometric question, and calibration needs it to be
+        literal: to decide whether a detected row has field on both sides, the
+        two answers must be able to differ.
+        """
+        return _point_polygon_distance(self.polygon, point) >= -margin
+
+    def contains(self, point: tuple[float, float], margin: float | None = None) -> bool:
         """Is a point on the field, allowing ``margin`` pixels of slack?
 
         Always ``True`` when no real edge is visible. With the whole frame
@@ -137,7 +178,83 @@ class FieldBoundary:
         """
         if not self.has_visible_boundary:
             return True
-        return _point_polygon_distance(self.polygon, point) >= -margin
+        slack = self.margin_px if margin is None else margin
+        return _point_polygon_distance(self.polygon, point) >= -slack
+
+
+#: Two boundary segments describe the same painted line when they agree in
+#: orientation to within this angle and in perpendicular offset to within this
+#: fraction of the frame diagonal. The offset is frame-relative because contour
+#: approximation error scales with image size, not with any fixed pixel count --
+#: the footage has no single resolution to tune against.
+MERGE_ANGLE_TOL_RAD = math.radians(10.0)
+MERGE_OFFSET_FRACTION = 0.02
+
+
+def _line_of(segment: tuple[float, float, float, float]) -> tuple[float, float]:
+    """A segment as ``(rho, theta)`` in the Hough convention."""
+    x1, y1, x2, y2 = segment
+    theta = (math.atan2(y2 - y1, x2 - x1) + math.pi / 2) % math.pi
+    return x1 * math.cos(theta) + y1 * math.sin(theta), theta
+
+
+def _merge_collinear(
+    segments: list[tuple[float, float, float, float]], diagonal: float
+) -> list[tuple[float, float]]:
+    """Collapse segments lying on one painted line into a single ``(rho, theta)``.
+
+    Merging is by total-least-squares over the grouped endpoints, weighted by
+    segment length, rather than by averaging the per-segment angles. A long edge
+    fixes a line's direction far better than a short one, and the short ragged
+    pieces are exactly the ones whose angles are noise.
+    """
+    offset_tol = max(2.0, diagonal * MERGE_OFFSET_FRACTION)
+    groups: list[list[tuple[float, float, float, float]]] = []
+    leaders: list[tuple[float, float]] = []
+
+    for seg in segments:
+        rho, theta = _line_of(seg)
+        mid = ((seg[0] + seg[2]) / 2.0, (seg[1] + seg[3]) / 2.0)
+        for group, (l_rho, l_theta) in zip(groups, leaders, strict=True):
+            d = abs(theta - l_theta)
+            if min(d, math.pi - d) > MERGE_ANGLE_TOL_RAD:
+                continue
+            # Perpendicular distance from this segment to the group's line,
+            # measured where the segment actually is. Comparing rho directly
+            # would fail for edges far from the origin, where a degree of
+            # difference in angle moves rho by hundreds of pixels even though
+            # the two fragments are touching -- and a sideline is exactly such
+            # an edge. Using the leader's own normal also sidesteps the mod-pi
+            # sign flip.
+            gap = abs(mid[0] * math.cos(l_theta) + mid[1] * math.sin(l_theta) - l_rho)
+            if gap <= offset_tol:
+                group.append(seg)
+                break
+        else:
+            groups.append([seg])
+            leaders.append((rho, theta))
+
+    out: list[tuple[float, float]] = []
+    for group in groups:
+        pts: list[tuple[float, float]] = []
+        weights: list[float] = []
+        for x1, y1, x2, y2 in group:
+            half = math.hypot(x2 - x1, y2 - y1) / 2.0
+            pts += [(x1, y1), (x2, y2)]
+            weights += [half, half]
+        p = np.asarray(pts, dtype=np.float64)
+        wgt = np.asarray(weights, dtype=np.float64)
+        centroid = (p * wgt[:, None]).sum(axis=0) / wgt.sum()
+        centred = (p - centroid) * np.sqrt(wgt)[:, None]
+        # Principal direction of the weighted spread is the line's direction;
+        # the smaller singular vector is its normal.
+        _, _, vt = np.linalg.svd(centred, full_matrices=False)
+        dx, dy = vt[0]
+        theta = (math.atan2(float(dy), float(dx)) + math.pi / 2) % math.pi
+        out.append(
+            (float(centroid[0] * math.cos(theta) + centroid[1] * math.sin(theta)), theta)
+        )
+    return out
 
 
 def _point_polygon_distance(polygon: np.ndarray, point: tuple[float, float]) -> float:
@@ -199,12 +316,17 @@ def _clipped_edges(polygon: np.ndarray, width: int, height: int) -> tuple[str, .
     return tuple(out)
 
 
-def detect_field_boundary(frame: np.ndarray) -> FieldBoundary | None:
+def detect_field_boundary(
+    frame: np.ndarray, *, grass: tuple[np.ndarray, float] | None = None
+) -> FieldBoundary | None:
     """Outline the playing surface, or ``None`` if it cannot be found.
 
     ``None`` and "found but entirely cropped" are different answers and the
     caller needs both: the first means the frame could not be read as a field
     at all, the second that it is all field.
+
+    ``grass`` accepts an already-computed ``(mask, coverage)``; the calibrate
+    stage and keypoint detection both need one for the same frame.
     """
     try:
         import cv2
@@ -213,7 +335,7 @@ def detect_field_boundary(frame: np.ndarray) -> FieldBoundary | None:
 
     from pipeline.homography.yardline_keypoints import grass_mask
 
-    mask, coverage = grass_mask(frame)
+    mask, coverage = grass if grass is not None else grass_mask(frame)
     if coverage < MIN_FIELD_COVERAGE:
         return None
 

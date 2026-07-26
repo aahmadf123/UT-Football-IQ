@@ -198,7 +198,9 @@ def _good_keypoints() -> yk.KeypointResult:
 def _stub_detection(monkeypatch):
     captured: dict = {}
 
-    monkeypatch.setattr(yk, "detect_keypoints", lambda frame, template=None: _good_keypoints())
+    monkeypatch.setattr(
+        yk, "detect_keypoints", lambda frame, template=None, **kwargs: _good_keypoints()
+    )
 
     def _capture(video_id, homography, confidence, **kwargs):
         captured.update(kwargs)
@@ -344,16 +346,23 @@ class TestDuplicateCollapse:
 
 
 class TestRowLabelling:
-    """Sidelines are solid, hashes are dashed. That is what tells rows apart."""
+    """Which rows were detected sets the lateral scale, so the evidence is ranked.
+
+    What the boundary observed decides; the solid/dashed pattern only breaks a
+    remaining tie. That ordering is not stylistic -- measured across rescalings
+    of one real frame, the pattern reported ``SS``, ``DS`` and ``DD`` for the
+    same two hash rows, while the observation said "interior" every time.
+    """
 
     def test_two_dashed_rows_are_the_hashes(self):
         tmpl = default_template()
-        ys = yk._match_rows_to_template([True, True], tmpl)
+        ys, evidence = yk._match_rows_to_template([True, True], tmpl)
         assert ys == [pytest.approx(tmpl.hash_y_south), pytest.approx(tmpl.hash_y_north)]
+        assert evidence == "row_identity_unverified", "the pattern alone decided it"
 
     def test_two_solid_rows_are_the_sidelines(self):
         tmpl = default_template()
-        ys = yk._match_rows_to_template([False, False], tmpl)
+        ys, _ = yk._match_rows_to_template([False, False], tmpl)
         assert ys == [
             pytest.approx(tmpl.sideline_y_south),
             pytest.approx(tmpl.sideline_y_north),
@@ -361,10 +370,34 @@ class TestRowLabelling:
 
     def test_the_full_set_is_identified(self):
         tmpl = default_template()
-        ys = yk._match_rows_to_template([False, True, True, False], tmpl)
+        ys, evidence = yk._match_rows_to_template([False, True, True, False], tmpl)
         assert len(ys) == 4
         assert ys[0] == pytest.approx(tmpl.sideline_y_south)
         assert ys[-1] == pytest.approx(tmpl.sideline_y_north)
+        assert evidence == "rows_observed", "four rows can only be all four"
+
+    def test_two_interior_rows_are_the_hashes_whatever_the_pattern_says(self):
+        # The case the rescaling experiment exposed. Both rows have playing
+        # surface on either side, so neither can be a sideline -- and the only
+        # two-row subset of interior rows is the pair of hashes. Read as the
+        # sidelines instead, which is what the tag claimed at 0.5x, every
+        # across-field measurement in the clip would double.
+        tmpl = default_template()
+        ys, evidence = yk._match_rows_to_template(
+            [False, False], tmpl, [yk.ROW_INTERIOR, yk.ROW_INTERIOR]
+        )
+        assert ys == [pytest.approx(tmpl.hash_y_south), pytest.approx(tmpl.hash_y_north)]
+        assert evidence == "rows_observed"
+
+    def test_observation_is_not_overruled_by_the_pattern(self):
+        # Three rows cannot all be interior -- the field has two inbound hash
+        # rows. Refusing beats letting the pattern talk us into a third.
+        assert (
+            yk._match_rows_to_template(
+                [True, True, True], default_template(), [yk.ROW_INTERIOR] * 3
+            )
+            is None
+        )
 
     def test_one_dashed_row_is_refused_rather_than_guessed(self):
         # It is either hash. Guessing puts the whole field 13 yards sideways,
@@ -383,6 +416,109 @@ class TestRowLabelling:
         # same one. Reporting it dashed would relabel a sideline as a hash.
         group = [(0.0, (10.0, 0.5, True)), (1.0, (10.1, 0.5, False))]
         assert yk._representative(group)[2] is False
+
+
+class TestRowVerdictsFromTheSurface:
+    """A sideline has no field beyond it. A hash row has field on both sides.
+
+    That is the difference the footage actually supports, and it is what
+    replaced asking which Hough pass found the line.
+    """
+
+    @staticmethod
+    def _boundary(polygon, clipped=(), shape=(640, 360)):
+        from pipeline.homography import field_boundary as fb
+
+        return fb.FieldBoundary(
+            polygon=np.asarray(polygon, dtype=float),
+            coverage=0.8,
+            clipped_edges=clipped,
+            frame_shape=shape,
+        )
+
+    def test_a_row_with_turf_on_both_sides_is_interior(self):
+        surface = self._boundary([[0, 0], [640, 0], [640, 360], [0, 360]])
+        # A horizontal row across the middle of a frame that is entirely turf.
+        assert yk._row_verdict((180.0, math.pi / 2), surface, (360, 640)) == yk.ROW_INTERIOR
+
+    def test_a_row_on_the_edge_of_the_turf_is_a_sideline(self):
+        surface = self._boundary([[0, 120], [640, 120], [640, 360], [0, 360]])
+        assert yk._row_verdict((120.0, math.pi / 2), surface, (360, 640)) == yk.ROW_SIDELINE
+
+    def test_no_boundary_means_no_verdict(self):
+        assert yk._row_verdict((180.0, math.pi / 2), None, (360, 640)) == yk.ROW_UNKNOWN
+
+    def test_an_axis_aligned_row_still_gets_a_span(self):
+        # A perfectly horizontal line has cos(theta) == 0 and a vertical one has
+        # sin(theta) == 0. Guarding the wrong one leaves the span empty and every
+        # such row undecidable -- which is the orientation a bolted-down sideline
+        # camera produces for the whole clip.
+        assert yk._frame_span((180.0, math.pi / 2), 640, 360) is not None
+        assert yk._frame_span((320.0, 0.0), 640, 360) is not None
+
+
+class TestScalePlausibility:
+    """A mislabelling is caught by comparing the two directions in one image.
+
+    Nothing about the camera is assumed, which is the point: the footage has no
+    fixed height, angle or resolution to check against.
+    """
+
+    def test_a_normal_grid_passes(self):
+        src = [[0, 0], [100, 0], [0, 100], [100, 100]]
+        dst = [[0, 0], [5, 0], [0, 5], [5, 5]]
+        assert yk._scale_is_plausible(src, dst)
+
+    def test_the_full_field_across_twenty_pixels_is_refused(self):
+        # Two rows 22 px apart labelled as the two sidelines: 53.3 yd of field
+        # in 22 px, while the yard lines in the same frame put 5 yd in 150.
+        src = [[0, 0], [150, 0], [0, 22], [150, 22]]
+        dst = [[0, -26.665], [5, -26.665], [0, 26.665], [5, 26.665]]
+        assert not yk._scale_is_plausible(src, dst)
+
+    def test_an_oblique_view_is_not_mistaken_for_a_mislabelling(self):
+        # Perspective genuinely compresses one axis hard. The guard has to stay
+        # out of the way of a real low-angle shot.
+        src = [[0, 0], [300, 0], [0, 40], [300, 40]]
+        dst = [[0, 0], [5, 0], [0, 13.33], [5, 13.33]]
+        assert yk._scale_is_plausible(src, dst)
+
+
+class TestResolutionInvariance:
+    """The same scene at a different resolution must calibrate the same.
+
+    Every threshold in this path is a length, and left as a plain pixel count
+    each one encodes 720p. Rescaling one real frame by 3x used to turn its two
+    hash rows solid, which relabels them as the two sidelines and doubles every
+    across-field measurement in the clip -- silently, with more correspondences
+    than the correct answer and no warning.
+    """
+
+    def test_thresholds_track_the_frame(self):
+        at_720p = yk._px(80.0, yk.REFERENCE_DIAGONAL_PX)
+        at_4k = yk._px(80.0, yk.REFERENCE_DIAGONAL_PX * 3)
+        assert at_720p == pytest.approx(80.0)
+        assert at_4k == pytest.approx(240.0)
+
+    def test_a_threshold_never_collapses_to_nothing(self):
+        assert yk._px(80.0, 1.0, minimum=10.0) == 10.0
+
+    def test_the_same_geometry_labels_the_same_at_any_scale(self):
+        # Correspondences scale with the image; the *field* coordinates they
+        # carry must not move at all.
+        verticals = [(float(x), 0.0) for x in (100, 250, 400, 550)]
+        rows = [(80.0, math.pi / 2), (300.0, math.pi / 2)]
+        base = yk.build_correspondences(verticals + rows, (360, 640))
+        scaled = yk.build_correspondences(
+            [(r * 3, t) for r, t in verticals + rows], (1080, 1920)
+        )
+        assert base.has_enough() and scaled.has_enough()
+        np.testing.assert_allclose(
+            np.sort(base.dst_pts, axis=0), np.sort(scaled.dst_pts, axis=0)
+        )
+        np.testing.assert_allclose(
+            np.sort(base.src_pts, axis=0) * 3, np.sort(scaled.src_pts, axis=0)
+        )
 
 
 class TestOffFrameStructures:
@@ -428,20 +564,26 @@ class TestSidelineAnchoring:
         assert yk._match_rows_to_template([True], default_template()) is None
 
     def test_knowing_a_row_is_a_sideline_does_not_say_which_sideline(self) -> None:
-        # Both ends of the field are solid, so an anchor alone cannot separate
-        # north from south. The anchor is a veto, not yet a disambiguator --
-        # resolving the reflection needs the *off-field direction*, which the
-        # boundary knows and this does not yet ask it for.
+        # The field is symmetric under a 180 degree rotation: both ends look
+        # alike and both sidelines look alike. No boundary evidence closes that,
+        # which is why `field_orientation_unanchored` is reported on every
+        # frame rather than only on unanchored ones.
         tmpl = default_template()
         assert yk._match_rows_to_template([False], tmpl) is None
-        assert yk._match_rows_to_template([False], tmpl, sideline_indices={0}) is None
+        assert yk._match_rows_to_template([False], tmpl, [yk.ROW_SIDELINE]) is None
 
-    def test_an_anchor_that_contradicts_the_pattern_yields_nothing(self) -> None:
-        # A dashed row cannot be a sideline; sidelines are painted solid. The
-        # right answer is to refuse, not to trust one signal over the other.
-        assert yk._match_rows_to_template(
-            [True, True], default_template(), sideline_indices={0}
-        ) is None
+    def test_a_pattern_contradicting_the_observation_yields_a_refusal(self) -> None:
+        # The boundary puts row 0 on a real field edge; the paint reads it as
+        # dashed, which no sideline is. The two signals disagree, and the
+        # observation narrows to "a sideline and one of the hashes" without
+        # saying which hash. Refusing is the cheap failure -- picking one would
+        # move every player 13 yards sideways behind a perfect inlier ratio.
+        assert (
+            yk._match_rows_to_template(
+                [True, True], default_template(), [yk.ROW_SIDELINE, yk.ROW_INTERIOR]
+            )
+            is None
+        )
 
     def test_rows_are_matched_to_the_touchline_by_position_and_angle(self) -> None:
         rows = [(100.0, math.radians(90.0), False), (400.0, math.radians(90.0), True)]
@@ -464,13 +606,38 @@ class TestSidelineAnchoring:
         rows = [(-250.0, math.radians(2.0), False)]
         assert yk._sideline_indices(rows, [(250.0, math.radians(179.0))]) == {0}
 
-    def test_the_reason_code_distinguishes_anchored_from_assumed(self) -> None:
+    def test_the_reason_code_says_which_evidence_did_the_labelling(self) -> None:
+        # A reader of the artifact has to be able to tell a labelling that was
+        # measured from one that rested on the solid/dashed tag, because only
+        # the second can silently double the lateral scale.
         verticals = [(float(x), 0.0) for x in (100, 250, 400, 550)]
         rows = [(80.0, math.pi / 2), (300.0, math.pi / 2)]
         assumed = yk.build_correspondences(verticals + rows, (360, 640))
+        assert "row_identity_unverified" in assumed.reason_codes
+        # The reflection is a real symmetry of the field, so it is reported
+        # whether or not a touchline was seen.
         assert "field_orientation_unanchored" in assumed.reason_codes
-        anchored = yk.build_correspondences(
-            verticals + rows, (360, 640), touchlines=[(80.0, math.pi / 2)]
-        )
-        assert "sideline_anchored" in anchored.reason_codes
-        assert "field_orientation_unanchored" not in anchored.reason_codes
+
+    def test_one_touchline_may_not_anchor_two_rows(self) -> None:
+        # Two rows a few pixels apart -- the two edges of one painted stripe --
+        # both fall inside the touchline tolerance. Anchoring both would place
+        # them 53.3 yd apart, which is how the wide Toledo frame produced a fit
+        # asserting the full width of the field across 22 pixels.
+        rows = [
+            (100.0, math.radians(90.0), False),
+            (108.0, math.radians(90.0), False),
+        ]
+        assert yk._sideline_indices(rows, [(104.0, math.radians(90.0))]) == set()
+
+    def test_a_boundary_corner_is_not_offered_as_a_sideline(self) -> None:
+        # Where the field ends the outline turns and runs along the end line,
+        # and the turf mask throws off spikes at worn patches. Those are real
+        # boundary and none of them is a sideline; on the wide frame four of the
+        # five candidate edges were of that kind.
+        rows = [(100.0, math.radians(90.0), False), (400.0, math.radians(92.0), True)]
+        touchlines = [
+            (100.0, math.radians(90.0)),  # along the rows -- a plausible sideline
+            (250.0, math.radians(30.0)),  # a corner
+            (-400.0, math.radians(150.0)),  # a mask spike
+        ]
+        assert yk._plausible_touchlines(touchlines, rows) == [(100.0, math.radians(90.0))]

@@ -100,7 +100,14 @@ class RegimeMetrics:
     true_positives: int
     false_negatives: int
     false_positives: int
-    centre_error_px: float | None
+    #: The subset of ``false_positives`` raised on frames with no ball at all.
+    #: Kept apart because the two answer different questions: every false
+    #: positive counts against precision, but the production gate asks how often
+    #: the model invents a ball where there is none. Pooling them lets a model
+    #: that is merely duplicative on visible frames -- one correct box and one
+    #: spare, never a detection on an empty frame -- fail a gate it should pass.
+    absent_false_positives: int = 0
+    centre_error_px: float | None = None
 
     @property
     def recall(self) -> float:
@@ -121,7 +128,10 @@ class RegimeMetrics:
 
     @property
     def fp_per_absent_frame(self) -> float:
-        return self.false_positives / self.absent_frames if self.absent_frames else float("nan")
+        """Invented balls per ball-absent frame — the production gate's metric."""
+        if not self.absent_frames:
+            return float("nan")
+        return self.absent_false_positives / self.absent_frames
 
     def clears_gate(self) -> bool:
         """Does this configuration meet the production bar for drone footage?
@@ -230,11 +240,13 @@ def evaluate(
     for regime in sorted({f.regime for f in frames}):
         subset = [f for f in frames if f.regime == regime]
         for threshold in thresholds:
-            tp = fn = fp = 0
+            tp = fn = fp = absent_fp = 0
             errors: list[float] = []
             for f in subset:
                 a, b, c, err = score_frame(f, cached[(f.video, f.frame)], threshold)
                 tp, fn, fp = tp + a, fn + b, fp + c
+                if not f.visible:
+                    absent_fp += c
                 if err is not None:
                     errors.append(err)
             results.append(
@@ -247,6 +259,7 @@ def evaluate(
                     true_positives=tp,
                     false_negatives=fn,
                     false_positives=fp,
+                    absent_false_positives=absent_fp,
                     centre_error_px=round(sum(errors) / len(errors), 2) if errors else None,
                 )
             )

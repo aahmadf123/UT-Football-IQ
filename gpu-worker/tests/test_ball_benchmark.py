@@ -94,6 +94,39 @@ class TestDegenerateModelScoresBadly:
         assert not metrics.clears_gate()
 
 
+class TestAbsentFrameFalsePositivesAreCountedApart:
+    """Precision and the gate ask different questions of the same detections.
+
+    Every stray box costs precision. The gate asks something narrower -- how
+    often does the model invent a ball where there is none -- and pooling the
+    two lets a merely duplicative model fail a bar it should clear.
+    """
+
+    def test_duplicates_on_visible_frames_do_not_count_as_invented_balls(self) -> None:
+        # One correct box and one spare on every visible frame, and silence on
+        # every empty one. Precision suffers, but it never claims a ball that
+        # is not there.
+        def predict(frame):
+            return [Prediction(100.0, 100.0, 0.9), Prediction(400.0, 300.0, 0.9)] if frame.visible else []
+
+        labels = [_visible(frame=0), _visible(frame=1), _absent(frame=2), _absent(frame=3)]
+        m = evaluate(labels, predict, model="duplicative", thresholds=[0.30])[0]
+        assert m.false_positives == 2, "the spare box on each visible frame"
+        assert m.absent_false_positives == 0
+        assert m.fp_per_absent_frame == 0.0
+        assert m.precision == pytest.approx(0.5), "and precision still records it"
+
+    def test_detections_on_empty_frames_are_what_the_gate_measures(self) -> None:
+        def predict(frame):
+            return [] if frame.visible else [Prediction(50.0, 50.0, 0.9)]
+
+        labels = [_visible(frame=0), _absent(frame=1), _absent(frame=2)]
+        m = evaluate(labels, predict, model="hallucinating", thresholds=[0.30])[0]
+        assert m.absent_false_positives == 2
+        assert m.fp_per_absent_frame == pytest.approx(1.0)
+        assert not m.clears_gate()
+
+
 class TestUndefinedRatherThanPassing:
     def test_no_visible_balls_gives_undefined_recall(self) -> None:
         # The non-observable case. Nothing to find means the measurement says
