@@ -302,3 +302,32 @@ class TestVanishingPointFeature:
         pytest.importorskip("cv2")
         blank = np.zeros((200, 200, 3), dtype=np.uint8)
         assert rd._vanishing_point_score(blank) == pytest.approx(0.5)
+
+
+class TestDominantFamily:
+    """A converging family must survive grouping intact.
+
+    Fixed-width clustering -- what the calibrator uses, and rightly -- shatters
+    a fan: on the synthetic converging frame it split 20 lines spanning 177
+    degrees into three clusters, so the spread got measured on one sliver. That
+    underestimates convergence exactly on the low fixed-camera footage where it
+    is largest, biasing the altitude score toward "drone" on the regime it most
+    needs to recognise.
+    """
+
+    def test_a_fan_is_kept_whole(self) -> None:
+        fan = [(100.0, math.radians(d)) for d in range(0, 60, 6)]
+        assert len(rd._dominant_family(fan)) == len(fan)
+
+    def test_genuinely_separate_directions_stay_separate(self) -> None:
+        family = [(100.0, math.radians(d)) for d in (0, 4, 8)]
+        other = [(200.0, math.radians(d)) for d in (85, 89)]
+        assert len(rd._dominant_family(family + other)) == 3
+
+    def test_a_family_straddling_the_wrap_point_is_one_family(self) -> None:
+        # Angles are modulo pi, so 178 degrees and 2 degrees are 4 apart.
+        straddling = [(100.0, math.radians(d)) for d in (172, 176, 179, 2, 6)]
+        assert len(rd._dominant_family(straddling)) == 5
+
+    def test_no_lines_is_not_an_error(self) -> None:
+        assert rd._dominant_family([]) == []

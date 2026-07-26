@@ -125,7 +125,7 @@ class TestRosterReachesStageReid:
         with (
             patch.object(worker_main, "_update_job_status"),
             patch.object(worker_main, "heartbeat_db_job"),
-            patch("pipeline.backend.fetch_roster", return_value=[{"id": "p1"}]) as fetch,
+            patch("pipeline.backend.fetch_roster_for_video", return_value=[{"id": "p1"}]) as fetch,
             patch("pipeline.orchestrator.run_pipeline", return_value={"clips": []}) as run,
         ):
             worker_main.process_pipeline_job(
@@ -138,3 +138,49 @@ class TestRosterReachesStageReid:
             )
         fetch.assert_called_once()
         assert run.call_args.kwargs["roster"] == [{"id": "p1"}]
+
+
+class TestGameFilmDoesNotGetTheRoster:
+    """stage_reid maps an OCR'd number straight to a roster player.
+
+    It has no notion of which team a tracklet belongs to and cannot have one:
+    team classification runs two stages later, and is unsupervised anyway --
+    it separates two teams without knowing which is ours. So on game film a
+    correct read becomes a wrong attribution, PATCHed onto the tracklet and
+    carried into the workload rollups for an athlete who was not on the field.
+    """
+
+    def _fetch(self, session_kind: Any) -> list[dict[str, Any]]:
+        players = [{"id": "p1", "jersey_number": 12}]
+        with (
+            patch.object(backend, "BACKEND_API_URL", "http://api"),
+            patch.object(
+                backend, "_client",
+                return_value=_with_client(_response({"session_kind": session_kind})),
+            ),
+            patch.object(backend, "fetch_roster", return_value=players),
+        ):
+            return backend.fetch_roster_for_video("vid-1")
+
+    @pytest.mark.parametrize("kind", ["practice", "scrimmage"])
+    def test_intra_squad_sessions_get_the_roster(self, kind: str) -> None:
+        # Everyone on the field is ours, including the scout team.
+        assert self._fetch(kind) == [{"id": "p1", "jersey_number": 12}]
+
+    def test_game_film_does_not(self) -> None:
+        # An opponent's 12 would otherwise become our 12.
+        assert self._fetch("game") == []
+
+    def test_an_unknown_session_kind_is_treated_as_unsafe(self) -> None:
+        # A null may well be game film, and the cost of guessing wrong is
+        # corrupted per-athlete history.
+        assert self._fetch(None) == []
+
+    def test_a_failed_lookup_withholds_rather_than_assumes(self) -> None:
+        client = MagicMock()
+        client.__enter__.return_value.get.side_effect = RuntimeError("down")
+        with (
+            patch.object(backend, "BACKEND_API_URL", "http://api"),
+            patch.object(backend, "_client", return_value=client),
+        ):
+            assert backend.fetch_roster_for_video("vid-1") == []

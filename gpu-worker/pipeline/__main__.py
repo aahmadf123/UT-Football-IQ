@@ -116,8 +116,11 @@ def main(argv: list[str] | None = None) -> int:
 
     # Empty when the CLI is run offline (`--no-backend`, or no BACKEND_API_URL),
     # which is the normal case for local runs -- tracklets then stay
-    # unidentified, exactly as before.
-    roster = backend_client.fetch_roster()
+    # unidentified, exactly as before. With a real backend it is also withheld
+    # unless the session is intra-squad; see fetch_roster_for_video.
+    roster = (
+        backend_client.fetch_roster_for_video(args.video_id) if args.video_id else []
+    )
 
     priority = (
         SAME_SESSION_CLI_PRIORITY if args.mode == "same_session" else NIGHTLY_CLI_PRIORITY

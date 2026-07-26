@@ -108,6 +108,18 @@ def white_paint_mask(frame: np.ndarray, grass: np.ndarray) -> np.ndarray:
     return cv2.morphologyEx(paint, cv2.MORPH_CLOSE, close_kernel)
 
 
+def _rows(result: np.ndarray, width: int) -> np.ndarray:
+    """Normalise a Hough result to ``(N, width)``.
+
+    OpenCV 4 returns ``(N, 1, width)`` from the Hough functions; OpenCV 5
+    dropped the middle axis and returns ``(N, width)``. The repo pins 4.10, so
+    indexing ``[:, 0, :]`` is correct today and raises ``IndexError`` the moment
+    anything pulls in 5 -- which installing ultralytics does, since it depends
+    on opencv unpinned. Reshaping covers both without caring which is present.
+    """
+    return result.reshape(-1, width)
+
+
 def detect_hough_lines(paint: np.ndarray) -> list[tuple[float, float]]:
     """Return solid Hough lines as ``(rho, theta)`` from the paint mask edges."""
     import cv2
@@ -116,7 +128,7 @@ def detect_hough_lines(paint: np.ndarray) -> list[tuple[float, float]]:
     raw = cv2.HoughLines(edges, 1, np.pi / 180, threshold=100)
     if raw is None:
         return []
-    return [(float(r), float(t)) for r, t in raw[:, 0, :]]
+    return [(float(r), float(t)) for r, t in _rows(raw, 2)]
 
 
 def detect_dashed_lines(paint: np.ndarray) -> list[tuple[float, float]]:
@@ -150,7 +162,7 @@ def detect_dashed_lines(paint: np.ndarray) -> list[tuple[float, float]]:
     if segments is None:
         return []
     out: list[tuple[float, float]] = []
-    for x1, y1, x2, y2 in segments[:, 0, :]:
+    for x1, y1, x2, y2 in _rows(segments, 4):
         theta = (math.atan2(float(y2 - y1), float(x2 - x1)) + math.pi / 2) % math.pi
         rho = float(x1) * math.cos(theta) + float(y1) * math.sin(theta)
         out.append((rho, theta))

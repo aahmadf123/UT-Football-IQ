@@ -725,9 +725,17 @@ def run_pipeline(
                 sink.write(stage, artifacts, clip_id)
                 report(stage, clip_id, "succeeded", **_stage_headline(stage, artifacts))
 
-            # Outside the stage loop, and deliberately after a `break`: a clip
-            # whose pipeline fell over part-way is precisely one a human should
-            # look at, so it gets scored on whatever heads did run.
+            # Outside the stage loop, and deliberately after a `break`, so a
+            # clip whose pipeline fell over part-way is still scored on whatever
+            # heads did run.
+            #
+            # A clip that failed *before* coverage or pressure has no heads at
+            # all and stays unscored -- it sorts last, and vanishes entirely
+            # under `include_unscored=false`. That is a real gap, and the fix is
+            # not to invent an entropy for it: a fabricated score would be
+            # indistinguishable from a model that was genuinely unsure, which
+            # is the one thing this column must never be. Surfacing processing
+            # failures needs its own review reason, tracked separately.
             _score_clip_uncertainty(ctx, clip_id)
     finally:
         if ctx.video_path is not None:

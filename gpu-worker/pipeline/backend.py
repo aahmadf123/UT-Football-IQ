@@ -495,6 +495,51 @@ def create_alerts(payloads: list[dict[str, Any]]) -> int:
 #: NCAA roster limits sit far below this; it is a page size, not a policy.
 ROSTER_PAGE_LIMIT = 500
 
+#: Session kinds where everyone on the field is on our roster. A scrimmage is
+#: intra-squad, so both "teams" are ours; a game is not.
+ROSTER_SAFE_SESSION_KINDS = frozenset({"practice", "scrimmage"})
+
+
+def fetch_roster_for_video(video_id: str) -> list[dict[str, Any]]:
+    """The active roster, but only when every player on the field is on it.
+
+    ``stage_reid`` maps an OCR'd jersey number straight to a roster player, with
+    no notion of which team the tracklet belongs to -- and it cannot have one,
+    because team classification runs in ``stage_labels``, two stages later, and
+    is unsupervised anyway: it separates two teams without knowing which is
+    ours.
+
+    On game film that turns a correct read into a wrong attribution. An
+    opponent's 12 becomes our 12, gets PATCHed onto the tracklet, and flows into
+    the workload and health rollups against an athlete who was not on the field.
+    Wrong identity is worse than none: no identity suppresses cleanly
+    downstream, whereas a confident wrong one is indistinguishable from a right
+    one.
+
+    So the roster is withheld unless the session is intra-squad. Unknown counts
+    as unsafe -- a null ``session_kind`` may well be game film, and the cost of
+    guessing wrong is corrupted per-athlete history.
+    """
+    if not BACKEND_API_URL:
+        return []
+    try:
+        with _client() as c:
+            resp = c.get(f"/api/v1/videos/{video_id}")
+            resp.raise_for_status()
+            session_kind = (resp.json() or {}).get("session_kind")
+    except Exception as exc:
+        log.warning("video_session_kind_fetch_failed", video_id=video_id, error=str(exc))
+        return []
+
+    if session_kind not in ROSTER_SAFE_SESSION_KINDS:
+        log.info(
+            "roster_withheld_multi_team_session",
+            video_id=video_id,
+            session_kind=session_kind,
+        )
+        return []
+    return fetch_roster()
+
 
 def fetch_roster() -> list[dict[str, Any]]:
     """GET the active roster for jersey → player re-identification.

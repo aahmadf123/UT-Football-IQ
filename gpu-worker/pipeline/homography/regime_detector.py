@@ -50,8 +50,6 @@ from typing import Any
 import numpy as np
 import structlog
 
-from pipeline.homography import yardline_keypoints as yk
-
 log = structlog.get_logger(__name__)
 
 
@@ -72,6 +70,9 @@ DEFAULT_MARGIN = 0.05
 # as fully overhead / low and elevated. See ``_vanishing_point_score``.
 VP_SPREAD_OVERHEAD = 0.010
 VP_SPREAD_SIDELINE = 0.050
+# Largest angle step that still counts as "the same fan" when chaining a
+# converging family together. See ``_dominant_family``.
+FAMILY_CHAIN_RAD = math.radians(10.0)
 
 UNKNOWN = "unknown"
 DRONE_FOLLOW = "drone_follow"
@@ -324,6 +325,44 @@ def _static_background_score(stack: np.ndarray) -> float:
     return float(min(1.0, max(0.0, deviation / 12.0)))
 
 
+def _dominant_family(lines: list[tuple[float, float]]) -> list[tuple[float, float]]:
+    """Largest set of lines linked by successive small angle steps.
+
+    Single-linkage, not the fixed-width clustering the calibrator uses. The two
+    are answering different questions. The calibrator wants families that are
+    *separate*, so it groups against each cluster's first member and a family
+    that fans out gets split -- which is what it wants, since a 5-degree bin is
+    a good proxy for "same direction".
+
+    Here the fanning is the entire signal. A strongly converging family spans a
+    wide angular range by definition, so fixed-width grouping shatters it and
+    the spread is then measured on one sliver of the fan. That underestimates
+    convergence exactly on the low fixed-camera footage where it is largest,
+    biasing the altitude score toward "drone" on the one regime it most needs
+    to recognise. Chaining through neighbours keeps the fan whole.
+    """
+    if not lines:
+        return []
+    ordered = sorted(lines, key=lambda lt: lt[1] % math.pi)
+    groups: list[list[tuple[float, float]]] = [[ordered[0]]]
+    for line in ordered[1:]:
+        previous = groups[-1][-1][1] % math.pi
+        if abs((line[1] % math.pi) - previous) <= FAMILY_CHAIN_RAD:
+            groups[-1].append(line)
+        else:
+            groups.append([line])
+
+    # Angles are modulo pi, so the first and last groups may be neighbours
+    # across the wrap point -- a family straddling it would otherwise be
+    # reported as two.
+    if len(groups) > 1:
+        gap = math.pi - (groups[-1][-1][1] % math.pi) + (groups[0][0][1] % math.pi)
+        if gap <= FAMILY_CHAIN_RAD:
+            groups[0] = groups[-1] + groups[0]
+            groups.pop()
+    return max(groups, key=len)
+
+
 def _vanishing_point_score(frame: np.ndarray) -> float:
     """How far the field lines' vanishing point sits from the frame.
 
@@ -356,12 +395,12 @@ def _vanishing_point_score(frame: np.ndarray) -> float:
     if lines is None or len(lines) < 2:
         return 0.5
 
-    # The dominant parallel family, whatever direction it points. Field lines
+    # The dominant field-line family, whatever direction it points. Field lines
     # out-vote everything else in the frame for the same reason they do in the
     # calibrator: they are the longest continuous edges on a football field.
     candidates = [(float(r), float(t)) for r, t in (ln[0] for ln in lines[:50])]
-    clusters = yk.cluster_lines_by_angle(candidates)
-    if not clusters or len(clusters[0]) < 2:
+    family = _dominant_family(candidates)
+    if len(family) < 2:
         return 0.5
 
     # Score the family's angular spread rather than locating the vanishing point.
@@ -377,7 +416,7 @@ def _vanishing_point_score(frame: np.ndarray) -> float:
     # matrix rank one and drives it to zero. Singular values are unchanged by
     # rotating every line together, so this is orientation-invariant by
     # construction rather than by tuning.
-    normals = np.array([[math.cos(t), math.sin(t)] for _, t in clusters[0]])
+    normals = np.array([[math.cos(t), math.sin(t)] for _, t in family])
     singular = np.linalg.svd(normals, compute_uv=False)
     if singular[0] <= 0.0:
         return 0.5
