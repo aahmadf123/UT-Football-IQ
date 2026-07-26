@@ -111,7 +111,16 @@ def main(argv: list[str] | None = None) -> int:
     os.environ.setdefault("STORAGE_BACKEND", "local")
     os.environ.setdefault("LOCAL_STORAGE_ROOT", str(out_root / "storage"))
 
+    from pipeline import backend as backend_client
     from pipeline.orchestrator import DirArtifactSink, run_pipeline
+
+    # Empty when the CLI is run offline (`--no-backend`, or no BACKEND_API_URL),
+    # which is the normal case for local runs -- tracklets then stay
+    # unidentified, exactly as before. With a real backend it is also withheld
+    # unless the session is intra-squad; see fetch_roster_for_video.
+    roster = (
+        backend_client.fetch_roster_for_video(args.video_id) if args.video_id else []
+    )
 
     priority = (
         SAME_SESSION_CLI_PRIORITY if args.mode == "same_session" else NIGHTLY_CLI_PRIORITY
@@ -140,6 +149,7 @@ def main(argv: list[str] | None = None) -> int:
                 stages=stages,
                 progress_cb=progress,
                 artifact_sink=sink,
+                roster=roster,
             )
         except Exception as exc:  # keep processing remaining files
             print(f"✗ {source.name} failed: {exc}", file=sys.stderr, flush=True)
