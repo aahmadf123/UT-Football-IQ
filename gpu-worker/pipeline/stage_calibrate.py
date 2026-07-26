@@ -41,6 +41,7 @@ from pipeline.homography import camera_motion_ecc as ecc
 from pipeline.homography import confidence_scorer as cs
 from pipeline.homography import dlt_ransac, kalman_smoother
 from pipeline.homography import field_boundary as fb
+from pipeline.homography import field_orientation as fo
 from pipeline.homography import yardline_keypoints as yk
 from pipeline.homography.project import projects_onto_field
 
@@ -316,6 +317,14 @@ def _best_frame_fit(
         )
         if H is None:
             continue
+        # The paint cannot distinguish a labelling from its mirror image, so
+        # roughly half of all fits come back describing a camera *underneath*
+        # the field, with left and right swapped and every other diagnostic
+        # clean. Handedness settles that from geometry alone; re-labelling onto
+        # the mirrored landmarks costs no re-projection error.
+        mirrored = fo.is_mirrored(H, frame.shape)
+        if mirrored:
+            H = fo.unmirror(H)
         if not projects_onto_field(H, frame.shape):
             # A fit can satisfy RANSAC and still be physically impossible. Skip
             # rather than score it: the only quality signal here is inlier
@@ -329,6 +338,8 @@ def _best_frame_fit(
             reason_codes = list(kp.reason_codes)
             if inlier_ratio < 0.5:
                 reason_codes.append("low_inlier_ratio")
+            if mirrored:
+                reason_codes.append("handedness_corrected")
             best = (H, kp, inlier_ratio, reason_codes)
     return best
 

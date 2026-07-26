@@ -203,12 +203,35 @@ def test_stage_coverage_calibrated_path(monkeypatch) -> None:  # type: ignore[no
     tracks = _defense_look(deep=3, box=6) + _offense_skill()
     events = [{"event_type": "snap", "frame_number": 10}]
     result = stage_coverage.run(
-        "clip-1", tracks, events, fps=30.0, analytics_safe=True
+        "clip-1", tracks, events, fps=30.0, analytics_safe=True, offense_direction=1
     )
     assert result["shell"] in COVERAGE_CLASSES
     assert 0.0 <= result["coverage_confidence"] <= 1.0
     assert result["calibration_method"] == "uncalibrated"  # no checkpoint loaded
     assert "coverage_bust_flag" in result
+
+
+def test_stage_coverage_unresolved_orientation_takes_fallback(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """analytics_safe alone must not reach the graph path.
+
+    depth_behind_los is signed by the attacking direction; without it the graph
+    would be built with every defender's depth mirrored, so the stage has to
+    take the same route it takes for unconfirmed coordinates.
+    """
+    from pipeline import stage_coverage
+    from pipeline.spatial import feature_schema as fs
+
+    def _fail(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("graph path must not run without an orientation")
+
+    monkeypatch.setattr(fs, "build_player_nodes", _fail)
+    tracks = _defense_look(deep=3, box=6) + _offense_skill()
+    events = [{"event_type": "snap", "frame_number": 10}]
+    result = stage_coverage.run(
+        "clip-1", tracks, events, fps=30.0, analytics_safe=True, offense_direction=None
+    )
+    assert result["calibration_method"] == "uncalibrated"
+    assert result["is_calibrated"] is False
 
 
 def test_stage_coverage_uncalibrated_coords_fallback() -> None:

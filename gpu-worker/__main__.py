@@ -402,6 +402,20 @@ def process_job(job: dict[str, Any]) -> None:
         _update_job_status(job_id, "failed", error_message=str(exc))
 
 
+def _offense_direction_artifact(input_artifacts: dict[str, Any]) -> int | None:
+    """Read the attacking direction from job artifacts, or ``None``.
+
+    Only ``+1`` and ``-1`` mean anything; everything else -- absent, null, a
+    stray string from a hand-built job -- is "not resolved". This used to
+    default to ``+1``, which silently supplied a sign that flips every
+    depth-behind-LOS feature when it is wrong.
+    """
+    value = input_artifacts.get("offense_direction")
+    if value in (1, -1, "1", "-1", "+1"):
+        return int(value)
+    return None
+
+
 def _dispatch(
     job_type: str,
     video_id: str,
@@ -569,14 +583,13 @@ def _dispatch(
         events_list = input_artifacts.get("events", [])
         analytics_safe = bool(input_artifacts.get("analytics_safe", False))
         fps = float(input_artifacts.get("fps", 30))
-        offense_direction = int(input_artifacts.get("offense_direction", 1))
         return stage_coverage.run(
             clip_id,
             tracklets,
             events_list,
             fps,
             analytics_safe=analytics_safe,
-            offense_direction=offense_direction,
+            offense_direction=_offense_direction_artifact(input_artifacts),
         )
 
     elif job_type == "oline":
@@ -600,7 +613,7 @@ def _dispatch(
             analytics_safe,
             fps,
             job_id,
-            offense_direction=int(input_artifacts.get("offense_direction", 1)),
+            offense_direction=_offense_direction_artifact(input_artifacts),
             down=input_artifacts.get("down"),
             distance_yards=input_artifacts.get("distance_yards"),
         )

@@ -805,12 +805,18 @@ def build_correspondences(
     chosen_rows, evidence = matched
     reason_codes.append(evidence)
 
-    # Which *particular* hash or sideline each row is remains open, and no
+    # Which *particular* hash or sideline each row is remains open here, and no
     # amount of boundary evidence closes it: the field is genuinely symmetric
     # under a 180° rotation, so both ends look alike and both sidelines look
     # alike. Lengths, separations and speeds are invariant under that rotation;
-    # only the *direction* of a gain is not, which is why the offset is
-    # re-anchored from play context rather than from geometry.
+    # only the *direction* of a gain is not.
+    #
+    # This code marks the fit as unanchored *at this point in the pipeline*, not
+    # forever. Two later steps narrow it, in ``homography.field_orientation``:
+    # the calibrate stage rules out the mirrored labellings from handedness,
+    # and once players have been tracked the labels stage reads the remaining
+    # rotation off the formation. Neither can run from inside this function --
+    # one needs the fitted matrix, the other needs the players.
     reason_codes.append("field_orientation_unanchored")
 
     src: list[list[float]] = []

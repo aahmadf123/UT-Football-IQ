@@ -260,16 +260,22 @@ def _slice_detections(
     return {f: dets for f, dets in detections.items() if start_frame <= int(f) <= end_frame}
 
 
-def _offense_direction(labels: list[dict[str, Any]]) -> int:
-    """Map the play_direction label to the +1/-1 convention downstream."""
+def _offense_direction(labels: list[dict[str, Any]]) -> int | None:
+    """The measured attacking direction, or ``None`` when it was not resolved.
+
+    ``None`` is the point of this function. It used to fall back to ``+1``,
+    which is a coin call on a quantity that flips the sign of every
+    depth-behind-LOS feature: get it wrong and the coverage graph has the
+    offence and the defence swapped, with nothing in the output to say so.
+    Callers must decide what an unresolved orientation means for them.
+    """
     for lbl in labels:
-        if lbl.get("label_type") == "play_direction":
-            direction = str(lbl.get("label_value", {}).get("direction", "")).lower()
-            if direction in ("left", "-1"):
-                return -1
-            if direction in ("right", "1", "+1"):
-                return 1
-    return 1
+        if lbl.get("label_type") == "field_orientation":
+            direction = (lbl.get("label_value") or {}).get("direction")
+            if direction in (1, -1):
+                return int(direction)
+            return None
+    return None
 
 
 # ── Stage runners ─────────────────────────────────────────────────────────────

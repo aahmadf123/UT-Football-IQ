@@ -8,7 +8,16 @@ Phase 1 labels:
   - defensive_front     — 4-3 / 3-4 / 5-2 / nickel / dime / quarters
   - motion_detected     — boolean
   - blitz_candidate     — boolean
-  - play_direction      — left / right
+  - field_orientation   — which way the offence attacks in template x (±1),
+                          or unresolved
+
+``play_direction`` used to be emitted here on every play. It was two different
+things wearing one name: downstream football code (self-scout, tendency breaks)
+reads the *presence* of that label as "this was a run, and it went this way",
+while the orchestrator read its *value* as the field-frame attacking direction.
+Emitting it unconditionally therefore made every play a run. The orientation it
+was really computing is now ``field_orientation``, and the run-direction label
+is left to whatever can actually tell a run from a pass.
 
 Phase 2 additions:
   - shift_detected      — pre-snap shift (distinct from motion)
@@ -33,6 +42,7 @@ import structlog
 
 from pipeline import backend, object_store
 from pipeline.detection.official_suppressor import filter_non_players
+from pipeline.homography import field_orientation as fo
 from pipeline.team_classification import (
     ClassificationResult,
     classify_tracklet_frames,
@@ -41,6 +51,11 @@ from pipeline.team_classification import (
 log = structlog.get_logger(__name__)
 
 TEAM_CLASSIFICATION_MAX_FRAMES = 30
+
+# Frames voted over when resolving which way the offence attacks. The vote is
+# already decided well before this many; the cap keeps the O(n²) nearest-point
+# work in the estimator bounded on a long clip.
+ORIENTATION_MAX_FRAMES = 60
 
 
 def run(
@@ -178,13 +193,29 @@ def run(
         }
     )
 
-    # ── Play direction ────────────────────────────────────────────────────
-    direction = _infer_play_direction(analysis_tracklets, snap_frame)
+    # ── Field orientation ─────────────────────────────────────────────────
+    # Which way the offence attacks in the *template* frame. This is a property
+    # of the calibration, not of the play: the painted field is symmetric under
+    # a 180° rotation, so the calibrate stage cannot tell its fit from the fit
+    # rotated end-for-end, and every depth-behind-LOS feature downstream needs
+    # the sign. Resolved from the players, and left unresolved when they do not
+    # settle it -- the previous default was a silent +1.
+    orientation = fo.estimate_over_frames(
+        _positions_by_frame(analysis_tracklets, ORIENTATION_MAX_FRAMES)
+    )
     labels.append(
         {
-            "label_type": "play_direction",
-            "label_value": {"direction": direction},
+            "label_type": "field_orientation",
+            "label_value": orientation.as_dict(),
         }
+    )
+    log.info(
+        "stage_labels_field_orientation",
+        clip_id=clip_id,
+        direction=orientation.direction,
+        evidence=orientation.evidence,
+        agreement=orientation.agreement,
+        frames_resolved=orientation.frames_resolved,
     )
 
     # Write labels to backend
@@ -640,16 +671,28 @@ def _detect_blitz(
     return (crossings >= 2, min(0.9, 0.4 + crossings * 0.15))
 
 
-def _infer_play_direction(tracklets: list[dict[str, Any]], snap_frame: int) -> str:
-    """Infer whether the offensive team is moving left→right or right→left."""
-    deltas: list[float] = []
+def _positions_by_frame(
+    tracklets: list[dict[str, Any]], max_frames: int
+) -> list[list[tuple[float, float]]]:
+    """Field positions grouped by frame, evenly sampled to ``max_frames``.
+
+    Points without field coordinates are dropped rather than defaulted. The
+    ``field_x or 0`` idiom this replaces turned an uncalibrated clip -- where
+    every ``field_x`` is ``None`` -- into a frame full of players standing on
+    the goal line, which is a coordinate, so nothing downstream could tell it
+    from a measurement.
+    """
+    by_frame: dict[int, list[tuple[float, float]]] = {}
     for t in tracklets:
-        pts = sorted(t.get("track_points", []), key=lambda p: p.get("frame_number", 0))
-        if len(pts) >= 2:
-            x_start = pts[0].get("field_x") or 0
-            x_end = pts[-1].get("field_x") or 0
-            deltas.append(x_end - x_start)
-    if not deltas:
-        return "unknown"
-    mean_delta = sum(deltas) / len(deltas)
-    return "right" if mean_delta > 0 else "left"
+        for pt in t.get("track_points", []):
+            fx, fy, fn = pt.get("field_x"), pt.get("field_y"), pt.get("frame_number")
+            if fx is None or fy is None or fn is None:
+                continue
+            by_frame.setdefault(int(fn), []).append((float(fx), float(fy)))
+    if not by_frame:
+        return []
+    frames = sorted(by_frame)
+    if len(frames) > max_frames:
+        step = len(frames) / max_frames
+        frames = [frames[int(i * step)] for i in range(max_frames)]
+    return [by_frame[f] for f in frames]
