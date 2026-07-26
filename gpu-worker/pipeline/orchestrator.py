@@ -210,6 +210,10 @@ class PipelineContext:
     #: sink's JSON round-trip on resume; call sites normalise it with
     #: ``homography.homography_from_flat`` before doing any matrix maths.
     homography: list[float] | None = None
+    #: Serialised field boundary from calibrate. Populated in both the live and
+    #: the cached-fold branches -- calibrate runs before detect, so a resumed
+    #: run that lost it would silently stop filtering off-field people.
+    field_boundary: dict[str, Any] | None = None
     detections: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
     clips: list[dict[str, Any]] = field(default_factory=list)
 
@@ -311,6 +315,7 @@ def _run_video_stage(stage: str, ctx: PipelineContext) -> dict[str, Any]:
         ctx.analytics_safe = bool(artifacts.get("analytics_safe", False))
         ctx.calibration = artifacts
         ctx.homography = artifacts.get("homography")
+        ctx.field_boundary = artifacts.get("field_boundary")
         return artifacts
 
     if stage == "detect":
@@ -324,6 +329,7 @@ def _run_video_stage(stage: str, ctx: PipelineContext) -> dict[str, Any]:
             variant=variant,
             capture_regime=ctx.capture_regime,
             priority=ctx.priority,
+            field_boundary=ctx.field_boundary,
         )
         ctx.detections = artifacts.get("detections", {})
         if artifacts.get("fps"):
@@ -805,6 +811,7 @@ def _fold_cached_video_stage(stage: str, ctx: PipelineContext, cached: dict[str,
         # homography, so every spatial metric silently degrades on exactly the
         # jobs that were interrupted and retried.
         ctx.homography = cached.get("homography")
+        ctx.field_boundary = cached.get("field_boundary")
     elif stage == "detect":
         ctx.detections = cached.get("detections", {})
         if cached.get("fps"):
