@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { Env } from "../src/env";
 import { buildContainerEnv } from "../src/container";
 
@@ -90,17 +90,99 @@ describe("buildContainerEnv", () => {
     expect("SEED_ADMIN_EMAIL" in out).toBe(false);
   });
 
-  it("never leaks the Hyperdrive binding into the container", () => {
-    // A Hyperdrive connection string only resolves inside the Workers runtime.
-    // Handing it to the container yields connection failures that look like a
-    // database outage.
+  it("prefers BACKEND_DATABASE_URL over the Hyperdrive binding", () => {
+    // Not a preference so much as the only thing that works: Cloudflare
+    // documents the Hyperdrive connection string as accessible only from within
+    // the Workers runtime, and the container is a separate sandbox whose egress
+    // goes to the public internet.
     const out = buildContainerEnv({
       ...FULL,
-      HYPERDRIVE: { connectionString: "postgresql://hyperdrive-internal/db" },
+      HYPERDRIVE: { connectionString: "postgresql://user:pw@hyperdrive.internal/footiq" },
     } as unknown as Env);
-    for (const value of Object.values(out)) {
-      expect(value).not.toContain("hyperdrive-internal");
+    expect(out.DATABASE_URL).toBe("postgresql+asyncpg://u:p@db.example.com/footiq");
+    expect(out.DATABASE_URL).not.toContain("hyperdrive.internal");
+  });
+
+  it("warns when it has to fall back to Hyperdrive", () => {
+    // Taking this branch produces an asyncpg connect timeout at startup, which
+    // reads like a database outage rather than a missing secret. The warning is
+    // the only thing that distinguishes them in `wrangler tail`.
+    const warned: string[] = [];
+    const spy = vi.spyOn(console, "warn").mockImplementation((...args) => {
+      warned.push(args.map(String).join(" "));
+    });
+    try {
+      buildContainerEnv({
+        ...FULL,
+        BACKEND_DATABASE_URL: undefined,
+        HYPERDRIVE: { connectionString: "postgres://user:pw@hyperdrive.internal/footiq" },
+      } as unknown as Env);
+    } finally {
+      spy.mockRestore();
     }
+    expect(warned.join(" ")).toContain("BACKEND_DATABASE_URL");
+  });
+
+  it("throws when no database URL is configured at all", () => {
+    // Without this the container boots and 500s on every route that touches
+    // Postgres, with nothing naming which of a dozen settings is missing.
+    expect(() =>
+      buildContainerEnv({ ...FULL, BACKEND_DATABASE_URL: undefined } as unknown as Env),
+    ).toThrow(/BACKEND_DATABASE_URL/);
+  });
+
+  it("normalises the bare postgres:// scheme", () => {
+    // SQLAlchemy picks psycopg2 unless the async driver is named, and the async
+    // engine then fails at startup.
+    const out = buildContainerEnv({
+      ...FULL,
+      BACKEND_DATABASE_URL: "postgres://user:pw@db.example.com/footiq",
+    } as unknown as Env);
+    expect(out.DATABASE_URL).toBe("postgresql+asyncpg://user:pw@db.example.com/footiq");
+  });
+
+  it("normalises a URL whose password contains a plus sign", () => {
+    // Testing the whole URL for "+" reads a generated password as an
+    // already-qualified driver scheme, skips normalisation, and leaves
+    // SQLAlchemy to pick psycopg2 and fail the async engine.
+    const out = buildContainerEnv({
+      ...FULL,
+      BACKEND_DATABASE_URL: "postgresql://user:ab+cd/ef@db.example.com/footiq",
+    } as unknown as Env);
+    expect(out.DATABASE_URL).toBe("postgresql+asyncpg://user:ab+cd/ef@db.example.com/footiq");
+    expect(out.DATABASE_SYNC_URL).toBe("postgresql://user:ab+cd/ef@db.example.com/footiq");
+  });
+
+  it("leaves an explicitly named driver alone", () => {
+    const out = buildContainerEnv({
+      ...FULL,
+      BACKEND_DATABASE_URL: "postgresql+psycopg://user:pw@db.example.com/footiq",
+    } as unknown as Env);
+    expect(out.DATABASE_URL).toBe("postgresql+psycopg://user:pw@db.example.com/footiq");
+  });
+
+  it("does not log the connection string", () => {
+    // It carries the database password. Logs go to `wrangler tail` and are
+    // retained, so a credential that lands there has effectively leaked.
+    const logged: string[] = [];
+    const capture = (...args: unknown[]) => {
+      logged.push(args.map(String).join(" "));
+    };
+    const spies = [
+      vi.spyOn(console, "log").mockImplementation(capture),
+      vi.spyOn(console, "warn").mockImplementation(capture),
+      vi.spyOn(console, "error").mockImplementation(capture),
+    ];
+    try {
+      buildContainerEnv({
+        ...FULL,
+        BACKEND_DATABASE_URL: undefined,
+        HYPERDRIVE: { connectionString: "postgresql://user:sup3rsecret@hyperdrive.internal/db" },
+      } as unknown as Env);
+    } finally {
+      spies.forEach((s) => s.mockRestore());
+    }
+    expect(logged.join(" ")).not.toContain("sup3rsecret");
   });
 
   it("every forwarded value is a non-empty string", () => {

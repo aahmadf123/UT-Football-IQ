@@ -162,7 +162,23 @@ def _ball_detections() -> dict[str, list[dict[str, Any]]]:
     }
 
 
-def test_multisignal_full_pass() -> None:
+@pytest.mark.parametrize(
+    ("shape", "identity"),
+    [
+        ("nested", [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]),
+        ("flat", [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]),
+    ],
+)
+def test_multisignal_full_pass(shape: str, identity: list[Any]) -> None:
+    """Both homography shapes in circulation must behave identically.
+
+    Only ``nested`` was covered before, and the orchestrator passes ``flat`` --
+    ``stage_calibrate`` serialises a flat nine-element list. Under the old
+    ``np.asarray(h) if h else None`` that became shape ``(9,)`` and the first
+    ``H @ [x, y, 1]`` raised, failing the whole events stage. The clip still
+    produced a snap from the heuristic-free multisignal path, so the visible
+    symptom was only that throws and catches silently stopped existing.
+    """
     out = stage_events.run(
         "clip-4",
         {},
@@ -173,7 +189,7 @@ def test_multisignal_full_pass() -> None:
         pose_by_frame=_ol_pose(),
         ol_track_ids=["p0", "p1", "p2", "p3"],
         qb_track_id="qb",
-        homography=[[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+        homography=identity,
     )
     assert out["snap_detected"] is True
     assert out["ball_state_valid"] is True

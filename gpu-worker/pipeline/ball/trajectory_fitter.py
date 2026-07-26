@@ -27,6 +27,8 @@ from dataclasses import dataclass
 import numpy as np
 import structlog
 
+from pipeline.homography.project import apply_homography as _apply_homography
+
 log = structlog.get_logger(__name__)
 
 # Realistic football throw envelope (research report §7.11).
@@ -74,13 +76,11 @@ def fit_parabola(times: list[float], y_img: list[float]) -> ParabolaFit | None:
     return ParabolaFit(float(c), float(b), alpha, rms, apex_t, apex_y)
 
 
-def apply_homography(H: np.ndarray, point: tuple[float, float]) -> tuple[float, float]:
-    """Project an image point through a 3×3 homography to field coordinates."""
-    v = np.array([point[0], point[1], 1.0], dtype=np.float64)
-    p = H @ v
-    if abs(p[2]) < 1e-12:
-        return (float(p[0]), float(p[1]))
-    return (float(p[0] / p[2]), float(p[1] / p[2]))
+# Re-exported, not re-implemented. Projection now lives in
+# ``pipeline.homography.project`` so the track stage can use it without
+# importing ``pipeline.ball``; this alias keeps every existing ball call site
+# working and guarantees there is only one implementation to get wrong.
+apply_homography = _apply_homography
 
 
 def field_plane_distance(

@@ -34,6 +34,7 @@ from pipeline.ball.ball_state_machine import BallStateMachine
 from pipeline.ball.ball_tracker import observations_from_detections, track_ball
 from pipeline.events.los_estimator import LOSEstimate, LOSEstimator
 from pipeline.events.snap_detector import BayesianSnapDetector, SnapInputs
+from pipeline.homography.project import homography_from_flat
 
 log = structlog.get_logger(__name__)
 
@@ -62,7 +63,7 @@ def run(
     qb_track_id: str | None = None,
     center_track_id: str | None = None,
     defender_ids: list[str] | None = None,
-    homography: list[list[float]] | None = None,
+    homography: Any = None,
     los_band_px: tuple[int, int] | None = None,
     los_prior: dict[str, Any] | None = None,
     end_of_play_frame: int | None = None,
@@ -73,6 +74,15 @@ def run(
     All keyword arguments are optional: with only ``detections`` the legacy
     heuristic runs; supplying ``tracklets`` (and optionally ``ball_detections``,
     ``pose_by_frame``, ``homography``) activates the multi-signal path.
+
+    ``homography`` is deliberately untyped: ``stage_calibrate`` serialises a flat
+    nine-element list, the artifact sink round-trips whatever it is handed
+    through JSON, and callers in tests pass a nested 3×3. ``homography_from_flat``
+    accepts all three and returns ``None`` for anything unusable. The previous
+    ``np.asarray(h) if h else None`` looked equivalent and was not: a flat list
+    became shape ``(9,)``, and the first ``H @ [x, y, 1]`` in ``_project_obs``
+    raised, failing the whole stage — so pose, labels and metrics downstream saw
+    no events at all.
     """
     log.info("stage_events_start", clip_id=clip_id, multisignal=bool(tracklets))
 
@@ -88,7 +98,7 @@ def run(
             qb_track_id=qb_track_id,
             center_track_id=center_track_id,
             defender_ids=set(defender_ids) if defender_ids else None,
-            homography=np.asarray(homography, dtype=np.float64) if homography else None,
+            homography=homography_from_flat(homography),
             los_band_px=los_band_px,
             los_prior=los_prior,
             end_of_play_frame=end_of_play_frame,

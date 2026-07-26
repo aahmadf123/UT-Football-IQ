@@ -41,24 +41,25 @@ from pipeline.homography import camera_motion_ecc as ecc
 from pipeline.homography import confidence_scorer as cs
 from pipeline.homography import dlt_ransac, kalman_smoother
 from pipeline.homography import yardline_keypoints as yk
+from pipeline.homography.project import projects_onto_field
 
 log = structlog.get_logger(__name__)
 
-CONFIDENCE_THRESHOLD = 0.75   # Issue #127 gate: analytics_safe at ≥ 0.75
-RANSAC_THRESHOLD_PX = 3.0     # Issue #127 §7.1 re-projection threshold
+CONFIDENCE_THRESHOLD = 0.75  # Issue #127 gate: analytics_safe at ≥ 0.75
+RANSAC_THRESHOLD_PX = 3.0  # Issue #127 §7.1 re-projection threshold
 SAMPLE_INTERVAL_S = 5.0
-N_SAMPLE_FRAMES_FIXED = 6     # fixed camera: pick the single cleanest frame
-N_SAMPLE_FRAMES_DRONE = 12    # drone: sample more for a per-window series
+N_SAMPLE_FRAMES_FIXED = 6  # fixed camera: pick the single cleanest frame
+N_SAMPLE_FRAMES_DRONE = 12  # drone: sample more for a per-window series
 
 # Chained-ECC drift (Issue #138 §5.1): for DRONE_FOLLOW we additionally pull a
 # *consecutive* window of frames and compose inter-frame ECC warps onto the
 # sparsely-refit anchors. The mean chained-vs-direct drift over this window is
 # the temporal-stability signal (target < 2 px over ~5 s).
-ECC_WINDOW_S = 5.0            # length of the consecutive ECC window (seconds)
-ECC_MAX_FRAMES = 30           # cap frames read for ECC (subsample if needed)
+ECC_WINDOW_S = 5.0  # length of the consecutive ECC window (seconds)
+ECC_MAX_FRAMES = 30  # cap frames read for ECC (subsample if needed)
 
 # Routing variants registered for the ``calibrate`` stage (model_router).
-VARIANT_LITE = "calib-hough-dlt"          # same-session: Hough + DLT, no Kalman
+VARIANT_LITE = "calib-hough-dlt"  # same-session: Hough + DLT, no Kalman
 VARIANT_KALMAN = "calib-hough-dlt-kalman"  # nightly: + Kalman temporal smoothing
 
 FIXED_SIDELINE = "fixed_sideline"
@@ -116,18 +117,23 @@ def _calibrate(
     frames = _sample_frames(video_path, n_frames)
     if not frames:
         return _persist_and_return(
-            video_id, job_id,
-            homography=None, breakdown=None, regime=regime,
-            inlier_ratio=0.0, line_count=0, parallel_variance=None,
-            temporal_drift=None, kalman_state=None, is_game_anchor=False,
+            video_id,
+            job_id,
+            homography=None,
+            breakdown=None,
+            regime=regime,
+            inlier_ratio=0.0,
+            line_count=0,
+            parallel_variance=None,
+            temporal_drift=None,
+            kalman_state=None,
+            is_game_anchor=False,
             reason_codes=["no_frames"],
         )
 
     if regime == FIXED_SIDELINE:
         return _calibrate_fixed_sideline(video_id, job_id, frames, regime)
-    return _calibrate_drone(
-        video_id, job_id, frames, regime, variant, video_path=video_path
-    )
+    return _calibrate_drone(video_id, job_id, frames, regime, variant, video_path=video_path)
 
 
 # ── FIXED_SIDELINE: one anchor homography for the whole clip ───────────────────
@@ -140,10 +146,17 @@ def _calibrate_fixed_sideline(
     best = _best_frame_fit(frames)
     if best is None:
         return _persist_and_return(
-            video_id, job_id,
-            homography=None, breakdown=None, regime=regime,
-            inlier_ratio=0.0, line_count=0, parallel_variance=None,
-            temporal_drift=None, kalman_state=None, is_game_anchor=False,
+            video_id,
+            job_id,
+            homography=None,
+            breakdown=None,
+            regime=regime,
+            inlier_ratio=0.0,
+            line_count=0,
+            parallel_variance=None,
+            temporal_drift=None,
+            kalman_state=None,
+            is_game_anchor=False,
             reason_codes=["no_calibration"],
         )
     H, kp, inlier_ratio, reason_codes = best
@@ -157,11 +170,17 @@ def _calibrate_fixed_sideline(
         field_coverage=kp.field_coverage,
     )
     return _persist_and_return(
-        video_id, job_id,
-        homography=H, breakdown=breakdown, regime=regime,
-        inlier_ratio=inlier_ratio, line_count=kp.line_count,
+        video_id,
+        job_id,
+        homography=H,
+        breakdown=breakdown,
+        regime=regime,
+        inlier_ratio=inlier_ratio,
+        line_count=kp.line_count,
         parallel_variance=_variance(kp.yardline_angles),
-        temporal_drift=0.0, kalman_state=None, is_game_anchor=True,
+        temporal_drift=0.0,
+        kalman_state=None,
+        is_game_anchor=True,
         reason_codes=reason_codes,
     )
 
@@ -195,10 +214,17 @@ def _calibrate_drone(
     valid = [f for f in fits if f is not None]
     if not valid:
         return _persist_and_return(
-            video_id, job_id,
-            homography=None, breakdown=None, regime=regime,
-            inlier_ratio=0.0, line_count=0, parallel_variance=None,
-            temporal_drift=None, kalman_state=None, is_game_anchor=False,
+            video_id,
+            job_id,
+            homography=None,
+            breakdown=None,
+            regime=regime,
+            inlier_ratio=0.0,
+            line_count=0,
+            parallel_variance=None,
+            temporal_drift=None,
+            kalman_state=None,
+            is_game_anchor=False,
             reason_codes=["no_calibration"],
         )
 
@@ -246,12 +272,18 @@ def _calibrate_drone(
         field_coverage=best_kp.field_coverage,
     )
     return _persist_and_return(
-        video_id, job_id,
-        homography=chosen_H, breakdown=breakdown, regime=regime,
-        inlier_ratio=best_inlier, line_count=best_kp.line_count,
+        video_id,
+        job_id,
+        homography=chosen_H,
+        breakdown=breakdown,
+        regime=regime,
+        inlier_ratio=best_inlier,
+        line_count=best_kp.line_count,
         parallel_variance=_variance(best_kp.yardline_angles),
-        temporal_drift=temporal_drift, kalman_state=kalman_state,
-        is_game_anchor=False, reason_codes=list(best_kp.reason_codes),
+        temporal_drift=temporal_drift,
+        kalman_state=kalman_state,
+        is_game_anchor=False,
+        reason_codes=list(best_kp.reason_codes),
         extra_diagnostics=ecc_diag,
     )
 
@@ -278,6 +310,12 @@ def _best_frame_fit(
         )
         if H is None:
             continue
+        if not projects_onto_field(H, frame.shape):
+            # A fit can satisfy RANSAC and still be physically impossible. Skip
+            # rather than score it: the only quality signal here is inlier
+            # count, and a degenerate fit consistent with its own inliers scores
+            # as well as a correct one.
+            continue
         n_in = int(np.count_nonzero(mask))
         inlier_ratio = n_in / max(len(mask), 1)
         if n_in > best_inliers:
@@ -297,9 +335,7 @@ def _series_drift(homographies: list[np.ndarray], shape: tuple[int, int]) -> flo
     if len(homographies) < 2:
         return 0.0
     h, w = shape
-    corners = np.array(
-        [[0, 0], [w, 0], [w, h], [0, h]], dtype=np.float64
-    )
+    corners = np.array([[0, 0], [w, 0], [w, h], [0, h]], dtype=np.float64)
     gaps: list[float] = []
     for a, b in zip(homographies[:-1], homographies[1:]):
         gaps.append(_reproj_gap(a, b, corners))
@@ -447,9 +483,7 @@ def _sample_frames(video_path: Path, n: int) -> list[np.ndarray]:
         duration = total / fps if fps > 0 else 0.0
         if total <= 0 or duration <= 0:
             return []
-        times = np.linspace(
-            0.05 * duration, 0.95 * duration, num=max(1, n), endpoint=True
-        )
+        times = np.linspace(0.05 * duration, 0.95 * duration, num=max(1, n), endpoint=True)
         frames: list[np.ndarray] = []
         for t in times:
             cap.set(cv2.CAP_PROP_POS_MSEC, float(t) * 1000.0)
@@ -482,9 +516,18 @@ def _persist_and_return(
     components = breakdown.as_dict() if breakdown is not None else {}
     # Disqualifying reason codes block analytics regardless of score.
     blocking = {
-        "no_frames", "no_calibration", "cv2_unavailable",
-        "insufficient_lines", "insufficient_structured_lines",
-        "insufficient_yard_lines", "insufficient_intersections",
+        "no_frames",
+        "no_calibration",
+        "cv2_unavailable",
+        "insufficient_lines",
+        "insufficient_structured_lines",
+        "insufficient_yard_lines",
+        "insufficient_intersections",
+        # Cross-field rows were found but could not be told apart -- one lone
+        # dashed row is either hash. Blocking, because the alternative is a
+        # homography that fits its own mislabelled correspondences perfectly and
+        # places every player ~13 yards off.
+        "ambiguous_field_rows",
     }
     has_blocking = any(rc in blocking for rc in reason_codes)
     analytics_safe = (confidence >= CONFIDENCE_THRESHOLD) and not has_blocking
@@ -536,4 +579,11 @@ def _persist_and_return(
         "confidence_components": components,
         "is_game_anchor": is_game_anchor,
         "reason_codes": reason_codes,
+        # The matrix itself, flat row-major, so downstream stages can project
+        # pixels into field yards. It used to be POSTed to the backend and then
+        # dropped on the floor, which is why field_x was read everywhere and
+        # written nowhere. Kept as a plain list: these artifacts round-trip
+        # through JSON in the resume ledger, and several call sites test the
+        # value for truthiness, which raises on a numpy array.
+        "homography": homography_list,
     }

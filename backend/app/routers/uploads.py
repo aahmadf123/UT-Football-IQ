@@ -30,11 +30,13 @@ from app.deps import get_current_user, require_any_staff
 from app.models import User
 from app.storage import (
     DOWNLOADABLE_BUCKETS,
+    RAW_VIDEO,
     active_storage_backend,
     generate_download_url,
-    get_s3_client,
     is_valid_key,
     local_object_path,
+    object_exists,
+    upload_fileobj,
 )
 
 # If PUBLIC_API_BASE_URL still points to localhost in production, derive the
@@ -47,7 +49,11 @@ _LOCALHOST_BASE_RE = re.compile(
 log = structlog.get_logger(__name__)
 router = APIRouter(prefix="/api/v1/videos", tags=["uploads"])
 
-_RAW_BUCKET = "raw-video"
+#: Browser uploads always land in the raw-film bucket. This is the *logical*
+#: name -- the physical bucket this deployment provisioned is resolved inside
+#: the storage facade. Hard-coding a physical name here is what made every
+#: upload fail with NoSuchBucket once the buckets were named ``footiq-*``.
+_RAW_BUCKET = RAW_VIDEO
 
 
 class UploadUrlRequest(BaseModel):
@@ -142,8 +148,7 @@ async def upload_object(
     else:
         import tempfile
 
-        client = get_s3_client()
-        exists = await to_thread.run_sync(_object_exists, client, key)
+        exists = await to_thread.run_sync(object_exists, _RAW_BUCKET, key)
         if exists:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT, detail="Object already exists"
@@ -157,23 +162,12 @@ async def upload_object(
                 md5.update(chunk)
             tmp.flush()
             tmp.seek(0)
-            await to_thread.run_sync(
-                lambda: client.upload_fileobj(
-                    tmp, _RAW_BUCKET, key, ExtraArgs={"ContentType": content_type}
-                )
+            storage_uri = await to_thread.run_sync(
+                upload_fileobj, _RAW_BUCKET, key, tmp, content_type
             )
-        storage_uri = f"s3://{_RAW_BUCKET}/{key}"
 
     log.info("upload_stored", key=key, size=size, backend=active_storage_backend())
     return {"key": key, "size": size, "etag": md5.hexdigest(), "storageUri": storage_uri}
-
-
-def _object_exists(client: object, key: str) -> bool:
-    try:
-        client.head_object(Bucket=_RAW_BUCKET, Key=key)  # type: ignore[attr-defined]
-        return True
-    except Exception:
-        return False
 
 
 @router.get("/download-url")

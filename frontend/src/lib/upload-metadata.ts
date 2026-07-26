@@ -111,7 +111,14 @@ export function draftFromFiles(files: readonly File[]): UploadMetadataDraft {
   };
 }
 
-/** Field-level problems that should block submission. */
+/**
+ * Field-level problems that should block submission.
+ *
+ * Everything checked here is also checked by the backend. The point of checking
+ * twice is *when* it fails: a violation caught after the files upload leaves
+ * every object in the batch orphaned in R2, with a retry that repeats the same
+ * invalid metadata.
+ */
 export function validateDraft(draft: UploadMetadataDraft): Record<string, string> {
   const errors: Record<string, string> = {};
   if (!draft.sessionKind) {
@@ -124,6 +131,9 @@ export function validateDraft(draft: UploadMetadataDraft): Record<string, string
     // Without this, the film is invisible to Opponent Prep, which is the whole
     // reason to tag a game.
     errors.opponentTeam = "Game film needs an opponent so it reaches Opponent Prep.";
+  }
+  if (draft.tags.length > MAX_TAGS) {
+    errors.tags = `At most ${MAX_TAGS} tags — remove ${draft.tags.length - MAX_TAGS}.`;
   }
   return errors;
 }
@@ -165,16 +175,29 @@ const MAX_TAG_LENGTH = 60;
 export function parseTags(input: string): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
-  for (const raw of input.split(/[,
-]/)) {
+  // The newline is escaped, not literal: a regex literal cannot span lines.
+  for (const raw of input.split(/[,\r\n]/)) {
     const tag = raw.trim().toLowerCase().slice(0, MAX_TAG_LENGTH);
     if (!tag || seen.has(tag)) continue;
     seen.add(tag);
     out.push(tag);
-    if (out.length >= MAX_TAGS) break;
   }
   return out;
 }
+
+/**
+ * How many tags beyond the cap the input carries.
+ *
+ * Truncating inside ``parseTags`` would stop the upload 422-ing, but a coach
+ * who typed 25 labels would silently lose five. Reporting the overflow lets
+ * ``validateDraft`` block submission and explain why, the same as a missing
+ * session type does.
+ */
+export function excessTagCount(input: string): number {
+  return Math.max(0, parseTags(input).length - MAX_TAGS);
+}
+
+export { MAX_TAGS };
 
 /** Format an ISO instant for a `datetime-local` input. */
 export function toLocalInputValue(iso: string | null): string {

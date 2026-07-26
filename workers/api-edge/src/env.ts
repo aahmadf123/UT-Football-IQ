@@ -13,17 +13,12 @@ export interface Env {
   BACKEND: DurableObjectNamespace<Container>;
 
   /**
-   * Postgres connection pool for Worker-side queries.
+   * Pooled Postgres connection, with query caching disabled on the config.
    *
-   * Deliberately NOT how the container reaches the database. A Hyperdrive
-   * connection string is only resolvable from inside the Workers runtime, so
-   * handing it to the container produces connection failures that look like a
-   * database outage. The container dials Postgres directly with
-   * `BACKEND_DATABASE_URL`; see `container.ts`.
-   *
-   * It costs the container nothing to skip: Hyperdrive's win is eliminating the
-   * seven round trips of per-request connection setup, and a long-lived
-   * container already holds a SQLAlchemy pool.
+   * Available to Worker-side code. It is **not** the container's database URL:
+   * Cloudflare documents the `connectionString` as accessible only from within
+   * the Workers runtime, and the container is a separate sandbox. See
+   * `resolveDatabaseUrl` in `container.ts`.
    */
   HYPERDRIVE?: Hyperdrive;
 
@@ -32,8 +27,15 @@ export interface Env {
   SECRET_KEY: string;
   /** Bearer token the cron handler presents to the internal scheduler route. */
   SCHEDULER_TOKEN: string;
-  /** Direct Postgres URL for the container (asyncpg driver). */
-  BACKEND_DATABASE_URL: string;
+  /**
+   * Direct Postgres URL for the container. **Required in a real deployment** —
+   * the container cannot reach the Hyperdrive connection string.
+   *
+   * Typed optional because a Worker's env is only checked at runtime; absent it,
+   * `buildContainerEnv` throws rather than starting a backend that cannot reach
+   * its database. See `resolveDatabaseUrl` in `container.ts`.
+   */
+  BACKEND_DATABASE_URL?: string;
   /** Direct Postgres URL for Alembic (psycopg2). Derived when unset. */
   BACKEND_DATABASE_SYNC_URL?: string;
   /** R2 S3-API credentials the container uses to write clips and artifacts. */

@@ -29,9 +29,7 @@ import structlog
 
 log = structlog.get_logger(__name__)
 
-SAME_SESSION_RENDER_HEIGHT: int = int(
-    os.environ.get("SAME_SESSION_RENDER_HEIGHT", "540")
-)
+SAME_SESSION_RENDER_HEIGHT: int = int(os.environ.get("SAME_SESSION_RENDER_HEIGHT", "540"))
 
 _SKIP_RAW = os.environ.get("SAME_SESSION_SKIP_STAGES", "embeddings,self_scout")
 SAME_SESSION_SKIP_STAGES: frozenset[str] = frozenset(
@@ -45,8 +43,11 @@ SAME_SESSION_STAGES: list[str] = [
     "detect",
     "track",
     "reid",
-    "pose",
+    # events before pose: pose anchors its metrics at the snap this detects.
+    # This ordering is load-bearing and is asserted against
+    # orchestrator.CLIP_STAGES in the tests.
     "events",
+    "pose",
     "labels",
     "metrics",
     "routes",
@@ -63,8 +64,11 @@ NIGHTLY_STAGES: list[str] = [
     "detect",
     "track",
     "reid",
-    "pose",
+    # events before pose: pose anchors its metrics at the snap this detects.
+    # This ordering is load-bearing and is asserted against
+    # orchestrator.CLIP_STAGES in the tests.
     "events",
+    "pose",
     "labels",
     "metrics",
     "routes",

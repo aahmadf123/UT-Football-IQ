@@ -4,6 +4,12 @@ from pipeline.homography.field_template import (
     FieldTemplate,
     default_template,
 )
+from pipeline.homography.project import (
+    apply_homography,
+    apply_homography_many,
+    ground_anchor,
+    homography_from_flat,
+)
 from pipeline.homography.regime_detector import (
     CaptureRegimeDetector,
     RegimeDetectorAdapter,
@@ -16,4 +22,8 @@ __all__ = [
     "RegimeResult",
     "FieldTemplate",
     "default_template",
+    "apply_homography",
+    "apply_homography_many",
+    "ground_anchor",
+    "homography_from_flat",
 ]
