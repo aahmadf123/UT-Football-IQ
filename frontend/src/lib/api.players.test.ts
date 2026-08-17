@@ -153,12 +153,57 @@ describe("apiPlayerToSummary", () => {
     expect(summary.position).toBe("WR");
     // Skill group is derived from WR when the backend hasn't set it.
     expect(summary.group).toBe("Skill");
-    // Metrics deliberately not fabricated.
+    // Metrics deliberately not fabricated — they arrive only via
+    // mergePlayerMetrics from the live metrics summary endpoint.
     expect(summary.maxSpeed).toBeUndefined();
     expect(summary.distance).toBeUndefined();
-    expect(summary.separation).toBeUndefined();
     expect(summary.confidence).toBeUndefined();
+    expect(summary.identityBucket).toBeUndefined();
+    expect(summary.trackedClips).toBeUndefined();
     expect(summary.trend).toBeUndefined();
+  });
+
+  test("mergePlayerMetrics fills live aggregates and converts units", async () => {
+    vi.resetModules();
+    const { apiPlayerToSummary, mergePlayerMetrics } = await import("./app-state");
+    const base = apiPlayerToSummary({
+      id: "p1",
+      first_name: "Marcus",
+      last_name: "Carter",
+      jersey_number: 11,
+      position: "WR",
+      position_group: null,
+      is_active: true,
+      user_id: null,
+      metadata: null,
+      created_at: "2026-05-01T12:00:00Z",
+    });
+    const [merged] = mergePlayerMetrics(
+      [base],
+      [
+        {
+          player_id: "p1",
+          tracklet_count: 4,
+          tracked_clip_count: 3,
+          last_tracked_at: "2026-08-10T19:00:00Z",
+          identity_confidence: 0.84,
+          identity_bucket: "probable",
+          max_speed_yps: 8.5,
+          max_speed_samples: 4,
+          distance_yards: 123.4,
+          distance_samples: 4,
+        },
+      ],
+    );
+    // 8.5 yd/s ≈ 17.4 mph.
+    expect(merged.maxSpeed).toBeCloseTo(17.4, 1);
+    expect(merged.distance).toBe(123);
+    expect(merged.confidence).toBe(0.84);
+    expect(merged.identityBucket).toBe("probable");
+    expect(merged.trackedClips).toBe(3);
+    // A player absent from the metrics rows keeps its honest undefineds.
+    const [untouched] = mergePlayerMetrics([base], []);
+    expect(untouched.maxSpeed).toBeUndefined();
   });
 
   test("prefers the backend position_group over derivation", async () => {

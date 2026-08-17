@@ -266,20 +266,24 @@ export interface FootballData {
   alerts: AlertSummary[];
 }
 
+/** Calibrated identity vocabulary from the backend — never invented client-side. */
+export type IdentityBucket = "known" | "probable" | "needs_review";
+
 export interface PlayerSummary {
   id: string;
   jersey: string;
   name: string;
   position: string;
   group: string;
-  // Performance + identity-confidence metrics. Optional because the live
-  // `/api/v1/players` surface only returns identity in P1 — analytics overlays
-  // (#100) land in later batches. UI sites render "—" when undefined rather
-  // than fabricating values.
-  maxSpeed?: number;
-  distance?: number;
-  separation?: number;
-  confidence?: number;
+  // Live per-player tracking aggregates, merged from
+  // `/api/v1/players/metrics/summary`. Undefined means no tracked film yet —
+  // UI sites render "—" rather than fabricating values.
+  maxSpeed?: number; // mph (converted from the pipeline's yd/s)
+  distance?: number; // yards
+  confidence?: number; // 0–1 span-weighted identity confidence
+  identityBucket?: IdentityBucket;
+  trackedClips?: number;
+  lastTrackedAt?: string;
   trend?: number[];
 }
 

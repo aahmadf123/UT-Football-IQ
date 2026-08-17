@@ -8,6 +8,7 @@ import { resolveCurrentRole, type UserRole } from "./roles";
 import {
   fetchInboxStatus,
   fetchJobs,
+  fetchPlayerMetricsSummaries,
   fetchPlayers,
   fetchSelfScoutTendencies,
   fetchVideos,
@@ -15,7 +16,7 @@ import {
   requestUploadUrl,
   uploadToObjectStore,
 } from "./api";
-import type { VideoInboxItem } from "./api";
+import type { ApiPlayerMetricsSummary, VideoInboxItem } from "./api";
 import type {
   ApiJob,
   ApiPlayer,
@@ -91,9 +92,10 @@ function deriveGroup(position: string | null, positionGroup: string | null): str
 /**
  * Convert a backend ``ApiPlayer`` into the UI-side ``PlayerSummary``.
  *
- * Performance metrics (`maxSpeed`, `distance`, `separation`, `confidence`,
- * `trend`) are intentionally left ``undefined`` — the P1 players surface only
- * carries identity, and the UI shows "—" instead of fabricating numbers.
+ * Performance/confidence fields start ``undefined`` here; they are filled by
+ * :func:`mergePlayerMetrics` from ``/api/v1/players/metrics/summary``. A
+ * player with no tracked film keeps them undefined and the UI shows "—"
+ * instead of fabricating numbers.
  */
 export function apiPlayerToSummary(p: ApiPlayer): PlayerSummary {
   const firstName = p.first_name.trim();
@@ -107,6 +109,35 @@ export function apiPlayerToSummary(p: ApiPlayer): PlayerSummary {
     position: p.position ?? "Unassigned",
     group: deriveGroup(p.position, p.position_group),
   };
+}
+
+// The pipeline measures speed in yd/s (field coordinates are yards); coaches
+// read MPH. 1 yd/s = 0.9144 m/s = 2.0455 mph.
+export const YDS_PER_SEC_TO_MPH = 2.0455;
+
+/** Merge batched tracking aggregates onto roster summaries by player id. */
+export function mergePlayerMetrics(
+  players: PlayerSummary[],
+  rows: ApiPlayerMetricsSummary[],
+): PlayerSummary[] {
+  if (rows.length === 0) return players;
+  const byId = new Map(rows.map((r) => [r.player_id, r]));
+  return players.map((p) => {
+    const m = byId.get(p.id);
+    if (!m) return p;
+    return {
+      ...p,
+      maxSpeed:
+        m.max_speed_yps != null
+          ? Math.round(m.max_speed_yps * YDS_PER_SEC_TO_MPH * 10) / 10
+          : undefined,
+      distance: m.distance_yards != null ? Math.round(m.distance_yards) : undefined,
+      confidence: m.identity_confidence ?? undefined,
+      identityBucket: m.identity_bucket,
+      trackedClips: m.tracked_clip_count,
+      lastTrackedAt: m.last_tracked_at ?? undefined,
+    };
+  });
 }
 
 const STORAGE_KEY = "football_iq_app_state_v1";
@@ -378,9 +409,16 @@ export function AppStateProvider({
     setPlayersStatus("loading");
     (async () => {
       try {
-        const apiPlayers = await fetchPlayers({ is_active: true }, tokenRef.current);
+        // Metrics ride alongside the roster fetch; a metrics failure must
+        // never take down the roster itself, so it degrades to "no numbers".
+        const [apiPlayers, metricRows] = await Promise.all([
+          fetchPlayers({ is_active: true }, tokenRef.current),
+          fetchPlayerMetricsSummaries(tokenRef.current).catch(
+            () => [] as ApiPlayerMetricsSummary[],
+          ),
+        ]);
         if (cancelled) return;
-        const summaries = apiPlayers.map(apiPlayerToSummary);
+        const summaries = mergePlayerMetrics(apiPlayers.map(apiPlayerToSummary), metricRows);
         setData((cur) => ({ ...cur, players: summaries }));
         setPlayersStatus("live");
       } catch (err) {

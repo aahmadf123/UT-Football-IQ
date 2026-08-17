@@ -8,9 +8,10 @@ import { FootballShell } from "@/components/shell/app-shell";
 import { PlayerPortrait } from "@/components/shared/player-portrait";
 import { TrendLine } from "@/components/shared/trend-line";
 import { fmtMetric, playerProfileHref } from "@/components/players-view";
-import { apiPlayerToSummary, useAppState } from "@/lib/app-state";
-import { fetchPlayer } from "@/lib/api";
+import { apiPlayerToSummary, mergePlayerMetrics, useAppState } from "@/lib/app-state";
+import { fetchPlayer, fetchPlayerMetricsDetail } from "@/lib/api";
 import type { PlayerSummary } from "@/lib/types";
+import { ConfidenceBadge } from "@/components/composite/confidence-badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { NativeSelect } from "@/components/ui/native-select";
@@ -62,9 +63,22 @@ export function PlayerProfileClient({ id }: { id: string }) {
     setLoadState(cached ? "ready" : "loading");
     (async () => {
       try {
-        const apiPlayer = await fetchPlayer(id, authToken);
+        // Metrics ride alongside identity; their failure degrades to "—"
+        // rather than blocking the profile.
+        const [apiPlayer, metricsDetail] = await Promise.all([
+          fetchPlayer(id, authToken),
+          fetchPlayerMetricsDetail(id, authToken).catch(() => null),
+        ]);
         if (cancelled) return;
-        setPlayer(apiPlayerToSummary(apiPlayer));
+        let summary = apiPlayerToSummary(apiPlayer);
+        if (metricsDetail) {
+          summary = mergePlayerMetrics([summary], [metricsDetail.summary])[0];
+          // Weekly tracked-clip counts feed the trend line; fewer than two
+          // weeks of film is not a trend.
+          const weeks = metricsDetail.weekly.map((w) => w.tracked_clip_count);
+          if (weeks.length >= 2) summary = { ...summary, trend: weeks };
+        }
+        setPlayer(summary);
         setLoadState("ready");
       } catch (err) {
         if (cancelled) return;
@@ -131,10 +145,14 @@ export function PlayerProfileClient({ id }: { id: string }) {
 
   const others = data.players.filter((p) => p.id !== player.id);
   const metricsAvailable =
-    player.maxSpeed != null || player.distance != null || player.separation != null;
+    player.maxSpeed != null || player.distance != null || player.trackedClips != null;
   const trendAvailable = player.trend && player.trend.length > 0;
   const confidenceLabel =
-    player.confidence != null ? `${Math.round(player.confidence * 100)}%` : "—";
+    player.identityBucket == null
+      ? "no tracked film yet"
+      : player.identityBucket === "needs_review" || player.confidence == null
+        ? "needs review"
+        : `${player.identityBucket} (${Math.round(player.confidence * 100)}%)`;
 
   const exportProfile = () => {
     const lines = [
@@ -142,9 +160,9 @@ export function PlayerProfileClient({ id }: { id: string }) {
       `Position: ${player.position} · Group: ${player.group}`,
       `Max Speed: ${player.maxSpeed != null ? `${player.maxSpeed} MPH` : "not available"}`,
       `Distance: ${player.distance != null ? `${player.distance} YDS` : "not available"}`,
-      `Avg Separation: ${player.separation != null ? `${player.separation} YDS` : "not available"}`,
+      `Tracked Clips: ${player.trackedClips != null ? player.trackedClips : "not available"}`,
       `Identity Confidence: ${confidenceLabel}`,
-      `Trend: ${trendAvailable ? player.trend!.join(", ") : "not available"}`,
+      `Weekly tracked clips: ${trendAvailable ? player.trend!.join(", ") : "not available"}`,
     ];
     const blob = new Blob([lines.join("\n")], { type: "text/plain" });
     const url = URL.createObjectURL(blob);
@@ -199,7 +217,10 @@ export function PlayerProfileClient({ id }: { id: string }) {
               <StatLine label="Name" value={player.name} />
               <StatLine label="Position" value={player.position} />
               <StatLine label="Group" value={player.group} />
-              <StatLine label="Identity Confidence" value={confidenceLabel} />
+              <div className="flex items-center justify-between gap-2 text-xs">
+                <span className="text-muted-foreground">Identity Confidence</span>
+                <ConfidenceBadge bucket={player.identityBucket} confidence={player.confidence} />
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -215,18 +236,21 @@ export function PlayerProfileClient({ id }: { id: string }) {
               <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
                 <StatChip label="Max Speed" value={fmtMetric(player.maxSpeed)} hint="MPH" />
                 <StatChip label="Distance" value={fmtMetric(player.distance)} hint="YDS" />
-                <StatChip label="Avg Separation" value={fmtMetric(player.separation)} hint="YDS" />
-                <StatChip label="Identity" value={confidenceLabel} />
+                <StatChip label="Tracked" value={fmtMetric(player.trackedClips)} hint="CLIPS" />
+                <StatChip
+                  label="Identity"
+                  value={player.confidence != null ? `${Math.round(player.confidence * 100)}%` : "—"}
+                />
               </div>
             ) : (
               <p className="text-xs text-muted-foreground">
-                Performance metrics are not wired to the live pipeline yet. They will surface once
-                per-player tracking metrics land (#100).
+                No tracked film for this player yet. Metrics appear automatically after film
+                featuring them is uploaded and processed.
               </p>
             )}
             <div className="mt-4">
               <h3 className="mb-1.5 font-display text-xs font-semibold uppercase tracking-widest text-muted-foreground">
-                Trend
+                Weekly Tracked Clips
               </h3>
               <TrendLine data={player.trend} />
             </div>

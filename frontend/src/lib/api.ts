@@ -413,6 +413,57 @@ export async function fetchPlayer(playerId: string, token?: string): Promise<Api
   return getJSON<ApiPlayer>(`${base}/api/v1/players/${playerId}`, token);
 }
 
+/** One player's tracking aggregates from GET /api/v1/players/metrics/summary. */
+export interface ApiPlayerMetricsSummary {
+  player_id: string;
+  tracklet_count: number;
+  tracked_clip_count: number;
+  last_tracked_at: string | null;
+  identity_confidence: number | null;
+  identity_bucket: "known" | "probable" | "needs_review";
+  max_speed_yps: number | null;
+  max_speed_samples: number;
+  distance_yards: number | null;
+  distance_samples: number;
+}
+
+export interface ApiPlayerMetricsWeekly {
+  week_start: string;
+  tracked_clip_count: number;
+  identity_confidence: number | null;
+  max_speed_yps: number | null;
+  distance_yards: number | null;
+}
+
+export interface ApiPlayerMetricsDetail {
+  summary: ApiPlayerMetricsSummary;
+  weekly: ApiPlayerMetricsWeekly[];
+}
+
+/**
+ * Batched aggregates for every player with tracked film. Players without
+ * attributed tracklets are absent — callers keep their honest empty state.
+ */
+export async function fetchPlayerMetricsSummaries(
+  token?: string,
+): Promise<ApiPlayerMetricsSummary[]> {
+  const base = apiBase();
+  if (!base) throw new Error("NEXT_PUBLIC_API_URL is not configured");
+  return getJSON<ApiPlayerMetricsSummary[]>(`${base}/api/v1/players/metrics/summary`, token);
+}
+
+export async function fetchPlayerMetricsDetail(
+  playerId: string,
+  token?: string,
+): Promise<ApiPlayerMetricsDetail> {
+  const base = apiBase();
+  if (!base) throw new Error("NEXT_PUBLIC_API_URL is not configured");
+  return getJSON<ApiPlayerMetricsDetail>(
+    `${base}/api/v1/players/${playerId}/metrics/summary`,
+    token,
+  );
+}
+
 // ── Metrics + coach corrections ──────────────────────────────────────────────
 
 export interface ApiMetric {

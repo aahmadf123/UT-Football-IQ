@@ -86,10 +86,10 @@ export const footballData: FootballData = {
   ],
   selfScout: sampleSelfScout,
   players: [
-    player("11", "M. Carter", "WR", "Skill", 18.7, 112.3, 2.4, 0.82, [21, 34, 48, 57, 63, 71]),
-    player("28", "J. Hill", "RB", "Skill", 19.6, 98.7, 1.9, 0.79, [18, 26, 40, 44, 59, 66]),
-    player("54", "D. Evans", "C", "OL", 12.8, 89.5, 0.7, 0.91, [40, 42, 41, 45, 48, 49]),
-    player("9", "A. Moore", "QB", "QB", 16.2, 76.4, 3.2, 0.86, [30, 36, 39, 48, 53, 58]),
+    player("11", "M. Carter", "WR", "Skill", 18.7, 112.3, 0.82, [21, 34, 48, 57, 63, 71]),
+    player("28", "J. Hill", "RB", "Skill", 19.6, 98.7, 0.79, [18, 26, 40, 44, 59, 66]),
+    player("54", "D. Evans", "C", "OL", 12.8, 89.5, 0.91, [40, 42, 41, 45, 48, 49]),
+    player("9", "A. Moore", "QB", "QB", 16.2, 76.4, 0.86, [30, 36, 39, 48, 53, 58]),
   ],
   plays: [
     { number: 42, formation: "Trips Right", personnel: "11", concept: "Inside Zone", result: "Gain", yards: 8, confidence: 0.92 },
@@ -150,6 +150,18 @@ function job(job_type: string, status: string, priority: number, pipeline_mode?:
   };
 }
 
-function player(jersey: string, name: string, position: string, group: string, maxSpeed: number, distance: number, separation: number, confidence: number, trendData: number[]) {
-  return { id: jersey, jersey, name, position, group, maxSpeed, distance, separation, confidence, trend: trendData };
+function player(jersey: string, name: string, position: string, group: string, maxSpeed: number, distance: number, confidence: number, trendData: number[]) {
+  return {
+    id: jersey,
+    jersey,
+    name,
+    position,
+    group,
+    maxSpeed,
+    distance,
+    confidence,
+    identityBucket: "probable" as const,
+    trackedClips: trendData.length,
+    trend: trendData,
+  };
 }

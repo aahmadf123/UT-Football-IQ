@@ -29,6 +29,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { StatChip } from "@/components/composite/stat-chip";
+import { ConfidenceBadge } from "@/components/composite/confidence-badge";
 
 /** Canonical profile link — CSR detail page that works for any real id. */
 export function playerProfileHref(id: string): string {
@@ -112,6 +113,7 @@ export function PlayersView() {
                   <TableHead>Pos</TableHead>
                   <TableHead className="text-right">Max speed</TableHead>
                   <TableHead className="text-right">Distance</TableHead>
+                  <TableHead className="text-right">Clips</TableHead>
                   <TableHead className="text-right">Identity</TableHead>
                 </TableRow>
               </TableHeader>
@@ -141,7 +143,13 @@ export function PlayersView() {
                       {fmtMetric(player.distance)} YDS
                     </TableCell>
                     <TableCell data-numeric className="text-right font-mono text-xs">
-                      {fmtConfidence(player.confidence)}
+                      {fmtMetric(player.trackedClips)}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <ConfidenceBadge
+                        bucket={player.identityBucket}
+                        confidence={player.confidence}
+                      />
                     </TableCell>
                   </TableRow>
                 ))}
@@ -223,7 +231,7 @@ export function PlayerFocus({
       <div className={`grid grid-cols-3 gap-2 ${compact ? "mt-2" : "mt-3"}`}>
         <StatChip label="Distance" value={fmtMetric(player.distance)} hint="YDS" />
         <StatChip label="Max Speed" value={fmtMetric(player.maxSpeed)} hint="MPH" />
-        <StatChip label="Avg Sep" value={fmtMetric(player.separation)} hint="YDS" />
+        <StatChip label="Tracked" value={fmtMetric(player.trackedClips)} hint="CLIPS" />
       </div>
     </>
   );

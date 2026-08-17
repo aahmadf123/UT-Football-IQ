@@ -42,6 +42,7 @@ from app.routers.opponents import router as opponents_router
 from app.routers.overlays import router as overlays_router
 from app.routers.play_prediction import router as play_prediction_router
 from app.routers.playbook import router as playbook_router
+from app.routers.player_metrics import router as player_metrics_router
 from app.routers.player_profiles import router as player_profiles_router
 from app.routers.players import router as players_router
 from app.routers.pose import router as pose_router
@@ -173,6 +174,7 @@ app.include_router(storage_router)
 app.include_router(clips_router)
 app.include_router(practice_sessions_router)
 app.include_router(players_router)
+app.include_router(player_metrics_router)
 app.include_router(player_profiles_router)
 app.include_router(jobs_router)
 app.include_router(calibrations_router)
