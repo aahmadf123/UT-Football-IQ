@@ -186,7 +186,7 @@ describe("apiPlayerToSummary", () => {
           tracklet_count: 4,
           tracked_clip_count: 3,
           last_tracked_at: "2026-08-10T19:00:00Z",
-          identity_confidence: 0.84,
+          tracking_confidence: 0.84,
           identity_bucket: "probable",
           max_speed_yps: 8.5,
           max_speed_samples: 4,

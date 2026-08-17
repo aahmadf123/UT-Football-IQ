@@ -92,9 +92,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         try:
             roster_stats = await seed_roster(database_url=settings.database_url)
             log.info("startup_roster_seeding", **roster_stats)
-        except (OSError, ValueError):
-            # A malformed or missing roster file must not take the API down —
-            # the roster is a convenience seed, not a boot dependency.
+        except Exception:
+            # A malformed roster file, an unreachable database, or a
+            # constraint conflict must not take the API down — the roster is
+            # a convenience seed, not a boot dependency.
             log.exception("startup_roster_seeding_failed")
     from app.scheduler import start_scheduler
 
@@ -173,8 +174,10 @@ app.include_router(videos_router)
 app.include_router(storage_router)
 app.include_router(clips_router)
 app.include_router(practice_sessions_router)
-app.include_router(players_router)
+# player_metrics before players: its literal /players/metrics/summary path
+# must never be shadowed by the players router's dynamic /{player_id} route.
 app.include_router(player_metrics_router)
+app.include_router(players_router)
 app.include_router(player_profiles_router)
 app.include_router(jobs_router)
 app.include_router(calibrations_router)

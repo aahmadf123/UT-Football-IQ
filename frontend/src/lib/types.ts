@@ -267,7 +267,7 @@ export interface PlayerSummary {
   // UI sites render "—" rather than fabricating values.
   maxSpeed?: number; // mph (converted from the pipeline's yd/s)
   distance?: number; // yards
-  confidence?: number; // 0–1 span-weighted identity confidence
+  confidence?: number; // 0–1 span-weighted tracking confidence (the identity bucket is separate)
   identityBucket?: IdentityBucket;
   trackedClips?: number;
   lastTrackedAt?: string;

@@ -232,3 +232,57 @@ async def test_deactivate_missing_is_opt_in_and_scoped(
     stats = await seed_roster(database_url=url, roster_path=path)
     assert stats["updated"] == 1
     assert all(r.is_active for r in await _seeded_players(db))
+
+
+async def test_preexisting_unkeyed_player_is_adopted_not_duplicated(
+    db: async_sessionmaker[AsyncSession], tmp_path: Path
+) -> None:
+    """API-created rows (no roster_key) must be adopted, never collided with."""
+    url = get_settings().database_url
+    async with db() as session:
+        session.add(
+            Player(
+                first_name="Cam",
+                last_name="Jones",
+                jersey_number=1,
+                position="CB",
+                position_group="DB",
+                is_active=True,
+                metadata_={"roster_season": _TEST_SEASON, "coach_note": "pre-existing"},
+            )
+        )
+        await session.commit()
+
+    path = _write_roster(tmp_path / "r.json", [_entry("Cam", "Jones", 1, "CB", "DB")])
+    stats = await seed_roster(database_url=url, roster_path=path)
+    # Adopted in place: no insert, no IntegrityError from the partial index.
+    assert stats["created"] == 0
+    assert stats["updated"] == 1
+
+    rows = await _seeded_players(db)
+    assert len(rows) == 1
+    assert rows[0].metadata_ is not None
+    assert rows[0].metadata_["roster_key"] == f"{_TEST_SEASON}-jones-cam"
+    assert rows[0].metadata_["coach_note"] == "pre-existing"
+
+
+async def test_jersey_swap_within_group_survives_unique_index(
+    db: async_sessionmaker[AsyncSession], tmp_path: Path
+) -> None:
+    """Two players exchanging numbers in one group must not roll back the seed."""
+    url = get_settings().database_url
+    path = _write_roster(
+        tmp_path / "r.json",
+        [_entry("Cam", "Jones", 1, "CB", "DB"), _entry("Rico", "Bond", 2, "S", "DB")],
+    )
+    await seed_roster(database_url=url, roster_path=path)
+
+    swapped = _write_roster(
+        tmp_path / "r2.json",
+        [_entry("Cam", "Jones", 2, "CB", "DB"), _entry("Rico", "Bond", 1, "S", "DB")],
+    )
+    stats = await seed_roster(database_url=url, roster_path=swapped)
+    assert stats["updated"] == 2
+
+    rows = {r.first_name: r.jersey_number for r in await _seeded_players(db)}
+    assert rows == {"Cam": 2, "Rico": 1}

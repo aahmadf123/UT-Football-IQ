@@ -44,10 +44,12 @@ export function toElementTime(localTime: number, clipOffset: number): number {
 
 /**
  * Frame math for stepping: land mid-frame so codec rounding can't slip back
- * to the frame boundary we just left.
+ * to the frame boundary we just left. The current frame is derived with
+ * ``floor`` — step targets sit at N+0.5 frames, so rounding would credit the
+ * playhead with frame N+1 and make every forward step skip a frame.
  */
 export function frameStepTarget(localTime: number, fps: number, delta: number): number {
-  const frame = Math.round(localTime * fps);
+  const frame = Math.floor(localTime * fps);
   return Math.max(0, (frame + delta + 0.5) / fps);
 }
 
@@ -57,6 +59,16 @@ function isTypingTarget(target: EventTarget | null): boolean {
   return ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName);
 }
 
+/**
+ * Space/Enter on a focused control activates it natively; handling them in the
+ * document keydown too would double-fire (e.g. Space on the play button both
+ * clicks it and toggles play again). Other keys stay global.
+ */
+function isActivationTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  return target.closest('button, a, select, [role="button"]') != null;
+}
+
 export function VideoTransport({
   videoRef,
   fps,
@@ -64,6 +76,7 @@ export function VideoTransport({
   duration,
   currentLocalTime,
   eventTimes,
+  enforceBounds = false,
   onPrevClip,
   onNextClip,
 }: {
@@ -77,6 +90,11 @@ export function VideoTransport({
   currentLocalTime: number;
   /** Clip-local times of tagged events, sorted ascending, for E navigation. */
   eventTimes: ReadonlyArray<number>;
+  /**
+   * Pause at the clip end instead of playing on (parent-video playback would
+   * otherwise run into unrelated footage). Loop takes precedence when on.
+   */
+  enforceBounds?: boolean;
   onPrevClip?: (() => void) | null;
   onNextClip?: (() => void) | null;
 }) {
@@ -99,19 +117,26 @@ export function VideoTransport({
     };
   }, [videoRef]);
 
-  // Loop-clip: jump back to the clip start when playback crosses the end.
+  // Clip-end boundary: when playback crosses the end, loop jumps back to the
+  // clip start; otherwise enforceBounds pauses at the boundary so parent-video
+  // playback doesn't run into unrelated footage.
   useEffect(() => {
     const el = videoRef.current;
-    if (!el || !loop) return;
+    if (!el || (!loop && !enforceBounds)) return;
+    const boundary = clipOffset + duration - 0.05;
     const onTime = () => {
-      if (el.currentTime >= clipOffset + duration - 0.05) {
+      if (el.currentTime < boundary) return;
+      if (loop) {
         el.currentTime = clipOffset;
         void el.play().catch(() => undefined);
+      } else {
+        el.pause();
+        el.currentTime = boundary;
       }
     };
     el.addEventListener("timeupdate", onTime);
     return () => el.removeEventListener("timeupdate", onTime);
-  }, [videoRef, loop, clipOffset, duration]);
+  }, [videoRef, loop, enforceBounds, clipOffset, duration]);
 
   const seekLocal = useCallback(
     (localTime: number) => {
@@ -177,6 +202,7 @@ export function VideoTransport({
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (isTypingTarget(e.target) || e.metaKey || e.ctrlKey || e.altKey) return;
+      if ((e.key === " " || e.key === "Enter") && isActivationTarget(e.target)) return;
       switch (e.key) {
         case " ":
         case "k":
@@ -242,7 +268,7 @@ export function VideoTransport({
     return () => document.removeEventListener("keydown", onKey);
   }, [togglePlay, shuttle, stepFrame, seekLocal, jumpEvent, currentLocalTime, duration, onPrevClip, onNextClip]);
 
-  const frame = Math.round(currentLocalTime * fps);
+  const frame = Math.floor(currentLocalTime * fps);
 
   return (
     <div

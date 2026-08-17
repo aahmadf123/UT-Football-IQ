@@ -18,6 +18,12 @@ new row instead of updating in place. Film-side identity resolution keys on
 Seeding never deletes: players who leave the roster are deactivated
 (``is_active=false``) only when the caller opts in, because tracklets and
 profile history reference player rows.
+
+Pre-existing installations: player rows created through the API before this
+seeding existed carry no ``roster_key``. The seed pass adopts them instead of
+inserting duplicates — matching by normalized name first, then by the
+constrained ``(jersey_number, position_group)`` pair — so the partial unique
+index can never be violated by a seed run over live data.
 """
 
 from __future__ import annotations
@@ -148,18 +154,67 @@ async def seed_roster(
 
     try:
         async with session_factory() as session:
-            result = await session.execute(
-                select(Player).where(Player.metadata_["roster_key"].astext.is_not(None))
-            )
-            by_key = {
-                row.metadata_["roster_key"]: row
-                for row in result.scalars()
-                if row.metadata_ is not None
-            }
+            result = await session.execute(select(Player))
+            all_players = list(result.scalars())
+            by_key: dict[str, Player] = {}
+            unkeyed: list[Player] = []
+            for row in all_players:
+                key = (row.metadata_ or {}).get("roster_key")
+                if isinstance(key, str) and key:
+                    by_key[key] = row
+                else:
+                    unkeyed.append(row)
 
+            def _adopt_existing(entry: RosterEntry) -> Player | None:
+                """Match a pre-seeding row so we update instead of colliding."""
+                first = entry.first_name.strip().lower()
+                last = entry.last_name.strip().lower()
+                for row in unkeyed:
+                    if (
+                        row.first_name.strip().lower() == first
+                        and row.last_name.strip().lower() == last
+                    ):
+                        unkeyed.remove(row)
+                        return row
+                if entry.jersey_number is not None and entry.position_group:
+                    for row in unkeyed:
+                        if (
+                            row.is_active
+                            and row.jersey_number == entry.jersey_number
+                            and row.position_group == entry.position_group
+                        ):
+                            unkeyed.remove(row)
+                            return row
+                return None
+
+            # Phase 1 of the two-phase update: any matched row whose
+            # (jersey, group) pair is about to change gets its jersey nulled
+            # and flushed first. Without this, two players legitimately
+            # swapping numbers inside one position group would collide with
+            # the immediate unique index mid-update and roll back the seed.
+            matched: list[tuple[RosterEntry, Player | None]] = []
             for entry in roster.players:
-                row = by_key.get(entry.roster_key)
-                if row is None:
+                existing: Player | None = by_key.get(entry.roster_key)
+                if existing is None:
+                    existing = _adopt_existing(entry)
+                    if existing is not None:
+                        by_key[entry.roster_key] = existing
+                matched.append((entry, existing))
+
+            needs_clear = False
+            for entry, existing in matched:
+                if existing is None:
+                    continue
+                old_pair = (existing.jersey_number, existing.position_group)
+                new_pair = (entry.jersey_number, entry.position_group)
+                if old_pair != new_pair and existing.jersey_number is not None:
+                    existing.jersey_number = None
+                    needs_clear = True
+            if needs_clear:
+                await session.flush()
+
+            for entry, existing in matched:
+                if existing is None:
                     session.add(
                         Player(
                             first_name=entry.first_name,
@@ -172,7 +227,7 @@ async def seed_roster(
                         )
                     )
                     stats["created"] += 1
-                elif _apply_entry(row, entry):
+                elif _apply_entry(existing, entry):
                     stats["updated"] += 1
                 else:
                     stats["unchanged"] += 1

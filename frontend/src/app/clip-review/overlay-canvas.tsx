@@ -77,7 +77,9 @@ export function OverlayCanvas({
   const showLabels = activeLayers.has("labels");
   const showMetrics = activeLayers.has("metrics");
 
-  if (!showTracks && !showEvents) return null;
+  // Labels/metrics stand alone: glyphs render (without boxes) when tracks are
+  // off, so those toggles aren't dead. Nothing on → no canvas at all.
+  if (!showTracks && !showLabels && !showMetrics && !showEvents) return null;
 
   const currentFrame = Math.round(currentTimeSeconds * fps);
   const viewW = videoWidth ?? DEFAULT_VIEW_W;
@@ -100,7 +102,7 @@ export function OverlayCanvas({
         pointerEvents: "none",
       }}
     >
-      {showTracks &&
+      {(showTracks || showLabels || showMetrics) &&
         tracklets.map((t, i) => (
           <TrackletGlyph
             key={t.id}
@@ -111,6 +113,7 @@ export function OverlayCanvas({
             viewH={viewH}
             videoWidth={videoWidth}
             videoHeight={videoHeight}
+            showBox={showTracks}
             showLabel={showLabels}
             metricText={showMetrics ? metricTextByTrackletId?.get(t.id) : undefined}
             playerName={
@@ -141,6 +144,7 @@ function TrackletGlyph({
   viewH,
   videoWidth,
   videoHeight,
+  showBox,
   showLabel,
   metricText,
   playerName,
@@ -157,6 +161,8 @@ function TrackletGlyph({
   viewH: number;
   videoWidth: number | null;
   videoHeight: number | null;
+  /** Tracks layer on — draw the bounding box + trail. */
+  showBox: boolean;
   showLabel: boolean;
   metricText: string | undefined;
   playerName: string | undefined;
@@ -213,14 +219,20 @@ function TrackletGlyph({
       data-testid={`overlay-tracklet-${tracklet.id}`}
       role="button"
       aria-label={`Select ${identity}${confidencePct ? `, tracking confidence ${confidencePct}` : ""}`}
-      tabIndex={-1}
+      tabIndex={0}
       onClick={(e) => {
         e.stopPropagation();
         onSelect?.(tracklet.id);
       }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onSelect?.(tracklet.id);
+        }
+      }}
       style={{ pointerEvents: "auto", cursor: onSelect ? "pointer" : "default" }}
     >
-      {trail.length > 1 && (
+      {showBox && trail.length > 1 && (
         <path
           d={trail.join(" ")}
           stroke={color}
@@ -229,31 +241,35 @@ function TrackletGlyph({
           opacity={0.6}
         />
       )}
-      <rect
-        x={box.x}
-        y={box.y}
-        width={box.w}
-        height={box.h}
-        fill={selected ? color : "transparent"}
-        fillOpacity={selected ? 0.15 : 0}
-        stroke={color}
-        strokeWidth={(selected ? 3 : 1.8) * scale}
-        rx={2 * scale}
-      />
-      <text
-        data-testid={`overlay-tracklet-tag-${tracklet.id}`}
-        x={box.x}
-        y={Math.max(box.y - 6 * scale, 12 * scale)}
-        fontSize={(showLabel ? 13 : 11) * scale}
-        fontFamily="ui-sans-serif"
-        fontWeight={700}
-        fill={color}
-        stroke="rgba(15,23,42,0.85)"
-        strokeWidth={0.6 * scale}
-        paintOrder="stroke"
-      >
-        {showLabel ? labelText : tag}
-      </text>
+      {showBox && (
+        <rect
+          x={box.x}
+          y={box.y}
+          width={box.w}
+          height={box.h}
+          fill={selected ? color : "transparent"}
+          fillOpacity={selected ? 0.15 : 0}
+          stroke={color}
+          strokeWidth={(selected ? 3 : 1.8) * scale}
+          rx={2 * scale}
+        />
+      )}
+      {(showLabel || showBox) && (
+        <text
+          data-testid={`overlay-tracklet-tag-${tracklet.id}`}
+          x={box.x}
+          y={Math.max(box.y - 6 * scale, 12 * scale)}
+          fontSize={(showLabel ? 13 : 11) * scale}
+          fontFamily="ui-sans-serif"
+          fontWeight={700}
+          fill={color}
+          stroke="rgba(15,23,42,0.85)"
+          strokeWidth={0.6 * scale}
+          paintOrder="stroke"
+        >
+          {showLabel ? labelText : tag}
+        </text>
+      )}
       {metricText != null && (
         <text
           data-testid={`overlay-tracklet-metric-${tracklet.id}`}

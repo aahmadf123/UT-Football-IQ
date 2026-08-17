@@ -49,6 +49,7 @@ from pipeline import object_store
 from pipeline.detection.ball_detector import (
     ball_strategy,
     build_ball_detector,
+    get_ball_detector,
 )
 from pipeline.detection.official_suppressor import OfficialSuppressor
 from pipeline.detector_models import (
@@ -158,7 +159,20 @@ def run(
     if ball_detector is not None:
         ball = ball_detector
     elif DETECT_BALL_ENABLED:
-        ball = build_ball_detector(ball_variant, capture_regime)
+        # Same serving leg as the player detector: a promoted registry ball
+        # model wins over the bundled MODEL_BALL_PATH default (offline-safe).
+        from pipeline import model_registry_client
+
+        resolved_ball = model_registry_client.resolve("ball")
+        if resolved_ball is not None:
+            base_ball = get_ball_detector(ball_variant, model_path=str(resolved_ball.local_path))
+            ball = (
+                build_ball_detector(ball_variant, capture_regime, base=base_ball)
+                if base_ball is not None
+                else None
+            )
+        else:
+            ball = build_ball_detector(ball_variant, capture_regime)
     else:
         ball = None
 

@@ -16,7 +16,7 @@ describe("frameStepTarget", () => {
   });
 
   test("works at non-integer positions (codec rounding)", () => {
-    // 0.9833s at 30fps is frame 29.499 → rounds to 29; +1 → frame 30.
+    // 0.9833s at 30fps is frame 29.499 → floors to 29; +1 → frame 30.
     expect(frameStepTarget(0.9833, 30, 1)).toBeCloseTo(30.5 / 30, 5);
   });
 

@@ -419,7 +419,7 @@ export interface ApiPlayerMetricsSummary {
   tracklet_count: number;
   tracked_clip_count: number;
   last_tracked_at: string | null;
-  identity_confidence: number | null;
+  tracking_confidence: number | null;
   identity_bucket: "known" | "probable" | "needs_review";
   max_speed_yps: number | null;
   max_speed_samples: number;
@@ -430,7 +430,7 @@ export interface ApiPlayerMetricsSummary {
 export interface ApiPlayerMetricsWeekly {
   week_start: string;
   tracked_clip_count: number;
-  identity_confidence: number | null;
+  tracking_confidence: number | null;
   max_speed_yps: number | null;
   distance_yards: number | null;
 }

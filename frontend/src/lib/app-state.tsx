@@ -129,7 +129,7 @@ export function mergePlayerMetrics(
           ? Math.round(m.max_speed_yps * YDS_PER_SEC_TO_MPH * 10) / 10
           : undefined,
       distance: m.distance_yards != null ? Math.round(m.distance_yards) : undefined,
-      confidence: m.identity_confidence ?? undefined,
+      confidence: m.tracking_confidence ?? undefined,
       identityBucket: m.identity_bucket,
       trackedClips: m.tracked_clip_count,
       lastTrackedAt: m.last_tracked_at ?? undefined,

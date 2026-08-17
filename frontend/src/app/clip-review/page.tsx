@@ -249,7 +249,13 @@ function ClipReviewReady({
   const { clip, video, playbackUrl, playbackUnavailable } = state;
   const showTechnicalDetails = canSeeTechnicalDetails(resolveCurrentRole(authToken));
   // Tracklet selected by clicking its box on the overlay; prefills corrections.
-  const [selectedTrackletId, setSelectedTrackletId] = useState<string | null>(null);
+  // Stored as a fresh object per click so re-selecting the same tracklet still
+  // re-triggers the corrections panel (e.g. after the coach hid it).
+  const [selection, setSelection] = useState<{ trackletId: string } | null>(null);
+  const selectTracklet = useCallback(
+    (trackletId: string) => setSelection({ trackletId }),
+    [],
+  );
   const possession = clip.our_possession ?? clip.side_of_ball ?? video.our_possession ?? null;
   const possessionLabel = possession ? POSSESSION_LABEL[possession] : null;
   const sessionKindLabel = clip.session_kind
@@ -417,6 +423,14 @@ function ClipReviewReady({
                   playsInline
                   onTimeUpdate={onTimeUpdate}
                   onSeeked={onTimeUpdate}
+                  onLoadedMetadata={() => {
+                    // Parent-video playback loads at t=0, before the clip —
+                    // jump to the clip start once metadata makes seeking safe.
+                    const el = videoRef.current;
+                    if (el && clipOffset > 0 && el.currentTime < clipOffset) {
+                      el.currentTime = clipOffset;
+                    }
+                  }}
                   onClick={() => {
                     const el = videoRef.current;
                     if (!el) return;
@@ -437,8 +451,8 @@ function ClipReviewReady({
                     activeLayers={overlayLayersForCanvas}
                     playerNamesById={playerNamesById}
                     metricTextByTrackletId={metricTextByTrackletId}
-                    selectedTrackletId={selectedTrackletId}
-                    onSelectTracklet={setSelectedTrackletId}
+                    selectedTrackletId={selection?.trackletId ?? null}
+                    onSelectTracklet={selectTracklet}
                   />
                 )}
               </>
@@ -462,6 +476,7 @@ function ClipReviewReady({
               duration={clipDuration}
               currentLocalTime={clipLocalTime}
               eventTimes={eventTimesSorted}
+              enforceBounds={!playbackUsesClipAsset}
               onPrevClip={goPrevClip}
               onNextClip={goNextClip}
             />
@@ -552,7 +567,7 @@ function ClipReviewReady({
           <CorrectionsPanel
             clipId={clip.id}
             tracklets={overlayPayload?.tracklets ?? []}
-            selectedTrackletId={selectedTrackletId}
+            selection={selection}
           />
 
           {showTechnicalDetails && (

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from roboflow_ops.frames import hamming, is_duplicate, sample_stride
+from roboflow_ops.frames import frame_window, hamming, is_duplicate, sample_stride
 from roboflow_ops.taxonomy import (
     CANONICAL_CLASSES,
     remap_class,
@@ -108,3 +108,18 @@ def test_hamming_and_duplicate_detection() -> None:
     kept = [0b11110000]
     assert is_duplicate(0b11110001, kept)  # distance 1 ≤ 4 → duplicate
     assert not is_duplicate(0b00001111, kept)  # distance 8 → novel
+
+
+def test_frame_window_defaults_to_full_video() -> None:
+    assert frame_window(30.0, 300, None, None) == (0, 299)
+
+
+def test_frame_window_clips_to_the_play_interval() -> None:
+    # An 8-second play starting at 61.5s in a long recording.
+    assert frame_window(30.0, 100_000, 61.5, 69.5) == (1845, 2085)
+
+
+def test_frame_window_clamps_to_video_bounds() -> None:
+    assert frame_window(30.0, 100, 2.0, 999.0) == (60, 99)
+    assert frame_window(30.0, 100, 999.0, 9999.0) == (99, 99)
+    assert frame_window(30.0, 0, None, None) == (0, 0)

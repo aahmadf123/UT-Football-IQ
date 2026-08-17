@@ -71,7 +71,10 @@ export function PlayerProfileClient({ id }: { id: string }) {
         ]);
         if (cancelled) return;
         let summary = apiPlayerToSummary(apiPlayer);
-        if (metricsDetail) {
+        // Only merge when the player actually has tracked film — merging an
+        // all-zero summary would fabricate "Needs review" + zeros instead of
+        // the honest "No tracked film" state.
+        if (metricsDetail && metricsDetail.summary.tracklet_count > 0) {
           summary = mergePlayerMetrics([summary], [metricsDetail.summary])[0];
           // Weekly tracked-clip counts feed the trend line; fewer than two
           // weeks of film is not a trend.
@@ -237,10 +240,9 @@ export function PlayerProfileClient({ id }: { id: string }) {
                 <StatChip label="Max Speed" value={fmtMetric(player.maxSpeed)} hint="MPH" />
                 <StatChip label="Distance" value={fmtMetric(player.distance)} hint="YDS" />
                 <StatChip label="Tracked" value={fmtMetric(player.trackedClips)} hint="CLIPS" />
-                <StatChip
-                  label="Identity"
-                  value={player.confidence != null ? `${Math.round(player.confidence * 100)}%` : "—"}
-                />
+                {/* Bucket-aware: below the trust threshold this says "needs
+                    review" with no percentage (confidence-badge rule). */}
+                <StatChip label="Identity" value={confidenceLabel} />
               </div>
             ) : (
               <p className="text-xs text-muted-foreground">

@@ -68,31 +68,69 @@ def iter_videos(input_path: Path) -> Iterator[Path]:
             yield p
 
 
-def extract_frames(video_path: Path, out_dir: Path, per_video: int) -> list[Path]:
-    """Decode + sample + dedupe frames from one video; returns written jpgs."""
+def frame_window(
+    fps: float,
+    total_frames: int,
+    start_seconds: float | None,
+    end_seconds: float | None,
+) -> tuple[int, int]:
+    """Inclusive frame range for an optional time window (pure, tested)."""
+    last = max(total_frames - 1, 0)
+    start_f = 0 if start_seconds is None else max(int(start_seconds * fps), 0)
+    end_f = last if end_seconds is None else min(int(end_seconds * fps), last)
+    start_f = min(start_f, last)
+    return start_f, max(end_f, start_f)
+
+
+def extract_frames(
+    video_path: Path,
+    out_dir: Path,
+    per_video: int,
+    *,
+    start_seconds: float | None = None,
+    end_seconds: float | None = None,
+) -> list[Path]:
+    """Decode + sample + dedupe frames from one video (or a time window of it).
+
+    The window matters for active learning: an uncertain 8-second play inside
+    an hour of practice film must contribute frames from THAT play, not a
+    uniform sample of the whole recording.
+    """
     import cv2  # lazy: heavy dependency, not in CI stub mode
 
-    from pipeline.video_ingest import LocalFileVideoSource
+    from pipeline.hwaccel import nvdec_video_capture
 
-    source = LocalFileVideoSource(video_path)
-    stride = sample_stride(source.total_frames, per_video)
+    cap = nvdec_video_capture(video_path)
+    if not cap.isOpened():
+        raise OSError(f"Could not open video: {video_path}")
+    try:
+        fps = float(cap.get(cv2.CAP_PROP_FPS)) or 30.0
+        total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        start_f, end_f = frame_window(fps, total, start_seconds, end_seconds)
+        stride = sample_stride(end_f - start_f + 1, per_video)
 
-    out_dir.mkdir(parents=True, exist_ok=True)
-    written: list[Path] = []
-    kept_hashes: list[int] = []
-    for frame_number, frame in source.iter_frames(stride=stride):
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        tiny = cv2.resize(gray, (8, 8), interpolation=cv2.INTER_AREA)
-        h = average_hash(tiny)
-        if is_duplicate(h, kept_hashes):
-            continue
-        kept_hashes.append(h)
-        out = out_dir / f"{video_path.stem}_f{frame_number:06d}.jpg"
-        cv2.imwrite(str(out), frame, [int(cv2.IMWRITE_JPEG_QUALITY), 92])
-        written.append(out)
-        if per_video > 0 and len(written) >= per_video:
-            break
-    return written
+        out_dir.mkdir(parents=True, exist_ok=True)
+        written: list[Path] = []
+        kept_hashes: list[int] = []
+        for target in range(start_f, end_f + 1, stride):
+            cap.set(cv2.CAP_PROP_POS_FRAMES, target)
+            ok, frame = cap.read()
+            if not ok:
+                break
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            tiny = cv2.resize(gray, (8, 8), interpolation=cv2.INTER_AREA)
+            h = average_hash(tiny)
+            if is_duplicate(h, kept_hashes):
+                continue
+            kept_hashes.append(h)
+            out = out_dir / f"{video_path.stem}_f{target:06d}.jpg"
+            cv2.imwrite(str(out), frame, [int(cv2.IMWRITE_JPEG_QUALITY), 92])
+            written.append(out)
+            if per_video > 0 and len(written) >= per_video:
+                break
+        return written
+    finally:
+        cap.release()
 
 
 def main() -> int:
@@ -105,9 +143,16 @@ def main() -> int:
     parser.add_argument("--no-upload", action="store_true", help="Extract locally only")
     args = parser.parse_args()
 
-    cfg = load_config()
-    frames_root = cfg.data_dir / "frames"
-    project = None if args.no_upload else get_project(cfg)
+    if args.no_upload:
+        # Extraction-only mode needs no credentials — just a scratch dir.
+        import os
+
+        frames_root = Path(os.environ.get("ROBOFLOW_DATA_DIR", "./roboflow-data")) / "frames"
+        project = None
+    else:
+        cfg = load_config()
+        frames_root = cfg.data_dir / "frames"
+        project = get_project(cfg)
 
     total_extracted = 0
     total_uploaded = 0

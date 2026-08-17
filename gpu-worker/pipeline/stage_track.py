@@ -83,12 +83,22 @@ def run(
     for track in results:
         if len(track.points) < 2:
             continue
+        # Tracking confidence = mean detection confidence over the track's
+        # points. This is a TRACKING-quality signal (how sure the detector was
+        # about the boxes this track is built from), never identity.
+        confidences = [
+            c
+            for p in track.points
+            if isinstance(c := p.get("detection_confidence"), (int, float))
+        ]
+        track_confidence = round(sum(confidences) / len(confidences), 4) if confidences else None
         try:
             resp = backend.create_tracklet(
                 clip_id,
                 start_frame=track.start_frame,
                 end_frame=track.last_frame,
                 track_points=track.points,
+                track_confidence=track_confidence,
                 team_label="unknown",
                 job_id=job_id,
             )
@@ -104,6 +114,7 @@ def run(
                     "start_frame": track.start_frame,
                     "end_frame": track.last_frame,
                     "track_points": track.points,
+                    "track_confidence": track_confidence,
                     "team_label": "unknown",
                 }
             )

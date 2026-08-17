@@ -14,11 +14,14 @@ from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import MagicMock
 
+import pytest
 import pytest_asyncio
 from app.config import get_settings
 from app.database import Base
 from app.models import (
     Clip,
+    CoachCorrection,
+    CorrectionType,
     Metric,
     Player,
     SessionKind,
@@ -32,7 +35,8 @@ from app.routers.player_metrics import (
     get_player_metrics_summary,
     list_player_metrics_summaries,
 )
-from sqlalchemy import inspect
+from fastapi import HTTPException
+from sqlalchemy import inspect, select
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
@@ -50,6 +54,7 @@ _TABLES = [
     Base.metadata.tables["processing_jobs"],
     Base.metadata.tables["tracklets"],
     Base.metadata.tables["metrics"],
+    Base.metadata.tables["coach_corrections"],
 ]
 
 _ENUM_TYPES = (
@@ -261,8 +266,8 @@ async def test_batched_summary_aggregates_and_excludes(
     assert p1.tracklet_count == 2
     assert p1.tracked_clip_count == 2
     # Span-weighted: (0.9*100 + 0.3*10) / 110
-    assert p1.identity_confidence is not None
-    assert abs(p1.identity_confidence - 93 / 110) < 1e-6
+    assert p1.tracking_confidence is not None
+    assert abs(p1.tracking_confidence - 93 / 110) < 1e-6
     assert p1.identity_bucket.value == "probable"
     # Suppressed (99) and experimental (88) rows never win the max.
     assert p1.max_speed_yps == 8.5
@@ -272,7 +277,7 @@ async def test_batched_summary_aggregates_and_excludes(
     assert p1.last_tracked_at is not None
 
     p2 = by_id[ids["p2"]]
-    assert p2.identity_confidence is None
+    assert p2.tracking_confidence is None
     assert p2.identity_bucket.value == "needs_review"
     assert p2.distance_yards == 10.0
     assert p2.max_speed_yps is None
@@ -283,13 +288,13 @@ async def test_session_kind_and_since_filters(db: async_sessionmaker[AsyncSessio
 
     p1 = (await _summaries(db, session_kind=SessionKind.practice))[ids["p1"]]
     assert p1.tracklet_count == 1
-    assert p1.identity_confidence is not None
-    assert abs(p1.identity_confidence - 0.9) < 1e-6
+    assert p1.tracking_confidence is not None
+    assert abs(p1.tracking_confidence - 0.9) < 1e-6
     assert p1.max_speed_yps == 8.5
 
     p1g = (await _summaries(db, session_kind=SessionKind.game))[ids["p1"]]
-    assert p1g.identity_confidence is not None
-    assert abs(p1g.identity_confidence - 0.3) < 1e-6
+    assert p1g.tracking_confidence is not None
+    assert abs(p1g.tracking_confidence - 0.3) < 1e-6
     # 0.3 is below the profile identity threshold → honest bucket.
     assert p1g.identity_bucket.value == "needs_review"
     assert p1g.max_speed_yps == 6.0
@@ -309,8 +314,8 @@ async def test_detail_returns_weekly_series_and_empty_state(
     weeks = body.weekly
     assert len(weeks) == 2  # practice week and game week
     assert weeks[0].week_start < weeks[1].week_start
-    assert weeks[0].identity_confidence is not None
-    assert abs(weeks[0].identity_confidence - 0.9) < 1e-6
+    assert weeks[0].tracking_confidence is not None
+    assert abs(weeks[0].tracking_confidence - 0.9) < 1e-6
     assert weeks[0].max_speed_yps == 8.5
     assert weeks[0].distance_yards == 42.0
     assert weeks[1].max_speed_yps == 6.0
@@ -319,6 +324,81 @@ async def test_detail_returns_weekly_series_and_empty_state(
     # A player with no tracked film gets the honest zero shape, not a 404.
     empty = await _detail(db, ids["p3"])
     assert empty.summary.tracklet_count == 0
-    assert empty.summary.identity_confidence is None
+    assert empty.summary.tracking_confidence is None
     assert empty.summary.identity_bucket.value == "needs_review"
     assert empty.weekly == []
+
+
+async def test_human_confirmed_identity_reaches_known(
+    db: async_sessionmaker[AsyncSession], tmp_path: object
+) -> None:
+    ids = await _seed(db)
+
+    # A coach correction naming P1 upgrades the bucket to "known".
+    async with db() as session:
+        coach = User(
+            email=f"pm-coach-{uuid.uuid4().hex[:8]}@test.example",
+            hashed_password="x",
+            full_name="PM Coach",
+            role=UserRole.coach,
+        )
+        session.add(coach)
+        await session.flush()
+        clip_id = (await session.execute(select(Tracklet.clip_id).limit(1))).scalar_one()
+        session.add(
+            CoachCorrection(
+                clip_id=clip_id,
+                correction_type=CorrectionType.player_identity,
+                corrected_value={"tracklet_id": "t", "player_id": str(ids["p1"])},
+                corrected_by=coach.id,
+            )
+        )
+        await session.commit()
+
+    by_id = await _summaries(db)
+    assert by_id[ids["p1"]].identity_bucket.value == "known"
+    # P2 has no confirmation and no confidence → still needs_review.
+    assert by_id[ids["p2"]].identity_bucket.value == "needs_review"
+
+
+async def test_player_role_is_scoped_to_self(
+    db: async_sessionmaker[AsyncSession],
+) -> None:
+    ids = await _seed(db)
+
+    async with db() as session:
+        account = User(
+            email=f"pm-player-{uuid.uuid4().hex[:8]}@test.example",
+            hashed_password="x",
+            full_name="P One",
+            role=UserRole.player,
+        )
+        session.add(account)
+        await session.flush()
+        p1 = (await session.execute(select(Player).where(Player.id == ids["p1"]))).scalar_one()
+        p1.user_id = account.id
+        await session.commit()
+        account_id = account.id
+
+    player_user = MagicMock(spec=User)
+    player_user.id = account_id
+    player_user.role = UserRole.player
+    player_user.is_active = True
+
+    async with db() as session:
+        rows = await list_player_metrics_summaries(
+            session, player_user, session_kind=None, since=None
+        )
+        assert [r.player_id for r in rows] == [ids["p1"]]
+
+        # Requesting a teammate's detail 404s (existence never leaks).
+        with pytest.raises(HTTPException) as excinfo:
+            await get_player_metrics_summary(
+                ids["p2"], session, player_user, session_kind=None, since=None
+            )
+        assert excinfo.value.status_code == 404
+
+        own = await get_player_metrics_summary(
+            ids["p1"], session, player_user, session_kind=None, since=None
+        )
+        assert own.summary.player_id == ids["p1"]

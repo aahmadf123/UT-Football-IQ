@@ -120,9 +120,10 @@ def consolidate_project(
 
     for split_dir, coco in _iter_coco_splits(dataset_dir):
         remapped, stats = remap_coco(coco)
-        total_stats.kept = {
-            k: total_stats.kept.get(k, 0) + v for k, v in stats.kept.items()
-        } or total_stats.kept
+        # Accumulate in place — a replacement comprehension would drop counts
+        # for classes absent from the current split.
+        for name, count in stats.kept.items():
+            total_stats.kept[name] = total_stats.kept.get(name, 0) + count
         for name, count in stats.dropped.items():
             total_stats.dropped[name] = total_stats.dropped.get(name, 0) + count
 

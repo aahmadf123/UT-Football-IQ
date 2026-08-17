@@ -48,10 +48,11 @@ interface Props {
   /** Tracklets from the overlays payload (may be empty while ingest runs). */
   tracklets: OverlayTracklet[];
   /**
-   * Tracklet picked by clicking its box on the overlay canvas. A change
-   * auto-opens the panel with the identity form prefilled for that track.
+   * Tracklet picked by clicking its box on the overlay canvas. Each click
+   * produces a fresh object, so re-selecting the same tracklet still re-opens
+   * the panel with the identity form prefilled for that track.
    */
-  selectedTrackletId?: string | null;
+  selection?: { trackletId: string } | null;
 }
 
 function Field({
@@ -75,7 +76,7 @@ function Field({
   );
 }
 
-export function CorrectionsPanel({ clipId, tracklets, selectedTrackletId }: Props) {
+export function CorrectionsPanel({ clipId, tracklets, selection }: Props) {
   const { authToken, currentRole, data } = useAppState();
   const locked = !canSubmitCorrections(currentRole);
 
@@ -87,13 +88,15 @@ export function CorrectionsPanel({ clipId, tracklets, selectedTrackletId }: Prop
   const [playerId, setPlayerId] = useState("");
 
   // Clicking a player box on the video jumps straight into "who is this?".
+  // Depends on the selection object's identity, not just the tracklet id, so
+  // clicking the same box again re-opens a hidden panel.
   useEffect(() => {
-    if (!selectedTrackletId) return;
+    if (!selection) return;
     setOpen(true);
     setKind("player_identity");
-    setTrackletId(selectedTrackletId);
+    setTrackletId(selection.trackletId);
     setStatus({ kind: "idle" });
-  }, [selectedTrackletId]);
+  }, [selection]);
 
   // Roster options grouped by position group, "#7 · CB · C. Jones" — the
   // group disambiguates duplicate jersey numbers across sides of the ball.

@@ -185,6 +185,9 @@ class _Track:
         point: dict[str, Any] = {
             "frame_number": frame,
             "bbox": list(det["bbox"]),
+            # Carried through to track_points.detection_confidence; the
+            # tracklet-level track_confidence is derived from these.
+            "detection_confidence": det.get("confidence"),
         }
         if detection_has_mask(det):
             point["mask"] = {

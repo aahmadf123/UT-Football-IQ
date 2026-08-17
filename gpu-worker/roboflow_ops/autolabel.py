@@ -85,8 +85,14 @@ def main() -> int:
         print(json.dumps(result, indent=2))
         print("\nAuto-label started — review the proposals in the Roboflow UI when it finishes.")
     except Exception as exc:
-        log.warning("autolabel_api_failed", error=str(exc)[:300])
-        print(f"Could not start auto-label via the API ({exc}).\n")
+        # Never stringify the exception: httpx errors embed the request URL,
+        # and this request carries the API key as a query parameter.
+        import httpx
+
+        status = exc.response.status_code if isinstance(exc, httpx.HTTPStatusError) else None
+        log.warning("autolabel_api_failed", error_type=type(exc).__name__, status=status)
+        detail = f"HTTP {status}" if status is not None else type(exc).__name__
+        print(f"Could not start auto-label via the API ({detail}).\n")
         print(ui_instructions(cfg, args.batch))
         return 1
     return 0
