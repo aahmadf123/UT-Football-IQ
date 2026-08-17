@@ -11,9 +11,11 @@ vi.mock("next/image", () => ({
   default: () => null,
 }));
 
+const routerPush = vi.fn();
 vi.mock("next/navigation", () => ({
   usePathname: () => "/clip-review",
   useSearchParams: () => new URLSearchParams("clipId=c-1"),
+  useRouter: () => ({ push: routerPush, replace: vi.fn(), back: vi.fn() }),
 }));
 
 afterEach(() => {
@@ -235,6 +237,77 @@ describe("ClipReviewPage overlays", () => {
     await waitFor(() => {
       expect(screen.queryByTestId("overlay-tracklet-t-1")).toBeNull();
     });
+  });
+
+  test("transport renders, timeline seeks, and next-play navigates", async () => {
+    routerPush.mockClear();
+    const payload = {
+      clip_id: "c-1",
+      tracklets: [],
+      events: [
+        { id: "e-1", event_type: "snap", frame_number: 15, timestamp_seconds: 0.5, attributes: null },
+      ],
+      labels: [],
+      metrics: [],
+      layers_available: { tracklets: false, events: true, labels: false, metrics: false },
+    };
+    installFetchRoutes([
+      { url: "/api/v1/videos/download-url", body: { downloadUrl: "https://dl.test/x" } },
+      { url: "/api/v1/clips/c-1/overlays", body: payload },
+      { url: "/api/v1/clips/c-1", body: SAMPLE_CLIP },
+      {
+        url: "/api/v1/videos/v-1/clips",
+        body: [
+          SAMPLE_CLIP,
+          { ...SAMPLE_CLIP, id: "c-2", start_time: 20, end_time: 26, play_number: 8 },
+        ],
+      },
+      { url: "/api/v1/videos/v-1", body: SAMPLE_VIDEO },
+      { url: "/api/v1/players", body: [] },
+      { url: "/api/v1/inbox/status", body: [] },
+      { url: "/api/v1/videos", body: [] },
+      { url: "/api/v1/jobs", body: [] },
+      { url: "/api/v1/self-scout/tendencies", body: { pre_snap_tells: [] } },
+    ]);
+
+    const { ClipReviewPage, AppStateProvider } = await importPage();
+    render(
+      <AppStateProvider>
+        <ClipReviewPage />
+      </AppStateProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("video-transport")).toBeTruthy();
+    });
+    // Native controls are replaced by the transport.
+    const video = document.querySelector("video")!;
+    expect(video.hasAttribute("controls")).toBe(false);
+
+    // Clicking an event marker seeks the (clip-asset) video to the event time.
+    fireEvent.click(screen.getByTestId("event-marker-e-1"));
+    expect(video.currentTime).toBeCloseTo(0.5, 3);
+    fireEvent.timeUpdate(video);
+    expect(screen.getByTestId("transport-readout").textContent).toContain("0.50s");
+
+    // Frame stepping moves one frame at the video's own fps (30).
+    fireEvent.click(screen.getByTestId("transport-frame-forward"));
+    expect(video.currentTime).toBeCloseTo((16 + 0.5) / 30, 3);
+
+    // Prev is disabled on the first play; Next navigates to the sibling clip.
+    await waitFor(() => {
+      expect(
+        (screen.getByTestId("transport-next-clip") as HTMLButtonElement).disabled,
+      ).toBe(false);
+    });
+    expect((screen.getByTestId("transport-prev-clip") as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByTestId("transport-next-clip"));
+    expect(routerPush).toHaveBeenCalledWith("/clip-review/?clipId=c-2");
+
+    // Keyboard: "]" also advances to the next play.
+    routerPush.mockClear();
+    fireEvent.keyDown(document, { key: "]" });
+    expect(routerPush).toHaveBeenCalledWith("/clip-review/?clipId=c-2");
   });
 
   test("renders overlay error state when overlay endpoint fails", async () => {

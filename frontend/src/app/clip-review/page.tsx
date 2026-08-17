@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, Clapperboard } from "lucide-react";
 import { AnalyticsCard } from "@/components/analytics-card";
@@ -11,6 +11,7 @@ import { useAppState } from "@/lib/app-state";
 import {
   fetchClip,
   fetchClipOverlays,
+  fetchClipsForVideo,
   fetchVideo,
   fetchVideoDownloadUrl,
   parseStorageUri,
@@ -24,6 +25,8 @@ import type {
 import { POSSESSION_LABEL, SESSION_KIND_LABEL } from "@/lib/labels";
 import { CorrectionsPanel } from "./corrections-panel";
 import { OverlayCanvas, eventTimeSeconds } from "./overlay-canvas";
+import { VideoTransport } from "./video-transport";
+import { canSeeTechnicalDetails, resolveCurrentRole } from "@/lib/roles";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -106,6 +109,8 @@ function ClipReviewView({ clipId }: { clipId: string }) {
   const { authToken } = useAppState();
   const [state, setState] = useState<ReviewState>({ kind: "loading" });
   const [overlayState, setOverlayState] = useState<OverlayState>({ kind: "loading" });
+  // Ordered sibling clips of the same video, for prev/next play navigation.
+  const [siblingClips, setSiblingClips] = useState<ApiClip[]>([]);
 
   useEffect(() => {
     const baseUrl = process.env.NEXT_PUBLIC_API_URL;
@@ -136,6 +141,15 @@ function ClipReviewView({ clipId }: { clipId: string }) {
         }
         if (cancelled) return;
         setState({ kind: "ready", clip, video, playbackUrl, playbackUnavailable });
+        // Prev/next-play navigation degrades to disabled buttons on failure.
+        try {
+          const clips = await fetchClipsForVideo(clip.video_id, authToken);
+          if (!cancelled) {
+            setSiblingClips([...clips].sort((a, b) => a.start_time - b.start_time));
+          }
+        } catch {
+          if (!cancelled) setSiblingClips([]);
+        }
       } catch (err) {
         if (cancelled) return;
         setState({
@@ -217,17 +231,22 @@ function ClipReviewView({ clipId }: { clipId: string }) {
     );
   }
 
-  return <ClipReviewReady state={state} overlayState={overlayState} />;
+  return <ClipReviewReady state={state} overlayState={overlayState} siblingClips={siblingClips} />;
 }
 
 function ClipReviewReady({
   state,
   overlayState,
+  siblingClips,
 }: {
   state: Extract<ReviewState, { kind: "ready" }>;
   overlayState: OverlayState;
+  siblingClips: ApiClip[];
 }) {
+  const router = useRouter();
+  const { authToken } = useAppState();
   const { clip, video, playbackUrl, playbackUnavailable } = state;
+  const showTechnicalDetails = canSeeTechnicalDetails(resolveCurrentRole(authToken));
   const possession = clip.our_possession ?? clip.side_of_ball ?? video.our_possession ?? null;
   const possessionLabel = possession ? POSSESSION_LABEL[possession] : null;
   const sessionKindLabel = clip.session_kind
@@ -253,6 +272,36 @@ function ClipReviewReady({
     const el = videoRef.current;
     if (el) setVideoCurrentTime(el.currentTime);
   }, []);
+
+  // Prev/next play within the same video (ordered by start time).
+  const clipIndex = siblingClips.findIndex((c) => c.id === clip.id);
+  const prevClip = clipIndex > 0 ? siblingClips[clipIndex - 1] : null;
+  const nextClip =
+    clipIndex >= 0 && clipIndex < siblingClips.length - 1 ? siblingClips[clipIndex + 1] : null;
+  const goToClip = useCallback(
+    (id: string) => router.push(`/clip-review/?clipId=${encodeURIComponent(id)}`),
+    [router],
+  );
+  const goPrevClip = useMemo(
+    () => (prevClip ? () => goToClip(prevClip.id) : null),
+    [prevClip, goToClip],
+  );
+  const goNextClip = useMemo(
+    () => (nextClip ? () => goToClip(nextClip.id) : null),
+    [nextClip, goToClip],
+  );
+
+  // Clip-local seek target shared by the transport and the timeline.
+  const clipOffset = playbackUsesClipAsset ? 0 : clip.start_time;
+  const clipDuration = Math.max(clip.end_time - clip.start_time, 0);
+  const seekToLocal = useCallback(
+    (t: number) => {
+      const el = videoRef.current;
+      if (!el) return;
+      el.currentTime = clipOffset + Math.min(Math.max(t, 0), Math.max(clipDuration - 0.01, 0));
+    },
+    [clipOffset, clipDuration],
+  );
 
   const toggleLayer = useCallback((key: OverlayLayerKey) => {
     setActiveLayers((prev) => {
@@ -283,6 +332,10 @@ function ClipReviewReady({
       .map((e) => ({ event: e, t: eventTimeSeconds(e, fps) }))
       .filter((row): row is { event: typeof row.event; t: number } => row.t != null);
   }, [overlayPayload, fps]);
+  const eventTimesSorted = useMemo(
+    () => eventsForTimeline.map((row) => row.t).sort((a, b) => a - b),
+    [eventsForTimeline],
+  );
 
   // Calibration banner (explained suppression). Dismissal is per-clip so
   // navigating to a different clip resurfaces the notice.
@@ -338,12 +391,17 @@ function ClipReviewReady({
                 <video
                   ref={videoRef}
                   src={playbackUrl}
-                  controls
                   playsInline
                   onTimeUpdate={onTimeUpdate}
                   onSeeked={onTimeUpdate}
+                  onClick={() => {
+                    const el = videoRef.current;
+                    if (!el) return;
+                    if (el.paused) void el.play().catch(() => undefined);
+                    else el.pause();
+                  }}
                   aria-label={`Clip ${clip.play_number ?? clip.id} video`}
-                  className="block max-h-120 w-full"
+                  className="block max-h-120 w-full cursor-pointer"
                 />
                 {overlayPayload && (
                   <OverlayCanvas
@@ -369,9 +427,25 @@ function ClipReviewReady({
             )}
           </div>
 
+          {playbackUrl && (
+            <VideoTransport
+              videoRef={videoRef}
+              fps={fps}
+              clipOffset={clipOffset}
+              duration={clipDuration}
+              currentLocalTime={clipLocalTime}
+              eventTimes={eventTimesSorted}
+              onPrevClip={goPrevClip}
+              onNextClip={goNextClip}
+            />
+          )}
+
           <p data-numeric className="mt-2 font-mono text-xs text-muted-foreground">
             {clip.start_time.toFixed(1)}s – {clip.end_time.toFixed(1)}s{" "}
             ({(clip.end_time - clip.start_time).toFixed(1)}s duration)
+            {clipIndex >= 0 && siblingClips.length > 1
+              ? ` · Play ${clipIndex + 1} of ${siblingClips.length}`
+              : ""}
           </p>
 
           <OverlayToggles
@@ -383,7 +457,9 @@ function ClipReviewReady({
           {overlayPayload && (
             <EventTimeline
               events={eventsForTimeline}
-              clipDuration={clip.end_time - clip.start_time}
+              clipDuration={clipDuration}
+              currentTime={clipLocalTime}
+              onSeek={seekToLocal}
             />
           )}
         </CardContent>
@@ -439,12 +515,16 @@ function ClipReviewReady({
 
           <CorrectionsPanel clipId={clip.id} tracklets={overlayPayload?.tracklets ?? []} />
 
-          <h3 className="mt-4 font-display text-xs font-semibold uppercase tracking-widest text-muted-foreground">
-            Storage
-          </h3>
-          <p className="mt-1 break-all font-mono text-[0.68rem] text-muted-foreground/80">
-            {clip.storage_uri ?? "Clip not yet rendered to storage."}
-          </p>
+          {showTechnicalDetails && (
+            <details className="mt-4">
+              <summary className="cursor-pointer font-display text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+                Technical details
+              </summary>
+              <p className="mt-1 break-all font-mono text-[0.68rem] text-muted-foreground/80">
+                {clip.storage_uri ?? "Clip not yet rendered to storage."}
+              </p>
+            </details>
+          )}
         </CardContent>
       </Card>
     </div>
@@ -569,39 +649,106 @@ function layerKeyToAvailability(
   }
 }
 
+/**
+ * Seekable clip timeline: click or drag anywhere to scrub, click an event
+ * marker to jump straight to it. The playhead tracks playback.
+ */
 function EventTimeline({
   events,
   clipDuration,
+  currentTime,
+  onSeek,
 }: {
   events: ReadonlyArray<{ event: { id: string; event_type: string }; t: number }>;
   clipDuration: number;
+  currentTime: number;
+  onSeek: (t: number) => void;
 }) {
+  const trackRef = useRef<HTMLDivElement | null>(null);
+  const draggingRef = useRef(false);
+
+  const seekFromPointer = useCallback(
+    (clientX: number) => {
+      const track = trackRef.current;
+      if (!track || clipDuration <= 0) return;
+      const rect = track.getBoundingClientRect();
+      const fraction = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
+      onSeek(fraction * clipDuration);
+    },
+    [clipDuration, onSeek],
+  );
+
   if (clipDuration <= 0) return null;
-  if (events.length === 0) {
-    return (
-      <p data-testid="event-timeline-empty" className="mt-3 text-xs text-muted-foreground">
-        No events tagged for this clip.
-      </p>
-    );
-  }
+
+  const playheadPct = Math.min(1, Math.max(0, currentTime / clipDuration));
+
   return (
-    <div
-      data-testid="event-timeline"
-      className="relative mt-3 h-7 rounded bg-secondary/60"
-      aria-label="Event timeline"
-    >
-      {events.map(({ event, t }) => {
-        const pct = Math.min(1, Math.max(0, t / clipDuration));
-        return (
-          <div
-            key={event.id}
-            data-testid={`event-marker-${event.id}`}
-            title={event.event_type}
-            className="absolute bottom-1 top-1 w-1 -translate-x-0.5 rounded-sm bg-primary"
-            style={{ left: `${pct * 100}%` }}
-          />
-        );
-      })}
+    <div className="mt-3">
+      <div
+        ref={trackRef}
+        data-testid="event-timeline"
+        role="slider"
+        aria-label="Clip timeline scrubber"
+        aria-valuemin={0}
+        aria-valuemax={Math.round(clipDuration * 10) / 10}
+        aria-valuenow={Math.round(currentTime * 10) / 10}
+        aria-valuetext={`${currentTime.toFixed(1)} seconds`}
+        tabIndex={0}
+        className="relative h-7 cursor-pointer touch-none rounded bg-secondary/60"
+        onPointerDown={(e) => {
+          draggingRef.current = true;
+          e.currentTarget.setPointerCapture(e.pointerId);
+          seekFromPointer(e.clientX);
+        }}
+        onPointerMove={(e) => {
+          if (draggingRef.current) seekFromPointer(e.clientX);
+        }}
+        onPointerUp={(e) => {
+          draggingRef.current = false;
+          e.currentTarget.releasePointerCapture(e.pointerId);
+        }}
+        onPointerCancel={() => {
+          draggingRef.current = false;
+        }}
+      >
+        {/* Elapsed fill */}
+        <div
+          aria-hidden
+          className="absolute bottom-0 left-0 top-0 rounded-l bg-primary/15"
+          style={{ width: `${playheadPct * 100}%` }}
+        />
+        {events.map(({ event, t }) => {
+          const pct = Math.min(1, Math.max(0, t / clipDuration));
+          return (
+            <button
+              key={event.id}
+              type="button"
+              data-testid={`event-marker-${event.id}`}
+              title={`${event.event_type} · ${t.toFixed(1)}s`}
+              aria-label={`Jump to ${event.event_type} at ${t.toFixed(1)} seconds`}
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                onSeek(t);
+              }}
+              className="absolute bottom-1 top-1 w-1 -translate-x-0.5 cursor-pointer rounded-sm bg-primary hover:w-1.5"
+              style={{ left: `${pct * 100}%` }}
+            />
+          );
+        })}
+        {/* Playhead */}
+        <div
+          aria-hidden
+          data-testid="timeline-playhead"
+          className="absolute bottom-0 top-0 w-0.5 -translate-x-px bg-foreground"
+          style={{ left: `${playheadPct * 100}%` }}
+        />
+      </div>
+      {events.length === 0 && (
+        <p data-testid="event-timeline-empty" className="mt-1 text-xs text-muted-foreground">
+          No events tagged for this clip — drag the bar to scrub.
+        </p>
+      )}
     </div>
   );
 }
