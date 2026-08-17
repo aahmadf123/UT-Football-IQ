@@ -11,6 +11,7 @@ from starlette.responses import Response
 from app.config import get_settings
 from app.logging import configure_logging
 from app.observability import PrometheusMiddleware, metrics_response
+from app.roster_seeding import seed_roster
 from app.routers import health
 from app.routers.alerts import router as alerts_router
 from app.routers.alerts_sse import router as alerts_sse_router
@@ -86,6 +87,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                     "skipping startup seed pass."
                 ),
             )
+    if settings.seed_roster_on_startup:
+        try:
+            roster_stats = await seed_roster(database_url=settings.database_url)
+            log.info("startup_roster_seeding", **roster_stats)
+        except (OSError, ValueError):
+            # A malformed or missing roster file must not take the API down —
+            # the roster is a convenience seed, not a boot dependency.
+            log.exception("startup_roster_seeding_failed")
     from app.scheduler import start_scheduler
 
     scheduler_task = start_scheduler()
