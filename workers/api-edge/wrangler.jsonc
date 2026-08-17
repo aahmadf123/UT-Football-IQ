@@ -71,12 +71,13 @@
 
   "vars": {
     "ENVIRONMENT": "production",
-    // Exact browser origins allowed to call the API. Replace with the real
-    // Vercel domain before deploying.
-    "CORS_ORIGINS": "http://localhost:3000",
-    // Optional anchored regex for per-deploy Vercel preview URLs, e.g.
-    // "https://footiq-[a-z0-9-]+\\.vercel\\.app"
-    "CORS_ORIGIN_REGEX": "",
+    // Exact browser origins allowed to call the API. The production Vercel
+    // domain plus localhost for local frontend dev against the deployed API.
+    // If the Vercel project gets a different name/domain, update this.
+    "CORS_ORIGINS": "https://ut-football-iq.vercel.app,http://localhost:3000",
+    // Anchored regex admitting per-deploy Vercel preview URLs for this
+    // project (previews get unique subdomains).
+    "CORS_ORIGIN_REGEX": "https://ut-football-iq-[a-z0-9-]+\\.vercel\\.app",
     // This Worker's public origin. The backend mints absolute upload and
     // playback URLs from it; left unset it falls back to X-Forwarded-*.
     "PUBLIC_API_BASE_URL": "",

@@ -12,8 +12,12 @@ Football-IQ is the Toledo Rockets' video intelligence platform. Coaches upload p
 | **Pipeline worker** | Claims jobs, runs the full stage chain in-process (detect → track → re-ID → pose → events → metrics → render), writes results back through the API | Python; YOLOv8 + SAHI, RTMPose; CPU-capable, CUDA optional |
 | **Storage** | `local://` disk (default) or `s3://` buckets `raw-video` / `clips` / `overlays` / `artifacts` — one `STORAGE_BACKEND` switch | Local volume or any S3-compatible object store |
 
-There is no message broker and no edge service. The backend's `processing_jobs`
-table *is* the queue, and the backend's nightly scheduler owns recurring work.
+There is no message broker. The backend's `processing_jobs` table *is* the
+queue. For hosted deployments, `workers/api-edge/` fronts the backend as a
+Cloudflare Worker (R2 multipart uploads + signed streaming at the edge, the
+FastAPI app as a Cloudflare Container, a cron trigger for the nightly tick);
+the frontend deploys to Vercel. See `docs/setup/cloudflare.md` and
+`docs/setup/vercel.md`.
 
 ## Quick start (local)
 
@@ -117,8 +121,10 @@ database, and each is a normal deployment target:
   `STORAGE_BACKEND=s3` to move objects to an S3-compatible bucket.
 
 `.github/workflows/ci.yml` runs lint, typecheck, tests, and the migration
-round-trip. There is no deploy workflow — add one that matches whatever hosting
-you choose.
+round-trip. `.github/workflows/deploy.yml` deploys the edge Worker (and the
+backend container image) on pushes to `main` once the `CLOUDFLARE_API_TOKEN`
+and `CLOUDFLARE_ACCOUNT_ID` repository secrets are set; the frontend deploys
+via Vercel's git integration.
 
 ## Settings & Reports
 
