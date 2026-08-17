@@ -24,6 +24,7 @@ import type {
 } from "@/lib/types";
 import { POSSESSION_LABEL, SESSION_KIND_LABEL } from "@/lib/labels";
 import { CorrectionsPanel } from "./corrections-panel";
+import { FieldMinimap } from "./field-minimap";
 import { OverlayCanvas, eventTimeSeconds } from "./overlay-canvas";
 import { VideoTransport } from "./video-transport";
 import { canSeeTechnicalDetails, resolveCurrentRole } from "@/lib/roles";
@@ -41,7 +42,7 @@ const LAYER_TOGGLES: ReadonlyArray<{ key: OverlayLayerKey; label: string }> = [
   { key: "labels", label: "Labels" },
   { key: "events", label: "Events" },
   { key: "metrics", label: "Metrics" },
-  { key: "wireframe", label: "Wireframe" },
+  { key: "field", label: "Field view" },
 ];
 
 // Default playback frame rate when the parent video has no ``fps`` recorded.
@@ -244,9 +245,11 @@ function ClipReviewReady({
   siblingClips: ApiClip[];
 }) {
   const router = useRouter();
-  const { authToken } = useAppState();
+  const { authToken, data } = useAppState();
   const { clip, video, playbackUrl, playbackUnavailable } = state;
   const showTechnicalDetails = canSeeTechnicalDetails(resolveCurrentRole(authToken));
+  // Tracklet selected by clicking its box on the overlay; prefills corrections.
+  const [selectedTrackletId, setSelectedTrackletId] = useState<string | null>(null);
   const possession = clip.our_possession ?? clip.side_of_ball ?? video.our_possession ?? null;
   const possessionLabel = possession ? POSSESSION_LABEL[possession] : null;
   const sessionKindLabel = clip.session_kind
@@ -320,6 +323,26 @@ function ClipReviewReady({
   const overlayPayload = overlayState.kind === "ready" || overlayState.kind === "empty"
     ? overlayState.payload
     : null;
+
+  // Roster names for attributed tracklets ("#7 · C. Jones" on the Labels layer
+  // and the field mini-map).
+  const playerNamesById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const p of data.players) map.set(p.id, `#${p.jersey} ${p.name}`);
+    return map;
+  }, [data.players]);
+
+  // Per-tracklet speed callouts from the coach-visible metrics payload.
+  const metricTextByTrackletId = useMemo(() => {
+    const map = new Map<string, string>();
+    if (!overlayPayload) return map;
+    for (const m of overlayPayload.metrics) {
+      if (m.tracklet_id == null || m.metric_name !== "max_speed") continue;
+      const yps = m.metric_value["yards_per_second"];
+      if (typeof yps === "number") map.set(m.tracklet_id, `${yps.toFixed(1)} yd/s`);
+    }
+    return map;
+  }, [overlayPayload]);
 
   const overlayLayersForCanvas = useMemo(() => {
     if (activeLayers.has("raw")) return new Set<OverlayLayerKey>();
@@ -412,6 +435,10 @@ function ClipReviewReady({
                     videoWidth={video.width ?? null}
                     videoHeight={video.height ?? null}
                     activeLayers={overlayLayersForCanvas}
+                    playerNamesById={playerNamesById}
+                    metricTextByTrackletId={metricTextByTrackletId}
+                    selectedTrackletId={selectedTrackletId}
+                    onSelectTracklet={setSelectedTrackletId}
                   />
                 )}
               </>
@@ -460,6 +487,15 @@ function ClipReviewReady({
               clipDuration={clipDuration}
               currentTime={clipLocalTime}
               onSeek={seekToLocal}
+            />
+          )}
+
+          {overlayPayload && activeLayers.has("field") && !activeLayers.has("raw") && (
+            <FieldMinimap
+              tracklets={overlayPayload.tracklets}
+              currentFrame={Math.round(clipLocalTime * fps)}
+              calibration={overlayPayload.calibration ?? null}
+              playerNamesById={playerNamesById}
             />
           )}
         </CardContent>
@@ -513,7 +549,11 @@ function ClipReviewReady({
             showLabels={activeLayers.has("labels") && !activeLayers.has("raw")}
           />
 
-          <CorrectionsPanel clipId={clip.id} tracklets={overlayPayload?.tracklets ?? []} />
+          <CorrectionsPanel
+            clipId={clip.id}
+            tracklets={overlayPayload?.tracklets ?? []}
+            selectedTrackletId={selectedTrackletId}
+          />
 
           {showTechnicalDetails && (
             <details className="mt-4">
@@ -597,10 +637,10 @@ function OverlayToggles({
     >
       {LAYER_TOGGLES.map((layer) => {
         const isActive = active.has(layer.key);
-        // ``raw`` and ``wireframe`` are always available; data layers report
+        // ``raw`` and ``field`` are always available; data layers report
         // their availability so coaches know why a toggle is dimmed.
         const layerHasData =
-          layer.key === "raw" || layer.key === "wireframe"
+          layer.key === "raw" || layer.key === "field"
             ? true
             : layersAvailable
               ? layersAvailable[layerKeyToAvailability(layer.key)]
@@ -622,7 +662,7 @@ function OverlayToggles({
             )}
           >
             {layer.label}
-            {!layerHasData && layer.key !== "raw" && layer.key !== "wireframe"
+            {!layerHasData && layer.key !== "raw" && layer.key !== "field"
               ? " · empty"
               : ""}
           </button>

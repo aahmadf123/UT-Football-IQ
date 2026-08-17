@@ -167,9 +167,23 @@ describe("ClipReviewPage overlays", () => {
           team_label: "home",
           position_group: "Skill",
           side_of_ball: "offense",
+          // Camera overlays draw from bboxes only; field coords feed the
+          // separate Field-view mini-map.
           track_points: [
-            { frame_number: 0, field_x: 30, field_y: 25, bbox: null, detection_confidence: 0.9 },
-            { frame_number: 15, field_x: 35, field_y: 24, bbox: null, detection_confidence: 0.9 },
+            {
+              frame_number: 0,
+              field_x: 30,
+              field_y: 25,
+              bbox: [100, 200, 160, 320],
+              detection_confidence: 0.9,
+            },
+            {
+              frame_number: 15,
+              field_x: 35,
+              field_y: 24,
+              bbox: [130, 210, 190, 330],
+              detection_confidence: 0.9,
+            },
           ],
         },
       ],
@@ -308,6 +322,84 @@ describe("ClipReviewPage overlays", () => {
     routerPush.mockClear();
     fireEvent.keyDown(document, { key: "]" });
     expect(routerPush).toHaveBeenCalledWith("/clip-review/?clipId=c-2");
+  });
+
+  test("clicking a player box prefills the corrections panel; field view is calibration-gated", async () => {
+    const payload = {
+      clip_id: "c-1",
+      tracklets: [
+        {
+          id: "t-1",
+          player_id: null,
+          start_frame: 0,
+          end_frame: 300,
+          track_confidence: 0.9,
+          team_label: "home",
+          position_group: "Skill",
+          side_of_ball: "offense",
+          track_points: [
+            {
+              frame_number: 0,
+              field_x: 30,
+              field_y: 5,
+              bbox: [100, 200, 160, 320],
+              detection_confidence: 0.9,
+            },
+          ],
+        },
+      ],
+      events: [],
+      labels: [],
+      metrics: [],
+      layers_available: { tracklets: true, events: false, labels: false, metrics: false },
+      calibration: {
+        analytics_safe: false,
+        reason: "Field lines were not detected in this footage.",
+        reason_codes: ["no_lines"],
+        confidence: 0.2,
+      },
+    };
+    installFetchRoutes([
+      { url: "/api/v1/videos/download-url", body: { downloadUrl: "https://dl.test/x" } },
+      { url: "/api/v1/clips/c-1/overlays", body: payload },
+      { url: "/api/v1/clips/c-1", body: SAMPLE_CLIP },
+      { url: "/api/v1/videos/v-1/clips", body: [SAMPLE_CLIP] },
+      { url: "/api/v1/videos/v-1", body: SAMPLE_VIDEO },
+      { url: "/api/v1/players", body: [] },
+      { url: "/api/v1/inbox/status", body: [] },
+      { url: "/api/v1/videos", body: [] },
+      { url: "/api/v1/jobs", body: [] },
+      { url: "/api/v1/self-scout/tendencies", body: { pre_snap_tells: [] } },
+    ]);
+
+    const { ClipReviewPage, AppStateProvider } = await importPage();
+    render(
+      <AppStateProvider>
+        <ClipReviewPage />
+      </AppStateProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("overlay-tracklet-t-1")).toBeTruthy();
+    });
+
+    // Clicking the box opens Corrections prefilled with that track selected.
+    fireEvent.click(screen.getByTestId("overlay-tracklet-t-1"));
+    await waitFor(() => {
+      expect(screen.getByTestId("correction-player-select")).toBeTruthy();
+    });
+    const trackSelect = document.getElementById("correction-tracklet") as HTMLSelectElement;
+    expect(trackSelect.value).toBe("t-1");
+
+    // Field view is gated: uncalibrated footage explains itself instead of
+    // plotting untrustworthy positions.
+    fireEvent.click(screen.getByTestId("overlay-toggle-field"));
+    await waitFor(() => {
+      expect(screen.getByTestId("field-minimap-gated")).toBeTruthy();
+    });
+    // Reason text shows in both the calibration banner and the gated panel.
+    expect(screen.getAllByText(/Field lines were not detected/).length).toBeGreaterThan(0);
+    expect(screen.queryByTestId("field-diagram")).toBeNull();
   });
 
   test("renders overlay error state when overlay endpoint fails", async () => {

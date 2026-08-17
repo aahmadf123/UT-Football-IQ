@@ -401,15 +401,15 @@ export interface ClipOverlayPayload {
 }
 
 // Layer keys the Clip Review UI exposes as toggles. ``raw`` is the bare video
-// with all overlays hidden; ``wireframe`` is the field outline rendered on top
-// of the canvas.
+// with all overlays hidden; ``field`` is the top-down field mini-map fed by
+// calibrated coordinates (shown only when calibration is analytics-safe).
 export type OverlayLayerKey =
   | "raw"
   | "tracks"
   | "labels"
   | "events"
   | "metrics"
-  | "wireframe";
+  | "field";
 
 // ── Settings (Issue #112) ───────────────────────────────────────────────────
 
