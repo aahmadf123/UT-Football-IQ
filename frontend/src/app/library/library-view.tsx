@@ -151,7 +151,7 @@ export function LibraryView() {
       <Card>
         <CardHeader>
           <h2 className="font-display text-base font-semibold uppercase tracking-wide">
-            Hudl-style Library
+            Film Library
           </h2>
           <p className="mt-0.5 max-w-2xl text-xs text-muted-foreground">
             Practice and game film grouped by date and session. Filter by date, session kind,

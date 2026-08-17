@@ -60,6 +60,13 @@ coverage.xml
 *.engine
 *.safetensors
 
+# Roboflow dataset scratch (exports, sampled frames, downloaded datasets) and
+# ultralytics training runs — large, regenerable, never committed.
+roboflow-data/
+gpu-worker/roboflow-data/
+gpu-worker/runs/
+runs/
+
 # NFL Big Data Bowl (Issue #164) — raw Kaggle data + normalized artifacts are
 # OFFLINE-only and must never be committed. The synthetic sample under
 # gpu-worker/datasets/bdb/sample/ is the only BDB-shaped data in the repo.

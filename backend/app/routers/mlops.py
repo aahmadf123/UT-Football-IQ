@@ -23,6 +23,7 @@ from app.deps import require_admin, require_analyst_or_above
 from app.models import (
     ActiveLearningQueueItem,
     ActiveLearningReason,
+    ActiveLearningStatus,
     Clip,
     CoachCorrection,
     JobStatus,
@@ -274,6 +275,41 @@ async def list_active_learning_queue(
     result = await db.execute(q)
     rows = result.scalars().all()
     return [ActiveLearningQueueItemResponse.from_orm_item(r) for r in rows]
+
+
+class ActiveLearningStatusUpdate(BaseModel):
+    """Body for the queue-item status transition endpoint."""
+
+    status: ActiveLearningStatus
+
+
+@router.patch(
+    "/active-learning/queue/{item_id}",
+    response_model=ActiveLearningQueueItemResponse,
+)
+async def update_active_learning_item_status(
+    item_id: uuid.UUID,
+    body: ActiveLearningStatusUpdate,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    _current_user: Annotated[User, Depends(require_analyst_or_above)],
+) -> ActiveLearningQueueItemResponse:
+    """Advance a queue item's status (idempotent).
+
+    The active-learning exporter marks items ``in_review`` after their frames
+    upload to the labeling workspace; without this transition, every export
+    run would re-fetch the same top-priority items forever and starve the
+    rest of the queue.
+    """
+    result = await db.execute(
+        select(ActiveLearningQueueItem).where(ActiveLearningQueueItem.id == item_id)
+    )
+    item = result.scalar_one_or_none()
+    if item is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Queue item not found")
+    if item.status != body.status:
+        item.status = body.status
+        await db.flush()
+    return ActiveLearningQueueItemResponse.from_orm_item(item)
 
 
 @router.post("/active-learning/nightly", response_model=NightlyRunResponse)

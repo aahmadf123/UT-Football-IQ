@@ -342,6 +342,19 @@ Third-party models, libraries, and tools used in Football-IQ. Updated May 2026.
 
 ---
 
+## Roboflow SDK (dataset/training tooling)
+
+| | |
+|---|---|
+| **Libraries** | `roboflow` (Python SDK), `PyYAML` |
+| **License** | Apache-2.0 (`roboflow`), MIT (`PyYAML`) |
+| **Access** | `pip install -r gpu-worker/requirements-roboflow.txt`; the SDK talks to the team's own private Roboflow workspace |
+| **Football-IQ usage** | Owner-side dataset/training tooling only (`gpu-worker/roboflow_ops/`, `training/detect/`): consolidation, frame sampling, auto-label kickoff, active-learning export, dataset download, hosted-train kickoff. Never in the production request path; lazy-imported so CI stub mode runs without it. |
+| **Secret / key requirement** | `ROBOFLOW_API_KEY` (gpu-worker `.env` only; never frontend/backend/logs) |
+| **Sport coverage** | American football only — operates on the team's own footage and the workspace's own annotations; imports no external datasets |
+
+---
+
 ## Dependency Gating Policy
 
 - Any new model dependency must be added to this file **before** the implementing PR is merged.

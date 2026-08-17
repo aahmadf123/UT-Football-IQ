@@ -5,20 +5,12 @@ export type PageKey =
   | "scouting"
   | "players"
   | "analytics"
-  | "player-development"
   | "health-workload"
   | "reports"
   | "settings"
-  // Inbox + deep-link / compatibility surfaces
+  // Inbox + deep-link surfaces
   | "alerts"
-  | "clip-review"
-  // Retained compatibility routes (no longer in primary nav — see ADR 0003)
-  | "library"
-  | "video-and-plays"
-  | "self-scout"
-  | "opponent-scout"
-  | "clips-highlights"
-  | "college-data";
+  | "clip-review";
 
 // Backend-aligned enums (ADR 0001). These describe API payloads, not the
 // existing UI filter literals in app-state.tsx — the ADR explicitly defers
@@ -258,13 +250,11 @@ export interface TendencyAlert {
 export interface FootballData {
   videos: ApiVideo[];
   jobs: ApiJob[];
-  selfScout: SelfScoutResponse;
   players: PlayerSummary[];
-  plays: PlaySummary[];
-  clips: ClipSummary[];
-  health: HealthSummary[];
-  alerts: AlertSummary[];
 }
+
+/** Calibrated identity vocabulary from the backend — never invented client-side. */
+export type IdentityBucket = "known" | "probable" | "needs_review";
 
 export interface PlayerSummary {
   id: string;
@@ -272,45 +262,16 @@ export interface PlayerSummary {
   name: string;
   position: string;
   group: string;
-  // Performance + identity-confidence metrics. Optional because the live
-  // `/api/v1/players` surface only returns identity in P1 — analytics overlays
-  // (#100) land in later batches. UI sites render "—" when undefined rather
-  // than fabricating values.
-  maxSpeed?: number;
-  distance?: number;
-  separation?: number;
-  confidence?: number;
+  // Live per-player tracking aggregates, merged from
+  // `/api/v1/players/metrics/summary`. Undefined means no tracked film yet —
+  // UI sites render "—" rather than fabricating values.
+  maxSpeed?: number; // mph (converted from the pipeline's yd/s)
+  distance?: number; // yards
+  confidence?: number; // 0–1 span-weighted tracking confidence (the identity bucket is separate)
+  identityBucket?: IdentityBucket;
+  trackedClips?: number;
+  lastTrackedAt?: string;
   trend?: number[];
-}
-
-export interface PlaySummary {
-  number: number;
-  formation: string;
-  personnel: string;
-  concept: string;
-  result: string;
-  yards: number;
-  confidence: number;
-}
-
-export interface ClipSummary {
-  id: string;
-  title: string;
-  subtitle: string;
-  duration: string;
-  tag: string;
-}
-
-export interface HealthSummary {
-  player: string;
-  load: string;
-  status: "Low" | "Med" | "High";
-}
-
-export interface AlertSummary {
-  title: string;
-  detail: string;
-  severity: "good" | "warning" | "danger" | "info";
 }
 
 // ── Clip-review overlay payload (Issue #104) ────────────────────────────────
@@ -397,15 +358,15 @@ export interface ClipOverlayPayload {
 }
 
 // Layer keys the Clip Review UI exposes as toggles. ``raw`` is the bare video
-// with all overlays hidden; ``wireframe`` is the field outline rendered on top
-// of the canvas.
+// with all overlays hidden; ``field`` is the top-down field mini-map fed by
+// calibrated coordinates (shown only when calibration is analytics-safe).
 export type OverlayLayerKey =
   | "raw"
   | "tracks"
   | "labels"
   | "events"
   | "metrics"
-  | "wireframe";
+  | "field";
 
 // ── Settings (Issue #112) ───────────────────────────────────────────────────
 

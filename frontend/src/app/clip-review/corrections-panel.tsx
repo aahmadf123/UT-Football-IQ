@@ -14,7 +14,8 @@
  * next to each track marker, so a coach can point at the box they mean.
  */
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
 import { createCorrection, type CorrectionCreate } from "@/lib/api";
 import { useAppState } from "@/lib/app-state";
 import { canSubmitCorrections } from "@/lib/roles";
@@ -46,6 +47,12 @@ interface Props {
   clipId: string;
   /** Tracklets from the overlays payload (may be empty while ingest runs). */
   tracklets: OverlayTracklet[];
+  /**
+   * Tracklet picked by clicking its box on the overlay canvas. Each click
+   * produces a fresh object, so re-selecting the same tracklet still re-opens
+   * the panel with the identity form prefilled for that track.
+   */
+  selection?: { trackletId: string } | null;
 }
 
 function Field({
@@ -69,8 +76,8 @@ function Field({
   );
 }
 
-export function CorrectionsPanel({ clipId, tracklets }: Props) {
-  const { authToken, currentRole } = useAppState();
+export function CorrectionsPanel({ clipId, tracklets, selection }: Props) {
+  const { authToken, currentRole, data } = useAppState();
   const locked = !canSubmitCorrections(currentRole);
 
   const [open, setOpen] = useState(false);
@@ -78,6 +85,30 @@ export function CorrectionsPanel({ clipId, tracklets }: Props) {
   const [trackletId, setTrackletId] = useState("");
   const [team, setTeam] = useState("");
   const [jersey, setJersey] = useState("");
+  const [playerId, setPlayerId] = useState("");
+
+  // Clicking a player box on the video jumps straight into "who is this?".
+  // Depends on the selection object's identity, not just the tracklet id, so
+  // clicking the same box again re-opens a hidden panel.
+  useEffect(() => {
+    if (!selection) return;
+    setOpen(true);
+    setKind("player_identity");
+    setTrackletId(selection.trackletId);
+    setStatus({ kind: "idle" });
+  }, [selection]);
+
+  // Roster options grouped by position group, "#7 · CB · C. Jones" — the
+  // group disambiguates duplicate jersey numbers across sides of the ball.
+  const rosterGroups = useMemo(() => {
+    const groups = new Map<string, typeof data.players>();
+    for (const p of data.players) {
+      const list = groups.get(p.group) ?? [];
+      list.push(p);
+      groups.set(p.group, list);
+    }
+    return [...groups.entries()].sort(([a], [b]) => a.localeCompare(b));
+  }, [data.players]);
   const [formation, setFormation] = useState("");
   const [startSeconds, setStartSeconds] = useState("");
   const [endSeconds, setEndSeconds] = useState("");
@@ -89,6 +120,7 @@ export function CorrectionsPanel({ clipId, tracklets }: Props) {
     setTrackletId("");
     setTeam("");
     setJersey("");
+    setPlayerId("");
     setFormation("");
     setStartSeconds("");
     setEndSeconds("");
@@ -102,11 +134,20 @@ export function CorrectionsPanel({ clipId, tracklets }: Props) {
         if (!trackletId) return null;
         const corrected: Record<string, unknown> = { tracklet_id: trackletId };
         if (team) corrected.team = team;
-        if (jersey.trim() !== "" && Number.isFinite(Number(jersey))) {
+        const rosterPlayer = playerId ? data.players.find((p) => p.id === playerId) : undefined;
+        if (rosterPlayer) {
+          // A roster pick is the strongest identity signal: carries the
+          // player id (and their jersey, when numeric) for the re-ID loop.
+          corrected.player_id = rosterPlayer.id;
+          const rosterJersey = Number(rosterPlayer.jersey);
+          if (Number.isFinite(rosterJersey)) corrected.jersey_number = rosterJersey;
+        } else if (jersey.trim() !== "" && Number.isFinite(Number(jersey))) {
           corrected.jersey_number = Number(jersey);
         }
         // Require an actual fix, not just a tracklet reference.
-        if (!("team" in corrected) && !("jersey_number" in corrected)) return null;
+        if (!("team" in corrected) && !("jersey_number" in corrected) && !("player_id" in corrected)) {
+          return null;
+        }
         const tracklet = tracklets.find((t) => t.id === trackletId);
         return {
           clip_id: clipId,
@@ -166,12 +207,14 @@ export function CorrectionsPanel({ clipId, tracklets }: Props) {
     try {
       await createCorrection(payload, authToken);
       setStatus({ kind: "sent" });
+      toast.success("Correction sent", {
+        description: "Feeds the nightly learning loop.",
+      });
       clearForm();
     } catch (err) {
-      setStatus({
-        kind: "error",
-        message: err instanceof Error ? err.message : String(err),
-      });
+      const message = err instanceof Error ? err.message : String(err);
+      setStatus({ kind: "error", message });
+      toast.error("Correction failed", { description: message });
     } finally {
       setSubmitting(false);
     }
@@ -248,6 +291,26 @@ export function CorrectionsPanel({ clipId, tracklets }: Props) {
                   </NativeSelect>
                 </Field>
               )}
+              <Field htmlFor="correction-player" label="Correct player (roster)">
+                <NativeSelect
+                  id="correction-player"
+                  data-testid="correction-player-select"
+                  value={playerId}
+                  disabled={disabled}
+                  onChange={(e) => setPlayerId(e.target.value)}
+                >
+                  <option value="">Not on roster / unknown</option>
+                  {rosterGroups.map(([group, players]) => (
+                    <optgroup key={group} label={group}>
+                      {players.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {`#${p.jersey} · ${p.position} · ${p.name}`}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ))}
+                </NativeSelect>
+              </Field>
               <Field htmlFor="correction-team" label="Correct team">
                 <NativeSelect
                   id="correction-team"
@@ -260,17 +323,19 @@ export function CorrectionsPanel({ clipId, tracklets }: Props) {
                   <option value="away">Away (opponent)</option>
                 </NativeSelect>
               </Field>
-              <Field htmlFor="correction-jersey" label="Correct jersey #">
-                <Input
-                  id="correction-jersey"
-                  type="number"
-                  min={0}
-                  max={99}
-                  value={jersey}
-                  disabled={disabled}
-                  onChange={(e) => setJersey(e.target.value)}
-                />
-              </Field>
+              {!playerId && (
+                <Field htmlFor="correction-jersey" label="Correct jersey # (if not on roster)">
+                  <Input
+                    id="correction-jersey"
+                    type="number"
+                    min={0}
+                    max={99}
+                    value={jersey}
+                    disabled={disabled}
+                    onChange={(e) => setJersey(e.target.value)}
+                  />
+                </Field>
+              )}
             </>
           )}
 

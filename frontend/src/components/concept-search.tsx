@@ -15,7 +15,8 @@
  *   • in mock mode we never fabricate results — we say search needs a backend.
  */
 
-import { Search } from "lucide-react";
+import Link from "next/link";
+import { ArrowRight, Search } from "lucide-react";
 import { useState } from "react";
 import { searchConcepts } from "@/lib/api";
 import { useAppState } from "@/lib/app-state";
@@ -168,7 +169,15 @@ function Results({ response }: { response: ConceptSearchResponse }) {
                 key={`${r.clip_id}-${r.source}`}
                 className="flex flex-wrap items-center gap-2 border-b border-border-soft py-2 last:border-b-0"
               >
-                <code className="font-mono text-[0.78rem]">{shortId(r.clip_id)}</code>
+                <Link
+                  href={`/clip-review/?clipId=${encodeURIComponent(r.clip_id)}`}
+                  className="group inline-flex items-center gap-1 rounded-md border border-border-soft px-2 py-0.5 transition-colors hover:border-border hover:bg-accent/50"
+                >
+                  <code className="font-mono text-[0.78rem]">{shortId(r.clip_id)}</code>
+                  <span className="inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-primary opacity-80 transition-opacity group-hover:opacity-100">
+                    Review <ArrowRight className="size-3" />
+                  </span>
+                </Link>
                 {labels && <span className="text-xs text-muted-foreground">{labels}</span>}
                 <span
                   data-numeric

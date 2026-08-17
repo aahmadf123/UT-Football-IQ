@@ -12,8 +12,14 @@ export function TrendLine({ data }: { data: number[] | undefined }) {
       </div>
     );
   }
+  // Auto-scale to the series range so any real-world unit (clip counts,
+  // yards, percentages) fills the chart; a constant series draws mid-height.
+  const min = Math.min(...data);
+  const max = Math.max(...data);
+  const range = max - min;
+  const yFor = (value: number) => (range === 0 ? 50 : 90 - ((value - min) / range) * 80);
   const points = data
-    .map((value, index) => `${(index / Math.max(data.length - 1, 1)) * 100},${100 - value}`)
+    .map((value, index) => `${(index / Math.max(data.length - 1, 1)) * 100},${yFor(value)}`)
     .join(" ");
   return (
     <div className="h-24 rounded-md border border-border-soft bg-secondary/20 p-1.5">
@@ -35,7 +41,7 @@ export function TrendLine({ data }: { data: number[] | undefined }) {
           <circle
             key={index}
             cx={(index / Math.max(data.length - 1, 1)) * 100}
-            cy={100 - value}
+            cy={yFor(value)}
             r="2.2"
             fill="var(--primary)"
           />

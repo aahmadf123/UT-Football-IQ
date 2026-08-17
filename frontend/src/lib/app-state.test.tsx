@@ -54,9 +54,7 @@ describe("AppStateProvider — default offline mode", () => {
     });
 
     const state = captured.current!;
-    expect(state.data.plays.length).toBe(0);
     expect(state.data.players.length).toBe(0);
-    expect(state.data.clips.length).toBe(0);
     expect(state.data.videos.length).toBe(0);
     expect(state.data.jobs.length).toBe(0);
     expect(state.mockMode).toBe(false);
@@ -84,9 +82,9 @@ describe("AppStateProvider — mock mode (NEXT_PUBLIC_USE_MOCKS=1)", () => {
     });
 
     const state = captured.current!;
-    expect(state.data.plays.length).toBeGreaterThan(0);
+    expect(state.data.videos.length).toBeGreaterThan(0);
     expect(state.data.players.length).toBeGreaterThan(0);
-    expect(state.data.clips.length).toBeGreaterThan(0);
+    expect(state.data.jobs.length).toBeGreaterThan(0);
     expect(state.mockMode).toBe(true);
   });
 });
@@ -120,12 +118,9 @@ describe("AppStateProvider — empty live response does not fall back to mock", 
     });
 
     const state = captured.current!;
-    expect(state.data.plays.length).toBe(0);
     expect(state.data.players.length).toBe(0);
     expect(state.data.videos.length).toBe(0);
     expect(state.data.jobs.length).toBe(0);
-    expect(Array.isArray(state.data.selfScout)).toBe(false);
-    expect(Array.isArray(state.data.selfScout.pre_snap_tells)).toBe(true);
     expect(state.mockMode).toBe(false);
   });
 

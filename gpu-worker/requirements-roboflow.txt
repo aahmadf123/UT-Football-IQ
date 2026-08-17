@@ -1,0 +1,5 @@
+# Roboflow dataset/training tooling (roboflow_ops/, training/detect/).
+# Deliberately NOT in requirements-ci.txt: CI runs stub mode without network
+# CV deps, and every roboflow_ops import of these is lazy.
+roboflow>=1.1.60
+PyYAML>=6.0

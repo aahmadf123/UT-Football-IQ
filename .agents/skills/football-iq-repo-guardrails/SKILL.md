@@ -32,11 +32,14 @@ Skip it for ordinary feature work, UI changes, refactors, and doc edits.
 | **Pipeline worker** (`gpu-worker/`) | Claims jobs, runs the CV stage chain, writes results back through the API. |
 | **Postgres 16 + pgvector** | Relational store, similarity vectors, **and** the job queue (`processing_jobs`, `FOR UPDATE SKIP LOCKED` leases). |
 
-**Hosting is deliberately unconfigured.** There are no deploy manifests, no
-provider credentials, and no baked-in hostnames anywhere in this repo. Every
-connection point is an environment variable with a local default. Do not add
-provider-specific deployment wiring, hardcoded hostnames, or account
-identifiers unless a human explicitly asks for that hosting choice.
+**Hosting choice (human-approved): Cloudflare + Vercel.** The edge Worker in
+`workers/api-edge/` (backend as a Cloudflare Container, R2 buckets,
+Hyperdrive) and Vercel for the frontend are the sanctioned deployment wiring
+— see `docs/setup/cloudflare.md` / `docs/setup/vercel.md` and
+`.github/workflows/deploy.yml`. Credentials still never live in the repo
+(wrangler secrets + Vercel env vars only), and no other provider-specific
+wiring should be added without a human asking for it. Local-first defaults
+remain: everything runs with no provider at all.
 
 Boundaries worth keeping:
 

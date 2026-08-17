@@ -15,9 +15,9 @@ import { cn } from "@/lib/utils";
 // Film is the clip library (real sessions → videos → clips), Review & Tag
 // Plays is the per-video clip inventory that deep-links into clip review.
 const TABS = [
+  { key: "upload", label: "Upload / Process Film" },
   { key: "browse", label: "Browse Film" },
   { key: "review", label: "Review & Tag Plays" },
-  { key: "upload", label: "Upload / Process Film" },
 ] as const;
 
 type TabKey = (typeof TABS)[number]["key"];

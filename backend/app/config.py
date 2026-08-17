@@ -159,6 +159,10 @@ class Settings(BaseSettings):
     seed_admin_password: str = ""
     seed_worker_email: str = ""
     seed_worker_password: str = ""
+    # Optional startup roster seed (app/data/roster_<season>.json) for cloud
+    # deployments where the container has no shell to run scripts.seed_roster.
+    # Idempotent; disabled by default.
+    seed_roster_on_startup: bool = False
 
     # ── Scheduler ─────────────────────────────────────────────────────────
     # ``scheduler_enabled`` controls the in-process asyncio loop only. Turn it

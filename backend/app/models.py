@@ -319,6 +319,22 @@ class User(Base):
 
 class Player(Base):
     __tablename__ = "players"
+    __table_args__ = (
+        # Jersey numbers repeat across sides of the ball (two #7s: one CB, one
+        # QB is normal college practice), so identity resolution must key on
+        # (jersey_number, position_group). Enforce that pair's uniqueness for
+        # the active roster only — historical/inactive rows and unnumbered
+        # walk-ons never block a seed pass.
+        Index(
+            "uq_players_jersey_posgroup_active",
+            "jersey_number",
+            "position_group",
+            unique=True,
+            postgresql_where=text(
+                "is_active AND jersey_number IS NOT NULL AND position_group IS NOT NULL"
+            ),
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     first_name: Mapped[str] = mapped_column(String(100), nullable=False)
@@ -731,7 +747,11 @@ class Tracklet(Base):
         UUID(as_uuid=True), ForeignKey("clips.id", ondelete="CASCADE"), nullable=False, index=True
     )
     player_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("players.id", ondelete="SET NULL"), nullable=True
+        UUID(as_uuid=True),
+        ForeignKey("players.id", ondelete="SET NULL"),
+        nullable=True,
+        # Per-player aggregation (roster metrics summary) groups on this.
+        index=True,
     )
     # Frame range within the clip
     start_frame: Mapped[int] = mapped_column(Integer, nullable=False)

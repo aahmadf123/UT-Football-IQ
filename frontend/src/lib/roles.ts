@@ -50,6 +50,14 @@ export function canSubmitCorrections(role: UserRole | null | undefined): boolean
   return role != null && CORRECTION_ROLES.includes(role);
 }
 
+// Roles shown raw technical internals (storage URIs, object keys) in the UI.
+// Coaches never need an s3:// path; analysts and admins debug with them.
+export const TECHNICAL_DETAIL_ROLES: readonly UserRole[] = ["admin", "analyst"];
+
+export function canSeeTechnicalDetails(role: UserRole | null | undefined): boolean {
+  return role != null && TECHNICAL_DETAIL_ROLES.includes(role);
+}
+
 // Decode the `role` claim from a JWT access token *without* verifying the
 // signature. The browser never trusts this for authorization; it only uses it
 // to decide what to render. Returns null for an absent or malformed token.

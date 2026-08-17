@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import {
+  Bell,
   ClipboardList,
   Clapperboard,
   FileText,
@@ -10,7 +11,6 @@ import {
   LineChart,
   Settings,
   UserRound,
-  UsersRound,
 } from "lucide-react";
 import type { PageKey } from "@/lib/types";
 import { useAppState, type ApiStatus } from "@/lib/app-state";
@@ -19,17 +19,18 @@ import { StatusBadge, type StatusTone } from "@/components/composite/status-badg
 import { cn } from "@/lib/utils";
 
 // Consolidated coach-facing navigation (ADR 0003). Film Room and Scouting are
-// workspace hubs; Analytics is surfaced as "Model Insights". Alerts live in
-// the top-bar inbox bell, and College Data lives inside Scouting.
+// workspace hubs; Analytics is surfaced as "Model Insights". Player
+// Development lives in Players → Development; College Data lives inside
+// Scouting. Alerts get both a sidebar entry and the top-bar inbox bell.
 const NAV_ITEMS = [
   { key: "dashboard", label: "Dashboard", href: "/", icon: Home },
   { key: "film-room", label: "Film Room", href: "/film-room", icon: Clapperboard },
   { key: "scouting", label: "Scouting", href: "/scouting", icon: ClipboardList },
   { key: "players", label: "Players", href: "/players", icon: UserRound },
-  { key: "player-development", label: "Player Development", href: "/player-development", icon: UsersRound },
   { key: "health-workload", label: "Health & Workload", href: "/health-workload", icon: HeartPulse },
   { key: "analytics", label: "Model Insights", href: "/analytics", icon: LineChart },
   { key: "reports", label: "Reports", href: "/reports", icon: FileText },
+  { key: "alerts", label: "Alerts", href: "/alerts", icon: Bell },
   { key: "settings", label: "Settings", href: "/settings", icon: Settings },
 ] as const;
 

@@ -110,6 +110,10 @@ def run(
         # Distance traveled
         dist = _distance_traveled(pts)
         metrics.append({
+            # Top-level tracklet_id populates the metrics.tracklet_id FK the
+            # per-player aggregation joins on; the copy inside metric_value
+            # predates it and stays for render callouts.
+            "tracklet_id": t.get("id"),
             "metric_name": "distance_traveled",
             "metric_value": {"yards": round(dist, 2), "track_id": track_id, "confidence": 0.7},
             "unit": "yd",
@@ -122,6 +126,7 @@ def run(
         if speeds:
             max_spd = max(speeds)
             metrics.append({
+                "tracklet_id": t.get("id"),
                 "metric_name": "max_speed",
                 "metric_value": {
                     "yards_per_second": round(max_spd, 2),

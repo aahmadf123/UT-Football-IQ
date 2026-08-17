@@ -20,6 +20,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardHeader } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { NativeSelect } from "@/components/ui/native-select";
+import { ActiveFilterChip } from "@/components/composite/active-filter-chip";
 import { StatusBadge } from "@/components/composite/status-badge";
 
 type ScoutDataState = FetchState<SelfScoutResponse>;
@@ -220,6 +221,7 @@ export function SelfScoutView() {
 
   return (
     <div className="flex flex-col gap-4">
+      <ActiveFilterChip className="mb-0" />
       <Card>
         <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-3">
           <div>

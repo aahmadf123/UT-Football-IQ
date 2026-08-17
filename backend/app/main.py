@@ -11,6 +11,7 @@ from starlette.responses import Response
 from app.config import get_settings
 from app.logging import configure_logging
 from app.observability import PrometheusMiddleware, metrics_response
+from app.roster_seeding import seed_roster
 from app.routers import health
 from app.routers.alerts import router as alerts_router
 from app.routers.alerts_sse import router as alerts_sse_router
@@ -41,6 +42,7 @@ from app.routers.opponents import router as opponents_router
 from app.routers.overlays import router as overlays_router
 from app.routers.play_prediction import router as play_prediction_router
 from app.routers.playbook import router as playbook_router
+from app.routers.player_metrics import router as player_metrics_router
 from app.routers.player_profiles import router as player_profiles_router
 from app.routers.players import router as players_router
 from app.routers.pose import router as pose_router
@@ -86,6 +88,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                     "skipping startup seed pass."
                 ),
             )
+    if settings.seed_roster_on_startup:
+        try:
+            roster_stats = await seed_roster(database_url=settings.database_url)
+            log.info("startup_roster_seeding", **roster_stats)
+        except Exception:
+            # A malformed roster file, an unreachable database, or a
+            # constraint conflict must not take the API down — the roster is
+            # a convenience seed, not a boot dependency.
+            log.exception("startup_roster_seeding_failed")
     from app.scheduler import start_scheduler
 
     scheduler_task = start_scheduler()
@@ -163,6 +174,9 @@ app.include_router(videos_router)
 app.include_router(storage_router)
 app.include_router(clips_router)
 app.include_router(practice_sessions_router)
+# player_metrics before players: its literal /players/metrics/summary path
+# must never be shadowed by the players router's dynamic /{player_id} route.
+app.include_router(player_metrics_router)
 app.include_router(players_router)
 app.include_router(player_profiles_router)
 app.include_router(jobs_router)
