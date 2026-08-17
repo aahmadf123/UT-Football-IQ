@@ -8,17 +8,6 @@ import { AppTopbar } from "@/components/shell/app-topbar";
 import { SidebarContent } from "@/components/shell/app-sidebar";
 import { PageHeader } from "@/components/composite/page-header";
 
-// Compatibility routes (ADR 0003) that fold into a hub. Used to keep the hub
-// nav item highlighted when a coach lands on an old deep link.
-const COMPAT_ACTIVE: Partial<Record<PageKey, PageKey>> = {
-  library: "film-room",
-  "video-and-plays": "film-room",
-  "clips-highlights": "film-room",
-  "self-scout": "scouting",
-  "opponent-scout": "scouting",
-  "college-data": "scouting",
-};
-
 export function FootballShell({
   activePage,
   headerActions,
@@ -47,8 +36,6 @@ export function FootballShell({
     }
   }, [mustSignIn]);
 
-  const navActiveKey = COMPAT_ACTIVE[activePage] ?? activePage;
-
   return (
     <div className="min-h-screen">
       <AppTopbar activePage={activePage} onMenuClick={() => setMobileNavOpen(true)} />
@@ -60,13 +47,13 @@ export function FootballShell({
               Football IQ
             </SheetTitle>
           </SheetHeader>
-          <SidebarContent activeKey={navActiveKey} onNavigate={() => setMobileNavOpen(false)} />
+          <SidebarContent activeKey={activePage} onNavigate={() => setMobileNavOpen(false)} />
         </SheetContent>
       </Sheet>
 
       <div className="lg:grid lg:grid-cols-[248px_minmax(0,1fr)]">
         <aside className="sticky top-14 hidden h-[calc(100vh-3.5rem)] overflow-y-auto border-r border-border-soft lg:block">
-          <SidebarContent activeKey={navActiveKey} />
+          <SidebarContent activeKey={activePage} />
         </aside>
 
         <main className="min-w-0 px-4 py-5 lg:px-6">

@@ -29,15 +29,11 @@ export const pageTitles: Record<PageKey, { title: string; subtitle: string }> = 
   },
   "film-room": {
     title: "Film Room",
-    subtitle: "Browse film, review & tag plays, build clips, and upload/process new film",
+    subtitle: "Upload and process new film, browse sessions, and review & tag plays",
   },
   scouting: {
     title: "Scouting",
     subtitle: "Our tendencies, opponent prep, and college data context",
-  },
-  "video-and-plays": {
-    title: "Video & Plays",
-    subtitle: "Clip review, play correction, boundaries, and call signs",
   },
   players: {
     title: "Players",
@@ -46,18 +42,6 @@ export const pageTitles: Record<PageKey, { title: string; subtitle: string }> = 
   analytics: {
     title: "Model Insights",
     subtitle: "Model-derived metrics, formation recognition, tracking quality, and model outputs",
-  },
-  "self-scout": {
-    title: "Self-Scout",
-    subtitle: "What opponents can see in Toledo tendencies",
-  },
-  "opponent-scout": {
-    title: "Opponent Scout",
-    subtitle: "Imported opponent film, tells, and game-plan notes",
-  },
-  "player-development": {
-    title: "Player Development",
-    subtitle: "Position-specific passport, biomechanics, clips, and goals",
   },
   "health-workload": {
     title: "Health & Workload",
@@ -68,14 +52,6 @@ export const pageTitles: Record<PageKey, { title: string; subtitle: string }> = 
     title: "Reports",
     subtitle: "Coach-ready exports, weekly briefs, and automated sections",
   },
-  "clips-highlights": {
-    title: "Clips & Highlights",
-    subtitle: "Cutups, teaching clips, and recruiting-ready highlights",
-  },
-  library: {
-    title: "Library",
-    subtitle: "Practice and game film grouped by date, session, opponent, and possession",
-  },
   alerts: {
     title: "Coaching Alerts",
     subtitle: "Live stream of analytics and biomechanics flags from the pipeline",
@@ -83,10 +59,6 @@ export const pageTitles: Record<PageKey, { title: string; subtitle: string }> = 
   "clip-review": {
     title: "Clip Review",
     subtitle: "Backend-backed clip metadata, processing status, and playback shell",
-  },
-  "college-data": {
-    title: "College Data (CFBD)",
-    subtitle: "Cached Toledo / MAC analytics from CollegeFootballData.com",
   },
   settings: {
     title: "Settings",

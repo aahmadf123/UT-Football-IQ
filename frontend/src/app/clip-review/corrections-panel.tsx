@@ -15,6 +15,7 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
 import { createCorrection, type CorrectionCreate } from "@/lib/api";
 import { useAppState } from "@/lib/app-state";
 import { canSubmitCorrections } from "@/lib/roles";
@@ -203,12 +204,14 @@ export function CorrectionsPanel({ clipId, tracklets, selectedTrackletId }: Prop
     try {
       await createCorrection(payload, authToken);
       setStatus({ kind: "sent" });
+      toast.success("Correction sent", {
+        description: "Feeds the nightly learning loop.",
+      });
       clearForm();
     } catch (err) {
-      setStatus({
-        kind: "error",
-        message: err instanceof Error ? err.message : String(err),
-      });
+      const message = err instanceof Error ? err.message : String(err);
+      setStatus({ kind: "error", message });
+      toast.error("Correction failed", { description: message });
     } finally {
       setSubmitting(false);
     }

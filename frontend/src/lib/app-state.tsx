@@ -5,12 +5,12 @@ import { footballData } from "./mock-data";
 import { emptyFootballData } from "./empty-data";
 import { useMocks } from "./mock-flag";
 import { resolveCurrentRole, type UserRole } from "./roles";
+import { toast } from "sonner";
 import {
   fetchInboxStatus,
   fetchJobs,
   fetchPlayerMetricsSummaries,
   fetchPlayers,
-  fetchSelfScoutTendencies,
   fetchVideos,
   registerVideo,
   requestUploadUrl,
@@ -21,11 +21,8 @@ import type {
   ApiJob,
   ApiPlayer,
   ApiVideo,
-  ClipSummary,
   FootballData,
   PlayerSummary,
-  PlaySummary,
-  SelfScoutResponse,
   SessionKind,
   SourceType,
   OurPossession,
@@ -351,18 +348,15 @@ export function AppStateProvider({
         // Typed api.ts clients with the auth token — the previous raw
         // fetch() calls here were the one unauthenticated code path left.
         const token = tokenRef.current;
-        const [videosRes, jobsRes, scoutRes] = await Promise.allSettled([
+        const [videosRes, jobsRes] = await Promise.allSettled([
           fetchVideos(videoFilters, token),
           fetchJobs({}, token),
-          fetchSelfScoutTendencies(undefined, token),
         ]);
         if (cancelled) return;
         const anyFulfilled =
-          videosRes.status === "fulfilled" ||
-          jobsRes.status === "fulfilled" ||
-          scoutRes.status === "fulfilled";
+          videosRes.status === "fulfilled" || jobsRes.status === "fulfilled";
         if (!anyFulfilled) {
-          const rejectedReasons = [videosRes, jobsRes, scoutRes]
+          const rejectedReasons = [videosRes, jobsRes]
             .filter((r): r is PromiseRejectedResult => r.status === "rejected")
             .map((r) => r.reason);
           const allNetworkFailures =
@@ -376,11 +370,6 @@ export function AppStateProvider({
           ...cur,
           videos: pickArrLive<ApiVideo>(videosRes, cur.videos),
           jobs: pickArrLive<ApiJob>(jobsRes, cur.jobs),
-          selfScout: pickObjLive<SelfScoutResponse>(
-            scoutRes,
-            cur.selfScout,
-            isSelfScoutResponse,
-          ),
         }));
         setApiStatus("live");
       } catch (err) {
@@ -447,6 +436,8 @@ export function AppStateProvider({
     return () => clearInterval(id);
   }, [refreshInbox]);
 
+  // Uploads only ever update the uploads/videos state — they never fabricate
+  // clips or plays (that mock behavior was removed with the app-state cleanup).
   function mergeUploadsIntoData(newUploads: UploadedClip[]) {
     setData((cur) => {
       const existing = new Set(cur.videos.map((v) => v.filename));
@@ -467,38 +458,7 @@ export function AppStateProvider({
         })),
       ];
 
-      if (!mockMode) {
-        return { ...cur, videos: newVideos };
-      }
-
-      const newClips: ClipSummary[] = [
-        ...cur.clips,
-        ...additions.map((u) => ({
-          id: `clip-${u.id}`,
-          title: u.filename.replace(/\.[^/.]+$/, ""),
-          subtitle: "Newly uploaded film",
-          duration: "00:12",
-          tag: "Upload",
-        })),
-      ];
-
-      const nextNum = cur.plays.length
-        ? Math.max(...cur.plays.map((p) => p.number)) + 1
-        : 1;
-      const newPlays: PlaySummary[] = [
-        ...cur.plays,
-        ...additions.map((_, i) => ({
-          number: nextNum + i,
-          formation: "Trips Right",
-          personnel: "11",
-          concept: "Uploaded Clip",
-          result: "Processed",
-          yards: 6,
-          confidence: 0.9,
-        })),
-      ];
-
-      return { ...cur, videos: newVideos, clips: newClips, plays: newPlays };
+      return { ...cur, videos: newVideos };
     });
   }
 
@@ -513,6 +473,9 @@ export function AppStateProvider({
     if (mockMode || !apiUrl) {
       updateUpload(clip.id, { phase: "done", progress: 100 });
       mergeUploadsIntoData([clip]);
+      toast.success(`${file.name} added`, {
+        description: "Stored locally — no backend configured for processing.",
+      });
       return;
     }
 
@@ -566,9 +529,13 @@ export function AppStateProvider({
       });
       mergeUploadsIntoData([{ ...clip, videoId: video.id }]);
       refreshInbox();
+      toast.success(`${file.name} uploaded`, {
+        description: "Registered with the team server — processing starts shortly.",
+      });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       updateUpload(clip.id, { phase: "error", error: message });
+      toast.error(`Upload failed: ${file.name}`, { description: message });
     }
   }
 
@@ -677,25 +644,4 @@ function pickArrLive<T>(r: PromiseSettledResult<unknown>, fallback: T[]): T[] {
     return r.value as T[];
   }
   return fallback;
-}
-
-function pickObjLive<T>(
-  r: PromiseSettledResult<unknown>,
-  fallback: T,
-  isExpectedShape: (value: unknown) => value is T,
-): T {
-  if (r.status === "fulfilled" && isExpectedShape(r.value)) {
-    return r.value as T;
-  }
-  return fallback;
-}
-
-function isSelfScoutResponse(value: unknown): value is SelfScoutResponse {
-  return (
-    !!value &&
-    typeof value === "object" &&
-    !Array.isArray(value) &&
-    "pre_snap_tells" in value &&
-    Array.isArray((value as { pre_snap_tells: unknown }).pre_snap_tells)
-  );
 }

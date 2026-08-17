@@ -20,11 +20,11 @@ test("library renders seeded sessions, videos, and clips", async ({ page }) => {
     "GET /api/v1/videos/v-1/clips": [sampleClip()],
   });
 
-  await page.goto("/library");
+  await page.goto("/film-room/?tab=browse");
 
   // Section heading is present and the session row renders.
   await expect(
-    page.getByRole("heading", { name: /Hudl-style Library/ }),
+    page.getByRole("heading", { name: /Film Library/ }),
   ).toBeVisible();
   const sessionToggle = page.getByRole("button", {
     name: /Expand session/,

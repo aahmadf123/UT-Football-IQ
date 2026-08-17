@@ -5,20 +5,12 @@ export type PageKey =
   | "scouting"
   | "players"
   | "analytics"
-  | "player-development"
   | "health-workload"
   | "reports"
   | "settings"
-  // Inbox + deep-link / compatibility surfaces
+  // Inbox + deep-link surfaces
   | "alerts"
-  | "clip-review"
-  // Retained compatibility routes (no longer in primary nav — see ADR 0003)
-  | "library"
-  | "video-and-plays"
-  | "self-scout"
-  | "opponent-scout"
-  | "clips-highlights"
-  | "college-data";
+  | "clip-review";
 
 // Backend-aligned enums (ADR 0001). These describe API payloads, not the
 // existing UI filter literals in app-state.tsx — the ADR explicitly defers
@@ -258,12 +250,7 @@ export interface TendencyAlert {
 export interface FootballData {
   videos: ApiVideo[];
   jobs: ApiJob[];
-  selfScout: SelfScoutResponse;
   players: PlayerSummary[];
-  plays: PlaySummary[];
-  clips: ClipSummary[];
-  health: HealthSummary[];
-  alerts: AlertSummary[];
 }
 
 /** Calibrated identity vocabulary from the backend — never invented client-side. */
@@ -285,36 +272,6 @@ export interface PlayerSummary {
   trackedClips?: number;
   lastTrackedAt?: string;
   trend?: number[];
-}
-
-export interface PlaySummary {
-  number: number;
-  formation: string;
-  personnel: string;
-  concept: string;
-  result: string;
-  yards: number;
-  confidence: number;
-}
-
-export interface ClipSummary {
-  id: string;
-  title: string;
-  subtitle: string;
-  duration: string;
-  tag: string;
-}
-
-export interface HealthSummary {
-  player: string;
-  load: string;
-  status: "Low" | "Med" | "High";
-}
-
-export interface AlertSummary {
-  title: string;
-  detail: string;
-  severity: "good" | "warning" | "danger" | "info";
 }
 
 // ── Clip-review overlay payload (Issue #104) ────────────────────────────────

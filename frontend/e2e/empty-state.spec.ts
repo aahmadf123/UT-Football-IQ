@@ -32,7 +32,7 @@ test.describe("empty backend never shows mock clips", () => {
   });
 
   test("library shows empty state for empty backend", async ({ page }) => {
-    await page.goto("/library");
+    await page.goto("/film-room/?tab=browse");
     await expect(
       page.getByRole("heading", { name: /No film yet/ }),
     ).toBeVisible();

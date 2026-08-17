@@ -11,6 +11,7 @@
  */
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Search, UserRound } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useAppState, type ApiStatus } from "@/lib/app-state";
@@ -40,8 +41,23 @@ const ALL_GROUPS = "__all__";
 
 export function PlayersView() {
   const { data, selectedPlayer, setSelectedPlayerId, playersStatus } = useAppState();
+  const router = useRouter();
   const [query, setQuery] = useState("");
   const [group, setGroup] = useState<string>(ALL_GROUPS);
+
+  /**
+   * Whole-row navigation to the player profile. The name cell keeps its real
+   * <Link>; when the click (or key press) originates inside an anchor we let
+   * the link handle it so the row never double-navigates.
+   */
+  const openProfile = (playerId: string) => (event: React.MouseEvent | React.KeyboardEvent) => {
+    if ((event.target as HTMLElement).closest("a")) return;
+    if ("key" in event) {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+    }
+    router.push(playerProfileHref(playerId));
+  };
 
   const groups = useMemo(() => {
     const seen = new Set<string>();
@@ -122,7 +138,12 @@ export function PlayersView() {
                   <TableRow
                     key={player.id}
                     className="cursor-pointer"
+                    role="link"
+                    tabIndex={0}
+                    aria-label={`Open profile for ${player.name}`}
                     onMouseEnter={() => setSelectedPlayerId(player.id)}
+                    onClick={openProfile(player.id)}
+                    onKeyDown={openProfile(player.id)}
                   >
                     <TableCell className="font-medium">
                       <Link
