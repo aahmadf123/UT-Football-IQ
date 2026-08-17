@@ -80,7 +80,7 @@
     "CORS_ORIGIN_REGEX": "https://ut-football-iq-[a-z0-9-]+\\.vercel\\.app",
     // This Worker's public origin. The backend mints absolute upload and
     // playback URLs from it; left unset it falls back to X-Forwarded-*.
-    "PUBLIC_API_BASE_URL": "",
+    "PUBLIC_API_BASE_URL": "https://footiq-api-edge.firas-azfar.workers.dev",
     "R2_BUCKET_RAW": "footiq-raw-video",
     "R2_BUCKET_CLIPS": "footiq-clips",
     "R2_BUCKET_OVERLAYS": "footiq-overlays",
