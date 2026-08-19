@@ -96,6 +96,7 @@ def test_inbox_status_aggregates_jobs_clips_and_calibrations() -> None:
             error_message="lost target",
         ),
         _make_job(video_id=video.id, status=JobStatus.running),
+        _make_job(video_id=video.id, status=JobStatus.queued, job_type=JobType.pipeline),
     ]
     calibrations = [
         _make_calibration(True),
@@ -144,7 +145,8 @@ def test_inbox_status_aggregates_jobs_clips_and_calibrations() -> None:
     assert item["video_id"] == str(video.id)
     assert item["filename"] == "practice.mp4"
     assert item["video_status"] == "processing"
-    assert item["total_jobs"] == 3
+    assert item["total_jobs"] == 4
+    assert item["queued_jobs"] == 1
     assert item["running_jobs"] == 1
     assert item["succeeded_jobs"] == 1
     assert item["failed_jobs"] == 1

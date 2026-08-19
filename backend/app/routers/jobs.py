@@ -162,6 +162,7 @@ async def list_jobs(
 @router.post("", response_model=JobResponse, status_code=status.HTTP_201_CREATED)
 async def create_job(
     body: JobCreate,
+    response: Response,
     db: Annotated[AsyncSession, Depends(get_db)],
     _current_user: Annotated[User, Depends(require_any_staff)],
     _workload: Annotated[WorkloadSnapshot, Depends(require_workload_capacity("jobs.create"))],
@@ -171,10 +172,37 @@ async def create_job(
     Gated by :func:`app.workload.require_workload_capacity` — when the GPU
     queue is saturated this returns 503 ``workload_gated`` instead of
     accepting the job.
+
+    Idempotent for ``pipeline`` jobs: while a pipeline job for the video is
+    still queued or running, a repeat POST returns that job (200) instead of
+    stacking a duplicate full-pipeline run — "Process Film" clicked from a
+    stale tab or a second device must not process the same video twice.
     """
     vid_result = await db.execute(select(Video).where(Video.id == body.video_id))
     if vid_result.scalar_one_or_none() is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Video not found")
+
+    if body.job_type == JobType.pipeline:
+        existing = (
+            await db.execute(
+                select(ProcessingJob)
+                .where(
+                    ProcessingJob.video_id == body.video_id,
+                    ProcessingJob.job_type == JobType.pipeline,
+                    ProcessingJob.status.in_([JobStatus.queued, JobStatus.running]),
+                )
+                .order_by(ProcessingJob.created_at.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if existing is not None:
+            log.info(
+                "job_create_deduplicated",
+                video_id=str(body.video_id),
+                existing_job_id=str(existing.id),
+            )
+            response.status_code = status.HTTP_200_OK
+            return JobResponse.from_orm_job(existing)
 
     mode = body.pipeline_mode or (
         PipelineMode.same_session if body.priority >= 10 else PipelineMode.nightly

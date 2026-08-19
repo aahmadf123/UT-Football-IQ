@@ -26,24 +26,29 @@ type RequestState =
   | { kind: "busy"; message: string }
   | { kind: "error"; message: string };
 
-// Coach-facing label + tone for a backend video status. The five lifecycle
-// states (uploaded → queued → processing → processed → failed) are preserved.
+// Coach-facing label + tone for a video's processing state. Derived from the
+// backend inbox item (video status + job counts) first — the video row stays
+// "uploaded" in the DB until the pipeline reports back, so queued/running job
+// counts are the real signal that processing was requested. The local request
+// state only layers instant feedback on top; it dies when the tab unmounts and
+// must never be the sole source of truth.
 function statusBadge(
-  videoStatus: string,
+  item: VideoInboxItem,
   request: RequestState | undefined,
 ): { label: string; tone: StatusTone } {
-  if (request?.kind === "queued" && videoStatus === "uploaded") {
-    return { label: "Queued", tone: "warn" };
-  }
-  switch (videoStatus) {
+  const queued = (item.queued_jobs ?? 0) > 0 || request?.kind === "queued";
+  switch (item.video_status) {
     case "ready":
       return { label: "Processed", tone: "ok" };
     case "processing":
       return { label: "Processing", tone: "info" };
     case "failed":
-      return { label: "Failed", tone: "danger" };
+      // A failed video with a retry already queued reads "Queued", not "Failed".
+      return queued ? { label: "Queued", tone: "warn" } : { label: "Failed", tone: "danger" };
     case "uploaded":
     default:
+      if (item.running_jobs > 0) return { label: "Processing", tone: "info" };
+      if (queued) return { label: "Queued", tone: "warn" };
       return { label: "Uploaded", tone: "neutral" };
   }
 }
@@ -133,7 +138,7 @@ export function UploadProcessFilm({ onUploadClick }: { onUploadClick: () => void
               Add practice or game film here. Uploaded film is saved but{" "}
               <strong className="text-foreground">not processed automatically</strong> — click{" "}
               <strong className="text-foreground">Process Film</strong>
-              {" when you’re ready to run the pipeline. Full-quality processing runs in the overnight queue."}
+              {" when you’re ready. Jobs start as soon as the team’s processing computer picks them up."}
             </p>
           </div>
           <Button onClick={onUploadClick}>
@@ -283,11 +288,12 @@ function ProcessingRow({
   onProcess: (videoId: string) => void;
   onRetry: (videoId: string) => void;
 }) {
-  const isQueued = request?.kind === "queued";
-  const badge = isQueued
-    ? { label: "Queued", tone: "warn" as StatusTone }
-    : statusBadge(item.video_status, request);
-  const canProcess = item.video_status === "uploaded" && !isQueued;
+  // Server job counts, not just the local click state, gate the buttons: a
+  // video with a job already queued or running must never offer "Process Film"
+  // again — repeat clicks were silently stacking duplicate pipeline jobs.
+  const isQueued = request?.kind === "queued" || (item.queued_jobs ?? 0) > 0;
+  const badge = statusBadge(item, request);
+  const canProcess = item.video_status === "uploaded" && !isQueued && item.running_jobs === 0;
   const isFailed = item.video_status === "failed" && !isQueued;
 
   return (
@@ -306,17 +312,15 @@ function ProcessingRow({
           {(item.preliminary_clip_count ?? 0) > 0 && <PreliminaryBadge />}
         </div>
         <div className="mt-1 text-xs text-muted-foreground">
-          {item.video_status === "uploaded" && !isQueued
+          {badge.label === "Uploaded"
             ? "Not processed yet — start processing when you're ready."
-            : isQueued
-              ? "Queued for full-quality processing."
-              : item.video_status === "processing"
+            : badge.label === "Queued"
+              ? "Queued — starts as soon as the processing computer picks it up."
+              : badge.label === "Processing"
                 ? `Processing… ${item.succeeded_jobs}/${item.total_jobs} jobs done`
-                : item.video_status === "ready"
+                : badge.label === "Processed"
                   ? `Processed · ${item.clip_count} clip${item.clip_count === 1 ? "" : "s"}`
-                  : item.video_status === "failed"
-                    ? `Processing failed${item.latest_error_stage ? ` at ${item.latest_error_stage}` : ""}.`
-                    : null}
+                  : `Processing failed${item.latest_error_stage ? ` at ${item.latest_error_stage}` : ""}.`}
         </div>
         {(item.preliminary_clip_count ?? 0) > 0 && (
           <div

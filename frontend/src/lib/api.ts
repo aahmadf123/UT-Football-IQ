@@ -199,6 +199,9 @@ export interface VideoInboxItem {
   running_jobs: number;
   succeeded_jobs: number;
   failed_jobs: number;
+  // Jobs waiting for a worker to claim them — the server-side truth that
+  // "Process Film" was requested. Optional so older backends/mocks stay valid.
+  queued_jobs?: number;
   clip_count: number;
   // Clips still on the same-session first pass, awaiting nightly upgrade
   // (Issue #147). Optional so older backends/mocks stay valid.

@@ -59,6 +59,11 @@ class VideoInboxItem(BaseModel):
     filename: str
     video_status: str
     total_jobs: int
+    # Jobs waiting for a worker to claim them. The video row itself stays
+    # ``uploaded`` until the pipeline reports back, so this count is the only
+    # server-side signal that "Process Film" has been requested — the frontend
+    # must not rely on client-local state for that (it dies on tab switches).
+    queued_jobs: int
     running_jobs: int
     succeeded_jobs: int
     failed_jobs: int
@@ -197,6 +202,7 @@ async def _build_video_inbox_item(db: AsyncSession, video: Video) -> VideoInboxI
     jobs = jobs_result.scalars().all()
 
     total_jobs = len(jobs)
+    queued_jobs = sum(1 for j in jobs if j.status == JobStatus.queued)
     running_jobs = sum(1 for j in jobs if j.status == JobStatus.running)
     succeeded_jobs = sum(1 for j in jobs if j.status == JobStatus.succeeded)
     failed_jobs = sum(1 for j in jobs if j.status == JobStatus.failed)
@@ -241,6 +247,7 @@ async def _build_video_inbox_item(db: AsyncSession, video: Video) -> VideoInboxI
         filename=video.filename,
         video_status=video.status.value,
         total_jobs=total_jobs,
+        queued_jobs=queued_jobs,
         running_jobs=running_jobs,
         succeeded_jobs=succeeded_jobs,
         failed_jobs=failed_jobs,

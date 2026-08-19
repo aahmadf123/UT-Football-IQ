@@ -17,8 +17,12 @@ Cloudflare Worker ──── R2 (raw-video, clips, overlays, artifacts)
    ▼
 Cloudflare Container (FastAPI) ─────► Postgres   (direct — see §4)
    ▲ claim / heartbeat / writeback
-Lambda Labs GPU worker
+GPU worker (any machine — a cloud GPU box or your own PC; see [local-worker.md](local-worker.md))
 ```
+
+Note that **nothing processes film until a GPU worker is running** — pressing
+Process Film only queues the job. Setting one up takes minutes:
+[local-worker.md](local-worker.md).
 
 ## Prerequisites
 

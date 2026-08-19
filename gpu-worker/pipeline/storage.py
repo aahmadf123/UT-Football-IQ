@@ -53,6 +53,28 @@ def active_backend() -> str:
     return "s3" if (S3_ENDPOINT and S3_ACCESS_KEY and S3_SECRET_KEY) else "local"
 
 
+def physical_bucket(logical: str) -> str:
+    """Translate a logical bucket name to the one this deployment provisioned.
+
+    Mirrors ``backend/app/storage.py``: stored URIs use stable logical names
+    (``s3://raw-video/key``) while the account may provision prefixed buckets
+    (``footiq-raw-video`` on R2). The physical name is deployment configuration
+    and belongs nowhere except the call that talks to the object store —
+    hard-coding the logical name at the boto3 boundary makes every download
+    fail with NoSuchBucket the moment the buckets are prefixed.
+
+    Read at call time (not import time) so env changes and tests apply without
+    a module reload. Unknown names pass through unchanged.
+    """
+    mapping = {
+        "raw-video": os.environ.get("S3_BUCKET_RAW", ""),
+        "clips": os.environ.get("S3_BUCKET_CLIPS", ""),
+        "overlays": os.environ.get("S3_BUCKET_OVERLAYS", ""),
+        "artifacts": os.environ.get("S3_BUCKET_ARTIFACTS", ""),
+    }
+    return mapping.get(logical) or logical
+
+
 def parse_ref(ref: str) -> tuple[str, str, str]:
     """Split a storage reference into ``(scheme, bucket, key)``.
 
@@ -135,7 +157,7 @@ def download_to_temp(ref: str) -> Path:
     start = time.monotonic()
     try:
         log.info("storage_download_start", key=key, bucket=bucket)
-        _s3_client().download_fileobj(bucket, key, tmp)
+        _s3_client().download_fileobj(physical_bucket(bucket), key, tmp)
         tmp.flush()
         duration = time.monotonic() - start
         _record("download", bucket, "success", duration)
@@ -208,7 +230,7 @@ def upload_file(
         with Path(local_path).open("rb") as fh:
             _s3_client().upload_fileobj(
                 fh,
-                target_bucket,
+                physical_bucket(target_bucket),
                 key,
                 ExtraArgs={"ContentType": content_type},
             )
@@ -248,7 +270,7 @@ def upload_bytes(
         log.info("storage_upload_bytes_start", key=key, size=len(data), bucket=target_bucket)
         _s3_client().upload_fileobj(
             io.BytesIO(data),
-            target_bucket,
+            physical_bucket(target_bucket),
             key,
             ExtraArgs={"ContentType": content_type},
         )

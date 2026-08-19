@@ -274,6 +274,94 @@ def test_create_job_persists_input_artifacts_and_pipeline_mode() -> None:
     assert persisted.input_artifacts == {"src": "s3://x/in.mp4"}
 
 
+def test_create_pipeline_job_is_idempotent_while_one_is_active() -> None:
+    """Clicking Process Film twice must not stack duplicate pipeline runs.
+
+    A second POST while a pipeline job for the same video is still queued or
+    running returns the existing job (200), creating nothing.
+    """
+    video = _make_video()
+    existing = _make_job(video_id=video.id, job_type=JobType.pipeline, status=JobStatus.queued)
+    captured: list[ProcessingJob] = []
+
+    async def _db() -> AsyncGenerator[Any, None]:
+        session = AsyncMock()
+
+        async def _execute(stmt: Any) -> Any:
+            text = str(stmt).lower()
+            result = MagicMock()
+            if "from videos" in text:
+                result.scalar_one_or_none.return_value = video
+            elif "from processing_jobs" in text:
+                result.scalar_one_or_none.return_value = existing
+            else:
+                result.scalar_one_or_none.return_value = None
+            return result
+
+        session.execute = AsyncMock(side_effect=_execute)
+        session.add = MagicMock(side_effect=captured.append)
+        session.flush = AsyncMock()
+        yield session
+
+    _override_auth()
+    app.dependency_overrides[get_db] = _db
+    try:
+        with TestClient(app) as c:
+            resp = c.post(
+                "/api/v1/jobs",
+                json={"video_id": str(video.id), "job_type": "pipeline"},
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert resp.status_code == 200, resp.text  # not 201 — nothing new was created
+    assert resp.json()["id"] == str(existing.id)
+    assert captured == []
+
+
+def test_create_pipeline_job_proceeds_when_no_active_duplicate() -> None:
+    video = _make_video()
+    captured: list[ProcessingJob] = []
+
+    async def _db() -> AsyncGenerator[Any, None]:
+        session = AsyncMock()
+
+        async def _execute(stmt: Any) -> Any:
+            text = str(stmt).lower()
+            result = MagicMock()
+            if "from videos" in text:
+                result.scalar_one_or_none.return_value = video
+            else:
+                # No active pipeline job for this video.
+                result.scalar_one_or_none.return_value = None
+            return result
+
+        async def _flush() -> None:
+            for j in captured:
+                if getattr(j, "created_at", None) is None:
+                    j.created_at = datetime.now(UTC)
+
+        session.execute = AsyncMock(side_effect=_execute)
+        session.add = MagicMock(side_effect=captured.append)
+        session.flush = AsyncMock(side_effect=_flush)
+        yield session
+
+    _override_auth()
+    app.dependency_overrides[get_db] = _db
+    try:
+        with TestClient(app) as c:
+            resp = c.post(
+                "/api/v1/jobs",
+                json={"video_id": str(video.id), "job_type": "pipeline"},
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert resp.status_code == 201, resp.text
+    assert len(captured) == 1
+    assert captured[0].job_type == JobType.pipeline
+
+
 def test_create_job_returns_404_when_video_missing() -> None:
     async def _db() -> AsyncGenerator[Any, None]:
         session = AsyncMock()

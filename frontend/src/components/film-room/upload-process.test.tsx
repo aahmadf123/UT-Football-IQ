@@ -8,6 +8,7 @@ const UPLOADED_VIDEO = {
   filename: "practice.mp4",
   video_status: "uploaded",
   total_jobs: 0,
+  queued_jobs: 0,
   running_jobs: 0,
   succeeded_jobs: 0,
   failed_jobs: 0,
@@ -23,6 +24,7 @@ const UPLOADED_VIDEO = {
 interface MockOptions {
   jobResponse?: { status: number; body: unknown };
   postBodies?: Array<Record<string, unknown>>;
+  inboxItems?: Array<Record<string, unknown>>;
 }
 
 function installFetch(opts: MockOptions = {}) {
@@ -39,11 +41,12 @@ function installFetch(opts: MockOptions = {}) {
       } as Response;
     }
     if (url.includes("/api/v1/inbox/status")) {
+      const items = opts.inboxItems ?? [UPLOADED_VIDEO];
       return {
         ok: true,
         status: 200,
-        json: async () => [UPLOADED_VIDEO],
-        text: async () => JSON.stringify([UPLOADED_VIDEO]),
+        json: async () => items,
+        text: async () => JSON.stringify(items),
       } as Response;
     }
     // videos / jobs / self-scout / players — empty.
@@ -119,6 +122,37 @@ describe("UploadProcessFilm", () => {
     expect(postBodies.length).toBeGreaterThan(0);
     expect(postBodies[0]).toMatchObject({ video_id: "vid-1", job_type: "pipeline" });
     // No longer offering "Process Film" once queued.
+    expect(screen.queryByTestId("process-film-vid-1")).toBeNull();
+  });
+
+  test("a backend-queued job shows Queued on a fresh mount (survives tab switches)", async () => {
+    // The regression this guards: clicking Process Film stored "Queued" only in
+    // component-local state, so navigating to another tab and back reverted the
+    // row to "Uploaded" with a Process Film button — even though a job row was
+    // already queued server-side.
+    vi.stubEnv("NEXT_PUBLIC_API_URL", "https://api.test");
+    installFetch({
+      inboxItems: [{ ...UPLOADED_VIDEO, total_jobs: 1, queued_jobs: 1 }],
+    });
+    await renderUploadProcess();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("processing-status-vid-1").textContent).toMatch(/Queued/i);
+    });
+    // A queued job must not be re-enqueueable.
+    expect(screen.queryByTestId("process-film-vid-1")).toBeNull();
+  });
+
+  test("a backend-running job shows Processing even while video_status is still uploaded", async () => {
+    vi.stubEnv("NEXT_PUBLIC_API_URL", "https://api.test");
+    installFetch({
+      inboxItems: [{ ...UPLOADED_VIDEO, total_jobs: 1, running_jobs: 1 }],
+    });
+    await renderUploadProcess();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("processing-status-vid-1").textContent).toMatch(/Processing/i);
+    });
     expect(screen.queryByTestId("process-film-vid-1")).toBeNull();
   });
 
