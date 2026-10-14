@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { SESSION_LABELS, useAppState, type SessionType } from "@/lib/app-state";
 import { Label } from "@/components/ui/label";
 import { NativeSelect } from "@/components/ui/native-select";
@@ -23,6 +24,8 @@ export function formatDateLabel(value: string): string {
 export function FilterBar({ className }: { className?: string }) {
   const { selectedDate, setSelectedDate, availableDates, sessionType, setSessionType } =
     useAppState();
+  const [hydrated, setHydrated] = useState(false);
+  useEffect(() => { setHydrated(true); }, []);
 
   return (
     <div
@@ -33,17 +36,17 @@ export function FilterBar({ className }: { className?: string }) {
       <div className="flex min-w-36 flex-col gap-1">
         <Label
           htmlFor="filter-date"
-          className="font-display text-[0.68rem] font-semibold uppercase tracking-widest text-muted-foreground"
+          className="text-xs font-semibold text-muted-foreground"
         >
           Practice date
         </Label>
         <NativeSelect
           id="filter-date"
           data-testid="filter-date"
-          value={selectedDate}
+          value={hydrated ? selectedDate : ""}
           onChange={(e) => setSelectedDate(e.target.value)}
         >
-          {availableDates.map((d) => (
+          {(hydrated ? availableDates : [""]).map((d) => (
             <option key={d} value={d}>
               {formatDateLabel(d)}
             </option>
@@ -54,14 +57,14 @@ export function FilterBar({ className }: { className?: string }) {
       <div className="flex min-w-36 flex-col gap-1">
         <Label
           htmlFor="filter-session"
-          className="font-display text-[0.68rem] font-semibold uppercase tracking-widest text-muted-foreground"
+          className="text-xs font-semibold text-muted-foreground"
         >
           Session type
         </Label>
         <NativeSelect
           id="filter-session"
           data-testid="filter-session"
-          value={sessionType}
+          value={hydrated ? sessionType : "all"}
           onChange={(e) => setSessionType(e.target.value as SessionType)}
         >
           {(Object.keys(SESSION_LABELS) as SessionType[]).map((k) => (

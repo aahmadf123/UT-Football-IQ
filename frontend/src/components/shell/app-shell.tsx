@@ -25,6 +25,7 @@ export function FootballShell({
   // (not router.replace) keeps the auth boundary dead simple for the static
   // export and for tests that render the shell without providers.
   const mustSignIn = Boolean(auth && auth.ready && auth.authRequired && !auth.token);
+  const openingLibrary = Boolean(auth && (!auth.ready || (auth.authRequired && !auth.token)));
   useEffect(() => {
     if (mustSignIn && typeof window !== "undefined") {
       // Never redirect from the login page itself: if a static host
@@ -43,7 +44,7 @@ export function FootballShell({
       <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
         <SheetContent side="left" className="w-72 gap-0 p-0">
           <SheetHeader className="border-b border-border-soft px-4 py-3">
-            <SheetTitle className="font-display text-base font-semibold uppercase tracking-wider">
+            <SheetTitle className="text-base font-semibold">
               Football IQ
             </SheetTitle>
           </SheetHeader>
@@ -51,7 +52,7 @@ export function FootballShell({
         </SheetContent>
       </Sheet>
 
-      <div className="lg:grid lg:grid-cols-[248px_minmax(0,1fr)]">
+      <div className="lg:grid lg:grid-cols-[220px_minmax(0,1fr)]">
         <aside className="sticky top-14 hidden h-[calc(100vh-3.5rem)] overflow-y-auto border-r border-border-soft lg:block">
           <SidebarContent activeKey={activePage} />
         </aside>
@@ -59,7 +60,7 @@ export function FootballShell({
         <main className="min-w-0 px-4 py-5 lg:px-6">
           <div className="mx-auto w-full max-w-[1400px]">
             <PageHeader page={activePage} actions={headerActions} />
-            {children}
+            {openingLibrary ? <div role="status" className="rounded-xl border border-border-soft bg-card p-6 text-sm text-muted-foreground">{auth?.ready ? "Opening sign-in…" : "Opening your library…"}</div> : children}
           </div>
         </main>
       </div>

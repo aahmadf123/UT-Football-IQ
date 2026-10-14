@@ -4,9 +4,9 @@ import uuid
 from typing import Annotated, Any
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel
-from sqlalchemy import exists, select
+from fastapi import APIRouter, Depends, Query, status
+from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.active_learning import (
@@ -17,6 +17,7 @@ from app.active_learning import (
 from app.database import get_db
 from app.deps import get_current_user, require_analyst_or_above, require_coach_or_above
 from app.models import Clip, CoachCorrection, CorrectionType, User
+from app.services.annotations import submit_correction
 
 log = structlog.get_logger(__name__)
 router = APIRouter(prefix="/api/v1/corrections", tags=["corrections"])
@@ -32,6 +33,8 @@ class CorrectionCreate(BaseModel):
     corrected_value: dict[str, Any]
     notes: str | None = None
     training_eligible: bool = True
+    client_operation_id: uuid.UUID | None = None
+    expected_revision: int | None = Field(default=None, ge=0)
 
 
 class CorrectionResponse(BaseModel):
@@ -45,6 +48,8 @@ class CorrectionResponse(BaseModel):
     training_eligible: bool
     exported_as_label: bool
     created_at: str
+    annotation_revision: int | None = None
+    client_operation_id: str | None = None
 
     @classmethod
     def from_orm_correction(cls, c: CoachCorrection) -> "CorrectionResponse":
@@ -53,12 +58,14 @@ class CorrectionResponse(BaseModel):
             clip_id=c.clip_id,
             correction_type=c.correction_type.value,
             original_value=c.original_value,
-            corrected_value=c.corrected_value,
+            corrected_value={k: v for k, v in c.corrected_value.items() if not k.startswith("_")},
             corrected_by=c.corrected_by,
             notes=c.notes,
             training_eligible=c.training_eligible,
             exported_as_label=c.exported_as_label,
             created_at=c.created_at.isoformat(),
+            annotation_revision=c.corrected_value.get("_revision"),
+            client_operation_id=c.corrected_value.get("_operation_id"),
         )
 
 
@@ -66,6 +73,7 @@ class ExportResponse(BaseModel):
     exported_count: int
     label_ids: list[uuid.UUID]
     training_dataset_id: uuid.UUID | None = None
+    artifact_uri: str | None = None
 
 
 class AnnotationQueueItem(BaseModel):
@@ -118,8 +126,8 @@ async def get_annotation_queue(
 ) -> list[AnnotationQueueItem]:
     """Active-learning review queue, ordered by calibrated uncertainty (#145/#146).
 
-    The labeled pool is excluded so the coach-correction loop stays the source
-    of truth: a clip drops out once it is reviewed *or* has any coach correction.
+    Completed review excludes a clip from the queue. Individual corrections
+    remain in the queue until the coach has finished reviewing the play.
 
     * ``strategy=uncertainty`` (default): most-uncertain clips first
       (``uncertainty_score`` desc, NULLs last). Unscored clips are never
@@ -132,9 +140,9 @@ async def get_annotation_queue(
     """
     capped = normalize_limit(limit)
 
-    # Labeled pool = reviewed clips OR clips that already have a correction.
-    has_correction = exists().where(CoachCorrection.clip_id == Clip.id)
-    q = select(Clip).where(Clip.is_reviewed.is_(False), ~has_correction)
+    # Fixing one label does not approve every observation in a play. The coach
+    # explicitly completes review once all pending issues are resolved.
+    q = select(Clip).where(Clip.is_reviewed.is_(False))
     if video_id is not None:
         q = q.where(Clip.video_id == video_id)
     if not include_unscored:
@@ -156,23 +164,12 @@ async def create_correction(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(require_coach_or_above)],
 ) -> CorrectionResponse:
-    """Submit a coach/analyst correction — recorded and eligible for training export."""
-    clip_result = await db.execute(select(Clip).where(Clip.id == body.clip_id))
-    if clip_result.scalar_one_or_none() is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Clip not found")
-
-    correction = CoachCorrection(
-        id=uuid.uuid4(),
-        clip_id=body.clip_id,
-        correction_type=body.correction_type,
-        original_value=body.original_value,
-        corrected_value=body.corrected_value,
-        corrected_by=current_user.id,
-        notes=body.notes,
-        training_eligible=body.training_eligible,
+    """Apply a coach correction and record history in the same transaction."""
+    correction, _replayed = await submit_correction(
+        db,
+        actor=current_user,
+        **body.model_dump(),
     )
-    db.add(correction)
-    await db.flush()
     log.info(
         "correction_created",
         correction_id=str(correction.id),
@@ -225,4 +222,5 @@ async def export_corrections_as_labels(
         exported_count=result.exported_count,
         label_ids=result.label_ids,
         training_dataset_id=result.training_dataset_id,
+        artifact_uri=result.artifact_uri,
     )

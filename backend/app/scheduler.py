@@ -113,7 +113,13 @@ async def run_nightly_tick(db: AsyncSession) -> dict[str, object]:
     new_labels = await _new_human_labels_since_last_train(db)
     summary["new_human_labels"] = new_labels
     min_new_labels = get_settings().training_min_new_labels
-    if new_labels >= min_new_labels and not await _already_ran_today(db, JobType.train, now):
+    if (
+        get_settings().auto_train_enabled
+        and bool(get_settings().local_training_features_uri)
+        and new_labels >= min_new_labels
+        and export.training_dataset_id is not None
+        and not await _already_ran_today(db, JobType.train, now)
+    ):
         train_job = ProcessingJob(
             id=uuid.uuid4(),
             job_type=JobType.train,
@@ -124,6 +130,10 @@ async def run_nightly_tick(db: AsyncSession) -> dict[str, object]:
             input_artifacts={
                 "trigger": "scheduler",
                 "new_human_labels": new_labels,
+                "training_variant": "local_coverage",
+                "training_dataset_id": str(export.training_dataset_id),
+                "labels_uri": export.artifact_uri,
+                "features_uri": get_settings().local_training_features_uri,
             },
         )
         db.add(train_job)
@@ -131,6 +141,7 @@ async def run_nightly_tick(db: AsyncSession) -> dict[str, object]:
         log.info("scheduler_train_enqueued", job_id=str(train_job.id), new_labels=new_labels)
     else:
         summary["train_job_id"] = None
+        summary["training_enabled"] = get_settings().auto_train_enabled
 
     if not await _already_ran_today(db, JobType.workload_rollup, now):
         rollup_date = (now.date() - timedelta(days=1)).isoformat()
@@ -181,6 +192,17 @@ async def _tick_if_due() -> None:
 
     now = datetime.now(UTC)
     if now.hour != get_settings().scheduler_hour_utc:
+        # Staff laptops are often asleep during the nightly hour. Cheap queue
+        # repair and human-label snapshots run whenever the app is open;
+        # heavyweight training remains an explicit, separately gated operation.
+        from app.services.corrections_export import export_corrections
+        from app.services.job_sweeper import sweep_expired_leases
+
+        async with AsyncSessionLocal() as db:
+            if await _acquire_lock(db):
+                await sweep_expired_leases(db, now)
+                await export_corrections(db)
+                await db.commit()
         return
     async with AsyncSessionLocal() as db:
         # The lock is taken inside this transaction and released by the

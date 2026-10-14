@@ -12,7 +12,7 @@ polling.
 import json
 import uuid
 from datetime import UTC, datetime, timedelta
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
@@ -22,7 +22,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.deps import get_current_user, require_any_staff
-from app.models import JobStatus, JobType, PipelineMode, ProcessingJob, User, UserRole, Video
+from app.models import (
+    JobStatus,
+    JobType,
+    PipelineMode,
+    ProcessingJob,
+    User,
+    UserRole,
+    Video,
+    WorkerRuntime,
+)
 from app.services.job_sweeper import sweep_expired_leases
 from app.workload import WorkloadSnapshot, require_workload_capacity
 
@@ -43,6 +52,7 @@ class JobCreate(BaseModel):
     pipeline_mode: str | None = None
     input_artifacts: dict[str, Any] | None = None
     model_version_id: uuid.UUID | None = None
+    processing_profile: Literal["review", "quick", "detailed"] | None = None
 
 
 class JobStatusUpdate(BaseModel):
@@ -54,6 +64,9 @@ class JobStatusUpdate(BaseModel):
     # The lease holder's id. Required to transition a leased running job
     # unless the caller is an admin (ops override) — see update_job_status.
     worker_id: str | None = Field(default=None, max_length=128)
+    lease_token: uuid.UUID | None = None
+    attempt_count: int | None = None
+    provenance: dict[str, Any] | None = None
 
 
 #: Ceiling for caller-supplied JSON blobs merged into a job row. Progress
@@ -74,10 +87,13 @@ def _reject_json_bomb(field: str, value: dict[str, Any]) -> None:
 class JobClaimRequest(BaseModel):
     worker_id: str = Field(min_length=1, max_length=128)
     job_types: list[JobType] | None = None
+    capabilities: dict[str, Any] | None = None
     lease_seconds: int = Field(default=600, ge=30, le=3600)
 
 
 class JobHeartbeatRequest(BaseModel):
+    lease_token: uuid.UUID | None = None
+    attempt_count: int | None = None
     worker_id: str = Field(min_length=1, max_length=128)
     lease_seconds: int = Field(default=600, ge=30, le=3600)
     progress: dict[str, Any] | None = None
@@ -103,6 +119,9 @@ class JobResponse(BaseModel):
     progress: dict[str, Any] | None
     attempt_count: int
     leased_by: str | None
+    lease_token: uuid.UUID | None = None
+    control_requested: str | None = None
+    provenance: dict[str, Any] | None = None
     started_at: str | None
     finished_at: str | None
     created_at: str
@@ -110,6 +129,7 @@ class JobResponse(BaseModel):
     @classmethod
     def from_orm_job(cls, j: ProcessingJob) -> "JobResponse":
         return cls(
+            provenance=j.provenance if isinstance(j.provenance, dict) else None,
             id=j.id,
             video_id=j.video_id,
             clip_id=j.clip_id,
@@ -128,6 +148,8 @@ class JobResponse(BaseModel):
             # Column defaults apply at flush; a not-yet-flushed row reads None.
             attempt_count=j.attempt_count or 0,
             leased_by=j.leased_by,
+            lease_token=j.lease_token if isinstance(j.lease_token, uuid.UUID) else None,
+            control_requested=j.control_requested if isinstance(j.control_requested, str) else None,
             started_at=j.started_at.isoformat() if j.started_at else None,
             finished_at=j.finished_at.isoformat() if j.finished_at else None,
             created_at=j.created_at.isoformat(),
@@ -178,7 +200,7 @@ async def create_job(
     stacking a duplicate full-pipeline run — "Process Film" clicked from a
     stale tab or a second device must not process the same video twice.
     """
-    vid_result = await db.execute(select(Video).where(Video.id == body.video_id))
+    vid_result = await db.execute(select(Video).where(Video.id == body.video_id).with_for_update())
     if vid_result.scalar_one_or_none() is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Video not found")
 
@@ -189,7 +211,9 @@ async def create_job(
                 .where(
                     ProcessingJob.video_id == body.video_id,
                     ProcessingJob.job_type == JobType.pipeline,
-                    ProcessingJob.status.in_([JobStatus.queued, JobStatus.running]),
+                    ProcessingJob.status.in_(
+                        [JobStatus.queued, JobStatus.running, JobStatus.paused]
+                    ),
                 )
                 .order_by(ProcessingJob.created_at.desc())
                 .limit(1)
@@ -207,6 +231,16 @@ async def create_job(
     mode = body.pipeline_mode or (
         PipelineMode.same_session if body.priority >= 10 else PipelineMode.nightly
     )
+    artifacts = dict(body.input_artifacts or {})
+    if body.processing_profile:
+        artifacts["processing_profile"] = body.processing_profile
+    if body.id is not None:
+        replay = await db.get(ProcessingJob, body.id)
+        if replay is not None:
+            if replay.video_id != body.video_id or replay.job_type != body.job_type:
+                raise HTTPException(409, "Job operation ID already belongs to another request")
+            response.status_code = 200
+            return JobResponse.from_orm_job(replay)
     job = ProcessingJob(
         id=body.id or uuid.uuid4(),
         video_id=body.video_id,
@@ -214,7 +248,7 @@ async def create_job(
         status=JobStatus.queued,
         priority=body.priority,
         pipeline_mode=mode,
-        input_artifacts=body.input_artifacts,
+        input_artifacts=artifacts or None,
         model_version_id=body.model_version_id,
     )
     db.add(job)
@@ -264,12 +298,30 @@ async def claim_job(
     if body.job_types:
         candidate = candidate.where(ProcessingJob.job_type.in_(body.job_types))
 
+    # Registered workers advertise compatible job types and profiles. Legacy
+    # workers remain supported; native local workers always register first.
+    runtime = (
+        await db.execute(select(WorkerRuntime).where(WorkerRuntime.worker_id == body.worker_id))
+    ).scalar_one_or_none()
+    capabilities = body.capabilities or (runtime.capabilities if runtime else None)
+    if capabilities:
+        advertised_types = capabilities.get("job_types")
+        if advertised_types:
+            candidate = candidate.where(ProcessingJob.job_type.in_(advertised_types))
+        profiles = capabilities.get("profiles")
+        if profiles:
+            requested_profile = ProcessingJob.input_artifacts["processing_profile"].as_string()
+            candidate = candidate.where(
+                or_(requested_profile.is_(None), requested_profile.in_(profiles))
+            )
     result = await db.execute(
         update(ProcessingJob)
         .where(ProcessingJob.id == candidate.scalar_subquery())
         .values(
             status=JobStatus.running,
             leased_by=body.worker_id,
+            lease_token=uuid.uuid4(),
+            control_requested=None,
             lease_expires_at=now + timedelta(seconds=body.lease_seconds),
             attempt_count=ProcessingJob.attempt_count + 1,
             started_at=func.coalesce(ProcessingJob.started_at, now),
@@ -299,7 +351,9 @@ async def heartbeat_job(
     _current_user: Annotated[User, Depends(require_any_staff)],
 ) -> JobResponse:
     """Extend a claimed job's lease and merge per-stage progress."""
-    result = await db.execute(select(ProcessingJob).where(ProcessingJob.id == job_id))
+    result = await db.execute(
+        select(ProcessingJob).where(ProcessingJob.id == job_id).with_for_update()
+    )
     job = result.scalar_one_or_none()
     if job is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
@@ -313,6 +367,8 @@ async def heartbeat_job(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"Job is leased by another worker ({job.leased_by})",
         )
+
+    _ensure_worker_lease(job, body.worker_id, body.lease_token, body.attempt_count)
 
     job.lease_expires_at = datetime.now(UTC) + timedelta(seconds=body.lease_seconds)
     if body.progress:
@@ -332,7 +388,9 @@ async def get_job(
     _current_user: Annotated[User, Depends(get_current_user)],
 ) -> JobResponse:
     """Get full job details including error reason, stage, and input file."""
-    result = await db.execute(select(ProcessingJob).where(ProcessingJob.id == job_id))
+    result = await db.execute(
+        select(ProcessingJob).where(ProcessingJob.id == job_id).with_for_update()
+    )
     job = result.scalar_one_or_none()
     if job is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
@@ -347,36 +405,88 @@ async def update_job_status(
     current_user: Annotated[User, Depends(require_any_staff)],
 ) -> JobResponse:
     """Update job status — used by GPU worker callbacks."""
-    result = await db.execute(select(ProcessingJob).where(ProcessingJob.id == job_id))
+    result = await db.execute(
+        select(ProcessingJob).where(ProcessingJob.id == job_id).with_for_update()
+    )
     job = result.scalar_one_or_none()
     if job is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
 
-    # A leased running job belongs to its worker: state changes must carry
-    # the lease holder's worker_id. Admins may override (ops cancel).
-    if (
-        job.status == JobStatus.running
-        and job.leased_by is not None
-        and body.worker_id != job.leased_by
-        and current_user.role != UserRole.admin
-    ):
+    if body.output_artifacts is not None:
+        _reject_json_bomb("output_artifacts", body.output_artifacts)
+    if body.progress is not None:
+        _reject_json_bomb("progress", body.progress)
+    if job.status in {JobStatus.succeeded, JobStatus.failed, JobStatus.cancelled}:
+        if body.status == job.status:
+            # Replayed completion is read-only; an old callback cannot replace
+            # artifacts or error state after a newer attempt has finished.
+            return JobResponse.from_orm_job(job)
+        raise HTTPException(409, "Job is already finished")
+    if body.lease_token is not None and body.lease_token != job.lease_token:
+        raise HTTPException(409, "Stale worker attempt; lease token does not match")
+    legacy_admin_cancel = (
+        current_user.role == UserRole.admin
+        and body.status == JobStatus.cancelled
+        and not isinstance(job.lease_token, uuid.UUID)
+    )
+    if job.status == JobStatus.running and job.leased_by is not None and not legacy_admin_cancel:
+        _ensure_worker_lease(job, body.worker_id, body.lease_token, body.attempt_count)
+    allowed = {
+        JobStatus.queued: {
+            JobStatus.queued,
+            JobStatus.running,
+            JobStatus.cancelled,
+            JobStatus.paused,
+        },
+        JobStatus.running: {
+            JobStatus.running,
+            JobStatus.succeeded,
+            JobStatus.failed,
+            JobStatus.cancelled,
+            JobStatus.paused,
+        },
+        JobStatus.paused: {JobStatus.paused, JobStatus.queued, JobStatus.cancelled},
+        JobStatus.succeeded: {JobStatus.succeeded},
+        JobStatus.failed: {JobStatus.failed},
+        JobStatus.cancelled: {JobStatus.cancelled},
+    }
+    if body.status not in allowed[job.status]:
+        raise HTTPException(409, f"Invalid job transition: {job.status} to {body.status}")
+    if job.control_requested in {"cancel", "pause"} and body.status == JobStatus.succeeded:
         raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"Job is leased by another worker ({job.leased_by})",
+            409, "Requested job control must be acknowledged before publishing success"
         )
     if body.output_artifacts is not None:
         _reject_json_bomb("output_artifacts", body.output_artifacts)
     if body.progress is not None:
         _reject_json_bomb("progress", body.progress)
 
+    if body.provenance is not None:
+        _reject_json_bomb("provenance", body.provenance)
+        job.provenance = body.provenance
+    if body.status == JobStatus.paused and job.control_requested == "cancel":
+        body.status = JobStatus.cancelled
+    if (
+        body.status == JobStatus.paused
+        and job.control_requested == "pause"
+        and body.output_artifacts
+    ):
+        body.output_artifacts = {**body.output_artifacts, "interrupted_action": "pause"}
     job.status = body.status
     if body.status == JobStatus.running and job.started_at is None:
         job.started_at = datetime.now(UTC)
-    if body.status in (JobStatus.succeeded, JobStatus.failed, JobStatus.cancelled):
+    if body.status in (
+        JobStatus.succeeded,
+        JobStatus.failed,
+        JobStatus.cancelled,
+        JobStatus.paused,
+    ):
         job.finished_at = datetime.now(UTC)
         # Terminal states release the worker lease.
         job.leased_by = None
         job.lease_expires_at = None
+        job.lease_token = None
+        job.control_requested = None
     if body.error_stage is not None:
         job.error_stage = body.error_stage
     if body.error_message is not None:
@@ -405,16 +515,41 @@ async def retry_job(
     Subject to the same workload gating as :func:`create_job` — retrying a
     job under saturation just defers the problem.
     """
-    result = await db.execute(select(ProcessingJob).where(ProcessingJob.id == job_id))
+    result = await db.execute(
+        select(ProcessingJob).where(ProcessingJob.id == job_id).with_for_update()
+    )
     original = result.scalar_one_or_none()
     if original is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
-    if original.status != JobStatus.failed:
+    if original.status not in {JobStatus.failed, JobStatus.cancelled}:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"Only failed jobs can be retried (current status: {original.status})",
+            detail=(
+                f"Only failed or cancelled jobs can be retried (current status: {original.status})"
+            ),
         )
 
+    if original.video_id:
+        await db.execute(select(Video.id).where(Video.id == original.video_id).with_for_update())
+        active = (
+            await db.execute(
+                select(ProcessingJob)
+                .where(
+                    ProcessingJob.video_id == original.video_id,
+                    ProcessingJob.job_type == original.job_type,
+                    ProcessingJob.status.in_(
+                        [JobStatus.queued, JobStatus.running, JobStatus.paused]
+                    ),
+                )
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if active is not None and active.status in {
+            JobStatus.queued,
+            JobStatus.running,
+            JobStatus.paused,
+        }:
+            return JobResponse.from_orm_job(active)
     retry = ProcessingJob(
         id=uuid.uuid4(),
         video_id=original.video_id,
@@ -430,3 +565,80 @@ async def retry_job(
     await db.flush()
     log.info("job_retried", original_job_id=str(job_id), new_job_id=str(retry.id))
     return JobResponse.from_orm_job(retry)
+
+
+def _ensure_worker_lease(
+    job: ProcessingJob,
+    worker_id: str | None,
+    lease_token: uuid.UUID | None,
+    attempt_count: int | None,
+) -> None:
+    if job.leased_by != worker_id:
+        raise HTTPException(409, "Worker lease does not match")
+    token = job.lease_token
+    if isinstance(token, uuid.UUID) and token != lease_token:
+        raise HTTPException(409, "Stale worker attempt; lease token does not match")
+    if attempt_count is not None and attempt_count != job.attempt_count:
+        raise HTTPException(409, "Stale worker attempt")
+    if (
+        job.lease_expires_at
+        and isinstance(job.lease_expires_at, datetime)
+        and job.lease_expires_at <= datetime.now(UTC)
+    ):
+        raise HTTPException(409, "Worker lease has expired")
+
+
+async def _control_job(job_id: uuid.UUID, action: str, db: AsyncSession) -> JobResponse:
+    job = (
+        await db.execute(select(ProcessingJob).where(ProcessingJob.id == job_id).with_for_update())
+    ).scalar_one_or_none()
+    if job is None:
+        raise HTTPException(404, "Job not found")
+    if action == "resume":
+        if job.status != JobStatus.paused:
+            raise HTTPException(409, "Only paused jobs can be resumed")
+        job.status = JobStatus.queued
+        job.control_requested = None
+        job.finished_at = None
+        # A deliberate pause is not a failed attempt.
+        job.attempt_count = max(0, (job.attempt_count or 0) - 1)
+    elif job.status == JobStatus.running:
+        job.control_requested = action
+    elif job.status in {JobStatus.queued, JobStatus.paused}:
+        job.status = JobStatus.paused if action == "pause" else JobStatus.cancelled
+        job.control_requested = None
+        if action == "cancel":
+            job.finished_at = datetime.now(UTC)
+    elif action == "cancel" and job.status == JobStatus.cancelled:
+        pass
+    else:
+        raise HTTPException(409, "Job is already finished")
+    await db.flush()
+    return JobResponse.from_orm_job(job)
+
+
+@router.post("/{job_id}/pause", response_model=JobResponse)
+async def pause_job(
+    job_id: uuid.UUID,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    _user: Annotated[User, Depends(require_any_staff)],
+) -> JobResponse:
+    return await _control_job(job_id, "pause", db)
+
+
+@router.post("/{job_id}/resume", response_model=JobResponse)
+async def resume_job(
+    job_id: uuid.UUID,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    _user: Annotated[User, Depends(require_any_staff)],
+) -> JobResponse:
+    return await _control_job(job_id, "resume", db)
+
+
+@router.post("/{job_id}/cancel", response_model=JobResponse)
+async def cancel_job(
+    job_id: uuid.UUID,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    _user: Annotated[User, Depends(require_any_staff)],
+) -> JobResponse:
+    return await _control_job(job_id, "cancel", db)

@@ -30,6 +30,9 @@ import {
   SkipForward,
   StepBack,
   StepForward,
+  Volume2,
+  VolumeX,
+  Maximize,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { NativeSelect } from "@/components/ui/native-select";
@@ -101,6 +104,8 @@ export function VideoTransport({
   const [playing, setPlaying] = useState(false);
   const [rate, setRate] = useState(1);
   const [loop, setLoop] = useState(false);
+  const [muted, setMuted] = useState(false);
+  const [fullscreenAvailable, setFullscreenAvailable] = useState(false);
 
   // Mirror the element's play state (it can change from anywhere).
   useEffect(() => {
@@ -108,12 +113,17 @@ export function VideoTransport({
     if (!el) return;
     const onPlay = () => setPlaying(true);
     const onPause = () => setPlaying(false);
+    const onVolume = () => setMuted(el.muted);
     el.addEventListener("play", onPlay);
     el.addEventListener("pause", onPause);
+    el.addEventListener("volumechange", onVolume);
+    setMuted(el.muted);
+    setFullscreenAvailable(Boolean(el.parentElement?.requestFullscreen && document.fullscreenEnabled));
     setPlaying(!el.paused);
     return () => {
       el.removeEventListener("play", onPlay);
       el.removeEventListener("pause", onPause);
+      el.removeEventListener("volumechange", onVolume);
     };
   }, [videoRef]);
 
@@ -356,6 +366,8 @@ export function VideoTransport({
       </span>
 
       <div className="ml-auto flex items-center gap-1.5">
+        <Button variant="outline" size="icon-sm" aria-label={muted ? "Unmute audio" : "Mute audio"} onClick={() => { const element = videoRef.current; if (element) { element.muted = !element.muted; setMuted(element.muted); } }}>{muted ? <VolumeX className="size-3.5" /> : <Volume2 className="size-3.5" />}</Button>
+        <Button variant="outline" size="icon-sm" aria-label="Full screen" disabled={!fullscreenAvailable} title={fullscreenAvailable ? "Full screen" : "Full screen is unavailable in this browser"} onClick={() => { const target = videoRef.current?.parentElement; if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined); else if (target?.requestFullscreen) void target.requestFullscreen().catch(() => undefined); }}><Maximize className="size-3.5" /></Button>
         <NativeSelect
           value={String(rate)}
           onChange={(e) => applyRate(Number(e.target.value))}

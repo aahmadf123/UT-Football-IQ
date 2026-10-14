@@ -16,12 +16,23 @@ from app.models import (
     CaptureRegime,
     Clip,
     ClipResultState,
+    CoachCorrection,
+    CorrectionType,
     Metric,
     SessionKind,
     SideOfBall,
     User,
     Video,
 )
+from app.services.annotations import (
+    annotation_revision,
+    check_revision,
+    invalidate_metrics,
+    lock_output_id,
+    touch_annotation,
+    touch_observations,
+)
+from app.services.metric_policy import metric_visibility
 
 # Recognized clip-level possession values (must match SideOfBall enum).
 _VALID_SIDES: frozenset[str] = frozenset(s.value for s in SideOfBall)
@@ -67,14 +78,19 @@ router = APIRouter(tags=["clips"])
 
 class ClipCreate(BaseModel):
     model_config = {"protected_namespaces": ()}
+    id: uuid.UUID | None = None
 
-    start_time: float
-    end_time: float
+    start_time: float = Field(ge=0, allow_inf_nan=False)
+    end_time: float = Field(gt=0, allow_inf_nan=False)
     play_number: int | None = None
     # Coach-tagged play-call code linking this clip to the same-play clip in the
     # other capture regime (Issue #150 cross-regime pairing).
     play_call_id: str | None = None
     label_data: dict[str, Any] | None = None
+    personnel_grouping: str | None = Field(default=None, max_length=20)
+    down: int | None = Field(default=None, ge=1, le=4)
+    distance: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    field_zone: str | None = Field(default=None, max_length=30)
     confidence: float | None = None
     storage_uri: str | None = None
     boundary_source: str | None = None
@@ -92,15 +108,22 @@ class ClipCreate(BaseModel):
     # Same-session result tier (Issue #147): the GPU worker sets this to
     # ``preliminary`` for same-session first-pass clips, ``final`` for nightly.
     result_state: ClipResultState | None = None
+    provenance: dict[str, Any] | None = None
 
 
 class ClipUpdate(BaseModel):
-    start_time: float | None = None
-    end_time: float | None = None
+    expected_revision: int | None = Field(default=None, ge=0)
+    tracking_review_required: bool | None = None
+    start_time: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    end_time: float | None = Field(default=None, gt=0, allow_inf_nan=False)
     play_number: int | None = None
     # Coach tagging of matched practice <-> game plays (Issue #150).
     play_call_id: str | None = None
     label_data: dict[str, Any] | None = None
+    personnel_grouping: str | None = Field(default=None, max_length=20)
+    down: int | None = Field(default=None, ge=1, le=4)
+    distance: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    field_zone: str | None = Field(default=None, max_length=30)
     is_reviewed: bool | None = None
     storage_uri: str | None = None
     boundary_source: str | None = None
@@ -112,6 +135,7 @@ class ClipUpdate(BaseModel):
     uncertainty_score: float | None = Field(default=None, ge=0.0, le=1.0)
     uncertainty_calibrated: bool | None = None
     result_state: ClipResultState | None = None
+    provenance: dict[str, Any] | None = None
 
 
 class ClipResponse(BaseModel):
@@ -127,6 +151,12 @@ class ClipResponse(BaseModel):
     is_reviewed: bool
     storage_uri: str | None
     label_data: dict[str, Any] | None
+    personnel_grouping: str | None = Field(default=None, max_length=20)
+    down: int | None = Field(default=None, ge=1, le=4)
+    distance: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    field_zone: str | None = Field(default=None, max_length=30)
+    annotation_revision: int = 0
+    tracking_review_required: bool = False
     boundary_source: str | None
     boundary_confidence: float | None
     model_version_id: uuid.UUID | None
@@ -147,6 +177,7 @@ class ClipResponse(BaseModel):
     is_preliminary: bool
     review_state: str
     created_at: str
+    provenance: dict[str, Any] | None = None
 
     @classmethod
     def from_orm_clip(cls, c: Clip) -> "ClipResponse":
@@ -161,6 +192,16 @@ class ClipResponse(BaseModel):
             is_reviewed=c.is_reviewed,
             storage_uri=c.storage_uri,
             label_data=c.label_data,
+            personnel_grouping=c.personnel_grouping
+            if isinstance(c.personnel_grouping, str)
+            else None,
+            down=c.down if isinstance(c.down, int) else None,
+            distance=c.distance if isinstance(c.distance, (float, int)) else None,
+            field_zone=c.field_zone if isinstance(c.field_zone, str) else None,
+            annotation_revision=annotation_revision(c),
+            tracking_review_required=bool(c.label_data.get("tracking_review_required"))
+            if isinstance(c.label_data, dict)
+            else False,
             boundary_source=c.boundary_source,
             boundary_confidence=c.boundary_confidence,
             model_version_id=c.model_version_id,
@@ -177,6 +218,7 @@ class ClipResponse(BaseModel):
             is_preliminary=c.result_state == ClipResultState.preliminary.value,
             review_state=_derive_review_state(c),
             created_at=c.created_at.isoformat(),
+            provenance=c.provenance if isinstance(c.provenance, dict) else None,
         )
 
 
@@ -201,6 +243,7 @@ class MetricResponse(BaseModel):
     calibration_version_id: uuid.UUID | None
     job_id: uuid.UUID | None
     created_at: str
+    provenance: dict[str, Any] | None = None
 
     @classmethod
     def from_orm_metric(cls, m: Metric) -> "MetricResponse":
@@ -223,6 +266,7 @@ class MetricResponse(BaseModel):
             calibration_version_id=m.calibration_version_id,
             job_id=m.job_id,
             created_at=m.created_at.isoformat(),
+            provenance=m.provenance if isinstance(m.provenance, dict) else None,
         )
 
 
@@ -264,6 +308,13 @@ async def create_clip(
     _current_user: Annotated[User, Depends(require_any_staff)],
 ) -> ClipResponse:
     """Propose a new play boundary for a video (manual or system-generated)."""
+    if body.id is not None:
+        await lock_output_id(db, body.id)
+        existing = (await db.execute(select(Clip).where(Clip.id == body.id))).scalar_one_or_none()
+        if existing is not None:
+            if existing.video_id != video_id:
+                raise HTTPException(409, detail="Output ID belongs to another recording")
+            return ClipResponse.from_orm_clip(existing)
     vid_result = await db.execute(select(Video).where(Video.id == video_id))
     video = vid_result.scalar_one_or_none()
     if video is None:
@@ -273,6 +324,8 @@ async def create_clip(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="start_time must be less than end_time",
         )
+    if isinstance(video.duration_seconds, (float, int)) and body.end_time > video.duration_seconds:
+        raise HTTPException(422, detail="Clip boundary exceeds recording duration")
 
     # Promote label_data["side_of_ball"] into the typed column when no
     # explicit value was supplied (forward-looking version of the
@@ -308,13 +361,17 @@ async def create_clip(
     )
 
     clip = Clip(
-        id=uuid.uuid4(),
+        id=body.id or uuid.uuid4(),
         video_id=video_id,
         start_time=body.start_time,
         end_time=body.end_time,
         play_number=body.play_number,
         play_call_id=body.play_call_id,
         label_data=body.label_data,
+        personnel_grouping=body.personnel_grouping,
+        down=body.down,
+        distance=body.distance,
+        field_zone=body.field_zone,
         confidence=body.confidence,
         storage_uri=body.storage_uri,
         boundary_source=body.boundary_source,
@@ -330,9 +387,14 @@ async def create_clip(
         uncertainty_score=body.uncertainty_score,
         uncertainty_calibrated=body.uncertainty_calibrated,
         result_state=body.result_state.value if body.result_state else None,
+        provenance=body.provenance,
     )
     db.add(clip)
     await db.flush()
+    if isinstance(video.practice_session_id, uuid.UUID):
+        from app.routers.sessions import ensure_recording_plays
+
+        await ensure_recording_plays(db, video)
     log.info(
         "clip_created",
         clip_id=str(clip.id),
@@ -409,10 +471,28 @@ async def update_clip(
     current_user: Annotated[User, Depends(require_coach_or_above)],
 ) -> ClipResponse:
     """Update a clip's boundaries or review status (coach/analyst override)."""
-    result = await db.execute(select(Clip).where(Clip.id == clip_id))
+    result = await db.execute(select(Clip).where(Clip.id == clip_id).with_for_update())
     clip = result.scalar_one_or_none()
     if clip is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Clip not found")
+    check_revision(clip, body.expected_revision)
+    before = {"start_seconds": clip.start_time, "end_seconds": clip.end_time}
+    metadata_fields = (
+        "personnel_grouping",
+        "down",
+        "distance",
+        "field_zone",
+        "play_number",
+        "play_call_id",
+        "our_possession",
+        "side_of_ball",
+        "capture_regime",
+        "regime_confidence",
+    )
+    metadata_before = {
+        key: str(value) if isinstance(value := getattr(clip, key), uuid.UUID) else value
+        for key in metadata_fields
+    }
 
     if body.start_time is not None:
         clip.start_time = body.start_time
@@ -423,16 +503,35 @@ async def update_clip(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="start_time must be less than end_time",
         )
+    if body.start_time is not None or body.end_time is not None:
+        video = await db.get(Video, clip.video_id)
+        if (
+            video is not None
+            and isinstance(video.duration_seconds, (float, int))
+            and clip.end_time > video.duration_seconds
+        ):
+            raise HTTPException(422, detail="Clip boundary exceeds recording duration")
     if body.play_number is not None:
         clip.play_number = body.play_number
     if body.play_call_id is not None:
         clip.play_call_id = body.play_call_id
     if body.label_data is not None:
-        clip.label_data = body.label_data
+        current = clip.label_data if isinstance(clip.label_data, dict) else {}
+        clip.label_data = {
+            **current,
+            **{k: v for k, v in body.label_data.items() if not k.startswith("_")},
+        }
+    metadata_updates = {
+        key: getattr(body, key) for key in metadata_fields if key in body.model_fields_set
+    }
+    for key, value in metadata_updates.items():
+        setattr(clip, key, value)
     if body.is_reviewed is not None:
         clip.is_reviewed = body.is_reviewed
         if body.is_reviewed:
             clip.reviewed_by = current_user.id
+        else:
+            clip.reviewed_by = None
     if body.storage_uri is not None:
         clip.storage_uri = body.storage_uri
     if body.boundary_source is not None:
@@ -456,7 +555,61 @@ async def update_clip(
         clip.uncertainty_calibrated = body.uncertainty_calibrated
     if body.result_state is not None:
         clip.result_state = body.result_state.value
+    if body.provenance is not None:
+        clip.provenance = body.provenance
+    if body.tracking_review_required is not None:
+        data = clip.label_data if isinstance(clip.label_data, dict) else {}
+        clip.label_data = {**data, "tracking_review_required": body.tracking_review_required}
 
+    boundary_changed = body.start_time is not None or body.end_time is not None
+    annotations_changed = (
+        boundary_changed
+        or bool(metadata_updates)
+        or body.label_data is not None
+        or body.tracking_review_required is not None
+    )
+    if annotations_changed:
+        if (
+            boundary_changed
+            or body.tracking_review_required is not None
+            or {"capture_regime", "side_of_ball", "our_possession"}.intersection(metadata_updates)
+        ):
+            touch_observations(clip)
+        revision = touch_annotation(clip)
+        if body.is_reviewed is None:
+            clip.is_reviewed = False
+            clip.reviewed_by = None
+        if boundary_changed:
+            clip.boundary_source = "manual"
+            clip.boundary_confidence = 1.0
+            clip.storage_uri = None
+        await invalidate_metrics(db, clip, "coach_annotation_changed")
+        db.add(
+            CoachCorrection(
+                id=uuid.uuid4(),
+                clip_id=clip.id,
+                correction_type=CorrectionType.clip_boundary
+                if boundary_changed
+                else CorrectionType.personnel_tag,
+                original_value=before if boundary_changed else metadata_before,
+                corrected_value={
+                    "start_seconds": clip.start_time,
+                    "end_seconds": clip.end_time,
+                    "_revision": revision,
+                }
+                if boundary_changed
+                else {
+                    "metadata": {
+                        key: str(value) if isinstance(value, uuid.UUID) else value
+                        for key, value in metadata_updates.items()
+                    },
+                    "label_data": body.label_data,
+                    "_revision": revision,
+                },
+                corrected_by=current_user.id,
+                training_eligible=boundary_changed or "personnel_grouping" in metadata_updates,
+            )
+        )
     await db.flush()
     log.info("clip_updated", clip_id=str(clip_id))
     return ClipResponse.from_orm_clip(clip)
@@ -466,7 +619,7 @@ async def update_clip(
 async def get_clip_metrics(
     clip_id: uuid.UUID,
     db: Annotated[AsyncSession, Depends(get_db)],
-    _current_user: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[User, Depends(get_current_user)],
 ) -> list[MetricResponse]:
     """Get all metrics for a clip — each includes its evidence lineage."""
     clip_result = await db.execute(select(Clip).where(Clip.id == clip_id))
@@ -474,7 +627,9 @@ async def get_clip_metrics(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Clip not found")
 
     result = await db.execute(
-        select(Metric).where(Metric.clip_id == clip_id).order_by(Metric.metric_name)
+        metric_visibility(select(Metric).where(Metric.clip_id == clip_id), current_user).order_by(
+            Metric.metric_name
+        )
     )
     return [MetricResponse.from_orm_metric(m) for m in result.scalars().all()]
 

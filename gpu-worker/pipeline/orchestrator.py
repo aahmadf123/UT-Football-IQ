@@ -35,6 +35,9 @@ from typing import Any
 
 import structlog
 
+from pipeline.checkpoints import atomic_write, checkpoint_identity, envelope, read_envelope
+from pipeline.runtime import PipelineInterrupted, check_control, set_checkpoint_identity
+
 log = structlog.get_logger(__name__)
 
 #: Stages that operate on the whole video, in canonical order.
@@ -53,6 +56,7 @@ VIDEO_STAGES: tuple[str, ...] = ("ingest", "segment", "calibrate", "detect")
 #: does not currently return it, and the other four signals do not need it --
 #: so events goes first. Feeding pose back in would need a second pass.
 CLIP_STAGES: tuple[str, ...] = (
+    "playback_proxy",
     "track",
     "reid",
     "events",
@@ -97,6 +101,9 @@ def _json_default(obj: Any) -> Any:
 class ArtifactSink:
     """Writes per-stage JSON snapshots; ``load`` powers resume."""
 
+    def configure(self, identity: dict[str, Any]) -> None:
+        self.fingerprint = str(identity["fingerprint"])
+
     def write(self, stage: str, payload: dict[str, Any], clip_id: str | None = None) -> str | None:
         raise NotImplementedError
 
@@ -120,14 +127,19 @@ class DirArtifactSink(ArtifactSink):
     def __init__(self, root: Path) -> None:
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)
+        self.fingerprint = "unconfigured"
 
     def _path(self, stage: str, clip_id: str | None) -> Path:
+        if any(part in stage for part in ("/", "\\", "..")) or (
+            clip_id and any(part in clip_id for part in ("/", "\\", ".."))
+        ):
+            raise ValueError("Invalid checkpoint stage or clip identifier")
         name = f"{stage}.{clip_id}.json" if clip_id else f"{stage}.json"
         return self.root / name
 
     def write(self, stage: str, payload: dict[str, Any], clip_id: str | None = None) -> str | None:
         path = self._path(stage, clip_id)
-        path.write_text(json.dumps(payload, default=_json_default))
+        atomic_write(path, envelope(payload, self.fingerprint, _json_default))
         return str(path)
 
     def load(self, stage: str, clip_id: str | None = None) -> dict[str, Any] | None:
@@ -135,8 +147,7 @@ class DirArtifactSink(ArtifactSink):
         if not path.is_file():
             return None
         try:
-            data: dict[str, Any] = json.loads(path.read_text())
-            return data
+            return read_envelope(path.read_bytes(), self.fingerprint)
         except (OSError, json.JSONDecodeError):
             return None
 
@@ -146,39 +157,40 @@ class StorageArtifactSink(ArtifactSink):
 
     def __init__(self, video_id: str) -> None:
         self.video_id = video_id
-        self._refs: dict[str, str] = {}
+        self.fingerprint = "unconfigured"
 
     def _key(self, stage: str, clip_id: str | None) -> str:
         name = f"{stage}.{clip_id}.json" if clip_id else f"{stage}.json"
-        return f"pipeline_artifacts/{self.video_id}/{name}"
+        return f"pipeline_artifacts/{self.video_id}/{self.fingerprint}/{name}"
 
     def write(self, stage: str, payload: dict[str, Any], clip_id: str | None = None) -> str | None:
         from pipeline import storage
 
         try:
-            data = json.dumps(payload, default=_json_default).encode()
+            data = envelope(payload, self.fingerprint, _json_default)
             uri = storage.upload_bytes(
                 data, self._key(stage, clip_id), content_type="application/json"
             )
-            self._refs[self._key(stage, clip_id)] = uri
             return uri
         except Exception as exc:
-            log.warning("artifact_ledger_write_failed", stage=stage, error=str(exc))
-            return None
+            log.error("artifact_ledger_write_failed", stage=stage, error=str(exc))
+            raise
 
     def load(self, stage: str, clip_id: str | None = None) -> dict[str, Any] | None:
         from pipeline import storage
 
-        ref = self._refs.get(self._key(stage, clip_id))
-        if not ref:
-            return None
+        # Resolve the deterministic object URI even in a fresh worker process.
+        scheme = storage.active_backend()
+        if scheme == "api":
+            ref = f"api://artifacts/{self._key(stage, clip_id)}"
+        else:
+            ref = f"{scheme}://artifacts/{self._key(stage, clip_id)}"
         try:
             path = storage.download_to_temp(ref)
         except Exception:
             return None
         try:
-            data: dict[str, Any] = json.loads(path.read_text())
-            return data
+            return read_envelope(path.read_bytes(), self.fingerprint)
         except (OSError, json.JSONDecodeError):
             return None
         finally:
@@ -197,6 +209,7 @@ class PipelineContext:
     priority: int = 0
     job_id: str = "local"
     roster: list[dict[str, Any]] = field(default_factory=list)
+    processing_profile: str = "quick"
 
     # Populated by video-scoped stages
     video_path: Path | None = None  # master local copy, downloaded once
@@ -222,14 +235,21 @@ class PipelineContext:
     stage_artifacts: dict[str, dict[str, Any]] = field(default_factory=dict)
     clip_artifacts: dict[str, dict[str, dict[str, Any]]] = field(default_factory=dict)
     model_routing: dict[str, str] = field(default_factory=dict)
+    model_provenance: dict[str, Any] = field(default_factory=dict)
+    calibration_series: list[dict[str, Any]] = field(default_factory=list)
+    effective_annotations: dict[str, dict[str, Any]] = field(default_factory=dict)
+    lineage: dict[str, Any] = field(default_factory=dict)
+    timeline: Any = None
 
 
 # ── Per-clip helpers ──────────────────────────────────────────────────────────
 
 
-def _clip_frame_window(clip: dict[str, Any], fps: float) -> tuple[int, int]:
+def _clip_frame_window(clip: dict[str, Any], fps: float, timeline: Any = None) -> tuple[int, int]:
     start_t = float(clip.get("start_time") or 0.0)
     end_t = float(clip.get("end_time") or 0.0)
+    if timeline is not None:
+        return timeline.window(start_t, end_t)
     return int(start_t * fps), max(int(end_t * fps), int(start_t * fps))
 
 
@@ -257,7 +277,7 @@ def _ball_only(
 def _slice_detections(
     detections: dict[str, list[dict[str, Any]]], start_frame: int, end_frame: int
 ) -> dict[str, list[dict[str, Any]]]:
-    return {f: dets for f, dets in detections.items() if start_frame <= int(f) <= end_frame}
+    return {f: dets for f, dets in detections.items() if start_frame <= int(f) < end_frame}
 
 
 def _offense_direction(labels: list[dict[str, Any]]) -> int | None:
@@ -284,6 +304,7 @@ def _offense_direction(labels: list[dict[str, Any]]) -> int | None:
 def _run_video_stage(stage: str, ctx: PipelineContext) -> dict[str, Any]:
     """Run one video-scoped stage and fold its outputs into the context."""
     from pipeline import model_router
+    from pipeline.lightweight_config import local_model_variant
 
     # Stages re-materialise the video from this reference themselves; the
     # master temp copy keeps that a local file copy, never a re-download.
@@ -301,33 +322,56 @@ def _run_video_stage(stage: str, ctx: PipelineContext) -> dict[str, Any]:
         return artifacts
 
     if stage == "segment":
+        # Coach-edited cuts are authoritative. Reprocessing may refresh
+        # analytics, but must not replace the reviewed play layout.
+        existing = ctx.lineage.get("existing_clips") or []
+        if existing and any(clip.get("boundary_source") == "manual" for clip in existing):
+            return {
+                "clips": existing,
+                "clip_count": len(existing),
+                "boundary_model": "coach-reviewed-layout",
+                "data_source": "manual",
+            }
         from pipeline import stage_segment
 
-        artifacts = stage_segment.run(ctx.video_id, local_uri, ctx.job_id, priority=ctx.priority)
+        artifacts = stage_segment.run(
+            ctx.video_id, local_uri, ctx.job_id, priority=ctx.priority, timeline=ctx.timeline,
+            processing_profile=ctx.processing_profile,
+        )
         ctx.clips = [c for c in artifacts.get("clips", []) if c.get("id")]
         return artifacts
 
     if stage == "calibrate":
         from pipeline import stage_calibrate
 
-        variant = model_router.select_model("calibrate", ctx.priority)
+        variant = local_model_variant("calibrate", ctx.priority, ctx.processing_profile)
         artifacts = stage_calibrate.run(
             ctx.video_id,
             local_uri,
             ctx.job_id,
             variant=variant,
             capture_regime=ctx.capture_regime,
+            timeline=ctx.timeline,
         )
         ctx.analytics_safe = bool(artifacts.get("analytics_safe", False))
         ctx.calibration = artifacts
         ctx.homography = artifacts.get("homography")
         ctx.field_boundary = artifacts.get("field_boundary")
+        ctx.calibration_series = artifacts.get("calibration_series") or []
+        # A global transform is unsafe when the camera moves. Per-frame track
+        # projection below resolves the timeline independently.
+        if ctx.capture_regime not in {"fixed_sideline", "fixed_endzone"}:
+            ctx.homography = None
+            if not ctx.calibration_series:
+                ctx.analytics_safe = False
         return artifacts
 
     if stage == "detect":
         from pipeline import stage_detect
 
-        variant = model_router.select_detect_variant(ctx.priority, ctx.capture_regime)
+        variant = local_model_variant("detect", ctx.priority, ctx.processing_profile)
+        if __import__("os").environ.get("PIPELINE_DEVICE", "cpu") != "cpu":
+            variant = model_router.select_detect_variant(ctx.priority, ctx.capture_regime)
         artifacts = stage_detect.run(
             ctx.video_id,
             local_uri,
@@ -336,6 +380,7 @@ def _run_video_stage(stage: str, ctx: PipelineContext) -> dict[str, Any]:
             capture_regime=ctx.capture_regime,
             priority=ctx.priority,
             field_boundary=ctx.field_boundary,
+            timeline=ctx.timeline,
         )
         ctx.detections = artifacts.get("detections", {})
         if artifacts.get("fps"):
@@ -407,7 +452,7 @@ def _score_clip_uncertainty(ctx: PipelineContext, clip_id: str) -> None:
 
 def _run_clip_stage(stage: str, ctx: PipelineContext, clip: dict[str, Any]) -> dict[str, Any]:
     """Run one clip-scoped stage for ``clip`` and fold outputs into context."""
-    from pipeline import model_router
+    from pipeline.lightweight_config import local_model_variant
 
     clip_id = str(clip["id"])
     per_clip = ctx.clip_artifacts.setdefault(clip_id, {})
@@ -416,12 +461,20 @@ def _run_clip_stage(stage: str, ctx: PipelineContext, clip: dict[str, Any]) -> d
     labels_list: list[dict[str, Any]] = per_clip.get("labels", {}).get("labels", [])
     metrics_list: list[dict[str, Any]] = per_clip.get("metrics", {}).get("metrics", [])
     pose_metrics: dict[str, Any] = per_clip.get("pose", {}).get("pose_metrics", {})
-    start_frame, end_frame = _clip_frame_window(clip, ctx.fps)
+    start_frame, end_frame = _clip_frame_window(clip, ctx.fps, ctx.timeline)
+    analytics_safe = ctx.analytics_safe
+    if ctx.calibration_series and tracklets:
+        points = [point for track in tracklets for point in track.get("track_points", [])]
+        analytics_safe = bool(points) and all(
+            isinstance(point.get("field_x"), (int, float))
+            and isinstance(point.get("field_y"), (int, float))
+            for point in points
+        )
 
     if stage == "track":
         from pipeline import stage_track
 
-        variant = model_router.select_model("track", ctx.priority)
+        variant = local_model_variant("track", ctx.priority, ctx.processing_profile)
         clip_dets = _slice_detections(ctx.detections, start_frame, end_frame)
         return stage_track.run(
             clip_id,
@@ -433,7 +486,10 @@ def _run_clip_stage(stage: str, ctx: PipelineContext, clip: dict[str, Any]) -> d
             # both the tracks and the calibration. Every downstream spatial
             # metric reads them off the track points.
             homography=ctx.homography,
-            analytics_safe=ctx.analytics_safe,
+            analytics_safe=analytics_safe,
+            calibration_series=ctx.calibration_series or None,
+            capture_regime=ctx.capture_regime,
+            detector_provenance=ctx.model_provenance.get("detect"),
         )
 
     if stage == "reid":
@@ -442,7 +498,7 @@ def _run_clip_stage(stage: str, ctx: PipelineContext, clip: dict[str, Any]) -> d
 
         if ctx.video_path is None:
             return {"reid_skipped": True, "reason": "no_video_path"}
-        variant = model_router.select_model("reid", ctx.priority)
+        variant = local_model_variant("reid", ctx.priority, ctx.processing_profile)
         return stage_reid.run(
             clip_id,
             ctx.video_path,
@@ -452,6 +508,7 @@ def _run_clip_stage(stage: str, ctx: PipelineContext, clip: dict[str, Any]) -> d
             BACKEND_API_URL,
             variant=variant,
             priority=ctx.priority,
+            timeline=ctx.timeline,
         )
 
     if stage == "pose":
@@ -467,10 +524,12 @@ def _run_clip_stage(stage: str, ctx: PipelineContext, clip: dict[str, Any]) -> d
                 source,
                 tracklets,
                 events_list,
-                ctx.analytics_safe,
+                analytics_safe,
                 ctx.fps,
                 ctx.job_id,
                 model_path,
+                frame_start=start_frame,
+                frame_end=end_frame,
             )
 
     if stage == "events":
@@ -496,6 +555,7 @@ def _run_clip_stage(stage: str, ctx: PipelineContext, clip: dict[str, Any]) -> d
             tracklets=tracklets or None,
             ball_detections=_ball_only(clip_dets),
             homography=ctx.homography,
+            timeline=ctx.timeline,
         )
 
     if stage == "labels":
@@ -511,10 +571,11 @@ def _run_clip_stage(stage: str, ctx: PipelineContext, clip: dict[str, Any]) -> d
             clip_id,
             tracklets,
             events_list,
-            ctx.analytics_safe,
+            analytics_safe,
             ctx.fps,
             ctx.job_id,
             pose_metrics=pose_metrics or None,
+            timeline=ctx.timeline,
         )
 
     if stage == "routes":
@@ -530,16 +591,14 @@ def _run_clip_stage(stage: str, ctx: PipelineContext, clip: dict[str, Any]) -> d
             tracklets,
             events_list,
             ctx.fps,
-            analytics_safe=ctx.analytics_safe,
+            analytics_safe=analytics_safe,
             offense_direction=_offense_direction(labels_list),
         )
 
     if stage == "oline":
         from pipeline import stage_oline
 
-        return stage_oline.run(
-            clip_id, tracklets, events_list, ctx.analytics_safe, ctx.fps, ctx.job_id
-        )
+        return stage_oline.run(clip_id, tracklets, events_list, analytics_safe, ctx.fps, ctx.job_id)
 
     if stage == "pressure":
         from pipeline import stage_pressure
@@ -548,12 +607,12 @@ def _run_clip_stage(stage: str, ctx: PipelineContext, clip: dict[str, Any]) -> d
             clip_id,
             tracklets,
             events_list,
-            ctx.analytics_safe,
+            analytics_safe,
             ctx.fps,
             ctx.job_id,
             offense_direction=_offense_direction(labels_list),
-            down=None,
-            distance_yards=None,
+            down=clip.get("down"),
+            distance_yards=clip.get("distance"),
         )
 
     if stage == "render":
@@ -570,8 +629,13 @@ def _run_clip_stage(stage: str, ctx: PipelineContext, clip: dict[str, Any]) -> d
                 ctx.video_path,
                 tracklets,
                 labels_list,
-                ctx.analytics_safe,
+                analytics_safe,
                 ctx.fps,
+                frame_start=start_frame,
+                frame_end=end_frame,
+                timeline=ctx.timeline,
+                start_seconds=clip.get("start_time"),
+                end_seconds=clip.get("end_time"),
             )
         return stage_render.run(
             clip_id,
@@ -579,9 +643,14 @@ def _run_clip_stage(stage: str, ctx: PipelineContext, clip: dict[str, Any]) -> d
             tracklets,
             labels_list,
             metrics_list,
-            ctx.analytics_safe,
+            analytics_safe,
             ctx.fps,
             BACKEND_API_URL,
+            frame_start=start_frame,
+            frame_end=end_frame,
+            timeline=ctx.timeline,
+            start_seconds=clip.get("start_time"),
+            end_seconds=clip.get("end_time"),
         )
 
     if stage == "render_hls":
@@ -616,46 +685,35 @@ def run_pipeline(
     progress_cb: ProgressCallback | None = None,
     artifact_sink: ArtifactSink | None = None,
     roster: list[dict[str, Any]] | None = None,
+    processing_profile: str | None = None,
+    revisions: dict[str, Any] | None = None,
+    lineage: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Run the full processing chain for one video and return a summary.
+    """Process film locally, keeping compatible completed stages after restart.
 
-    Args:
-        video_id: Backend video id (or any identifier for local runs).
-        input_uri: ``s3://`` / ``local://`` / ``file://`` reference or plain
-            path to the source video.
-        priority: Routing priority — ≥ 10 selects the same-session
-            (fast/preliminary) path, otherwise nightly (full quality).
-        job_id: Backend job id when driven by the worker; ``"local"`` for CLI.
-        stages: Explicit stage list; defaults to the mode's configured list.
-        progress_cb: Per-stage progress hook (worker → job heartbeat).
-        artifact_sink: Ledger for stage-output JSON; completed stages found
-            in the ledger are skipped (resume support).
-        roster: Optional roster records for jersey re-ID.
+    Profiles choose capabilities independently of queue priority. Every
+    checkpoint validates actual film/model/config/annotation lineage. Optional
+    analysis can be unavailable while imported film and completed clips remain
+    usable; the returned summary states those failures explicitly.
     """
-    from pipeline import model_router, storage
+    from pipeline import model_registry_client, model_router, storage
     from pipeline.lightweight_config import (
-        NIGHTLY_STAGES,
-        SAME_SESSION_STAGES,
+        processing_profile as resolve_profile,
+    )
+    from pipeline.lightweight_config import (
+        profile_stages,
         should_skip_stage,
     )
 
     started = time.monotonic()
     sink = artifact_sink or NullArtifactSink()
+    profile = resolve_profile(processing_profile)
     is_same_session = model_router.is_same_session(priority)
-    stage_list = list(
-        stages
-        if stages is not None
-        else (SAME_SESSION_STAGES if is_same_session else NIGHTLY_STAGES)
-    )
-    # Backend-coupled aggregate stages never belong to a single video's chain.
-    stage_list = [s for s in stage_list if s not in BACKEND_COUPLED_STAGES]
-
-    def report(stage: str, clip_id: str | None, status: str, **extra: Any) -> None:
-        if progress_cb is not None:
-            try:
-                progress_cb(stage, clip_id, status, extra)
-            except Exception as exc:  # progress must never kill the pipeline
-                log.warning("progress_cb_failed", stage=stage, error=str(exc))
+    stage_list = list(stages if stages is not None else profile_stages(profile))
+    stage_list = [stage for stage in stage_list if stage not in BACKEND_COUPLED_STAGES]
+    unknown = set(stage_list).difference(VIDEO_STAGES, CLIP_STAGES)
+    if unknown:
+        raise ValueError(f"Unknown processing stages: {', '.join(sorted(unknown))}")
 
     ctx = PipelineContext(
         video_id=video_id,
@@ -663,139 +721,468 @@ def run_pipeline(
         priority=priority,
         job_id=job_id,
         roster=roster or [],
+        processing_profile=profile,
+        effective_annotations={
+            str(item["id"]): item for item in (revisions or {}).get("effective_annotations", [])
+        },
+        lineage=lineage or {},
     )
     stage_timings: dict[str, float] = {}
+    stage_states: dict[str, dict[str, Any]] = {}
     failed_clip_stages: list[dict[str, str]] = []
+    failed_video_stages: list[dict[str, str]] = []
+    identity: dict[str, Any] = {}
+    interrupted: str | None = None
 
-    log.info(
-        "pipeline_start",
-        video_id=video_id,
-        input_uri=input_uri,
-        mode="same_session" if is_same_session else "nightly",
-        stages=stage_list,
-    )
+    def report(stage: str, clip_id: str | None, status: str, **extra: Any) -> None:
+        key = f"{stage}:{clip_id}" if clip_id else stage
+        stage_states[key] = {"status": status, **extra}
+        if progress_cb is not None:
+            try:
+                progress_cb(stage, clip_id, status, extra)
+            except PipelineInterrupted:
+                raise
+            except Exception as exc:
+                log.warning("progress_cb_failed", stage=stage, error=str(exc))
 
-    # Materialise the source once; every stage reuses this local copy.
+    def accept(stage: str, clip_id: str | None, artifacts: dict[str, Any]) -> None:
+        if clip_id is None:
+            _fold_cached_video_stage(stage, ctx, artifacts)
+            if stage == "segment":
+                for clip in ctx.clips:
+                    corrected = ctx.effective_annotations.get(str(clip["id"]))
+                    if corrected:
+                        clip.update(corrected)
+        else:
+            per_clip = ctx.clip_artifacts.setdefault(clip_id, {})
+            per_clip[stage] = artifacts
+            if stage == "events":
+                corrected = ctx.effective_annotations.get(clip_id, {})
+                for original in corrected.get("human_events") or []:
+                    event = {
+                        **original,
+                        "attributes": dict(original.get("attributes") or {}),
+                        "source": "human",
+                    }
+                    # Staff event entry uses the play clock. Pipeline consumers
+                    # use absolute recording frames consistently, including pose.
+                    timebase = event["attributes"].get("timebase", "unknown")
+                    events = artifacts.setdefault("events", [])
+                    if timebase == "unknown":
+                        events[:] = [
+                            item for item in events if item.get("event_type") != event["event_type"]
+                        ]
+                        artifacts.setdefault("event_review_required", []).append(
+                            {"event_id": event.get("id"), "reason": "event_timebase_unknown"}
+                        )
+                        continue
+                    if timebase == "clip":
+                        offset = float(corrected.get("start_time") or 0)
+                        if event.get("timestamp_seconds") is not None:
+                            event["timestamp_seconds"] = offset + float(event["timestamp_seconds"])
+                            event["frame_number"] = (
+                                ctx.timeline.frame_for_time(event["timestamp_seconds"])
+                                if ctx.timeline
+                                else int(event["timestamp_seconds"] * ctx.fps)
+                            )
+                        elif event.get("frame_number") is not None:
+                            event["frame_number"] = (
+                                ctx.timeline.frame_for_time(offset)
+                                if ctx.timeline
+                                else int(offset * ctx.fps)
+                            ) + int(event["frame_number"])
+                            if ctx.timeline:
+                                event["timestamp_seconds"] = ctx.timeline.timestamp(
+                                    event["frame_number"]
+                                )
+                        event["attributes"]["timebase"] = "recording"
+                    elif timebase == "recording" and ctx.timeline:
+                        if event.get("timestamp_seconds") is not None:
+                            event["frame_number"] = ctx.timeline.frame_for_time(
+                                event["timestamp_seconds"]
+                            )
+                        elif event.get("frame_number") is not None:
+                            event["timestamp_seconds"] = ctx.timeline.timestamp(
+                                event["frame_number"]
+                            )
+                    events = artifacts.setdefault("events", [])
+                    events[:] = [
+                        item for item in events if item.get("event_type") != event["event_type"]
+                    ]
+                    events.append(event)
+                artifacts["event_count"] = len(artifacts.get("events") or [])
+            if stage == "labels":
+                corrected = ctx.effective_annotations.get(clip_id, {}).get("label_data") or {}
+                for label_type, label_value in corrected.items():
+                    if label_type.startswith("_") or not isinstance(label_value, dict):
+                        continue
+                    labels = artifacts.setdefault("labels", [])
+                    labels[:] = [item for item in labels if item.get("label_type") != label_type]
+                    labels.append(
+                        {"label_type": label_type, "label_value": label_value, "source": "human"}
+                    )
+            if stage == "coverage" and isinstance(artifacts.get("feature_packet"), dict):
+                packet = artifacts["feature_packet"]
+                packet.update(
+                    {
+                        key: value
+                        for key, value in ctx.lineage.items()
+                        if key in {"session_id", "recording_id", "split"}
+                    }
+                )
+                current_clip = next(
+                    (
+                        item
+                        for item in ctx.lineage.get("existing_clips", [])
+                        if str(item["id"]) == clip_id
+                    ),
+                    {},
+                )
+                explicit_split = (current_clip.get("label_data") or {}).get("_learning_split")
+                if explicit_split:
+                    packet["split"] = explicit_split
+                actual_clip = next((item for item in ctx.clips if str(item["id"]) == clip_id), {})
+                packet["source_start_seconds"] = actual_clip.get("start_time")
+                packet["source_end_seconds"] = actual_clip.get("end_time")
+                effective_data = (
+                    ctx.effective_annotations.get(clip_id, {}).get("label_data")
+                    or current_clip.get("label_data")
+                    or {}
+                )
+                packet["source_observation_revision"] = int(
+                    effective_data.get("_observation_revision") or 0
+                )
+                packet["source_annotation_revision"] = int(
+                    ctx.effective_annotations.get(clip_id, {}).get("annotation_revision") or 0
+                )
+                packet["source_calibration_fingerprint"] = (
+                    __import__("hashlib")
+                    .sha256(
+                        json.dumps(ctx.calibration, default=_json_default, sort_keys=True).encode()
+                    )
+                    .hexdigest()
+                )
+                detector_source = (ctx.model_provenance.get("detect") or {}).get("source")
+                if detector_source != "real":
+                    packet["source"] = detector_source or "unvalidated"
+                    packet["analytics_safe"] = False
+            # Identity and classification enrichments must reach metrics and
+            # rendering in both live execution and a resumed run.
+            enriched = artifacts.get("tracklets")
+            if stage in {"reid", "labels"} and isinstance(enriched, list):
+                per_clip.setdefault("track", {})["tracklets"] = enriched
+            _merge_routing(ctx, artifacts)
+
+    def stage_status(artifacts: dict[str, Any]) -> str:
+        return (
+            "skipped"
+            if artifacts.get("skipped")
+            or any(value is True for key, value in artifacts.items() if key.endswith("_skipped"))
+            else "succeeded"
+        )
+
+    playback_prepared = False
+
+    def prepare_playback() -> None:
+        nonlocal playback_prepared
+        if playback_prepared or "playback_proxy" not in stage_list or not ctx.clips:
+            return
+        from pipeline.playback_proxy import PlaybackProxySession
+
+        playback_prepared = True
+        session = PlaybackProxySession(
+            ctx.video_path, ctx.timeline, source_sha256=identity.get("source_sha256")
+        )
+        try:
+            for clip in sorted(ctx.clips, key=lambda item: float(item.get("start_time") or 0)):
+                check_control()
+                clip_id = str(clip["id"])
+                stage = "playback_proxy"
+                cached = sink.load(stage, clip_id)
+                if cached is not None:
+                    path = storage.resolve_readable_path(cached.get("playback_uri", ""))
+                    if path is None or path.is_file():
+                        accept(stage, clip_id, cached)
+                        report(stage, clip_id, "succeeded", resumed=True)
+                        continue
+                # Label/model changes do not alter clean media. Reuse the
+                # accepted proxy when the actual source window still matches.
+                previous = next(
+                    (
+                        item
+                        for item in ctx.lineage.get("existing_clips", [])
+                        if str(item["id"]) == clip_id
+                    ),
+                    {},
+                )
+                media = (previous.get("provenance") or {}).get("playback") or {}
+                existing_uri = previous.get("storage_uri")
+                if (
+                    existing_uri
+                    and media.get("kind") == "clean_clip"
+                    and media.get("source_sha256") == identity.get("source_sha256")
+                    and media.get("source_start_seconds") == clip.get("start_time")
+                    and media.get("source_end_seconds") == clip.get("end_time")
+                ):
+                    path = storage.resolve_readable_path(existing_uri)
+                    if path is None or path.is_file():
+                        artifacts = {"playback_uri": existing_uri, "playback": media}
+                        accept(stage, clip_id, artifacts)
+                        sink.write(stage, artifacts, clip_id)
+                        report(stage, clip_id, "succeeded", reused_media=True)
+                        continue
+                report(stage, clip_id, "started")
+                stage_start = time.monotonic()
+                try:
+                    artifacts = session.run(
+                        clip_id, float(clip.get("start_time") or 0), float(clip["end_time"])
+                    )
+                    accept(stage, clip_id, artifacts)
+                    sink.write(stage, artifacts, clip_id)
+                    stage_timings[f"{stage}:{clip_id}"] = round(time.monotonic() - stage_start, 3)
+                    report(stage, clip_id, "succeeded")
+                except PipelineInterrupted:
+                    raise
+                except Exception as exc:
+                    failed_clip_stages.append(
+                        {"clip_id": clip_id, "stage": stage, "error": str(exc)}
+                    )
+                    report(stage, clip_id, "failed", error=str(exc))
+        finally:
+            session.close()
+
+    def summary() -> dict[str, Any]:
+        errors = failed_video_stages + failed_clip_stages
+        source_values = {
+            artifacts.get("data_source") for artifacts in ctx.stage_artifacts.values()
+        } | {
+            entry.get("source")
+            for entry in ctx.model_provenance.values()
+            if isinstance(entry, dict)
+        }
+        source = (
+            "synthetic_test"
+            if source_values & {"synthetic", "synthetic_test", "stub"}
+            else "real"
+            if "real" in source_values
+            else "manual"
+            if profile == "review"
+            else "unvalidated"
+        )
+        return {
+            "video_id": video_id,
+            "pipeline_mode": "same_session" if is_same_session else "nightly",
+            "processing_profile": profile,
+            "result_state": "interrupted" if interrupted else "partial" if errors else "complete",
+            "interrupted_action": interrupted,
+            "source": source,
+            "trusted_analysis": source == "real"
+            and not errors
+            and bool((ctx.model_provenance.get("detect") or {}).get("validated", False)),
+            "checkpoint": identity,
+            "capture_regime": ctx.capture_regime,
+            "regime_confidence": ctx.regime_confidence,
+            "analytics_safe": ctx.analytics_safe and source == "real",
+            "fps": ctx.fps,
+            "clip_count": len(ctx.clips),
+            "playback_ready": any(
+                (outputs.get("playback_proxy") or {}).get("playback_uri")
+                for outputs in ctx.clip_artifacts.values()
+            )
+            or (ctx.stage_artifacts.get("ingest", {}).get("probe", {}).get("codec_name") == "h264"),
+            "clips": [
+                {
+                    "id": str(clip["id"]),
+                    "start_time": clip.get("start_time"),
+                    "end_time": clip.get("end_time"),
+                    "play_number": clip.get("play_number"),
+                    "tracklet_count": ctx.clip_artifacts.get(str(clip["id"]), {})
+                    .get("track", {})
+                    .get("tracklet_count", 0),
+                    "event_count": ctx.clip_artifacts.get(str(clip["id"]), {})
+                    .get("events", {})
+                    .get("event_count", 0),
+                    "source_start_time_seconds": clip.get("start_time"),
+                    "overlay_start_time_seconds": 0,
+                    "playback_uri": (
+                        ctx.clip_artifacts.get(str(clip["id"]), {}).get("playback_proxy") or {}
+                    ).get("playback_uri"),
+                    "proxy_timeline": (
+                        ctx.clip_artifacts.get(str(clip["id"]), {}).get("playback_proxy") or {}
+                    ).get("proxy_timeline"),
+                    "overlay_proxy_timeline": (
+                        ctx.clip_artifacts.get(str(clip["id"]), {}).get("render") or {}
+                    ).get("proxy_timeline"),
+                    "overlay_uri": ctx.clip_artifacts.get(str(clip["id"]), {})
+                    .get("render", {})
+                    .get("overlay_uri")
+                    or ctx.clip_artifacts.get(str(clip["id"]), {})
+                    .get("render", {})
+                    .get("period_overlay_uri"),
+                }
+                for clip in ctx.clips
+            ],
+            "model_routing": ctx.model_routing,
+            "model_provenance": ctx.model_provenance,
+            "stage_states": stage_states,
+            "stage_timings": stage_timings,
+            "failed_video_stages": failed_video_stages,
+            "failed_clip_stages": failed_clip_stages,
+            "duration_seconds": round(time.monotonic() - started, 2),
+        }
+
+    check_control()
     ctx.video_path = storage.download_to_temp(input_uri)
     try:
-        for stage in [s for s in stage_list if s in VIDEO_STAGES]:
+        from pipeline.video_timeline import VideoTimeline
+
+        ctx.timeline = VideoTimeline.from_path(ctx.video_path, fps_fallback=ctx.fps)
+        model_registry_client.reset_cache()
+        model_lineage = model_registry_client.resolved_identity()
+        revision_inputs = {**(revisions or {}), "production_models": model_lineage}
+        identity = checkpoint_identity(
+            ctx.video_path,
+            video_id=video_id,
+            profile=profile,
+            stages=stage_list,
+            priority=priority,
+            revisions={**revision_inputs, "timestamps_verified": ctx.timeline.verified},
+        )
+        sink.configure(identity)
+        set_checkpoint_identity(
+            str(identity["fingerprint"]), f"{video_id}:{identity['source_sha256']}"
+        )
+        sink.write("manifest", identity)
+        for stage in [name for name in stage_list if name in VIDEO_STAGES]:
+            check_control()
+            if stage in {"calibrate", "detect"}:
+                prepare_playback()
             if should_skip_stage(stage, priority):
                 report(stage, None, "skipped", reason="same_session_lightweight_path")
                 continue
             cached = sink.load(stage)
             if cached is not None:
-                _fold_cached_video_stage(stage, ctx, cached)
-                report(stage, None, "succeeded", resumed=True)
+                accept(stage, None, cached)
+                report(
+                    stage,
+                    None,
+                    stage_status(cached),
+                    resumed=True,
+                    **_stage_headline(stage, cached),
+                )
                 continue
             report(stage, None, "started")
-            t0 = time.monotonic()
+            stage_start = time.monotonic()
             try:
                 artifacts = _run_video_stage(stage, ctx)
-            except Exception:
-                report(stage, None, "failed")
+                check_control()
+                accept(stage, None, artifacts)
+                sink.write(stage, artifacts)
+                stage_timings[stage] = round(time.monotonic() - stage_start, 3)
+                report(stage, None, stage_status(artifacts), **_stage_headline(stage, artifacts))
+            except PipelineInterrupted:
                 raise
-            stage_timings[stage] = round(time.monotonic() - t0, 3)
-            ctx.stage_artifacts[stage] = artifacts
-            _merge_routing(ctx, artifacts)
-            sink.write(stage, artifacts)
-            report(stage, None, "succeeded", **_stage_headline(stage, artifacts))
+            except Exception as exc:
+                failed_video_stages.append({"stage": stage, "error": str(exc)})
+                report(stage, None, "failed", error=str(exc))
+                # Imported film and proposed clips still belong to the user.
+                # Never run analytics after a required upstream failure.
+                break
 
-        clip_stage_list = [s for s in stage_list if s in CLIP_STAGES]
-        for clip in ctx.clips:
-            clip_id = str(clip["id"])
-            for stage in clip_stage_list:
-                if should_skip_stage(stage, priority):
-                    report(stage, clip_id, "skipped", reason="same_session_lightweight_path")
-                    continue
-                cached = sink.load(stage, clip_id)
-                if cached is not None:
-                    ctx.clip_artifacts.setdefault(clip_id, {})[stage] = cached
-                    report(stage, clip_id, "succeeded", resumed=True)
-                    continue
-                report(stage, clip_id, "started")
-                t0 = time.monotonic()
-                try:
-                    artifacts = _run_clip_stage(stage, ctx, clip)
-                except Exception as exc:
-                    # A single clip's stage failure should not sink the whole
-                    # video — record it and continue with the next clip.
-                    log.error(
-                        "clip_stage_failed",
-                        stage=stage,
-                        clip_id=clip_id,
-                        error=str(exc),
-                    )
-                    failed_clip_stages.append(
-                        {"clip_id": clip_id, "stage": stage, "error": str(exc)}
-                    )
-                    report(stage, clip_id, "failed", error=str(exc))
-                    break  # later stages for this clip depend on this one
-                key = f"{stage}:{clip_id}"
-                stage_timings[key] = round(time.monotonic() - t0, 3)
-                ctx.clip_artifacts.setdefault(clip_id, {})[stage] = artifacts
-                _merge_routing(ctx, artifacts)
-                sink.write(stage, artifacts, clip_id)
-                report(stage, clip_id, "succeeded", **_stage_headline(stage, artifacts))
-
-            # Outside the stage loop, and deliberately after a `break`, so a
-            # clip whose pipeline fell over part-way is still scored on whatever
-            # heads did run.
-            #
-            # A clip that failed *before* coverage or pressure has no heads at
-            # all and stays unscored -- it sorts last, and vanishes entirely
-            # under `include_unscored=false`. That is a real gap, and the fix is
-            # not to invent an entropy for it: a fabricated score would be
-            # indistinguishable from a model that was genuinely unsure, which
-            # is the one thing this column must never be. Surfacing processing
-            # failures needs its own review reason, tracked separately.
-            _score_clip_uncertainty(ctx, clip_id)
+        prepare_playback()
+        clip_stages = [
+            name for name in stage_list if name in CLIP_STAGES and name != "playback_proxy"
+        ]
+        if failed_video_stages:
+            for stage in clip_stages:
+                report(stage, None, "skipped", reason="upstream_stage_failed")
+        else:
+            for clip in ctx.clips:
+                clip_id = str(clip["id"])
+                for stage in clip_stages:
+                    check_control()
+                    if should_skip_stage(stage, priority):
+                        report(stage, clip_id, "skipped", reason="same_session_lightweight_path")
+                        continue
+                    cached = sink.load(stage, clip_id)
+                    if cached is not None:
+                        accept(stage, clip_id, cached)
+                        report(
+                            stage,
+                            clip_id,
+                            stage_status(cached),
+                            resumed=True,
+                            **_stage_headline(stage, cached),
+                        )
+                        continue
+                    report(stage, clip_id, "started")
+                    stage_start = time.monotonic()
+                    try:
+                        artifacts = _run_clip_stage(stage, ctx, clip)
+                        check_control()
+                        accept(stage, clip_id, artifacts)
+                        sink.write(stage, artifacts, clip_id)
+                        stage_timings[f"{stage}:{clip_id}"] = round(
+                            time.monotonic() - stage_start, 3
+                        )
+                        report(
+                            stage,
+                            clip_id,
+                            stage_status(artifacts),
+                            **_stage_headline(stage, artifacts),
+                        )
+                    except PipelineInterrupted:
+                        raise
+                    except Exception as exc:
+                        failed_clip_stages.append(
+                            {
+                                "clip_id": clip_id,
+                                "stage": stage,
+                                "error": str(exc),
+                            }
+                        )
+                        report(stage, clip_id, "failed", error=str(exc))
+                        for dependent in clip_stages[clip_stages.index(stage) + 1 :]:
+                            report(dependent, clip_id, "skipped", reason="upstream_stage_failed")
+                        break
+                check_control()
+                _score_clip_uncertainty(ctx, clip_id)
+    except PipelineInterrupted as exc:
+        interrupted = exc.action
     finally:
         if ctx.video_path is not None:
             ctx.video_path.unlink(missing_ok=True)
 
-    summary: dict[str, Any] = {
-        "video_id": video_id,
-        "pipeline_mode": "same_session" if is_same_session else "nightly",
-        "capture_regime": ctx.capture_regime,
-        "regime_confidence": ctx.regime_confidence,
-        "analytics_safe": ctx.analytics_safe,
-        "fps": ctx.fps,
-        "clip_count": len(ctx.clips),
-        "clips": [
-            {
-                "id": str(c["id"]),
-                "start_time": c.get("start_time"),
-                "end_time": c.get("end_time"),
-                "play_number": c.get("play_number"),
-                "tracklet_count": ctx.clip_artifacts.get(str(c["id"]), {})
-                .get("track", {})
-                .get("tracklet_count", 0),
-                "event_count": ctx.clip_artifacts.get(str(c["id"]), {})
-                .get("events", {})
-                .get("event_count", 0),
-                "overlay_uri": ctx.clip_artifacts.get(str(c["id"]), {})
-                .get("render", {})
-                .get("overlay_uri")
-                or ctx.clip_artifacts.get(str(c["id"]), {})
-                .get("render", {})
-                .get("period_overlay_uri"),
-            }
-            for c in ctx.clips
-        ],
-        "model_routing": ctx.model_routing,
-        "stage_timings": stage_timings,
-        "failed_clip_stages": failed_clip_stages,
-        "duration_seconds": round(time.monotonic() - started, 2),
-    }
-    sink.write("summary", summary)
+    result = summary()
+    feature_packets = [
+        packet
+        for artifacts in ctx.clip_artifacts.values()
+        if isinstance(packet := (artifacts.get("coverage") or {}).get("feature_packet"), dict)
+    ]
+    if feature_packets and not interrupted:
+        check_control()
+        rows = (
+            "\n".join(
+                json.dumps(packet, default=_json_default, sort_keys=True)
+                for packet in feature_packets
+            )
+            + "\n"
+        )
+        result["feature_artifact_uri"] = storage.upload_bytes(
+            rows.encode(),
+            f"training_features/{video_id}/{identity['fingerprint']}.jsonl",
+            content_type="application/x-ndjson",
+        )
+        result["feature_row_count"] = len(feature_packets)
+    sink.write("summary", result)
     log.info(
         "pipeline_done",
         video_id=video_id,
-        clip_count=summary["clip_count"],
-        failed_clip_stages=len(failed_clip_stages),
-        duration_seconds=summary["duration_seconds"],
+        result_state=result["result_state"],
+        clip_count=result["clip_count"],
+        duration_seconds=result["duration_seconds"],
     )
-    return summary
+    return result
 
 
 def _fold_cached_video_stage(stage: str, ctx: PipelineContext, cached: dict[str, Any]) -> None:
@@ -818,6 +1205,11 @@ def _fold_cached_video_stage(stage: str, ctx: PipelineContext, cached: dict[str,
         # jobs that were interrupted and retried.
         ctx.homography = cached.get("homography")
         ctx.field_boundary = cached.get("field_boundary")
+        ctx.calibration_series = cached.get("calibration_series") or []
+        if ctx.capture_regime not in {"fixed_sideline", "fixed_endzone"}:
+            ctx.homography = None
+            if not ctx.calibration_series:
+                ctx.analytics_safe = False
     elif stage == "detect":
         ctx.detections = cached.get("detections", {})
         if cached.get("fps"):
@@ -828,7 +1220,10 @@ def _merge_routing(ctx: PipelineContext, artifacts: dict[str, Any]) -> None:
     routing = artifacts.get("model_routing")
     if isinstance(routing, dict):
         for k, v in routing.items():
-            ctx.model_routing.setdefault(str(k), str(v))
+            ctx.model_routing[str(k)] = str(v)
+    provenance = artifacts.get("model_provenance")
+    if isinstance(provenance, dict):
+        ctx.model_provenance.update(provenance)
 
 
 def _stage_headline(stage: str, artifacts: dict[str, Any]) -> dict[str, Any]:
@@ -843,5 +1238,7 @@ def _stage_headline(stage: str, artifacts: dict[str, Any]) -> dict[str, Any]:
         "capture_regime",
         "analytics_safe",
         "total_frames",
+        "reason",
+        "source",
     )
     return {k: artifacts[k] for k in keys if k in artifacts}

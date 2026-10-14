@@ -232,10 +232,10 @@ def test_promote_model_blocked_without_metrics(client_with_auth_and_mocked_db: T
         app.dependency_overrides.clear()
 
 
-def test_promote_model_to_staging_with_metrics_succeeds(
+def test_promote_model_to_staging_rejects_unverified_metrics(
     client_with_auth_and_mocked_db: TestClient,
 ) -> None:
-    """Promote to staging must succeed when model has metrics."""
+    """Caller-supplied accuracy cannot substitute for a real benchmark record."""
     from app.auth import get_current_user_id
     from app.database import get_db
     from app.deps import get_current_user
@@ -274,9 +274,8 @@ def test_promote_model_to_staging_with_metrics_succeeds(
             f"/api/v1/mlops/models/{model_with_metrics.id}/promote",
             json={"stage": "staging"},
         )
-        assert resp.status_code == 200, f"Expected 200 but got {resp.status_code}: {resp.text}"
-        # Ensure the stage was set on the ORM object
-        assert model_with_metrics.promoted_stage == ModelStage.staging
+        assert resp.status_code == 422, resp.text
+        assert model_with_metrics.promoted_stage == ModelStage.experimental
     finally:
         app.dependency_overrides.clear()
 

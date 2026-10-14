@@ -201,8 +201,28 @@ jobs:
       - name: Type check
         run: npm run typecheck
 
+      - name: Unit tests
+        run: npm test -- --run
+
       - name: Build
         run: npm run build
+
+  local-runtime:
+    name: Native launcher (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Verify private configuration and bounded process recovery
+        run: python -m unittest discover -s tests_local -v
 
   # ── Edge Worker: typecheck + workerd test suite ─────────────────────────
   # Runs inside workerd via vitest-pool-workers, not Node, so the R2, Range,

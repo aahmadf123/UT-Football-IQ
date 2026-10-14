@@ -27,8 +27,11 @@ import tempfile
 import time
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 import structlog
+
+from pipeline.checkpoints import atomic_write
 
 log = structlog.get_logger(__name__)
 
@@ -47,6 +50,10 @@ _OVERLAY_PREFIXES = ("overlays/", "period_overlays/", "hls/")
 
 def active_backend() -> str:
     """Return the backend new writes go to: ``"s3"`` or ``"local"``."""
+    if os.environ.get("PIPELINE_STORAGE_TRANSPORT", "").lower() == "api":
+        if not os.environ.get("BACKEND_API_URL"):
+            raise ValueError("BACKEND_API_URL is required for API storage transport")
+        return "api"
     configured = os.environ.get("STORAGE_BACKEND", "")
     if configured in ("s3", "local"):
         return configured
@@ -83,7 +90,7 @@ def parse_ref(ref: str) -> tuple[str, str, str]:
     """
     if ref.startswith("file://"):
         return "file", "", ref[len("file://") :]
-    for scheme in ("s3", "local"):
+    for scheme in ("s3", "local", "api"):
         prefix = f"{scheme}://"
         if ref.startswith(prefix):
             rest = ref[len(prefix) :]
@@ -99,6 +106,19 @@ def bucket_for_key(key: str) -> str:
     if key.startswith(_OVERLAY_PREFIXES):
         return "overlays"
     return "artifacts"
+
+
+def _attempt_key(key: str) -> str:
+    """Keep late output from a superseded attempt from replacing live media."""
+    from pipeline.runtime import check_control, lease_headers
+
+    check_control()
+    token = lease_headers().get("X-Job-Lease-Token")
+    # Checkpoint identities are content addressed and must remain discoverable
+    # across attempts; rendered media and other stage outputs are immutable.
+    if not token or key.startswith(("pipeline_artifacts/", "pipeline_summaries/", "models/")):
+        return key
+    return f"attempts/{token}/{key}"
 
 
 def local_object_path(bucket: str, key: str) -> Path:
@@ -149,6 +169,9 @@ def download_to_temp(ref: str) -> Path:
     if scheme == "file":
         return _copy_to_temp(Path(key), label=ref)
 
+    if scheme == "api" or active_backend() == "api":
+        return _api_download(ref, bucket, key)
+
     if scheme == "local" or (scheme == "" and active_backend() == "local"):
         return _copy_to_temp(local_object_path(bucket, key), label=ref)
 
@@ -161,14 +184,21 @@ def download_to_temp(ref: str) -> Path:
         tmp.flush()
         duration = time.monotonic() - start
         _record("download", bucket, "success", duration)
-        log.info("storage_download_done", key=key, path=tmp.name,
-                 duration_seconds=round(duration, 3))
+        log.info(
+            "storage_download_done", key=key, path=tmp.name, duration_seconds=round(duration, 3)
+        )
         return Path(tmp.name)
     except Exception as exc:
         duration = time.monotonic() - start
         _record("download", bucket, "error", duration)
-        log.error("storage_download_failed", key=key, bucket=bucket,
-                  error=str(exc), duration_seconds=round(duration, 3))
+        Path(tmp.name).unlink(missing_ok=True)
+        log.error(
+            "storage_download_failed",
+            key=key,
+            bucket=bucket,
+            error=str(exc),
+            duration_seconds=round(duration, 3),
+        )
         raise
     finally:
         tmp.close()
@@ -180,7 +210,11 @@ def _copy_to_temp(source: Path, label: str) -> Path:
     suffix = source.suffix or ".bin"
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
     tmp.close()
-    shutil.copy2(source, tmp.name)
+    try:
+        shutil.copy2(source, tmp.name)
+    except BaseException:
+        Path(tmp.name).unlink(missing_ok=True)
+        raise
     log.info("storage_local_copy", source=str(source), path=tmp.name)
     return Path(tmp.name)
 
@@ -199,6 +233,8 @@ def resolve_readable_path(ref: str) -> Path | None:
     scheme, bucket, key = parse_ref(raw)
     if scheme == "file":
         return Path(key)
+    if active_backend() == "api":
+        return None
     if scheme == "local" or (scheme == "" and active_backend() == "local"):
         return local_object_path(bucket, key)
     return None
@@ -215,11 +251,25 @@ def upload_file(
 ) -> str:
     """Store a local file under ``bucket/key``; return its storage URI."""
     target_bucket = bucket or bucket_for_key(key)
+    key = _attempt_key(key)
+
+    if active_backend() == "api":
+        with Path(local_path).open("rb") as source:
+            return _api_upload(source, target_bucket, key, content_type)
 
     if active_backend() == "local":
         dest = local_object_path(target_bucket, key)
         dest.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(local_path, dest)
+        descriptor, temporary = tempfile.mkstemp(prefix=f".{dest.name}.", dir=dest.parent)
+        temporary_path = Path(temporary)
+        try:
+            with os.fdopen(descriptor, "wb") as target, Path(local_path).open("rb") as source:
+                shutil.copyfileobj(source, target)
+                target.flush()
+                os.fsync(target.fileno())
+            os.replace(temporary_path, dest)
+        finally:
+            temporary_path.unlink(missing_ok=True)
         uri = f"local://{target_bucket}/{key}"
         log.info("storage_upload_done", key=key, uri=uri, backend="local")
         return uri
@@ -237,14 +287,18 @@ def upload_file(
         uri = f"s3://{target_bucket}/{key}"
         duration = time.monotonic() - start
         _record("upload", target_bucket, "success", duration)
-        log.info("storage_upload_done", key=key, uri=uri,
-                 duration_seconds=round(duration, 3))
+        log.info("storage_upload_done", key=key, uri=uri, duration_seconds=round(duration, 3))
         return uri
     except Exception as exc:
         duration = time.monotonic() - start
         _record("upload", target_bucket, "error", duration)
-        log.error("storage_upload_failed", key=key, bucket=target_bucket,
-                  error=str(exc), duration_seconds=round(duration, 3))
+        log.error(
+            "storage_upload_failed",
+            key=key,
+            bucket=target_bucket,
+            error=str(exc),
+            duration_seconds=round(duration, 3),
+        )
         raise
 
 
@@ -256,11 +310,15 @@ def upload_bytes(
 ) -> str:
     """Store raw bytes under ``bucket/key``; return its storage URI."""
     target_bucket = bucket or bucket_for_key(key)
+    key = _attempt_key(key)
+
+    if active_backend() == "api":
+        return _api_upload(data, target_bucket, key, content_type)
 
     if active_backend() == "local":
         dest = local_object_path(target_bucket, key)
         dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.write_bytes(data)
+        atomic_write(dest, data)
         uri = f"local://{target_bucket}/{key}"
         log.info("storage_upload_bytes_done", key=key, uri=uri, backend="local")
         return uri
@@ -277,12 +335,72 @@ def upload_bytes(
         uri = f"s3://{target_bucket}/{key}"
         duration = time.monotonic() - start
         _record("upload_bytes", target_bucket, "success", duration)
-        log.info("storage_upload_bytes_done", key=key, uri=uri,
-                 duration_seconds=round(duration, 3))
+        log.info("storage_upload_bytes_done", key=key, uri=uri, duration_seconds=round(duration, 3))
         return uri
     except Exception as exc:
         duration = time.monotonic() - start
         _record("upload_bytes", target_bucket, "error", duration)
-        log.error("storage_upload_bytes_failed", key=key, bucket=target_bucket,
-                  error=str(exc), duration_seconds=round(duration, 3))
+        log.error(
+            "storage_upload_bytes_failed",
+            key=key,
+            bucket=target_bucket,
+            error=str(exc),
+            duration_seconds=round(duration, 3),
+        )
         raise
+
+
+def _api_headers() -> dict[str, str]:
+    from pipeline.runtime import check_control, lease_headers
+    from worker import auth
+
+    check_control()
+    return {"Authorization": f"Bearer {auth.token()}", **lease_headers()}
+
+
+def _api_upload(body: Any, bucket: str, key: str, content_type: str) -> str:
+    import httpx
+
+    base = os.environ["BACKEND_API_URL"].rstrip("/")
+    with httpx.Client(timeout=120) as client:
+        result = client.put(
+            f"{base}/api/v1/system/storage/{quote(bucket, safe='')}/{quote(key, safe='/')}",
+            headers={**_api_headers(), "Content-Type": content_type},
+            content=body,
+        )
+        result.raise_for_status()
+        return str(result.json()["uri"])
+
+
+def _api_download(ref: str, bucket: str, key: str) -> Path:
+    """Use delegated signed film access without database/object-store secrets."""
+    import httpx
+
+    from pipeline.runtime import check_control
+
+    base = os.environ["BACKEND_API_URL"].rstrip("/")
+    with httpx.Client(timeout=120) as client:
+        # API URIs are a portable logical reference to the backend's active
+        # library. It resolves the effective local/S3 scheme server-side.
+        result = client.post(
+            f"{base}/api/v1/system/storage/resolve",
+            headers=_api_headers(),
+            json={"uri": ref if not ref.startswith("api://") else f"library://{bucket}/{key}"},
+        )
+        result.raise_for_status()
+        url = str(result.json()["download_url"])
+        if url.startswith("/"):
+            url = base + url
+        descriptor, temporary = tempfile.mkstemp(suffix=Path(key).suffix or ".bin")
+        path = Path(temporary)
+        try:
+            with os.fdopen(descriptor, "wb") as target:
+                with client.stream("GET", url) as response:
+                    response.raise_for_status()
+                    for chunk in response.iter_bytes():
+                        check_control()
+                        target.write(chunk)
+            return path
+        except BaseException:
+            path.unlink(missing_ok=True)
+            raise

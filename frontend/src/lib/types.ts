@@ -45,6 +45,8 @@ export interface ApiVideo {
   practice_session_id?: string | null;
   our_possession?: OurPossession | null;
   storage_uri?: string | null;
+  library_role?: "toledo" | "opponent";
+  camera_label?: string | null;
 }
 
 // Same-session result tier + derived coach-facing review state (Issue #147).
@@ -66,6 +68,13 @@ export interface ApiClip {
   label_data?: Record<string, unknown> | null;
   boundary_source?: string | null;
   boundary_confidence?: number | null;
+  annotation_revision?: number;
+  tracking_review_required?: boolean;
+  provenance?: Record<string, unknown> | null;
+  personnel_grouping?: string | null;
+  down?: number | null;
+  distance?: number | null;
+  field_zone?: string | null;
   session_kind?: SessionKind | null;
   our_possession?: OurPossession | null;
   side_of_ball?: ApiSideOfBall | null;
@@ -153,6 +162,62 @@ export interface ApiPracticeSessionGroup {
   last_recorded_at?: string | null;
 }
 
+export interface ApiSession {
+  id: string;
+  title: string;
+  session_kind: SessionKind | null;
+  recorded_at: string | null;
+  opponent_team: string | null;
+  library_role: "toledo" | "opponent";
+  notes: string | null;
+  created_at: string;
+  recordings: ApiVideo[];
+  plays: Array<{ id: string; session_id: string; title?: string | null; sequence?: number | null; views: Array<{ id: string; clip_id: string; video_id: string; camera_label?: string | null }> }>;
+}
+
+export type ProcessingProfile = "review" | "quick" | "detailed";
+export interface SystemStatus {
+  mode: "local" | "hosted";
+  state: string;
+  storage: { backend: string; root?: string; writable: boolean; free_bytes: number | null };
+  worker: { ready: boolean; reason: string | null; workers: Array<{ worker_id: string; device: string; profiles: string[]; models: Record<string, unknown>; last_seen_at: string; online: boolean }> };
+  capabilities: { film_review: boolean; processing: boolean; calibrated_metrics: boolean; training: boolean };
+  supervisor: Record<string, unknown> | null;
+  profiles: Array<{ id: ProcessingProfile; label: string; description: string; available: boolean }>;
+  limitations: string[];
+}
+
+export interface TrainingDataset {
+  id: string;
+  snapshot_date: string;
+  model_scope: string;
+  row_count: number;
+  artifact_uri: string | null;
+  source_label_ids: string[];
+  source_correction_ids: string[];
+  changelog: Record<string, unknown> | string | null;
+}
+export interface ModelVersion {
+  id: string;
+  model_name: string;
+  version: string;
+  model_type: string;
+  artifact_uri: string | null;
+  training_dataset_id?: string | null;
+  metrics: Record<string, unknown> | null;
+  promoted_stage: "candidate" | "staging" | "production" | "retired" | string;
+  prediction_count?: number;
+  required_predictions?: number;
+  prediction_status?: string;
+  ready_for_evaluation?: boolean;
+}
+export interface LearningBenchmark {
+  id: string;
+  name: string;
+  created_at?: string;
+  samples?: unknown[];
+}
+
 // One entry in a job's per-stage progress map. The orchestrator heartbeats
 // ``{stage[:clipprefix]: {status, ...headline numbers}}`` where status is one
 // of "started" | "succeeded" | "failed" | "skipped".
@@ -163,6 +228,10 @@ export interface JobStageProgress {
 
 export interface ApiJob {
   id: string;
+  video_id?: string;
+  input_artifacts?: Record<string, unknown> | null;
+  output_artifacts?: Record<string, unknown> | null;
+  control_requested?: "pause" | "cancel" | null;
   job_type: string;
   status: string;
   priority: number;
@@ -282,6 +351,7 @@ export interface PlayerSummary {
 
 export interface OverlayTrackPoint {
   frame_number: number;
+  timestamp_seconds?: number | null;
   field_x: number | null;
   field_y: number | null;
   bbox: [number, number, number, number] | null;
@@ -298,6 +368,7 @@ export interface OverlayTracklet {
   position_group: string | null;
   side_of_ball: string | null;
   track_points: OverlayTrackPoint[];
+  provenance?: Record<string, unknown> | null;
 }
 
 export interface OverlayEvent {
@@ -306,6 +377,8 @@ export interface OverlayEvent {
   frame_number: number | null;
   timestamp_seconds: number | null;
   attributes: Record<string, unknown> | null;
+  provenance?: Record<string, unknown> | null;
+  timebase?: "recording" | "clip" | "unknown";
 }
 
 export interface OverlayLabel {
@@ -325,6 +398,7 @@ export interface OverlayMetric {
   confidence: number | null;
   effort_zscore?: number | null;
   loaf_flag?: boolean | null;
+  provenance?: Record<string, unknown> | null;
 }
 
 export interface OverlayLayersAvailable {
@@ -342,6 +416,8 @@ export interface OverlayCalibration {
   reason: string | null;
   reason_codes: string[];
   confidence: number | null;
+  calibration_id?: string | null;
+  provenance?: Record<string, unknown> | null;
 }
 
 export interface ClipOverlayPayload {
@@ -355,6 +431,12 @@ export interface ClipOverlayPayload {
   // suppression); optional so older payloads (and mocks) stay valid.
   capture_regime?: CaptureRegime | null;
   calibration?: OverlayCalibration;
+  provenance?: Record<string, unknown> | null;
+  warnings?: string[];
+  tracks_timebase?: "recording" | "clip";
+  source_start_time_seconds?: number;
+  source_fps?: number;
+  source_fps_known?: boolean;
 }
 
 // Layer keys the Clip Review UI exposes as toggles. ``raw`` is the bare video
@@ -429,6 +511,13 @@ export interface ReportCreateRequest {
   report_type?: string;
   format?: ReportFormat;
   sections?: string[];
+  video_id?: string;
+  practice_session_id?: string;
+  recorded_after?: string;
+  recorded_before?: string;
+  session_kind?: SessionKind;
+  library_role?: "toledo" | "opponent";
+  opponent_team?: string;
 }
 
 export interface ReportDownloadResponse {

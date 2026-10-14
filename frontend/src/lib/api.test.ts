@@ -51,10 +51,13 @@ describe("requestUploadUrl", () => {
     await expect(requestUploadUrl("test.mp4")).rejects.toThrow(/400/);
   });
 
-  test("throws naming the API base when no upload endpoint is configured", async () => {
+  test("uses the local origin when no API override is configured", async () => {
     vi.stubEnv("NEXT_PUBLIC_API_URL", "");
     const { requestUploadUrl } = await freshImport();
-    await expect(requestUploadUrl("test.mp4")).rejects.toThrow(/NEXT_PUBLIC_API_URL/);
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => ({ ok: true, json: async () => ({ uploadUrl: "/api/v1/videos/upload/raw/test", key: "raw/test" }) }));
+    vi.stubGlobal("fetch", fetchMock);
+    await requestUploadUrl("test.mp4");
+    expect(fetchMock.mock.calls[0][0]).toBe("/api/v1/videos/upload-url");
   });
 });
 
@@ -125,14 +128,25 @@ describe("registerVideo", () => {
     expect(result.id).toBe("vid-1");
   });
 
-  test("throws when NEXT_PUBLIC_API_URL is not set", async () => {
+  test("uses the local API without a build-time origin", async () => {
     vi.stubEnv("NEXT_PUBLIC_API_URL", "");
     const { registerVideo } = await freshImport();
-    await expect(registerVideo({ filename: "x.mp4", storage_uri: "s3://test" })).rejects.toThrow(/NEXT_PUBLIC_API_URL/);
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => ({ ok: true, json: async () => ({ id: "v1" }) }));
+    vi.stubGlobal("fetch", fetchMock);
+    await registerVideo({ filename: "x.mp4", storage_uri: "local://raw-video/raw/test" });
+    expect(fetchMock.mock.calls[0][0]).toBe("/api/v1/videos");
   });
 });
 
 describe("fetchClipOverlays", () => {
+  test("normalizes declared recording frames and PTS while preserving clip-local human events", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({ clip_id: "clip", tracks_timebase: "recording", source_start_time_seconds: 12, source_fps: 30, source_fps_known: true, tracklets: [{ id: "track", start_frame: 360, end_frame: 390, track_points: [{ frame_number: 360, timestamp_seconds: 12 }] }], events: [{ id: "model", timebase: "recording", frame_number: 375, timestamp_seconds: 12.5 }, { id: "human", timebase: "clip", frame_number: null, timestamp_seconds: 1.1 }], labels: [], metrics: [], layers_available: { tracklets: true, events: true, labels: false, metrics: false } }) })));
+    const { fetchClipOverlays } = await freshImport();
+    const result = await fetchClipOverlays("clip");
+    expect(result.tracklets[0].track_points[0]).toMatchObject({ frame_number: 0, timestamp_seconds: 0 });
+    expect(result.events[0]).toMatchObject({ frame_number: 15, timestamp_seconds: 0.5 });
+    expect(result.events[1].timestamp_seconds).toBe(1.1);
+  });
   test("GETs /api/v1/clips/:id/overlays with auth header", async () => {
     const payload = {
       clip_id: "c-1",
@@ -160,14 +174,25 @@ describe("fetchClipOverlays", () => {
     expect(result.clip_id).toBe("c-1");
   });
 
-  test("throws when NEXT_PUBLIC_API_URL is not set", async () => {
+  test("uses the local API without a build-time origin", async () => {
     vi.stubEnv("NEXT_PUBLIC_API_URL", "");
     const { fetchClipOverlays } = await freshImport();
-    await expect(fetchClipOverlays("c-1")).rejects.toThrow(/NEXT_PUBLIC_API_URL/);
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => ({ ok: true, json: async () => ({ clip_id: "c-1" }) }));
+    vi.stubGlobal("fetch", fetchMock);
+    await fetchClipOverlays("c-1");
+    expect(fetchMock.mock.calls[0][0]).toBe("/api/v1/clips/c-1/overlays");
   });
 });
 
 describe("requestVideoProcessing", () => {
+  test("quick CPU work requests the quick profile without selecting a cloud runtime", async () => {
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => ({ ok: true, status: 201, json: async () => ({ id: "quick-job", status: "queued" }) }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { requestVideoProcessing } = await freshImport();
+    await requestVideoProcessing("v1", { profile: "quick" });
+    const [, init] = fetchMock.mock.calls[0];
+    expect(JSON.parse(String(init?.body))).toMatchObject({ processing_profile: "quick", pipeline_mode: "same_session", priority: 10 });
+  });
   test("POSTs a pipeline job to backend /api/v1/jobs (nightly by default)", async () => {
     const job = { id: "job-1", status: "queued" };
     const fetchMock = vi.fn(async () => ({
@@ -228,10 +253,13 @@ describe("requestVideoProcessing", () => {
     await expect(requestVideoProcessing("vid-1")).rejects.toBeInstanceOf(WorkloadGatedError);
   });
 
-  test("throws when NEXT_PUBLIC_API_URL is not set", async () => {
+  test("uses the local API without a build-time origin", async () => {
     vi.stubEnv("NEXT_PUBLIC_API_URL", "");
     const { requestVideoProcessing } = await freshImport();
-    await expect(requestVideoProcessing("vid-1")).rejects.toThrow(/NEXT_PUBLIC_API_URL/);
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => ({ ok: true, status: 201, json: async () => ({ id: "j1", status: "queued" }) }));
+    vi.stubGlobal("fetch", fetchMock);
+    await requestVideoProcessing("vid-1");
+    expect(fetchMock.mock.calls[0][0]).toBe("/api/v1/jobs");
   });
 });
 

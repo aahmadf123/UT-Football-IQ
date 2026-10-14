@@ -27,6 +27,7 @@ from pipeline.detector_models import (
     get_detector,
     polygon_area,
 )
+from pipeline.runtime import ModelUnavailableError
 
 # ── Schema invariants ─────────────────────────────────────────────────────────
 
@@ -91,9 +92,9 @@ def test_stub_detector_produces_masks_flag_matches_output() -> None:
 # ── Factory behaviour ─────────────────────────────────────────────────────────
 
 
-def test_get_detector_unknown_variant_falls_back_to_stub() -> None:
-    det = get_detector("does-not-exist")
-    assert isinstance(det, StubDetector)
+def test_get_detector_unknown_variant_rejects_instead_of_fabricating() -> None:
+    with pytest.raises(ValueError, match="Unknown detector"):
+        get_detector("does-not-exist")
 
 
 def test_get_detector_stub_returns_stub() -> None:
@@ -101,7 +102,7 @@ def test_get_detector_stub_returns_stub() -> None:
     assert isinstance(det, StubDetector)
 
 
-def test_get_detector_yolo_falls_back_when_ultralytics_missing(
+def test_get_detector_yolo_reports_missing_dependency(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # Force the YOLODetector constructor to raise ImportError so we can
@@ -112,12 +113,11 @@ def test_get_detector_yolo_falls_back_when_ultralytics_missing(
     monkeypatch.setattr(
         "pipeline.detector_models.YOLODetector.__init__", _boom
     )
-    det = get_detector("yolov8n")
-    assert isinstance(det, StubDetector)
-    assert det.produces_masks is False
+    with pytest.raises(ModelUnavailableError, match="Player detector unavailable"):
+        get_detector("yolov8n")
 
 
-def test_get_detector_sam3_falls_back_to_stub_with_masks(
+def test_get_detector_sam3_reports_missing_dependency(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     def _boom(*args: Any, **kwargs: Any) -> None:
@@ -126,16 +126,13 @@ def test_get_detector_sam3_falls_back_to_stub_with_masks(
     monkeypatch.setattr(
         "pipeline.detector_models.SAM3Detector.__init__", _boom
     )
-    det = get_detector("sam3.1")
-    assert isinstance(det, StubDetector)
-    # SAM 3 fallback still produces masks so downstream mask consumers
-    # can exercise their happy path in tests.
-    assert det.produces_masks is True
+    with pytest.raises(ModelUnavailableError, match="SAM detector unavailable"):
+        get_detector("sam3.1")
 
 
-def test_get_detector_empty_string_returns_stub() -> None:
-    det = get_detector("")
-    assert isinstance(det, StubDetector)
+def test_get_detector_empty_string_is_not_a_test_mode() -> None:
+    with pytest.raises(ValueError):
+        get_detector("")
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

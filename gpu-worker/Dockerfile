@@ -1,10 +1,11 @@
 # syntax=docker/dockerfile:1
-# GPU worker image for Football-IQ video processing pipeline.
-# Default: PyTorch 2.5.1 + CUDA 12.4. Override with --build-arg for newer GPUs
-# (e.g. RTX 50-series needs a CUDA 12.8+ base image such as pytorch/pytorch:2.7.0-cuda12.8-cudnn91-runtime).
+# CPU-first worker. Optional CUDA image:
+# --build-arg PYTORCH_IMAGE=pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime
+# --build-arg WORKER_REQUIREMENTS=requirements.txt
 
-ARG PYTORCH_IMAGE=pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime
+ARG PYTORCH_IMAGE=python:3.11-slim
 FROM ${PYTORCH_IMAGE} AS base
+ARG WORKER_REQUIREMENTS=requirements-cpu.txt
 
 LABEL maintainer="Toledo Football Analytics"
 LABEL org.opencontainers.image.source="https://github.com/aahmadf123/Football-IQ"
@@ -13,6 +14,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     DEBIAN_FRONTEND=noninteractive
+ENV PIPELINE_DEVICE=cpu
 
 # ── System dependencies (FFmpeg with NVDEC/NVENC) ─────────────────────────────
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -24,8 +26,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /worker
 
 # ── Python dependencies ───────────────────────────────────────────────────────
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY requirements.txt requirements-cpu.txt ./
+RUN pip install --no-cache-dir -r ${WORKER_REQUIREMENTS}
 
 # ── Worker code ───────────────────────────────────────────────────────────────
 COPY . .

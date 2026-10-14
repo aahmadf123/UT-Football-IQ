@@ -1,10 +1,11 @@
 """Football-IQ backend — FastAPI application entrypoint."""
 
+import asyncio
 from collections.abc import AsyncGenerator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 
 import structlog
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.responses import Response
 
@@ -36,6 +37,8 @@ from app.routers.inbox_integration import router as inbox_router
 from app.routers.internal import router as internal_router
 from app.routers.jobs import router as jobs_router
 from app.routers.labels import router as labels_router
+from app.routers.learning import router as learning_router
+from app.routers.library_transfer import router as library_transfer_router
 from app.routers.metrics import router as metrics_router
 from app.routers.mlops import router as mlops_router
 from app.routers.opponents import router as opponents_router
@@ -50,11 +53,14 @@ from app.routers.practice_sessions import router as practice_sessions_router
 from app.routers.reports import router as reports_router
 from app.routers.search import router as search_router
 from app.routers.self_scout import router as self_scout_router
+from app.routers.sessions import router as sessions_router
 from app.routers.settings import router as settings_router
 from app.routers.storage import router as storage_router
+from app.routers.system import router as system_router
 from app.routers.tracklets import router as tracklets_router
 from app.routers.uploads import router as uploads_router
 from app.routers.videos import router as videos_router
+from app.services.worker_fence import validate_worker_write
 from app.user_seeding import seed_configured_users
 
 settings = get_settings()
@@ -97,14 +103,34 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             # constraint conflict must not take the API down — the roster is
             # a convenience seed, not a boot dependency.
             log.exception("startup_roster_seeding_failed")
+    if settings.football_iq_data_dir and not settings.is_test:
+        from app.database import AsyncSessionLocal
+        from app.services.job_sweeper import recover_shutdown_pauses
+
+        async with AsyncSessionLocal() as recovery_db:
+            resumed = await recover_shutdown_pauses(recovery_db)
+            await recovery_db.commit()
+            if resumed:
+                log.info("shutdown_checkpoints_resumed", jobs=resumed)
     from app.scheduler import start_scheduler
 
     scheduler_task = start_scheduler()
+    from app.routers.reports import report_worker_loop
+
+    report_task = (
+        asyncio.create_task(report_worker_loop())
+        if settings.report_worker_enabled and not settings.is_test
+        else None
+    )
     try:
         yield
     finally:
         if scheduler_task is not None:
             scheduler_task.cancel()
+        if report_task is not None:
+            report_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await report_task
         log.info("shutdown")
 
 
@@ -163,6 +189,9 @@ async def prometheus_metrics() -> Response:
 
 # ── Routers ───────────────────────────────────────────────────────────────────
 app.include_router(health.router)
+app.include_router(learning_router)
+app.include_router(sessions_router)
+app.include_router(system_router, dependencies=[Depends(validate_worker_write)])
 app.include_router(internal_router)
 app.include_router(health_workload_router)
 app.include_router(health_ingest_router)
@@ -172,7 +201,7 @@ app.include_router(auth_router)
 app.include_router(uploads_router)
 app.include_router(videos_router)
 app.include_router(storage_router)
-app.include_router(clips_router)
+app.include_router(clips_router, dependencies=[Depends(validate_worker_write)])
 app.include_router(practice_sessions_router)
 # player_metrics before players: its literal /players/metrics/summary path
 # must never be shadowed by the players router's dynamic /{player_id} route.
@@ -180,12 +209,12 @@ app.include_router(player_metrics_router)
 app.include_router(players_router)
 app.include_router(player_profiles_router)
 app.include_router(jobs_router)
-app.include_router(calibrations_router)
-app.include_router(tracklets_router)
+app.include_router(calibrations_router, dependencies=[Depends(validate_worker_write)])
+app.include_router(tracklets_router, dependencies=[Depends(validate_worker_write)])
 app.include_router(corrections_router)
-app.include_router(events_router)
-app.include_router(labels_router)
-app.include_router(metrics_router)
+app.include_router(events_router, dependencies=[Depends(validate_worker_write)])
+app.include_router(labels_router, dependencies=[Depends(validate_worker_write)])
+app.include_router(metrics_router, dependencies=[Depends(validate_worker_write)])
 app.include_router(overlays_router)
 app.include_router(mlops_router)
 app.include_router(self_scout_router)
@@ -207,3 +236,4 @@ app.include_router(play_prediction_router)
 app.include_router(frontier_analytics_router)
 app.include_router(playbook_router)
 app.include_router(counterfactuals_router)
+app.include_router(library_transfer_router)

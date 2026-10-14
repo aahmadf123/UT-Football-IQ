@@ -17,19 +17,19 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime, timedelta
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 import anyio
 import structlog
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.database import AsyncSessionLocal, get_db
 from app.deps import get_current_user, require_coach_or_above
-from app.models import JobStatus, ReportFormat, ReportJob, User, UserRole
+from app.models import JobStatus, ReportFormat, ReportJob, SessionKind, User, UserRole
 from app.reports import (
     ALL_SECTIONS,
     REPORT_TYPE_COACHING_SUMMARY,
@@ -52,6 +52,13 @@ class ReportCreate(BaseModel):
     format: ReportFormat = ReportFormat.pdf
     # Subset of ``app.reports.ALL_SECTIONS``. ``None`` includes all sections.
     sections: list[str] | None = None
+    practice_session_id: uuid.UUID | None = None
+    video_id: uuid.UUID | None = None
+    recorded_after: datetime | None = None
+    recorded_before: datetime | None = None
+    session_kind: SessionKind | None = None
+    library_role: Literal["toledo", "opponent"] | None = None
+    opponent_team: str | None = None
 
 
 class ReportResponse(BaseModel):
@@ -116,44 +123,121 @@ async def _run_report_job(job_id: uuid.UUID) -> None:
     longer alive once the response has been sent.  Catches everything so a
     failure surfaces as ``status=failed`` rather than an unhandled task error.
     """
-    settings = get_settings()
     async with AsyncSessionLocal() as db:
-        result = await db.execute(select(ReportJob).where(ReportJob.id == job_id))
+        now = datetime.now(UTC)
+        token = uuid.uuid4()
+        eligible = select(ReportJob.id).where(
+            ReportJob.id == job_id,
+            ReportJob.attempt_count < 3,
+            or_(
+                ReportJob.status == JobStatus.queued,
+                and_(ReportJob.status == JobStatus.running, ReportJob.lease_expires_at < now),
+            ),
+        )
+        eligible = eligible.with_for_update(skip_locked=True).limit(1)
+        result = await db.execute(
+            update(ReportJob)
+            .where(ReportJob.id == eligible.scalar_subquery())
+            .values(
+                status=JobStatus.running,
+                started_at=now,
+                lease_token=token,
+                lease_expires_at=now + timedelta(minutes=10),
+                attempt_count=ReportJob.attempt_count + 1,
+            )
+            .returning(ReportJob)
+        )
         job = result.scalar_one_or_none()
-        if job is None:  # pragma: no cover — defensive
-            log.warning("report_job_missing", job_id=str(job_id))
+        if job is None:
             return
-
-        job.status = JobStatus.running
-        job.started_at = datetime.now(UTC)
         await db.commit()
 
         try:
             sections = None
             if job.parameters and isinstance(job.parameters.get("sections"), list):
                 sections = [s for s in job.parameters["sections"] if isinstance(s, str)]
-            data = await aggregate_coaching_summary(db, selected_sections=sections)
+            data = await aggregate_coaching_summary(
+                db, selected_sections=sections, scope=(job.parameters or {}).get("scope")
+            )
             body, content_type = render(data, job.format)
 
             ext = job.format.value
             key = f"reports/{job.id}.{ext}"
             uri = await anyio.to_thread.run_sync(
                 put_object,
-                settings.s3_bucket_artifacts,
+                "artifacts",
                 key,
                 body,
                 content_type,
             )
 
-            job.output_uri = uri
-            job.status = JobStatus.succeeded
-        except Exception as exc:  # noqa: BLE001 — must convert to job-row failure
+            values = {"output_uri": uri, "status": JobStatus.succeeded, "error_message": None}
+        except Exception as exc:  # noqa: BLE001 — convert to durable failure
             log.exception("report_job_failed", job_id=str(job_id))
-            job.status = JobStatus.failed
-            job.error_message = str(exc)[:1000]
-        finally:
-            job.finished_at = datetime.now(UTC)
-            await db.commit()
+            values = {"status": JobStatus.failed, "error_message": str(exc)[:1000]}
+        await db.rollback()
+        await db.execute(
+            update(ReportJob)
+            .where(ReportJob.id == job_id, ReportJob.lease_token == token)
+            .values(
+                **values, finished_at=datetime.now(UTC), lease_token=None, lease_expires_at=None
+            )
+        )
+        await db.commit()
+
+
+async def report_worker_loop() -> None:
+    """Resume persisted report requests after API restart, with leased claims."""
+    import asyncio
+
+    while True:
+        try:
+            async with AsyncSessionLocal() as db:
+                now = datetime.now(UTC)
+                await db.execute(
+                    update(ReportJob)
+                    .where(
+                        ReportJob.status == JobStatus.running,
+                        ReportJob.attempt_count >= 3,
+                        ReportJob.lease_expires_at < now,
+                    )
+                    .values(
+                        status=JobStatus.failed,
+                        error_message="Report lease expired; attempts exhausted",
+                        lease_token=None,
+                        lease_expires_at=None,
+                        finished_at=now,
+                    )
+                )
+                rows = (
+                    (
+                        await db.execute(
+                            select(ReportJob.id)
+                            .where(
+                                or_(
+                                    ReportJob.status == JobStatus.queued,
+                                    and_(
+                                        ReportJob.status == JobStatus.running,
+                                        ReportJob.lease_expires_at < now,
+                                    ),
+                                ),
+                                ReportJob.attempt_count < 3,
+                            )
+                            .order_by(ReportJob.created_at)
+                            .limit(5)
+                        )
+                    )
+                    .scalars()
+                    .all()
+                )
+                await db.commit()
+            for report_id in rows:
+                await _run_report_job(report_id)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception("report_worker_tick_failed")
+        await asyncio.sleep(2)
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
@@ -188,6 +272,9 @@ async def create_report(
 
     parameters: dict[str, Any] = {
         "sections": list(body.sections) if body.sections else list(ALL_SECTIONS),
+        "scope": body.model_dump(
+            mode="json", exclude={"report_type", "format", "sections"}, exclude_none=True
+        ),
     }
 
     job = ReportJob(
@@ -264,6 +351,12 @@ async def get_report_download_url(
         )
 
     settings = get_settings()
-    url = generate_download_url_for_uri(job.output_uri)
+    from app.routers.system import staff_storage_url
+
+    url = (
+        staff_storage_url(job.output_uri)
+        if job.output_uri.startswith("local://") or settings.signed_url_mode == "worker"
+        else generate_download_url_for_uri(job.output_uri)
+    )
     expires_at = datetime.now(UTC) + timedelta(seconds=settings.s3_presign_ttl)
     return ReportDownloadResponse(download_url=url, expires_at=expires_at.isoformat())

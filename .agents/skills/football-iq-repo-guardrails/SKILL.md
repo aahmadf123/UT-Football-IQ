@@ -1,7 +1,7 @@
 ---
 name: football-iq-repo-guardrails
-description: Repo guardrails for Football-IQ — the handful of constraints that are genuinely load-bearing: American-football-only scope, secret handling, no model weights in git, pgvector as the only vector store, single-camera capture, and the model-router contract. Load before adding an external resource, touching pipeline routing, or wiring a new secret.
-version: 2.0.0
+description: Repo guardrails for Football-IQ — American-football-only scope, local CPU operation, secret handling, no model weights in git, pgvector as the only vector store, independent recording views, and the model-router contract. Load before adding an external resource, touching pipeline routing, or wiring a new secret.
+version: 3.0.0
 ---
 
 # Football-IQ repo guardrails
@@ -29,10 +29,17 @@ Skip it for ordinary feature work, UI changes, refactors, and doc edits.
 |---|---|
 | **Backend API** (`backend/`) | FastAPI. REST API, auth, job queue, storage facade, nightly scheduler. |
 | **Frontend** (`frontend/`) | Next.js static export. Coach-facing UI. |
-| **Pipeline worker** (`gpu-worker/`) | Claims jobs, runs the CV stage chain, writes results back through the API. |
+| **Pipeline worker** (`gpu-worker/`) | Claims jobs, runs the CV stage chain on the available local hardware, writes results back through the API. The directory name does not require a GPU. |
 | **Postgres 16 + pgvector** | Relational store, similarity vectors, **and** the job queue (`processing_jobs`, `FOR UPDATE SKIP LOCKED` leases). |
 
-**Hosting choice (human-approved): Cloudflare + Vercel.** The edge Worker in
+**Default operation (human-approved): independent local libraries on staff laptops.**
+The API, Postgres, storage, frontend and worker run on each computer without
+paid cloud compute or a dedicated GPU. Training is manually queued and
+automatic heavy training is disabled by default. Shared team hosting is a
+later extension; day-one operation must not require another staff machine.
+See `docs/adr/0006-local-multi-recording-review-and-learning.md`.
+
+**Optional hosting: Cloudflare + Vercel.** The edge Worker in
 `workers/api-edge/` (backend as a Cloudflare Container, R2 buckets,
 Hyperdrive) and Vercel for the frontend are the sanctioned deployment wiring
 — see `docs/setup/cloudflare.md` / `docs/setup/vercel.md` and
@@ -148,9 +155,13 @@ one, raise it rather than working around it.
 - **No new vector database.** Similarity search uses Postgres + pgvector (see
   `docs/embeddings-architecture.md`). Do not introduce Pinecone, Weaviate,
   Qdrant, Milvus, FAISS-as-a-service, or any parallel vector store.
-- **No multi-camera assumptions.** The capture protocol is single-camera
-  (`docs/capture-protocol-v1.md`). Do not add code paths that assume synced
-  multi-camera rigs or that fail when only one camera is present.
+- **Independent recordings, optional matched play views.** A session may
+  contain one or many recordings from any angle or height. Each recording
+  has its own timestamps, camera motion, calibration and analysis. Coaches
+  may match clips as views of one canonical play; aggregates count that play
+  once. Do not require synchronization or multiple cameras, infer shared
+  tracking identities across views, or imply automatic triangulation.
+  ADR 0006 supersedes the one-camera-per-session restriction of ADRs 0001/0005.
 - **No duplicate SAM integration.** SAM 3.1 lives **only** behind the
   `ENABLE_SAM3_NIGHTLY` env flag in `model_router.py`, routed for `detect` and
   `track` nightly buckets. Do not add a second SAM call site, a same-session
@@ -159,6 +170,13 @@ one, raise it rather than working around it.
   fabricated CFBD rows, and placeholder embeddings must be labelled at the
   data layer and in any UI surface that renders them. Never wire a `mock_*`
   fixture into a production code path or a coach-visible endpoint.
+- **Learning requires measured evidence.** Coach edits immediately apply
+  with revisioned history. Immutable training, calibration and holdout
+  snapshots must use actual film artifacts and reviewed human labels from
+  disjoint sessions. Candidate training is experimental; promotion requires
+  a passing heldout evaluation bound to the actual artifact hash and a
+  human decision. Missing samples or weights never justify synthetic
+  replacements or unvalidated coach analytics.
 - **Do not bypass the model router.** Stages call `select_model` rather than
   reading variant strings from env vars or hard-coding them.
 

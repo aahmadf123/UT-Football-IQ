@@ -1,0 +1,16 @@
+# Python 3.11 CPU worker for Windows/Linux and native macOS. Optional pose,
+# NVIDIA/TAO and SAM stacks are not prerequisites for importing or reviewing film.
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.5.1+cpu; sys_platform != "darwin"
+torchvision==0.20.1+cpu; sys_platform != "darwin"
+torch==2.5.1; sys_platform == "darwin" and platform_machine == "arm64"
+torchvision==0.20.1; sys_platform == "darwin" and platform_machine == "arm64"
+# Last Intel Mac wheels; native installation avoids CUDA-only containers.
+torch==2.2.2; sys_platform == "darwin" and platform_machine == "x86_64"
+torchvision==0.17.2; sys_platform == "darwin" and platform_machine == "x86_64"
+# Pin the image bridge shared by torch/Ultralytics; avoid a transitive OpenCV
+# upgrade selecting NumPy 2 on the Intel Mac PyTorch 2.2 wheel.
+numpy==1.26.4
+scipy==1.14.1
+opencv-python==4.10.0.84
+-r requirements.txt

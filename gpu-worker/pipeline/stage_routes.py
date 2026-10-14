@@ -26,6 +26,7 @@ from typing import Any
 import structlog
 
 from pipeline import backend
+from pipeline.runtime import PipelineInterrupted, check_control
 
 log = structlog.get_logger(__name__)
 
@@ -46,6 +47,9 @@ def run(
     log.info("stage_routes_start", clip_id=clip_id)
 
     snap_event = next((e for e in events if e.get("event_type") == "snap"), None)
+    if snap_event is None:
+        return {"label_count": 0, "label_ids": [], "route_results": [], "combinations": [],
+                "skipped": True, "reason": "snap_not_observed"}
     snap_frame = snap_event.get("frame_number", 0) if snap_event else 0
 
     end_event = next(
@@ -109,6 +113,9 @@ def run(
     # Write labels
     label_ids: list[str] = []
     for lbl in labels:
+        check_control()
+        lbl["label_value"].update(source="heuristic", experimental=True, review_required=True,
+                                  provenance={"source": "heuristic", "validated": False})
         try:
             resp = backend.create_label(
                 lbl["label_type"],
@@ -117,8 +124,11 @@ def run(
                 source="model",
             )
             label_ids.append(resp["id"])
+        except PipelineInterrupted:
+            raise
         except Exception as exc:
             log.warning("route_label_write_failed", label_type=lbl["label_type"], error=str(exc))
+            raise
 
     log.info("stage_routes_done", clip_id=clip_id, label_count=len(label_ids))
     return {

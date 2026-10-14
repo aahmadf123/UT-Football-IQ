@@ -19,6 +19,7 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from pipeline import segment_models, stage_segment
+from pipeline.runtime import ModelUnavailableError
 from pipeline.segment_models import (
     LEARNED_PLAY,
     OPTICAL_FLOW,
@@ -233,8 +234,9 @@ def test_get_segmenter_stub_returns_stub() -> None:
     assert isinstance(get_segmenter(STUB_SEGMENTER), StubSegmenter)
 
 
-def test_get_segmenter_unknown_returns_stub() -> None:
-    assert isinstance(get_segmenter("nope-not-real"), StubSegmenter)
+def test_get_segmenter_unknown_rejects() -> None:
+    with pytest.raises(ValueError, match="Unknown segmenter"):
+        get_segmenter("nope-not-real")
 
 
 def test_get_segmenter_sportsbd_falls_back_to_stub_when_missing(
@@ -244,7 +246,8 @@ def test_get_segmenter_sportsbd_falls_back_to_stub_when_missing(
         raise ImportError("sportsbd missing for test")
 
     monkeypatch.setattr(SportsBDSegmenter, "__init__", _boom)
-    assert isinstance(get_segmenter(SPORTSBD), StubSegmenter)
+    with pytest.raises(ModelUnavailableError, match="unavailable"):
+        get_segmenter(SPORTSBD)
 
 
 def test_segmenter_base_is_abstract() -> None:
@@ -304,7 +307,7 @@ def test_stage_segment_routes_through_adapter_and_writes_clips(
     # (preserved for backward compatibility with the clips API).
     for i, call in enumerate(fake.calls, start=1):
         assert call["video_id"] == "vid-1"
-        assert call["boundary_source"] == "model"
+        assert call["boundary_source"] == "synthetic_test"
         assert call["play_number"] == i
         assert call["job_id"] == "job-1"
         assert 0.0 <= call["boundary_confidence"] <= 1.0
@@ -326,10 +329,47 @@ def test_stage_segment_no_boundaries_writes_single_clip(
     only = fake.calls[0]
     assert only["start_time"] == 0.0
     assert only["end_time"] == pytest.approx(45.0)
-    assert only["boundary_source"] == "model"
+    assert only["boundary_source"] == "synthetic_test"
     # No internal boundaries → segment is bounded by the start/end of
     # the video, which we treat as fully trusted.
     assert only["boundary_confidence"] == pytest.approx(1.0)
+
+
+def test_segmenter_proposals_cannot_extend_beyond_actual_source(monkeypatch):
+    # Explicit test segmenters can have a nominal duration unrelated to this
+    # uploaded recording. Their proposals must still respect real media bounds.
+    fake = _patch_stage(monkeypatch, segmenter=StubSegmenter(), duration=5.)
+    result = stage_segment.run("short-film", "file:///short-film.mp4", "job-short")
+    assert result["clip_count"] == 1
+    assert [(call["start_time"], call["end_time"]) for call in fake.calls] == [(0., 5.)]
+
+
+def test_invalid_boundary_values_are_abstentions_not_invalid_clips(monkeypatch):
+    fake = _FakeBackend()
+    monkeypatch.setattr(stage_segment.backend, "create_clip", fake.create_clip)
+    boundaries = [{"time_s": time_s, "confidence": .8}
+                  for time_s in [-3, 0, 5, 30, float("nan"), float("inf"), None]]
+    boundaries.extend([{"time_s": 2, "confidence": float("nan")}, {}])
+    clips = stage_segment._write_clips("film", boundaries, 5., "job", "optical_flow")
+    assert len(clips) == 1
+    assert [(call["start_time"], call["end_time"]) for call in fake.calls] == [(0., 5.)]
+
+
+def test_review_keeps_short_source_available_for_manual_annotation(monkeypatch):
+    fake = _patch_stage(monkeypatch, segmenter=StubSegmenter(no_boundaries=True), duration=2.)
+    result = stage_segment.run("short-film", "file:///short-film.mp4", "job-short",
+                               processing_profile="review")
+    assert result["clip_count"] == 1
+    assert [(call["start_time"], call["end_time"]) for call in fake.calls] == [(0., 2.)]
+    assert fake.calls[0]["boundary_confidence"] == 0.
+
+
+def test_quick_does_not_claim_a_short_window_is_a_detected_play(monkeypatch):
+    fake = _patch_stage(monkeypatch, segmenter=StubSegmenter(no_boundaries=True), duration=2.)
+    result = stage_segment.run("short-film", "file:///short-film.mp4", "job-short",
+                               processing_profile="quick")
+    assert result["clip_count"] == 0
+    assert fake.calls == []
 
 
 def test_stage_segment_drops_too_short_segments(

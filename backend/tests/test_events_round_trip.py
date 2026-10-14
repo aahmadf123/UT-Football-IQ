@@ -286,7 +286,18 @@ def test_update_event_mutates_only_provided_fields() -> None:
         session = AsyncMock()
         result = MagicMock()
         result.scalar_one_or_none.return_value = event
-        session.execute = AsyncMock(return_value=result)
+
+        async def _execute(stmt: Any) -> Any:
+            result = MagicMock()
+            descriptions = getattr(stmt, "column_descriptions", [])
+            entity = descriptions[0].get("entity") if descriptions else None
+            result.scalar_one_or_none.return_value = (
+                _make_clip(id=event.clip_id) if entity is Clip else event
+            )
+            return result
+
+        session.execute = AsyncMock(side_effect=_execute)
+        session.add = MagicMock()
         session.flush = AsyncMock()
         yield session
 
@@ -306,9 +317,9 @@ def test_update_event_mutates_only_provided_fields() -> None:
     # event_type unchanged
     assert body["event_type"] == "throw"
     assert body["frame_number"] == 55
-    assert body["attributes"] == {"qb_id": "b"}
+    assert body["attributes"] == {"qb_id": "b", "source": "human", "timebase": "clip"}
     assert event.frame_number == 55
-    assert event.attributes == {"qb_id": "b"}
+    assert event.attributes == {"qb_id": "b", "source": "human", "timebase": "clip"}
 
 
 # ── Delete event ──────────────────────────────────────────────────────────────

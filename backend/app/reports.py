@@ -17,6 +17,7 @@ from collections.abc import Iterable
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from typing import Any
+from xml.sax.saxutils import escape
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -25,6 +26,7 @@ from app.models import (
     Clip,
     CoachCorrection,
     Player,
+    PlayView,
     ReportFormat,
     Video,
 )
@@ -63,6 +65,7 @@ class CoachingSummaryData:
     generated_at: str
     sections: list[Section]
     totals: dict[str, int]
+    scope: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -75,6 +78,11 @@ class CoachingSummaryData:
                 for s in self.sections
             ],
             "totals": self.totals,
+            "scope": self.scope,
+            "description": (
+                "Film inventory and reviewed tagging summary; "
+                "roster counts are not player development grades."
+            ),
         }
 
 
@@ -91,6 +99,7 @@ async def aggregate_coaching_summary(
     db: AsyncSession,
     *,
     selected_sections: Iterable[str] | None = None,
+    scope: dict[str, Any] | None = None,
 ) -> CoachingSummaryData:
     """Build a :class:`CoachingSummaryData` snapshot from real DB rows.
 
@@ -99,22 +108,52 @@ async def aggregate_coaching_summary(
     """
     wanted = set(selected_sections) if selected_sections is not None else set(ALL_SECTIONS)
 
-    total_videos = await _count(db, select(func.count()).select_from(Video))
-    total_clips = await _count(db, select(func.count()).select_from(Clip))
+    scope = scope or {}
+    videos = select(Video.id)
+    for name in ("practice_session_id", "session_kind", "library_role", "opponent_team"):
+        if scope.get(name) is not None:
+            videos = videos.where(getattr(Video, name) == scope[name])
+    if scope.get("video_id"):
+        videos = videos.where(Video.id == scope["video_id"])
+    for name, operator in (("recorded_after", "after"), ("recorded_before", "before")):
+        if scope.get(name):
+            value = (
+                datetime.fromisoformat(scope[name]) if isinstance(scope[name], str) else scope[name]
+            )
+            videos = videos.where(
+                Video.recorded_at >= value if operator == "after" else Video.recorded_at <= value
+            )
+    clip_scope = Clip.video_id.in_(videos)
+    play_key = func.coalesce(PlayView.play_id, Clip.id)
+    canonical_count = (
+        select(func.count(func.distinct(play_key)))
+        .select_from(Clip)
+        .outerjoin(PlayView, PlayView.clip_id == Clip.id)
+        .where(clip_scope)
+    )
+    total_videos = await _count(
+        db, select(func.count()).select_from(Video).where(Video.id.in_(videos))
+    )
+    total_clips = await _count(db, canonical_count)
     total_players = await _count(
         db, select(func.count()).select_from(Player).where(Player.is_active.is_(True))
     )
-    total_corrections = await _count(db, select(func.count()).select_from(CoachCorrection))
-    reviewed_clips = await _count(
-        db, select(func.count()).select_from(Clip).where(Clip.is_reviewed.is_(True))
+    total_corrections = await _count(
+        db,
+        select(func.count())
+        .select_from(CoachCorrection)
+        .where(CoachCorrection.clip_id.in_(select(Clip.id).where(clip_scope))),
     )
+    reviewed_clips = await _count(db, canonical_count.where(Clip.is_reviewed.is_(True)))
 
     sections: list[Section] = []
 
     if SECTION_SELF_SCOUT in wanted:
         # Clip count per personnel grouping (NULLs grouped as "Unknown").
         result = await db.execute(
-            select(Clip.personnel_grouping, func.count())
+            select(Clip.personnel_grouping, func.count(func.distinct(play_key)))
+            .outerjoin(PlayView, PlayView.clip_id == Clip.id)
+            .where(clip_scope, Clip.is_reviewed.is_(True))
             .group_by(Clip.personnel_grouping)
             .order_by(func.count().desc())
         )
@@ -135,10 +174,10 @@ async def aggregate_coaching_summary(
         rows = [SectionRow(label=(group or "Unknown"), value=str(n)) for group, n in result.all()]
         if not rows:
             rows = [SectionRow(label="No active players", value="0")]
-        sections.append(Section(title=SECTION_DEVELOPMENT, rows=rows))
+        sections.append(Section(title="Current roster by position group", rows=rows))
 
     if SECTION_MODEL_QUALITY in wanted:
-        avg_result = await db.execute(select(func.avg(Clip.confidence)))
+        avg_result = await db.execute(select(func.avg(Clip.confidence)).where(clip_scope))
         avg_conf = avg_result.scalar_one_or_none()
         rows = [
             SectionRow(label="Clips reviewed", value=f"{reviewed_clips} of {total_clips}"),
@@ -148,12 +187,12 @@ async def aggregate_coaching_summary(
                 value=f"{float(avg_conf):.2f}" if avg_conf is not None else "n/a",
             ),
         ]
-        sections.append(Section(title=SECTION_MODEL_QUALITY, rows=rows))
+        sections.append(Section(title="Review progress and model confidence", rows=rows))
 
     if SECTION_OPPONENT_PREP in wanted:
         result = await db.execute(
             select(Video.opponent_team, func.count())
-            .where(Video.opponent_team.isnot(None))
+            .where(Video.opponent_team.isnot(None), Video.id.in_(videos))
             .group_by(Video.opponent_team)
             .order_by(func.count().desc())
         )
@@ -162,7 +201,7 @@ async def aggregate_coaching_summary(
         ]
         if not rows:
             rows = [SectionRow(label="No opponent-tagged film yet", value="0")]
-        sections.append(Section(title=SECTION_OPPONENT_PREP, rows=rows))
+        sections.append(Section(title="Opponent film inventory", rows=rows))
 
     totals = {
         "videos": total_videos,
@@ -175,6 +214,7 @@ async def aggregate_coaching_summary(
         generated_at=datetime.now(UTC).isoformat(timespec="seconds"),
         sections=sections,
         totals=totals,
+        scope=scope,
     )
 
 
@@ -189,6 +229,15 @@ def render_csv(data: CoachingSummaryData) -> bytes:
     buf = io.StringIO()
     writer = csv.writer(buf)
     writer.writerow(["Section", "Label", "Value"])
+    writer.writerow(
+        [
+            "Context",
+            "Description",
+            "Film inventory and reviewed tags; roster rows count active players.",
+        ]
+    )
+    for key, value in sorted(data.scope.items()):
+        writer.writerow(["Selection", key, value])
     for section in data.sections:
         for row in section.rows:
             writer.writerow([section.title, row.label, row.value])
@@ -227,6 +276,15 @@ def render_pdf(data: CoachingSummaryData) -> bytes:
     story: list[Any] = [
         Paragraph("Football-IQ — Coaching Report", styles["Title"]),
         Paragraph(f"Generated: {data.generated_at}", styles["Normal"]),
+        Paragraph(
+            "Film inventory and reviewed tags. Roster rows count active players.", styles["Normal"]
+        ),
+        Paragraph(
+            f"Selection: {escape(json.dumps(data.scope, sort_keys=True))}"
+            if data.scope
+            else "Selection: all film",
+            styles["Normal"],
+        ),
         Spacer(1, 12),
     ]
 

@@ -3,7 +3,7 @@
 from functools import lru_cache
 from typing import Any
 
-from pydantic import field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -12,12 +12,18 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         case_sensitive=False,
+        extra="ignore",
     )
 
     # ── Core ──────────────────────────────────────────────────────────────
     environment: str = "development"
     secret_key: str
     log_level: str = "INFO"
+    football_iq_data_dir: str = ""
+    pipeline_device: str = "cpu"
+    report_worker_enabled: bool = True
+    auto_train_enabled: bool = False
+    local_training_features_uri: str = ""
 
     # ── Database ──────────────────────────────────────────────────────────
     database_url: str  # asyncpg URL for the app
@@ -171,6 +177,9 @@ class Settings(BaseSettings):
     # setup on any platform that suspends an idle container, because a suspended
     # process never reaches the scheduled hour to notice it is due.
     scheduler_enabled: bool | None = None  # None = on, except under tests
+    in_process_scheduler_enabled_override: bool | None = Field(
+        default=None, validation_alias="IN_PROCESS_SCHEDULER_ENABLED"
+    )
     scheduler_hour_utc: int = 8
     # Bearer token the external scheduler presents to /internal/scheduler/tick.
     # Empty disables the endpoint entirely (404) — a tick route with no
@@ -251,6 +260,8 @@ class Settings(BaseSettings):
         """
         if self.scheduler_enabled is not None:
             return self.scheduler_enabled
+        if self.in_process_scheduler_enabled_override is not None:
+            return self.in_process_scheduler_enabled_override
         return not self.is_test
 
 

@@ -76,10 +76,13 @@ describe("fetchPlayers", () => {
     expect(url).toBe("https://api.test/api/v1/players");
   });
 
-  test("throws when NEXT_PUBLIC_API_URL is not set", async () => {
+  test("uses the local API without an origin override", async () => {
     vi.stubEnv("NEXT_PUBLIC_API_URL", "");
     const { fetchPlayers } = await freshImport();
-    await expect(fetchPlayers()).rejects.toThrow(/NEXT_PUBLIC_API_URL/);
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => ({ ok: true, json: async () => [] }));
+    vi.stubGlobal("fetch", fetchMock);
+    await fetchPlayers();
+    expect(fetchMock.mock.calls[0][0]).toBe("/api/v1/players");
   });
 
   test("throws on non-ok response", async () => {

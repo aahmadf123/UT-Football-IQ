@@ -26,7 +26,7 @@ from app.auth import (
 )
 from app.config import get_settings
 from app.database import get_db
-from app.deps import require_admin
+from app.deps import get_current_user, require_admin
 from app.models import User, UserRole
 
 log = structlog.get_logger(__name__)
@@ -99,6 +99,12 @@ class UserResponse(BaseModel):
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
+
+
+@router.get("/me", response_model=UserResponse)
+async def current_account(current_user: Annotated[User, Depends(get_current_user)]) -> User:
+    """Resolve the account behind an access token for native and hosted clients."""
+    return current_user
 
 
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)

@@ -535,7 +535,8 @@ def test_run_with_empty_tracklets_returns_safely() -> None:
     assert result["metric_ids"] == []
 
 
-def test_run_with_single_ol_tracklet_writes_metrics() -> None:
+def test_run_with_single_ol_tracklet_writes_metrics(monkeypatch) -> None:
+    monkeypatch.setenv("POSE_EXPERIMENTAL_METRICS", "1")
     src = MockVideoSource(total_frames=30, fps=30.0)
     captured: list[dict] = []
 
@@ -548,6 +549,8 @@ def test_run_with_single_ol_tracklet_writes_metrics() -> None:
         "position_group": "OL",
         "start_frame": 0,
         "end_frame": 30,
+        "track_points": [{"frame_number": i, "bbox": [0, 0, 1280, 720]}
+                         for i in range(0, 30, 3)],
     }
 
     with patch("pipeline.stage_pose.backend") as mock_backend:
@@ -562,7 +565,7 @@ def test_run_with_single_ol_tracklet_writes_metrics() -> None:
             analytics_safe=False,
             fps=30.0,
             job_id="job-1",
-            model_path=None,
+            model_path="stub",
         )
 
     assert result["metric_count"] >= 1
@@ -579,6 +582,8 @@ def test_run_writes_head_yaw_to_pose_keypoints() -> None:
         "position_group": "DB",
         "start_frame": 0,
         "end_frame": 6,
+        "track_points": [{"frame_number": i, "bbox": [0, 0, 1280, 720]}
+                         for i in range(0, 6, 3)],
     }
 
     with patch("pipeline.stage_pose.backend") as mock_backend:
@@ -593,7 +598,7 @@ def test_run_writes_head_yaw_to_pose_keypoints() -> None:
             analytics_safe=False,
             fps=30.0,
             job_id="job-1",
-            model_path=None,
+            model_path="stub",
         )
 
     assert mock_backend.create_pose_keypoints.called

@@ -24,10 +24,18 @@ from __future__ import annotations
 
 import os
 from abc import ABC, abstractmethod
+from pathlib import Path
 from typing import Any
 
 import numpy as np
 import structlog
+
+from pipeline.runtime import (
+    ModelUnavailableError,
+    configure_cpu_threads,
+    inference_device,
+    model_provenance,
+)
 
 log = structlog.get_logger(__name__)
 
@@ -73,8 +81,8 @@ class YOLODetector(DetectorBase):
     """Ultralytics YOLO detector — the production same-session path.
 
     Conditionally imports ultralytics at construction time.  When the
-    package or weights are unavailable, callers should fall back to
-    ``StubDetector`` rather than crashing.
+    package or weights are unavailable, the job reports an actionable error.
+    Synthetic detections are only available through the explicit test adapter.
     """
 
     produces_masks = False
@@ -84,6 +92,7 @@ class YOLODetector(DetectorBase):
         model_path: str = "yolov8n.pt",
         confidence_threshold: float = 0.35,
         class_map: dict[int, str] | None = None,
+        device: str | None = None,
     ) -> None:
         try:
             from ultralytics import YOLO  # type: ignore[import-untyped]
@@ -94,13 +103,26 @@ class YOLODetector(DetectorBase):
             ) from exc
 
         self._model = YOLO(model_path)
+        configure_cpu_threads()
+        self._device = device or inference_device()
         self._conf = confidence_threshold
-        self._class_map = class_map or COCO_CLASS_NAMES
+        # COCO "sports ball" repeatedly fires on painted field arrows. Ball
+        # observations must come from the separately trained ball adapter.
+        self._class_map = class_map if class_map is not None else {0: "player"}
+        self.provenance = model_provenance(
+            effective_variant=Path(model_path).stem,
+            source="real",
+            device=self._device,
+            model_path=str(getattr(self._model, "ckpt_path", model_path)),
+        )
         log.info("yolo_detector_initialized", model_path=model_path,
                  conf=confidence_threshold)
 
     def detect(self, frame: np.ndarray) -> list[dict[str, Any]]:
-        results = self._model(frame, conf=self._conf, verbose=False)
+        results = self._model(
+            frame, conf=self._conf, verbose=False, device=self._device,
+            classes=list(self._class_map),
+        )
         detections: list[dict[str, Any]] = []
         for r in results:
             for box in r.boxes:
@@ -112,6 +134,7 @@ class YOLODetector(DetectorBase):
                     "bbox": [float(x1), float(y1), float(x2), float(y2)],
                     "confidence": float(box.conf[0]),
                     "class": self._class_map[cls_id],
+                    "source": "real",
                 })
         return detections
 
@@ -157,12 +180,17 @@ class SAM3Detector(DetectorBase):
             )
 
         self._model = SAM(model_path)
+        self._device = inference_device()
+        self.provenance = model_provenance(
+            effective_variant="sam3.1", source="real", device=self._device,
+            model_path=model_path,
+        )
         self._conf = confidence_threshold
-        self._class_map = class_map or COCO_CLASS_NAMES
+        self._class_map = class_map if class_map is not None else {0: "player"}
         # SAM 3 supports open-vocabulary text prompts.  Default to football
         # roles we already track downstream — passes through as the
         # ``class`` field instead of relying on COCO ids.
-        self._text_prompts = text_prompts or ["person", "ball"]
+        self._text_prompts = text_prompts or ["person"]
         log.info("sam3_detector_initialized", model_path=model_path,
                  conf=confidence_threshold, prompts=self._text_prompts)
 
@@ -171,6 +199,7 @@ class SAM3Detector(DetectorBase):
             frame,
             conf=self._conf,
             verbose=False,
+            device=self._device,
             prompts=self._text_prompts,
         )
         detections: list[dict[str, Any]] = []
@@ -187,6 +216,7 @@ class SAM3Detector(DetectorBase):
                     "bbox": [float(x1), float(y1), float(x2), float(y2)],
                     "confidence": float(box.conf[0]),
                     "class": cls_name,
+                    "source": "real",
                 }
                 if masks is not None and i < len(masks.xy):
                     polygon = masks.xy[i]
@@ -208,6 +238,8 @@ class StubDetector(DetectorBase):
     synthetic polygon masks.  No model weights, no GPU, no network
     required — safe to use anywhere ``ultralytics`` would be too heavy.
     """
+
+    provenance = model_provenance(effective_variant="stub", source="synthetic_test")
 
     def __init__(
         self,
@@ -234,6 +266,7 @@ class StubDetector(DetectorBase):
                 "bbox": [x1, y1, x2, y2],
                 "confidence": 0.85 - 0.01 * i,
                 "class": "player",
+                "source": "synthetic_test",
             }
             if produces_masks:
                 det["mask"] = {
@@ -283,11 +316,8 @@ def get_detector(
     Logic:
       - ``yolov8*``  → YOLODetector with the matching weight file
       - ``sam3*``    → SAM3Detector (requires HF_TOKEN at runtime)
-      - ``stub`` or unknown → StubDetector (deterministic, no deps)
-
-    On ``ImportError`` (e.g. running tests without ultralytics installed)
-    the factory falls back to ``StubDetector`` with a warning — same
-    self-configuring behaviour as ``pose_estimator.get_estimator``.
+      - Explicit ``stub`` → labelled synthetic test adapter
+      - Unknown / unavailable real model → actionable error, never invented boxes
     """
     v = (variant or "").lower()
 
@@ -297,25 +327,27 @@ def get_detector(
                 model_path=model_path or f"{v}.pt",
                 confidence_threshold=confidence_threshold,
             )
-        except ImportError:
-            log.warning("sam3_unavailable_using_stub", variant=variant)
-            return StubDetector(produces_masks=True)
+        except (ImportError, OSError, RuntimeError) as exc:
+            raise ModelUnavailableError(
+                f"SAM detector unavailable: {exc}. Install its dependencies and local weights."
+            ) from exc
 
     if v.startswith("yolo"):
         try:
             return YOLODetector(
-                model_path=model_path or f"{v}.pt",
+                model_path=model_path or os.environ.get("MODEL_DETECT_PATH") or f"{v}.pt",
                 confidence_threshold=confidence_threshold,
             )
-        except ImportError:
-            log.warning("yolo_unavailable_using_stub", variant=variant)
-            return StubDetector(produces_masks=False)
+        except (ImportError, OSError, RuntimeError) as exc:
+            raise ModelUnavailableError(
+                f"Player detector unavailable: {exc}. Install CPU inference dependencies "
+                "and select local model weights in setup."
+            ) from exc
 
-    if v == STUB_DETECTOR or not v:
+    if v == STUB_DETECTOR:
         return StubDetector()
 
-    log.warning("unknown_detector_variant_using_stub", variant=variant)
-    return StubDetector()
+    raise ValueError(f"Unknown detector variant: {variant!r}")
 
 
 # ── Regime-aware player composition (Issue #128) ──────────────────────────────
@@ -337,7 +369,8 @@ def player_detection_strategy(regime: str | None) -> str:
     scale → the same recall-first composition. ``fixed_sideline`` players are
     80–200 px → the base detector is enough (Issue #128).
     """
-    return "sahi-400+dual-res" if regime in _SMALL_PLAYER_REGIMES else "base"
+    enabled = os.environ.get("DETECT_TILING_ENABLED", "0").lower() in {"1", "true", "yes"}
+    return "sahi-400+dual-res" if enabled and regime in _SMALL_PLAYER_REGIMES else "base"
 
 
 def build_player_detector(
@@ -361,7 +394,7 @@ def build_player_detector(
         if base is not None
         else get_detector(variant, confidence_threshold=confidence_threshold)
     )
-    if regime not in _SMALL_PLAYER_REGIMES:
+    if player_detection_strategy(regime) == "base":
         return detector
     # Local imports avoid a package import cycle (detection imports this module).
     from pipeline.detection.dual_res_merger import DualResolutionDetector

@@ -2,9 +2,9 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Suspense } from "react";
+import { Suspense, useState } from "react";
 import { FootballShell } from "@/components/shell/app-shell";
-import { LibraryView } from "@/app/library/library-view";
+import { SessionWorkspace } from "@/components/film-room/session-workspace";
 import { ReviewTab } from "@/components/film-room/review-tab";
 import { UploadProcessFilm } from "@/components/film-room/upload-process";
 import { useUploadWidget } from "@/components/shared/upload-widget";
@@ -15,9 +15,9 @@ import { cn } from "@/lib/utils";
 // Film is the clip library (real sessions → videos → clips), Review & Tag
 // Plays is the per-video clip inventory that deep-links into clip review.
 const TABS = [
-  { key: "upload", label: "Upload / Process Film" },
-  { key: "browse", label: "Browse Film" },
-  { key: "review", label: "Review & Tag Plays" },
+  { key: "browse", label: "Sessions & film" },
+  { key: "review", label: "Review plays" },
+  { key: "upload", label: "Upload & processing" },
 ] as const;
 
 type TabKey = (typeof TABS)[number]["key"];
@@ -48,6 +48,13 @@ function FilmRoomContent() {
   const tabParam = searchParams.get("tab");
   const activeTab: TabKey = isTabKey(tabParam) ? tabParam : "browse";
   const videoIdParam = searchParams.get("videoId");
+  const [selectedSessionId, setSelectedSessionId] = useState(searchParams.get("sessionId") ?? "");
+  const selectSession = (id: string) => {
+    setSelectedSessionId(id);
+    const url = new URL(window.location.href);
+    if (id) url.searchParams.set("sessionId", id); else url.searchParams.delete("sessionId");
+    window.history.replaceState(null, "", url);
+  };
 
   const { openFilePicker: handleUploadClick, widget } = useUploadWidget({
     successMessage: (count) =>
@@ -65,11 +72,11 @@ function FilmRoomContent() {
         {TABS.map((tab) => (
           <Link
             key={tab.key}
-            href={`/film-room/?tab=${tab.key}`}
+            href={`/film-room/?tab=${tab.key}${selectedSessionId ? `&sessionId=${encodeURIComponent(selectedSessionId)}` : ""}`}
             aria-current={tab.key === activeTab ? "page" : undefined}
             data-testid={`film-room-tab-${tab.key}`}
             className={cn(
-              "inline-flex min-h-9 items-center whitespace-nowrap rounded-md px-3 py-1.5 font-display text-[0.82rem] font-semibold uppercase tracking-wide transition-colors",
+              "inline-flex min-h-10 items-center whitespace-nowrap rounded-md px-4 py-2 text-sm font-medium transition-colors",
               tab.key === activeTab
                 ? "bg-gradient-to-b from-primary to-gold-strong text-primary-foreground"
                 : "text-muted-foreground hover:bg-accent hover:text-foreground",
@@ -80,8 +87,8 @@ function FilmRoomContent() {
         ))}
       </nav>
 
-      {activeTab === "browse" && <LibraryView />}
-      {activeTab === "review" && <ReviewTab initialVideoId={videoIdParam ?? undefined} />}
+      {activeTab === "browse" && <SessionWorkspace initialSessionId={selectedSessionId} onSelect={selectSession} />}
+      {activeTab === "review" && <ReviewTab initialVideoId={videoIdParam ?? undefined} sessionId={selectedSessionId || undefined} />}
       {activeTab === "upload" && <UploadProcessFilm onUploadClick={handleUploadClick} />}
     </>
   );

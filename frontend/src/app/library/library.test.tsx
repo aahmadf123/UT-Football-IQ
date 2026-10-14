@@ -38,8 +38,10 @@ async function importPage() {
 }
 
 describe("LibraryPage", () => {
-  test("renders an offline notice when NEXT_PUBLIC_API_URL is missing", async () => {
+  test("attempts the local API and explains a connection failure", async () => {
     vi.stubEnv("NEXT_PUBLIC_API_URL", "");
+    const fetchMock = vi.fn().mockRejectedValue(new TypeError("Failed to fetch"));
+    vi.stubGlobal("fetch", fetchMock);
     const { LibraryPage, AppStateProvider } = await importPage();
     render(
       <AppStateProvider>
@@ -47,8 +49,9 @@ describe("LibraryPage", () => {
       </AppStateProvider>,
     );
     await waitFor(() => {
-      expect(screen.getByText(/Library unavailable/i)).toBeTruthy();
+      expect(screen.getByText(/Could not load library/i)).toBeTruthy();
     });
+    expect(fetchMock).toHaveBeenCalled();
   });
 
   test("renders empty state when backend returns no sessions and no videos", async () => {
@@ -78,7 +81,7 @@ describe("LibraryPage", () => {
 
     const sessions = [
       {
-        practice_session_id: null,
+        practice_session_id: "s-practice-1",
         session_date: "2026-05-20",
         session_kind: "practice",
         opponent_team: null,
@@ -99,6 +102,7 @@ describe("LibraryPage", () => {
     const videos = [
       {
         id: "v-practice-1",
+        practice_session_id: "s-practice-1",
         filename: "practice-may-20.mp4",
         status: "ready",
         created_at: "2026-05-20T16:00:00Z",
@@ -131,8 +135,8 @@ describe("LibraryPage", () => {
       return {
         ok: true,
         status: 200,
-        json: async () => videos,
-        text: async () => JSON.stringify(videos),
+        json: async () => url.includes("/api/v1/videos") ? videos : [],
+        text: async () => JSON.stringify(url.includes("/api/v1/videos") ? videos : []),
       };
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -140,7 +144,7 @@ describe("LibraryPage", () => {
     const { LibraryPage, AppStateProvider } = await importPage();
     render(
       <AppStateProvider>
-        <LibraryPage />
+        <LibraryPage savedSessions={[{ id: "s-practice-1", title: "Wednesday team period" }]} />
       </AppStateProvider>,
     );
 
@@ -149,6 +153,8 @@ describe("LibraryPage", () => {
       // "Game Film" appears in two places (section header + sidebar nav) so
       // verify by opponent presence instead.
       expect(screen.getAllByText(/Northern Illinois/i).length).toBeGreaterThan(0);
+      expect(screen.getByRole("button", { name: /Expand session Wednesday team period.*May 20, 2026/ })).toBeTruthy();
+      expect(screen.getByText(/May 20, 2026 · Practice/)).toBeTruthy();
     });
   });
 });

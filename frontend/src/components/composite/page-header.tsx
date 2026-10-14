@@ -23,24 +23,32 @@ export function PageHeader({
 }) {
   const { apiStatus } = useAppState();
   const entry = page ? pageTitles[page] : undefined;
-  const resolvedTitle = title ?? entry?.title ?? "";
-  const resolvedSubtitle = subtitle ?? entry?.subtitle;
+  const productTitles: Partial<Record<PageKey, { title: string; subtitle: string }>> = {
+    dashboard: { title: "Today", subtitle: "Your film, processing progress, and next plays to review." },
+    "film-room": { title: "Film Room", subtitle: "Organize sessions, work with every camera angle, and review plays." },
+    settings: { title: "This computer", subtitle: "Local processing, available features, and library settings." },
+    scouting: { title: "Scouting", subtitle: "Explore Toledo tendencies and prepare for your next opponent." },
+    players: { title: "Players", subtitle: "Your roster and the film evidence behind player development." },
+    reports: { title: "Reports", subtitle: "Build and download a coaching packet from the film you choose." },
+  };
+  const productEntry = page ? productTitles[page] : undefined;
+  const resolvedTitle = title ?? productEntry?.title ?? entry?.title ?? "";
+  const resolvedSubtitle = subtitle ?? productEntry?.subtitle ?? entry?.subtitle;
 
   return (
     <header className="mb-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <h1 className="flex flex-wrap items-center gap-2 font-display text-2xl font-semibold uppercase leading-tight tracking-wide text-foreground">
+          <h1 className="flex flex-wrap items-center gap-2 text-2xl font-semibold leading-tight tracking-tight text-foreground">
             {resolvedTitle}
             <MockBadge status={apiStatus} />
           </h1>
           {resolvedSubtitle ? (
-            <p className="mt-0.5 max-w-3xl text-[0.82rem] text-muted-foreground">{resolvedSubtitle}</p>
+            <p className="mt-2 max-w-3xl text-sm leading-relaxed text-muted-foreground">{resolvedSubtitle}</p>
           ) : null}
         </div>
         {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : null}
       </div>
-      <div aria-hidden className="hash-rule mt-3" />
     </header>
   );
 }

@@ -20,7 +20,7 @@ from typing import Annotated, Any, Literal
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -33,6 +33,8 @@ from app.models import (
     User,
     UserRole,
 )
+from app.services.annotations import lock_output_id
+from app.services.metric_policy import INVALID_SOURCES, metric_visibility, metric_visible
 
 log = structlog.get_logger(__name__)
 router = APIRouter(prefix="/api/v1/metrics", tags=["metrics"])
@@ -71,6 +73,7 @@ HEALTH_WORKLOAD_ONLY_METRIC_NAMES: frozenset[str] = frozenset({"workload_fusion"
 
 class MetricCreate(BaseModel):
     model_config = {"protected_namespaces": ()}
+    id: uuid.UUID | None = None
 
     clip_id: uuid.UUID
     tracklet_id: uuid.UUID | None = None
@@ -91,6 +94,7 @@ class MetricCreate(BaseModel):
     job_id: uuid.UUID | None = None
     is_suppressed: bool = False
     suppression_reason: str | None = None
+    provenance: dict[str, Any] | None = None
 
 
 class MetricResponse(BaseModel):
@@ -117,6 +121,7 @@ class MetricResponse(BaseModel):
     calibration_version_id: uuid.UUID | None
     job_id: uuid.UUID | None
     created_at: str
+    provenance: dict[str, Any] | None = None
 
     @classmethod
     def from_orm_metric(cls, m: Metric) -> "MetricResponse":
@@ -142,6 +147,7 @@ class MetricResponse(BaseModel):
             calibration_version_id=m.calibration_version_id,
             job_id=m.job_id,
             created_at=m.created_at.isoformat(),
+            provenance=m.provenance if isinstance(m.provenance, dict) else None,
         )
 
 
@@ -207,14 +213,46 @@ async def create_metric(
     progressionreadorder, staredownflag, playactionresponse) are automatically
     marked experimental_flag=True regardless of the payload value.
     """
-    clip_result = await db.execute(select(Clip).where(Clip.id == body.clip_id))
+    if body.id is not None:
+        await lock_output_id(db, body.id)
+        prior = (await db.execute(select(Metric).where(Metric.id == body.id))).scalar_one_or_none()
+        if prior is not None:
+            if (
+                prior.clip_id != body.clip_id
+                or prior.tracklet_id != body.tracklet_id
+                or prior.metric_name != body.metric_name
+            ):
+                raise HTTPException(409, detail="Output ID belongs to another measurement")
+            if body.job_id is not None and prior.job_id != body.job_id:
+                prior.job_id = body.job_id
+                provenance = dict(prior.provenance) if isinstance(prior.provenance, dict) else {}
+                provenance.pop("state", None)
+                prior.provenance = provenance or None
+                if prior.suppression_reason == "newer_analysis_available":
+                    prior.is_suppressed = body.is_suppressed
+                    prior.suppression_reason = body.suppression_reason
+                    prior.analytics_safe = (
+                        body.analytics_safe
+                        and not prior.experimental_flag
+                        and provenance.get("source") in {"real", "manual", "human"}
+                        and (
+                            provenance.get("source") in {"manual", "human"}
+                            or provenance.get("validated") is True
+                        )
+                    )
+                await db.flush()
+            return MetricResponse.from_orm_metric(prior)
+    clip_result = await db.execute(select(Clip).where(Clip.id == body.clip_id).with_for_update())
     if clip_result.scalar_one_or_none() is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Clip not found")
 
     if body.tracklet_id is not None:
         t_result = await db.execute(select(Tracklet).where(Tracklet.id == body.tracklet_id))
-        if t_result.scalar_one_or_none() is None:
+        target_tracklet = t_result.scalar_one_or_none()
+        if target_tracklet is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tracklet not found")
+        if target_tracklet.clip_id != body.clip_id:
+            raise HTTPException(422, detail="Tracklet does not belong to this clip")
 
     # Head-orientation and frontier-analytics metrics are always experimental
     # until coach-approved, regardless of the payload.
@@ -224,12 +262,44 @@ async def create_metric(
         or name_lower in FRONTIER_METRIC_NAMES
         or name_lower in REVIEW_CANDIDATE_METRIC_NAMES
     )
-    effective_experimental = body.experimental_flag or is_always_experimental
+    provenance = body.provenance or body.metric_value.get("provenance", {})
+    source = provenance.get("source") if isinstance(provenance, dict) else None
+    invalid_source = source in INVALID_SOURCES
+    effective_experimental = (
+        body.experimental_flag
+        or is_always_experimental
+        or source == "heuristic"
+        or invalid_source
+        or (isinstance(provenance, dict) and provenance.get("validated") is False)
+    )
     # analytics_safe must not be pre-set true for these metrics without review
-    effective_analytics_safe = body.analytics_safe and not is_always_experimental
+    effective_analytics_safe = (
+        body.analytics_safe
+        and not is_always_experimental
+        and not invalid_source
+        and (
+            source == "manual"
+            or (isinstance(provenance, dict) and provenance.get("validated") is True)
+        )
+    )
+
+    if body.job_id is not None:
+        await db.execute(
+            update(Metric)
+            .where(
+                Metric.clip_id == body.clip_id,
+                Metric.metric_name == body.metric_name,
+                Metric.job_id.is_distinct_from(body.job_id),
+            )
+            .values(
+                is_suppressed=True,
+                analytics_safe=False,
+                suppression_reason="newer_analysis_available",
+            )
+        )
 
     metric = Metric(
-        id=uuid.uuid4(),
+        id=body.id or uuid.uuid4(),
         clip_id=body.clip_id,
         tracklet_id=body.tracklet_id,
         metric_name=body.metric_name,
@@ -247,8 +317,9 @@ async def create_metric(
         model_version_id=body.model_version_id,
         calibration_version_id=body.calibration_version_id,
         job_id=body.job_id,
-        is_suppressed=body.is_suppressed,
-        suppression_reason=body.suppression_reason,
+        is_suppressed=body.is_suppressed or invalid_source,
+        suppression_reason="invalid_output_source" if invalid_source else body.suppression_reason,
+        provenance=provenance or None,
     )
     db.add(metric)
     await db.flush()
@@ -279,7 +350,12 @@ async def list_metrics(
 
     Players and viewers with player role never see experimental metrics.
     """
-    q = select(Metric).order_by(Metric.created_at.desc()).limit(limit).offset(offset)
+    q = (
+        metric_visibility(select(Metric), current_user)
+        .order_by(Metric.created_at.desc())
+        .limit(limit)
+        .offset(offset)
+    )
 
     # Health-workload metrics are only accessible via the /health-workload
     # surface which enforces full RBAC; exclude them from this endpoint.
@@ -318,13 +394,7 @@ async def get_metric(
     if metric is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Metric not found")
 
-    # Health-workload metrics must be accessed via /health-workload/* with full
-    # RBAC; return 404 (existence never leaks) to prevent policy bypass.
-    if metric.metric_name in HEALTH_WORKLOAD_ONLY_METRIC_NAMES:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Metric not found")
-
-    # Players must never see experimental metrics
-    if _is_player_role(current_user) and metric.experimental_flag:
+    if not metric_visible(metric, current_user):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Metric not found")
 
     return MetricResponse.from_orm_metric(metric)
@@ -371,6 +441,21 @@ async def review_metric(
     db.add(review)
 
     if body.review_action == "approve":
+        provenance = metric.provenance or (metric.metric_value or {}).get("provenance", {})
+        if isinstance(provenance, dict) and provenance.get("source") in INVALID_SOURCES:
+            raise HTTPException(
+                422, detail="Synthetic or unavailable measurements cannot be approved"
+            )
+        if not isinstance(provenance, dict) or provenance.get("source") not in {
+            "real",
+            "manual",
+            "human",
+        }:
+            raise HTTPException(422, detail="Measurement provenance is required before approval")
+        if metric.is_suppressed:
+            raise HTTPException(
+                422, detail="Resolve the measurement's suppression reason before approval"
+            )
         metric.analytics_safe = True
         log.info(
             "head_orientation_metric_approved",

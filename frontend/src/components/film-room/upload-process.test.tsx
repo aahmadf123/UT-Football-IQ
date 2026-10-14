@@ -86,8 +86,19 @@ beforeEach(() => {
 });
 
 describe("UploadProcessFilm", () => {
+  test("processed film can be reprocessed with the selected CPU profile after coach edits", async () => {
+    vi.stubEnv("NEXT_PUBLIC_API_URL", "https://api.test");
+    const postBodies: Array<Record<string, unknown>> = [];
+    installFetch({ postBodies, inboxItems: [{ ...UPLOADED_VIDEO, video_status: "ready", total_jobs: 1, succeeded_jobs: 1, clip_count: 2 }] });
+    await renderUploadProcess();
+    fireEvent.change(screen.getByLabelText("Processing profile"), { target: { value: "detailed" } });
+    fireEvent.click(await screen.findByRole("button", { name: "Reprocess film" }));
+    await waitFor(() => expect(postBodies[0]).toMatchObject({ processing_profile: "detailed", pipeline_mode: "nightly" }));
+    expect(screen.getByTestId("processing-status-vid-1").textContent).toContain("Queued");
+  });
   test("offline backend explains what is missing instead of faking data", async () => {
     vi.stubEnv("NEXT_PUBLIC_API_URL", "");
+    vi.stubGlobal("fetch", vi.fn(() => Promise.reject(new TypeError("Failed to fetch"))));
     await renderUploadProcess();
     await waitFor(() => {
       expect(screen.getByTestId("processing-empty").textContent).toMatch(/Backend offline/i);

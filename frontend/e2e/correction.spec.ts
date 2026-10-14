@@ -69,7 +69,7 @@ test("coach submits a player-identity correction through the side panel", async 
   await page.getByTestId("correction-submit").click();
 
   await expect(page.getByTestId("correction-success")).toContainText(
-    "feeds the nightly learning loop",
+    "Available for the learning loop",
   );
 
   expect(received).toMatchObject({

@@ -1,11 +1,8 @@
 """Pose estimator adapter for the Pose-Lite Biomechanics Pilot (Issue #6).
 
-Provides a uniform interface over RTMPose (via MMPose) and a deterministic
-stub for testing without GPU hardware or model weights.
-
-Model stack (from issue #6):
-  Primary   : RTMPose-m via MMPose — 430 FPS on NVIDIA GTX 1660 Ti
-  Fallback  : StubPoseEstimator — deterministic synthetic keypoints, same schema
+Provides a uniform interface over optional RTMPose (via MMPose) and an explicit
+synthetic test stub. Missing real weights/runtime make pose unavailable;
+production never substitutes a test skeleton. Device selection defaults to CPU.
 
 Keypoint schema (17-point COCO layout used by both RTMPose-m and ViTPose):
   0  nose          1  left_eye       2  right_eye
@@ -30,6 +27,8 @@ from typing import Any
 
 import numpy as np
 import structlog
+
+from pipeline.runtime import configure_cpu_threads, inference_device, model_provenance
 
 log = structlog.get_logger(__name__)
 
@@ -87,20 +86,20 @@ class RTMPoseEstimator(PoseEstimatorBase):
     """RTMPose-m estimator via MMPose.
 
     Conditionally imports mmpose at construction time; raises ``ImportError`` if
-    the package is not installed (caller should fall back to ``StubPoseEstimator``).
+    the package is not installed (the production stage reports pose unavailable).
 
     Args:
         model_path: Path to RTMPose .pth weights file.
         config_path: Optional path to mmpose config yaml.  When ``None``, the
                      bundled RTMPose-m config is used.
-        device: Torch device string (default "cuda:0").
+        device: Explicit Torch device override; otherwise CPU-first policy.
     """
 
     def __init__(
         self,
         model_path: str,
         config_path: str | None = None,
-        device: str = "cuda:0",
+        device: str | None = None,
     ) -> None:
         try:
             from mmpose.apis import inference_topdown, init_model  # type: ignore[import]
@@ -112,9 +111,14 @@ class RTMPoseEstimator(PoseEstimatorBase):
             ) from exc
 
         register_all_modules()
+        configure_cpu_threads()
+        device = device or inference_device()
         _config = config_path or _default_rtmpose_config()
         self._model = init_model(_config, model_path, device=device)
         self._inference_topdown = inference_topdown
+        self.provenance = model_provenance(
+            effective_variant="rtmpose", source="real", device=device, model_path=model_path
+        )
         log.info("rtmpose_estimator_initialized", model_path=model_path, device=device)
 
     def estimate(self, frame: np.ndarray) -> list[dict[str, Any]]:
@@ -125,7 +129,7 @@ class RTMPoseEstimator(PoseEstimatorBase):
         if not results:
             return _zero_keypoints()
         # Take the highest-confidence person if multiple detected
-        best = max(results, key=lambda r: float(r.pred_instances.scores[0]))
+        best = max(results, key=lambda r: float(np.mean(r.pred_instances.keypoint_scores[0])))
         kps = best.pred_instances.keypoints[0]       # shape (17, 2)
         scores = best.pred_instances.keypoint_scores[0]  # shape (17,)
         return [
@@ -198,6 +202,7 @@ class StubPoseEstimator(PoseEstimatorBase):
     ]
     _FRAME_W = 1280
     _FRAME_H = 720
+    provenance = model_provenance(effective_variant="stub", source="synthetic_test")
 
     def __init__(self, seed: int = 42) -> None:
         self._seed = seed
@@ -222,7 +227,12 @@ class StubPoseEstimator(PoseEstimatorBase):
         # Per-call dict copies: callers that mutate keypoint dicts (e.g. to
         # adjust confidences in tests, or to attach derived fields downstream)
         # must not be able to corrupt the cached skeleton on this estimator.
-        return [dict(k) for k in self._keypoints]
+        h, w = frame.shape[:2]
+        return [
+            {**k, "x": k["x"] * w / self._FRAME_W, "y": k["y"] * h / self._FRAME_H,
+             "source": "synthetic_test"}
+            for k in self._keypoints
+        ]
 
 
 # ── NVIDIA BodyPose3DNet adapter (Phase 2.5 spike) ────────────────────────────
@@ -368,7 +378,7 @@ def _check_vram_mb(required_mb: int, device_id: int = 0) -> bool:
 _BODYPOSE3D_PREFIX = "bodypose3dnet:"
 
 
-def get_estimator(model_path: str | None) -> PoseEstimatorBase:
+def get_estimator(model_path: str | None) -> PoseEstimatorBase | None:
     """Return the appropriate pose estimator.
 
     Logic:
@@ -379,7 +389,12 @@ def get_estimator(model_path: str | None) -> PoseEstimatorBase:
     This makes the worker self-configuring: set ``MODEL_POSE_PATH`` to activate
     real inference; leave it unset for test / CI / pre-weight environments.
     """
+    if model_path == "stub":
+        return StubPoseEstimator()
     if model_path and model_path.startswith(_BODYPOSE3D_PREFIX):
+        if not inference_device().startswith("cuda"):
+            log.warning("bodypose3dnet_disabled_requires_explicit_cuda")
+            return None
         weights = model_path[len(_BODYPOSE3D_PREFIX):]
         try:
             estimator = BodyPose3DNetEstimator(weights)
@@ -396,15 +411,15 @@ def get_estimator(model_path: str | None) -> PoseEstimatorBase:
             estimator = RTMPoseEstimator(model_path)
             log.info("pose_estimator_rtmpose", model_path=model_path)
             return estimator
-        except ImportError:
+        except (ImportError, OSError, RuntimeError) as exc:
             log.warning(
-                "mmpose_not_installed_using_stub",
+                "pose_model_unavailable_disabled",
                 model_path=model_path,
-                advice="Install mmpose or set MODEL_POSE_PATH='' to silence this warning",
+                error=str(exc),
             )
     elif not model_path:
-        log.info("pose_estimator_stub_no_model_path")
-    return StubPoseEstimator()
+        log.info("pose_disabled_no_model_path")
+    return None
 
 
 # ── Geometry helpers (used by stage_pose.py) ──────────────────────────────────

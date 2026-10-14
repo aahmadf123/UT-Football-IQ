@@ -18,6 +18,9 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import os
+import shutil
+import tempfile
 import time
 from functools import lru_cache
 from pathlib import Path
@@ -191,6 +194,27 @@ def get_s3_client() -> Any:
     )
 
 
+def _atomic_local_write(path: Path, body: bytes | None = None, fileobj: Any = None) -> None:
+    """Publish a complete artifact in one rename, including remote worker uploads."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            dir=path.parent, prefix=f".{path.name}.", delete=False
+        ) as out:
+            temporary = Path(out.name)
+            if body is not None:
+                out.write(body)
+            else:
+                shutil.copyfileobj(fileobj, out)
+            out.flush()
+            os.fsync(out.fileno())
+        os.replace(temporary, path)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+
+
 # ── Public write/read API ─────────────────────────────────────────────────────
 
 
@@ -202,8 +226,7 @@ def put_object(bucket: str, key: str, body: bytes, content_type: str) -> str:
     """
     if active_storage_backend() == "local":
         path = local_object_path(bucket, key)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(body)
+        _atomic_local_write(path, body=body)
         return f"local://{bucket}/{key}"
     client = get_s3_client()
     client.put_object(Bucket=physical_bucket(bucket), Key=key, Body=body, ContentType=content_type)
@@ -227,6 +250,9 @@ def upload_fileobj(bucket: str, key: str, fileobj: Any, content_type: str) -> st
     Used by the upload route, which spools the request body to a temp file
     rather than holding a whole practice video in memory.
     """
+    if active_storage_backend() == "local":
+        _atomic_local_write(local_object_path(bucket, key), fileobj=fileobj)
+        return f"local://{bucket}/{key}"
     get_s3_client().upload_fileobj(
         fileobj, physical_bucket(bucket), key, ExtraArgs={"ContentType": content_type}
     )

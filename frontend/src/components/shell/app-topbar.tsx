@@ -42,7 +42,11 @@ export function AppTopbar({
         />
       </Link>
 
+      <span className="hidden border-l border-border-soft pl-3 text-sm font-medium text-foreground sm:block">Toledo Football</span>
+
       <div className="flex-1" />
+
+      <Link href="/settings/" className="hidden text-xs text-muted-foreground hover:text-foreground sm:block">This computer</Link>
 
       <AlertsBell active={activePage === "alerts"} />
       <UserMenu />

@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 import structlog
-from sqlalchemy import CursorResult, update
+from sqlalchemy import CursorResult, func, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import JobStatus, ProcessingJob
@@ -60,6 +60,22 @@ async def sweep_expired_leases(db: AsyncSession, now: datetime | None = None) ->
         ProcessingJob.lease_expires_at < now,
     )
 
+    # Requested controls survive a crash: releasing an expired lease must not
+    # restart work a coach explicitly paused or cancelled.
+    for action, final in (("cancel", JobStatus.cancelled), ("pause", JobStatus.paused)):
+        await db.execute(
+            update(ProcessingJob)
+            .where(*expired, ProcessingJob.control_requested == action)
+            .values(
+                status=final,
+                leased_by=None,
+                lease_token=None,
+                lease_expires_at=None,
+                control_requested=None,
+                finished_at=now if action == "cancel" else None,
+            )
+        )
+
     failed = await db.execute(
         update(ProcessingJob)
         .where(*expired, ProcessingJob.attempt_count >= ProcessingJob.max_attempts)
@@ -69,6 +85,7 @@ async def sweep_expired_leases(db: AsyncSession, now: datetime | None = None) ->
             finished_at=now,
             leased_by=None,
             lease_expires_at=None,
+            lease_token=None,
         )
     )
 
@@ -78,6 +95,7 @@ async def sweep_expired_leases(db: AsyncSession, now: datetime | None = None) ->
         .values(
             status=JobStatus.queued,
             leased_by=None,
+            lease_token=None,
             lease_expires_at=None,
         )
     )
@@ -99,3 +117,21 @@ def _rowcount(result: object) -> int:
     if isinstance(result, CursorResult):
         return int(result.rowcount or 0)
     return 0
+
+
+async def recover_shutdown_pauses(db: AsyncSession) -> int:
+    """Resume supervisor shutdown checkpoints; explicit coach pauses stay paused."""
+    result = await db.execute(
+        update(ProcessingJob)
+        .where(
+            ProcessingJob.status == JobStatus.paused,
+            ProcessingJob.control_requested.is_(None),
+            ProcessingJob.output_artifacts["interrupted_action"].as_string() == "shutdown",
+        )
+        .values(
+            status=JobStatus.queued,
+            finished_at=None,
+            attempt_count=func.greatest(0, ProcessingJob.attempt_count - 1),
+        )
+    )
+    return _rowcount(result)

@@ -11,6 +11,12 @@ import type {
   ApiPlayer,
   ApiPracticeSessionGroup,
   ApiVideo,
+  ApiSession,
+  SystemStatus,
+  ProcessingProfile,
+  TrainingDataset,
+  ModelVersion,
+  LearningBenchmark,
   CfbdMacBenchmarkResponse,
   CfbdScheduleResponse,
   CfbdTeamResponse,
@@ -81,9 +87,6 @@ export async function requestUploadUrl(
   token?: string,
 ): Promise<UploadUrlResponse> {
   const apiUrl = apiBase();
-  if (!apiUrl) {
-    throw new Error("No upload endpoint configured: set NEXT_PUBLIC_API_URL.");
-  }
   return _requestUploadUrlFrom(apiUrl, filename, token);
 }
 
@@ -101,9 +104,10 @@ export async function uploadToObjectStore(
   file: File,
   token?: string,
   onProgress?: (loaded: number, total: number) => void,
+  signal?: AbortSignal,
 ): Promise<ObjectUploadResult> {
   if (onProgress && typeof XMLHttpRequest !== "undefined") {
-    return uploadWithXhr(uploadUrl, file, token, onProgress);
+    return uploadWithXhr(uploadUrl, file, token, onProgress, signal);
   }
   const headers: Record<string, string> = {
     "Content-Type": file.type || "video/mp4",
@@ -114,6 +118,7 @@ export async function uploadToObjectStore(
     method: "PUT",
     headers,
     body: file,
+    signal,
   });
   if (!res.ok) {
     const body = await res.text();
@@ -127,9 +132,14 @@ function uploadWithXhr(
   file: File,
   token: string | undefined,
   onProgress: (loaded: number, total: number) => void,
+  signal?: AbortSignal,
 ): Promise<ObjectUploadResult> {
   return new Promise((resolve, reject) => {
+    if (signal?.aborted) { reject(new DOMException("Upload cancelled", "AbortError")); return; }
     const xhr = new XMLHttpRequest();
+    const abort = () => xhr.abort();
+    signal?.addEventListener("abort", abort, { once: true });
+    xhr.addEventListener("loadend", () => signal?.removeEventListener("abort", abort));
     xhr.open("PUT", url);
     xhr.setRequestHeader("Content-Type", file.type || "video/mp4");
     if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
@@ -169,6 +179,113 @@ export interface RegisterVideoRequest {
   our_possession?: OurPossession | null;
   /** Free-form coach labels, stored in the video's metadata bag. */
   tags?: string[];
+  library_role?: "toledo" | "opponent";
+  camera_label?: string | null;
+}
+
+export interface SessionCreate {
+  title: string;
+  session_kind?: SessionKind | null;
+  recorded_at?: string | null;
+  opponent_team?: string | null;
+  library_role?: "toledo" | "opponent";
+  notes?: string | null;
+}
+
+async function mutateJSON<T>(path: string, method: "POST" | "PATCH", body: unknown, token?: string): Promise<T> {
+  const response = await fetch(`${apiBase()}${path}`, { method, headers: authHeaders(token), body: JSON.stringify(body) });
+  if (!response.ok) throw new Error(`Could not save (${response.status}): ${await response.text()}`);
+  return response.json() as Promise<T>;
+}
+
+export function fetchSessions(token?: string): Promise<ApiSession[]> {
+  return getJSON(`${apiBase()}/api/v1/sessions`, token);
+}
+export function fetchSession(id: string, token?: string): Promise<ApiSession> {
+  return getJSON(`${apiBase()}/api/v1/sessions/${encodeURIComponent(id)}`, token);
+}
+export function createSession(body: SessionCreate, token?: string): Promise<ApiSession> {
+  return mutateJSON("/api/v1/sessions", "POST", body, token);
+}
+export function updateSession(id: string, body: Partial<SessionCreate>, token?: string): Promise<ApiSession> {
+  return mutateJSON(`/api/v1/sessions/${encodeURIComponent(id)}`, "PATCH", body, token);
+}
+export function addSessionRecording(id: string, body: { video_id: string; camera_label?: string | null }, token?: string): Promise<ApiSession> {
+  return mutateJSON(`/api/v1/sessions/${encodeURIComponent(id)}/recordings`, "POST", body, token);
+}
+export function matchSessionPlays(id: string, body: { clip_ids: string[]; play_id?: string; title?: string }, token?: string): Promise<ApiSession> {
+  return mutateJSON(`/api/v1/sessions/${encodeURIComponent(id)}/plays/match`, "POST", body, token);
+}
+export function updateVideo(id: string, body: Partial<RegisterVideoRequest>, token?: string): Promise<ApiVideo> {
+  return mutateJSON(`/api/v1/videos/${encodeURIComponent(id)}`, "PATCH", body, token);
+}
+
+export function fetchSystemStatus(token?: string): Promise<SystemStatus> {
+  return getJSON(`${apiBase()}/api/v1/system/status`, token);
+}
+
+export interface SessionImportPreview {
+  dry_run: boolean;
+  session_id: string;
+  title: string;
+  created: number;
+  skipped: number;
+  media_count: number;
+  conflicts: Array<{ table: string; id: string; reason: string }>;
+}
+export function exportSessionArchive(id: string, token?: string): Promise<{ download_url: string; archive_id: string; size_bytes: number; sha256: string }> {
+  return mutateJSON(`/api/v1/library/sessions/${encodeURIComponent(id)}/export`, "POST", {}, token);
+}
+export async function importSessionArchive(file: File, dryRun = true, token?: string): Promise<SessionImportPreview> {
+  const body = new FormData();
+  body.append("file", file);
+  body.append("dry_run", String(dryRun));
+  const response = await fetch(`${apiBase()}/api/v1/library/import`, { method: "POST", headers: getHeaders(token), body });
+  if (!response.ok) throw new Error(`Session import failed (${response.status}): ${await response.text()}`);
+  return response.json() as Promise<SessionImportPreview>;
+}
+export function repairSystem(action: "restart-worker" | "restart-api" | "install-detector" | "clear-cache", token?: string): Promise<{ id: string; action: string; state: "queued" }> {
+  return mutateJSON("/api/v1/system/repair", "POST", { action }, token);
+}
+
+export function listTrainingDatasets(token?: string): Promise<TrainingDataset[]> {
+  return getJSON(`${apiBase()}/api/v1/mlops/datasets`, token);
+}
+export function getTrainingDatasetDownloadUrl(id: string, token?: string): Promise<{ download_url: string }> {
+  return getJSON(`${apiBase()}/api/v1/learning/datasets/${encodeURIComponent(id)}/download`, token);
+}
+export function listModelVersions(token?: string): Promise<ModelVersion[]> {
+  return getJSON(`${apiBase()}/api/v1/mlops/models`, token);
+}
+export function promoteModelVersion(id: string, stage: "staging" | "production" | "retired", token?: string): Promise<ModelVersion> {
+  return mutateJSON(`/api/v1/mlops/models/${encodeURIComponent(id)}/promote`, "POST", { stage }, token);
+}
+export function listLearningBenchmarks(token?: string): Promise<LearningBenchmark[]> {
+  return getJSON(`${apiBase()}/api/v1/learning/benchmarks`, token);
+}
+export interface LearningSessionSplit { session_id: string; split: "train" | "calibration" | "holdout" }
+export interface LearningFeaturePreview { ready: boolean; counts: Record<string, number>; required: Record<string, number>; class_counts: Record<string, unknown>; issues: string[]; job_ids: string[] }
+export interface LearningFeatureManifest { id: string; name?: string; sessions?: LearningSessionSplit[]; training_dataset_id: string; features_uri: string; labels_uri: string; benchmark_id: string; counts: Record<string, number>; job_ids: string[] }
+export function listFeatureManifests(token?: string): Promise<LearningFeatureManifest[]> {
+  return getJSON(`${apiBase()}/api/v1/learning/feature-manifests`, token);
+}
+export function previewFeatureManifest(body: { name?: string; sessions: LearningSessionSplit[] }, token?: string): Promise<LearningFeaturePreview> {
+  return mutateJSON("/api/v1/learning/feature-manifests/preview", "POST", body, token);
+}
+export function createFeatureManifest(body: { name?: string; sessions: LearningSessionSplit[] }, token?: string): Promise<LearningFeatureManifest> {
+  return mutateJSON("/api/v1/learning/feature-manifests", "POST", body, token);
+}
+export function queueCoverageTraining(body: { training_dataset_id: string; features_uri: string }, token?: string): Promise<{ job_id: string; status: string }> {
+  return mutateJSON("/api/v1/learning/train", "POST", { ...body, training_variant: "local_coverage" }, token);
+}
+export function listLearningCandidates(manifestId: string, token?: string): Promise<ModelVersion[]> {
+  return getJSON(`${apiBase()}/api/v1/learning/candidates?${new URLSearchParams({ manifest_id: manifestId })}`, token);
+}
+export function evaluateLearningCandidate(modelId: string, benchmarkId: string, token?: string): Promise<{ passed: boolean; accuracy: number; macro_f1: number; sample_count: number; prediction_count: number }> {
+  return mutateJSON(`/api/v1/learning/candidates/${encodeURIComponent(modelId)}/evaluate`, "POST", { benchmark_id: benchmarkId }, token);
+}
+export function exportCorrections(modelScope: string, token?: string): Promise<{ exported_count: number; label_ids: string[]; training_dataset_id: string | null }> {
+  return mutateJSON(`/api/v1/corrections/export?${new URLSearchParams({ model_scope: modelScope })}`, "POST", {}, token);
 }
 
 export async function registerVideo(
@@ -176,7 +293,6 @@ export async function registerVideo(
   token?: string,
 ): Promise<ApiVideo> {
   const base = apiBase();
-  if (!base) throw new Error("NEXT_PUBLIC_API_URL is not configured");
   const res = await fetch(`${base}/api/v1/videos`, {
     method: "POST",
     headers: authHeaders(token),
@@ -219,7 +335,6 @@ export async function fetchInboxStatus(
   includeSucceeded = false,
 ): Promise<VideoInboxItem[]> {
   const base = apiBase();
-  if (!base) throw new Error("NEXT_PUBLIC_API_URL is not configured");
   const params = new URLSearchParams();
   if (includeSucceeded) params.set("include_succeeded", "true");
   const qs = params.toString();
@@ -247,7 +362,6 @@ export async function fetchPracticeSessions(
   token?: string,
 ): Promise<ApiPracticeSessionGroup[]> {
   const base = apiBase();
-  if (!base) throw new Error("NEXT_PUBLIC_API_URL is not configured");
   const params = new URLSearchParams();
   for (const [k, v] of Object.entries(filters)) {
     if (v !== undefined && v !== null && v !== "") params.set(k, String(v));
@@ -269,6 +383,7 @@ export interface VideoFilters {
   status?: string;
   limit?: number;
   offset?: number;
+  library_role?: "toledo" | "opponent";
 }
 
 export async function fetchVideos(
@@ -276,7 +391,6 @@ export async function fetchVideos(
   token?: string,
 ): Promise<ApiVideo[]> {
   const base = apiBase();
-  if (!base) throw new Error("NEXT_PUBLIC_API_URL is not configured");
   const params = new URLSearchParams();
   for (const [k, v] of Object.entries(filters)) {
     if (v !== undefined && v !== null && v !== "") params.set(k, String(v));
@@ -290,7 +404,6 @@ export async function fetchVideos(
 
 export async function fetchVideo(videoId: string, token?: string): Promise<ApiVideo> {
   const base = apiBase();
-  if (!base) throw new Error("NEXT_PUBLIC_API_URL is not configured");
   return getJSON<ApiVideo>(`${base}/api/v1/videos/${videoId}`, token);
 }
 
@@ -303,7 +416,6 @@ export interface JobFilters {
 
 export async function fetchJobs(filters: JobFilters = {}, token?: string): Promise<ApiJob[]> {
   const base = apiBase();
-  if (!base) throw new Error("NEXT_PUBLIC_API_URL is not configured");
   const params = new URLSearchParams();
   for (const [k, v] of Object.entries(filters)) {
     if (v !== undefined && v !== null && v !== "") params.set(k, String(v));
@@ -317,13 +429,11 @@ export async function fetchClipsForVideo(
   token?: string,
 ): Promise<ApiClip[]> {
   const base = apiBase();
-  if (!base) throw new Error("NEXT_PUBLIC_API_URL is not configured");
   return getJSON<ApiClip[]>(`${base}/api/v1/videos/${videoId}/clips`, token);
 }
 
 export async function fetchClip(clipId: string, token?: string): Promise<ApiClip> {
   const base = apiBase();
-  if (!base) throw new Error("NEXT_PUBLIC_API_URL is not configured");
   return getJSON<ApiClip>(`${base}/api/v1/clips/${clipId}`, token);
 }
 
@@ -334,11 +444,20 @@ export async function fetchClipOverlays(
   token?: string,
 ): Promise<ClipOverlayPayload> {
   const base = apiBase();
-  if (!base) throw new Error("NEXT_PUBLIC_API_URL is not configured");
-  return getJSON<ClipOverlayPayload>(
+  const payload = await getJSON<ClipOverlayPayload>(
     `${base}/api/v1/clips/${clipId}/overlays`,
     token,
   );
+  if (payload.tracks_timebase !== "recording" || typeof payload.source_start_time_seconds !== "number" || !(payload.source_fps && payload.source_fps > 0)) return payload;
+  const offset = payload.source_start_time_seconds;
+  const frameOffset = Math.round(offset * payload.source_fps);
+  return {
+    ...payload,
+    tracks_timebase: "clip",
+    tracklets: payload.tracklets.map((track) => ({ ...track, start_frame: track.start_frame - frameOffset, end_frame: track.end_frame - frameOffset, track_points: track.track_points.map((point) => ({ ...point, frame_number: point.frame_number - frameOffset, timestamp_seconds: point.timestamp_seconds == null ? point.timestamp_seconds : point.timestamp_seconds - offset })) })),
+    events: payload.events.map((event) => event.timebase !== "recording" ? event : { ...event, timebase: "clip", frame_number: event.frame_number == null ? null : event.frame_number - frameOffset, timestamp_seconds: event.timestamp_seconds == null ? null : event.timestamp_seconds - offset }),
+    warnings: [...(payload.warnings ?? []), ...(payload.source_fps_known === false ? ["Recording frame rate is unavailable. Tracking alignment uses an estimated frame rate."] : [])],
+  };
 }
 
 // ── Self-Scout + Opponent Scout (Issue #105) ─────────────────────────────────
@@ -346,13 +465,13 @@ export async function fetchClipOverlays(
 export async function fetchSelfScoutTendencies(
   videoId?: string | null,
   token?: string,
-  limit?: number,
+  filters?: number | { limit?: number; recorded_after?: string; recorded_before?: string; session_kind?: SessionKind; practice_session_id?: string; session_id?: string },
 ): Promise<SelfScoutResponse> {
   const base = apiBase();
-  if (!base) throw new Error("NEXT_PUBLIC_API_URL is not configured");
   const params = new URLSearchParams();
   if (videoId) params.set("video_id", videoId);
-  if (limit != null) params.set("limit", String(limit));
+  if (typeof filters === "number") params.set("limit", String(filters));
+  else if (filters) for (const [key, value] of Object.entries(filters)) if (value != null) params.set(key === "practice_session_id" ? "session_id" : key, String(value));
   const qs = params.toString();
   return getJSON<SelfScoutResponse>(
     `${base}/api/v1/self-scout/tendencies${qs ? `?${qs}` : ""}`,
@@ -366,7 +485,6 @@ export async function fetchOpponentTendencies(
   limit?: number,
 ): Promise<SelfScoutResponse> {
   const base = apiBase();
-  if (!base) throw new Error("NEXT_PUBLIC_API_URL is not configured");
   const params = new URLSearchParams({ opponent_video_id: opponentVideoId });
   if (limit != null) params.set("limit", String(limit));
   return getJSON<SelfScoutResponse>(
@@ -377,7 +495,6 @@ export async function fetchOpponentTendencies(
 
 export async function fetchOpponents(token?: string): Promise<OpponentSummary[]> {
   const base = apiBase();
-  if (!base) throw new Error("NEXT_PUBLIC_API_URL is not configured");
   return getJSON<OpponentSummary[]>(`${base}/api/v1/opponents`, token);
 }
 
@@ -393,12 +510,38 @@ export interface PlayerFilters {
   offset?: number;
 }
 
+export interface PlayerCreate {
+  id?: string;
+  first_name: string;
+  last_name: string;
+  jersey_number?: number | null;
+  position?: string | null;
+  position_group?: "QB" | "Skill" | "OL" | "DL" | "LB" | "DB" | "ST" | null;
+  is_active?: boolean;
+}
+export interface PlayerImportResult {
+  dry_run: boolean;
+  created: number;
+  updated: number;
+  skipped: number;
+  rows: Array<{ line: number; status: "create" | "existing" | "conflict" | "invalid"; player?: ApiPlayer; error?: string }>;
+  errors: Array<{ line: number; error: string }>;
+}
+export function createPlayer(body: PlayerCreate, token?: string): Promise<ApiPlayer> {
+  return mutateJSON("/api/v1/players", "POST", body, token);
+}
+export function updatePlayer(id: string, body: Partial<Omit<PlayerCreate, "id">>, token?: string): Promise<ApiPlayer> {
+  return mutateJSON(`/api/v1/players/${encodeURIComponent(id)}`, "PATCH", body, token);
+}
+export function importPlayers(csv: string, dryRun = true, token?: string): Promise<PlayerImportResult> {
+  return mutateJSON("/api/v1/players/import", "POST", { csv, dry_run: dryRun }, token);
+}
+
 export async function fetchPlayers(
   filters: PlayerFilters = {},
   token?: string,
 ): Promise<ApiPlayer[]> {
   const base = apiBase();
-  if (!base) throw new Error("NEXT_PUBLIC_API_URL is not configured");
   const params = new URLSearchParams();
   for (const [k, v] of Object.entries(filters)) {
     if (v !== undefined && v !== null && v !== "") params.set(k, String(v));
@@ -412,7 +555,6 @@ export async function fetchPlayers(
 
 export async function fetchPlayer(playerId: string, token?: string): Promise<ApiPlayer> {
   const base = apiBase();
-  if (!base) throw new Error("NEXT_PUBLIC_API_URL is not configured");
   return getJSON<ApiPlayer>(`${base}/api/v1/players/${playerId}`, token);
 }
 
@@ -451,7 +593,6 @@ export async function fetchPlayerMetricsSummaries(
   token?: string,
 ): Promise<ApiPlayerMetricsSummary[]> {
   const base = apiBase();
-  if (!base) throw new Error("NEXT_PUBLIC_API_URL is not configured");
   return getJSON<ApiPlayerMetricsSummary[]>(`${base}/api/v1/players/metrics/summary`, token);
 }
 
@@ -460,7 +601,6 @@ export async function fetchPlayerMetricsDetail(
   token?: string,
 ): Promise<ApiPlayerMetricsDetail> {
   const base = apiBase();
-  if (!base) throw new Error("NEXT_PUBLIC_API_URL is not configured");
   return getJSON<ApiPlayerMetricsDetail>(
     `${base}/api/v1/players/${playerId}/metrics/summary`,
     token,
@@ -506,7 +646,6 @@ export async function fetchMetrics(
   token?: string,
 ): Promise<ApiMetric[]> {
   const base = apiBase();
-  if (!base) throw new Error("NEXT_PUBLIC_API_URL is not configured");
   const params = new URLSearchParams();
   for (const [k, v] of Object.entries(filters)) {
     if (v !== undefined && v !== null && v !== "") params.set(k, String(v));
@@ -531,7 +670,6 @@ export async function fetchInjuryRisk(
   token?: string,
 ): Promise<import("./health-workload").InjuryRiskResponse> {
   const base = apiBase();
-  if (!base) throw new Error("NEXT_PUBLIC_API_URL is not configured");
   const params = new URLSearchParams();
   for (const [k, v] of Object.entries(filters)) {
     if (v !== undefined && v !== null && v !== "") params.set(k, String(v));
@@ -545,7 +683,6 @@ export async function fetchHealthDashboard(
   token?: string,
 ): Promise<import("./health-workload").HealthDashboardResponse> {
   const base = apiBase();
-  if (!base) throw new Error("NEXT_PUBLIC_API_URL is not configured");
   const params = new URLSearchParams();
   for (const [k, v] of Object.entries(filters)) {
     if (v !== undefined && v !== null && v !== "") params.set(k, String(v));
@@ -573,6 +710,29 @@ export interface CorrectionCreate {
   corrected_value: Record<string, unknown>;
   notes?: string | null;
   training_eligible?: boolean;
+  client_operation_id?: string;
+  expected_revision?: number;
+}
+
+export interface ClipUpdate {
+  is_reviewed?: boolean;
+  expected_revision?: number;
+  personnel_grouping?: string | null;
+  down?: number | null;
+  distance?: number | null;
+  field_zone?: string | null;
+  our_possession?: OurPossession | null;
+  label_data?: Record<string, unknown> | null;
+  tracking_review_required?: boolean;
+}
+
+/** Persist coaching metadata and review status with optimistic concurrency. */
+export async function updateClip(clipId: string, patch: ClipUpdate, token?: string): Promise<ApiClip> {
+  const res = await fetch(`${apiBase()}/api/v1/clips/${encodeURIComponent(clipId)}`, {
+    method: "PATCH", headers: authHeaders(token), body: JSON.stringify(patch),
+  });
+  if (!res.ok) throw new Error(`Could not save play (${res.status}): ${await res.text()}`);
+  return res.json() as Promise<ApiClip>;
 }
 
 export interface CorrectionResponse extends CorrectionCreate {
@@ -583,6 +743,11 @@ export interface CorrectionResponse extends CorrectionCreate {
   original_value: Record<string, unknown> | null;
   notes: string | null;
   training_eligible: boolean;
+  annotation_revision?: number | null;
+}
+
+export function fetchCorrections(clipId: string, token?: string): Promise<CorrectionResponse[]> {
+  return getJSON(`${apiBase()}/api/v1/corrections?${new URLSearchParams({ clip_id: clipId, limit: "50" })}`, token);
 }
 
 export async function createCorrection(
@@ -590,7 +755,6 @@ export async function createCorrection(
   token?: string,
 ): Promise<CorrectionResponse> {
   const base = apiBase();
-  if (!base) throw new Error("NEXT_PUBLIC_API_URL is not configured");
   const res = await fetch(`${base}/api/v1/corrections`, {
     method: "POST",
     headers: authHeaders(token),
@@ -607,7 +771,6 @@ export async function createCorrection(
 
 export async function retryJob(jobId: string, token?: string): Promise<unknown> {
   const base = apiBase();
-  if (!base) throw new Error("NEXT_PUBLIC_API_URL is not configured");
   const res = await fetch(`${base}/api/v1/jobs/${jobId}/retry`, {
     method: "POST",
     headers: authHeaders(token),
@@ -617,6 +780,10 @@ export async function retryJob(jobId: string, token?: string): Promise<unknown> 
     throw new Error(`Job retry failed (${res.status}): ${body}`);
   }
   return res.json();
+}
+
+export function controlJob(id: string, action: "pause" | "resume" | "cancel", token?: string): Promise<ApiJob> {
+  return mutateJSON(`/api/v1/jobs/${encodeURIComponent(id)}/${action}`, "POST", {}, token);
 }
 
 // ── Process Film (ADR 0003 / Issue #187) ──────────────────────────────────────
@@ -653,12 +820,11 @@ export class WorkloadGatedError extends Error {
  */
 export async function requestVideoProcessing(
   videoId: string,
-  options?: { mode?: ProcessingMode },
+  options?: { mode?: ProcessingMode; profile?: ProcessingProfile },
   token?: string,
 ): Promise<ProcessVideoResult> {
   const base = apiBase();
-  if (!base) throw new Error("NEXT_PUBLIC_API_URL is not configured");
-  const mode: ProcessingMode = options?.mode ?? "nightly";
+  const mode: ProcessingMode = options?.mode ?? (options?.profile === "quick" || options?.profile === "review" ? "same_session" : "nightly");
   const priority = mode === "same_session" ? 10 : 0;
   const res = await fetch(`${base}/api/v1/jobs`, {
     method: "POST",
@@ -668,6 +834,7 @@ export async function requestVideoProcessing(
       job_type: "pipeline",
       priority,
       pipeline_mode: mode,
+      ...(options?.profile ? { processing_profile: options.profile } : {}),
     }),
   });
   if (res.status === 503) {
@@ -732,7 +899,6 @@ export async function fetchAlerts(
   token?: string,
 ): Promise<ApiAlert[]> {
   const base = apiBase();
-  if (!base) throw new Error("NEXT_PUBLIC_API_URL is not configured");
   const params = new URLSearchParams();
   for (const [k, v] of Object.entries(filters)) {
     if (v !== undefined && v !== null && v !== "") params.set(k, String(v));
@@ -747,7 +913,6 @@ export async function fetchAlerts(
 /** Mark an alert as actioned (turned into a practice/scheme follow-up, #137). */
 export async function actionAlert(alertId: string, token?: string): Promise<ApiAlert> {
   const base = apiBase();
-  if (!base) throw new Error("NEXT_PUBLIC_API_URL is not configured");
   const res = await fetch(`${base}/api/v1/alerts/${alertId}/action`, {
     method: "PATCH",
     headers: authHeaders(token),
@@ -804,7 +969,6 @@ export async function fetchTendencyBreakAlerts(
   token?: string,
 ): Promise<TendencyBreakListResponse> {
   const base = apiBase();
-  if (!base) throw new Error("NEXT_PUBLIC_API_URL is not configured");
   const params = new URLSearchParams();
   for (const [k, v] of Object.entries(filters)) {
     if (v !== undefined && v !== null && v !== "") params.set(k, String(v));
@@ -821,7 +985,6 @@ export async function generateTendencyBreak(
   token?: string,
 ): Promise<TendencyBreakRunResponse> {
   const base = apiBase();
-  if (!base) throw new Error("NEXT_PUBLIC_API_URL is not configured");
   const params = new URLSearchParams();
   for (const [k, v] of Object.entries(opts)) {
     if (v !== undefined && v !== null && v !== "") params.set(k, String(v));
@@ -883,7 +1046,6 @@ export async function fetchFrontierMetrics(
   token?: string,
 ): Promise<FrontierMetricsResponse> {
   const base = apiBase();
-  if (!base) throw new Error("NEXT_PUBLIC_API_URL is not configured");
   const params = new URLSearchParams();
   for (const [k, v] of Object.entries(filters)) {
     if (v !== undefined && v !== null && v !== "") params.set(k, String(v));
@@ -916,7 +1078,6 @@ export async function searchConcepts(
   token?: string,
 ): Promise<ConceptSearchResponse> {
   const base = apiBase();
-  if (!base) throw new Error("NEXT_PUBLIC_API_URL is not configured");
   const params = new URLSearchParams({ q: query });
   for (const [k, v] of Object.entries(filters)) {
     if (v !== undefined && v !== null && v !== "") params.set(k, String(v));
@@ -950,7 +1111,6 @@ export function subscribeAlerts(
   token?: string,
 ): AlertStreamHandle {
   const base = apiBase();
-  if (!base) throw new Error("NEXT_PUBLIC_API_URL is not configured");
   if (typeof fetch === "undefined" || typeof AbortController === "undefined") {
     throw new Error("fetch/AbortController are not available in this environment");
   }
@@ -1042,7 +1202,6 @@ export async function getSystemSettings(
   token?: string,
 ): Promise<SystemSettingsResponse> {
   const base = apiBase();
-  if (!base) throw new Error("NEXT_PUBLIC_API_URL is not configured");
   return getJSON<SystemSettingsResponse>(`${base}/api/v1/settings/system`, token);
 }
 
@@ -1051,7 +1210,6 @@ export async function updateSystemSettings(
   token?: string,
 ): Promise<SystemSettingsResponse> {
   const base = apiBase();
-  if (!base) throw new Error("NEXT_PUBLIC_API_URL is not configured");
   const res = await fetch(`${base}/api/v1/settings/system`, {
     method: "PATCH",
     headers: authHeaders(token),
@@ -1068,7 +1226,6 @@ export async function getUserPreferences(
   token?: string,
 ): Promise<UserPreferences> {
   const base = apiBase();
-  if (!base) throw new Error("NEXT_PUBLIC_API_URL is not configured");
   return getJSON<UserPreferences>(`${base}/api/v1/settings/me`, token);
 }
 
@@ -1077,7 +1234,6 @@ export async function updateUserPreferences(
   token?: string,
 ): Promise<UserPreferences> {
   const base = apiBase();
-  if (!base) throw new Error("NEXT_PUBLIC_API_URL is not configured");
   const res = await fetch(`${base}/api/v1/settings/me`, {
     method: "PATCH",
     headers: authHeaders(token),
@@ -1094,7 +1250,6 @@ export async function updateUserPreferences(
 
 export async function listReports(token?: string): Promise<ReportJob[]> {
   const base = apiBase();
-  if (!base) throw new Error("NEXT_PUBLIC_API_URL is not configured");
   return getJSON<ReportJob[]>(`${base}/api/v1/reports`, token);
 }
 
@@ -1103,7 +1258,6 @@ export async function createReport(
   token?: string,
 ): Promise<ReportJob> {
   const base = apiBase();
-  if (!base) throw new Error("NEXT_PUBLIC_API_URL is not configured");
   const res = await fetch(`${base}/api/v1/reports`, {
     method: "POST",
     headers: authHeaders(token),
@@ -1121,7 +1275,6 @@ export async function getReport(
   token?: string,
 ): Promise<ReportJob> {
   const base = apiBase();
-  if (!base) throw new Error("NEXT_PUBLIC_API_URL is not configured");
   return getJSON<ReportJob>(`${base}/api/v1/reports/${reportId}`, token);
 }
 
@@ -1130,7 +1283,6 @@ export async function getReportDownloadUrl(
   token?: string,
 ): Promise<ReportDownloadResponse> {
   const base = apiBase();
-  if (!base) throw new Error("NEXT_PUBLIC_API_URL is not configured");
   return getJSON<ReportDownloadResponse>(
     `${base}/api/v1/reports/${reportId}/download`,
     token,
@@ -1163,7 +1315,6 @@ export async function fetchVideoDownloadUrl(
   token?: string,
 ): Promise<string | null> {
   const apiUrl = apiBase();
-  if (!apiUrl) return null;
   try {
     return await _fetchVideoDownloadUrlFrom(apiUrl, bucket, key, token);
   } catch {
@@ -1180,7 +1331,6 @@ export async function fetchCfbdToledoTeam(
   token?: string,
 ): Promise<CfbdTeamResponse> {
   const base = apiBase();
-  if (!base) throw new Error("NEXT_PUBLIC_API_URL is not configured");
   return getJSON<CfbdTeamResponse>(`${base}/api/cfbd/teams/toledo`, token);
 }
 
@@ -1189,7 +1339,6 @@ export async function fetchCfbdToledoSchedule(
   token?: string,
 ): Promise<CfbdScheduleResponse> {
   const base = apiBase();
-  if (!base) throw new Error("NEXT_PUBLIC_API_URL is not configured");
   const qs = season != null ? `?season=${encodeURIComponent(season)}` : "";
   return getJSON<CfbdScheduleResponse>(
     `${base}/api/cfbd/teams/toledo/schedule${qs}`,
@@ -1202,7 +1351,6 @@ export async function fetchCfbdMacBenchmark(
   token?: string,
 ): Promise<CfbdMacBenchmarkResponse> {
   const base = apiBase();
-  if (!base) throw new Error("NEXT_PUBLIC_API_URL is not configured");
   const qs = season != null ? `?season=${encodeURIComponent(season)}` : "";
   return getJSON<CfbdMacBenchmarkResponse>(
     `${base}/api/cfbd/mac/benchmark${qs}`,

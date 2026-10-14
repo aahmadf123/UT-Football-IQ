@@ -17,6 +17,7 @@ import { POSSESSION_LABEL, SESSION_KIND_LABEL } from "@/lib/labels";
 import type {
   ApiClip,
   ApiPracticeSessionGroup,
+  ApiSession,
   ApiVideo,
   OurPossession,
 } from "@/lib/types";
@@ -40,7 +41,7 @@ type LibraryState = FetchState<LibraryData>;
 function formatDate(value: string | null | undefined): string {
   if (!value) return "Unknown date";
   try {
-    return new Date(value).toLocaleDateString(undefined, {
+    return new Date(/^\d{4}-\d{2}-\d{2}$/.test(value) ? `${value}T12:00:00` : value).toLocaleDateString(undefined, {
       weekday: "short",
       month: "short",
       day: "numeric",
@@ -60,19 +61,14 @@ function sessionKey(s: ApiPracticeSessionGroup): string {
   ].join("|");
 }
 
-export function LibraryView() {
+export function LibraryView({ savedSessions }: { savedSessions?: ReadonlyArray<Pick<ApiSession, "id" | "title">> }) {
   const { selectedDate, sessionType, mockMode, authToken } = useAppState();
   const [opponent, setOpponent] = useState<string>("");
   const [possession, setPossession] = useState<"" | OurPossession>("");
   const [state, setState] = useState<LibraryState>({ kind: "loading" });
+  const sessionTitles = useMemo(() => new Map(savedSessions?.map((session) => [session.id, session.title]) ?? []), [savedSessions]);
 
   const load = useCallback(async () => {
-    const baseUrl = process.env.NEXT_PUBLIC_API_URL;
-    if (!baseUrl) {
-      setState({ kind: "offline" });
-      return;
-    }
-
     const sessionFilters: PracticeSessionFilters = {};
     const videoFilters: VideoFilters = { limit: 200 };
     if (selectedDate) {
@@ -123,7 +119,8 @@ export function LibraryView() {
         if (group.practice_session_id) {
           if (v.practice_session_id !== group.practice_session_id) return false;
         } else {
-          const vDate = v.recorded_at ? v.recorded_at.slice(0, 10) : null;
+          if (v.practice_session_id) return false;
+          const vDate = (v.recorded_at ?? v.created_at)?.slice(0, 10) ?? null;
           if (vDate !== dateStr) return false;
           if (group.session_kind && v.session_kind !== group.session_kind) return false;
           if (group.opponent_team && v.opponent_team !== group.opponent_team) return false;
@@ -150,7 +147,7 @@ export function LibraryView() {
     <div className="flex flex-col gap-4">
       <Card>
         <CardHeader>
-          <h2 className="font-display text-base font-semibold uppercase tracking-wide">
+          <h2 className="text-base font-semibold">
             Film Library
           </h2>
           <p className="mt-0.5 max-w-2xl text-xs text-muted-foreground">
@@ -163,7 +160,7 @@ export function LibraryView() {
           <div className="flex min-w-40 flex-col gap-1">
             <Label
               htmlFor="library-opponent"
-              className="font-display text-[0.68rem] font-semibold uppercase tracking-widest text-muted-foreground"
+              className="text-xs font-semibold text-muted-foreground"
             >
               Opponent
             </Label>
@@ -179,7 +176,7 @@ export function LibraryView() {
           <div className="flex min-w-40 flex-col gap-1">
             <Label
               htmlFor="library-possession"
-              className="font-display text-[0.68rem] font-semibold uppercase tracking-widest text-muted-foreground"
+              className="text-xs font-semibold text-muted-foreground"
             >
               Possession
             </Label>
@@ -198,8 +195,6 @@ export function LibraryView() {
         </CardContent>
       </Card>
 
-      <ConceptSearch />
-
       {state.kind === "loading" && (
         <div role="status" aria-busy="true" aria-label="Loading library" className="flex flex-col gap-2">
           <Skeleton className="h-16 w-full" />
@@ -209,7 +204,7 @@ export function LibraryView() {
       {state.kind === "offline" && (
         <Card>
           <CardContent>
-            <h3 className="font-display text-sm font-semibold uppercase tracking-wide">
+            <h3 className="text-sm font-semibold">
               Library unavailable
             </h3>
             <p className="mt-1 text-xs text-muted-foreground">
@@ -233,12 +228,12 @@ export function LibraryView() {
       {state.kind === "empty" && (
         <Card>
           <CardContent>
-            <h3 className="font-display text-sm font-semibold uppercase tracking-wide">
+            <h3 className="text-sm font-semibold">
               No film yet
             </h3>
             <p className="mt-1 text-xs text-muted-foreground">
-              Upload practice or game film from the Film Room → Upload / Process Film tab or your
-              Drone integration. Sessions appear here once at least one video lands in storage.
+              Upload a recording in Film Room to get started. Film from every camera and angle can
+              be organized into a session.
             </p>
           </CardContent>
         </Card>
@@ -249,10 +244,16 @@ export function LibraryView() {
             title="Practice & Scrimmage Sessions"
             kind="practice"
             groups={grouped.practice}
+            sessionTitles={sessionTitles}
           />
-          <LibrarySection title="Game Film" kind="game" groups={grouped.games} />
+          <LibrarySection title="Game Film" kind="game" groups={grouped.games} sessionTitles={sessionTitles} />
         </>
       )}
+      <details className="rounded-xl border border-border-soft bg-card p-4">
+        <summary className="cursor-pointer text-sm font-medium">Search for a football concept</summary>
+        <p className="mt-2 text-sm text-muted-foreground">Search uses the labels available in your local film. Approximate matches need coach review.</p>
+        <div className="mt-4"><ConceptSearch /></div>
+      </details>
     </div>
   );
 }
@@ -261,15 +262,17 @@ function LibrarySection({
   title,
   kind,
   groups,
+  sessionTitles,
 }: {
   title: string;
   kind: "practice" | "game";
   groups: Array<{ session: ApiPracticeSessionGroup; videos: ApiVideo[] }>;
+  sessionTitles: ReadonlyMap<string, string>;
 }) {
   return (
     <Card>
       <CardHeader>
-        <h2 className="font-display text-base font-semibold uppercase tracking-wide">{title}</h2>
+        <h2 className="text-base font-semibold">{title}</h2>
       </CardHeader>
       <CardContent>
         {groups.length === 0 ? (
@@ -281,7 +284,7 @@ function LibrarySection({
         ) : (
           <div className="flex flex-col gap-3">
             {groups.map((g) => (
-              <SessionCard key={sessionKey(g.session)} session={g.session} videos={g.videos} />
+              <SessionCard key={sessionKey(g.session)} session={g.session} videos={g.videos} title={g.session.practice_session_id ? sessionTitles.get(g.session.practice_session_id) : undefined} />
             ))}
           </div>
         )}
@@ -293,9 +296,11 @@ function LibrarySection({
 function SessionCard({
   session,
   videos,
+  title,
 }: {
   session: ApiPracticeSessionGroup;
   videos: ApiVideo[];
+  title?: string;
 }) {
   const [open, setOpen] = useState(false);
   const kindLabel = session.session_kind ? SESSION_KIND_LABEL[session.session_kind] : "Session";
@@ -310,12 +315,13 @@ function SessionCard({
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
-        aria-label={`${open ? "Collapse" : "Expand"} session ${formatDate(session.session_date)}`}
+        aria-label={`${open ? "Collapse" : "Expand"} session ${title ? `${title} · ` : ""}${formatDate(session.session_date)}`}
         className="flex min-h-11 w-full items-center justify-between gap-3 rounded-lg p-3 text-left transition-colors hover:bg-accent/40"
       >
         <div>
-          <span className="text-[0.95rem] font-semibold">{formatDate(session.session_date)}</span>
+          <span className="text-[0.95rem] font-semibold">{title || formatDate(session.session_date)}</span>
           <div className="mt-0.5 text-xs text-muted-foreground">
+            {title ? `${formatDate(session.session_date)} · ` : ""}
             {kindLabel}
             {opponentLabel ? ` · ${opponentLabel}` : ""}
             {" · "}
@@ -381,7 +387,7 @@ function VideoRow({ video }: { video: ApiVideo }) {
     <div className="rounded-md border border-border-soft p-2.5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0 flex-1">
-          <span className="text-[0.85rem] font-semibold">{video.filename}</span>
+          <span className="text-sm font-semibold">{video.filename}</span>
           <div className="mt-0.5 text-xs text-muted-foreground">
             {video.session_kind ? SESSION_KIND_LABEL[video.session_kind] : "Session"}
             {video.opponent_team ? ` · vs. ${video.opponent_team}` : ""}
@@ -394,6 +400,7 @@ function VideoRow({ video }: { video: ApiVideo }) {
         <Button variant="outline" size="sm" onClick={() => setExpanded((v) => !v)}>
           {expanded ? "Hide clips" : "Show clips"}
         </Button>
+        <Button asChild variant="outline" size="sm"><Link href={`/clip-review/?videoId=${encodeURIComponent(video.id)}`}>Watch recording</Link></Button>
       </div>
       {expanded && (
         <div className="mt-2.5">
@@ -424,7 +431,7 @@ function ClipRow({ clip }: { clip: ApiClip }) {
       className="group flex items-center justify-between gap-2 rounded-md border border-border-soft px-2.5 py-1.5 transition-colors hover:border-border hover:bg-accent/50"
     >
       <div>
-        <span className="text-[0.82rem] font-semibold">
+        <span className="text-sm font-semibold">
           {clip.play_number != null ? `Play #${clip.play_number}` : `Clip ${clip.id.slice(0, 8)}`}
         </span>
         <div data-numeric className="mt-0.5 font-mono text-xs text-muted-foreground">
@@ -433,7 +440,7 @@ function ClipRow({ clip }: { clip: ApiClip }) {
           {clip.session_kind ? ` · ${SESSION_KIND_LABEL[clip.session_kind]}` : ""}
         </div>
       </div>
-      <span className="inline-flex shrink-0 items-center gap-1 text-xs font-semibold uppercase tracking-wide text-primary opacity-80 transition-opacity group-hover:opacity-100">
+      <span className="inline-flex shrink-0 items-center gap-1 text-xs font-semibold text-primary opacity-80 transition-opacity group-hover:opacity-100">
         Review <ArrowRight className="size-3.5" />
       </span>
     </Link>

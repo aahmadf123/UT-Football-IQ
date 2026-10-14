@@ -159,11 +159,11 @@ def test_queue_returns_items_with_reason_and_priority() -> None:
     assert body[2]["reason"] == REASON_UNSCORED
     assert body[2]["priority"] == UNSCORED_PRIORITY
 
-    # The query excludes the labeled pool and orders by uncertainty.
+    # A partial correction does not complete review of an entire play.
     sql = captured["sql"]
     where = sql.split("WHERE", 1)[1]
     assert "clips.is_reviewed" in where
-    assert "coach_corrections" in where  # NOT EXISTS correction subquery
+    assert "coach_corrections" not in where
     assert "uncertainty_score" in sql.split("ORDER BY", 1)[1]
 
 

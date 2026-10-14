@@ -36,13 +36,23 @@ export function DashboardView() {
   return (
     <>
       {widget}
-      <div className="flex flex-col gap-4">
-        <CvSpotlight />
+      <div className="flex flex-col gap-5">
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border-soft bg-card p-5">
+          <div>
+            <h2 className="text-base font-semibold">Start with your next session</h2>
+            <p className="mt-1 text-sm text-muted-foreground">Upload film from any camera. Your computer processes it while you keep working.</p>
+          </div>
+          <Button onClick={openFilePicker}><Upload className="size-4" /> Upload film</Button>
+        </div>
         <PracticeInboxSection />
         <div className="grid gap-4 md:grid-cols-2">
           <RecentFilmCard onUploadClick={openFilePicker} />
           <AlertsSummaryCard />
         </div>
+        <details className="rounded-xl border border-border-soft bg-card p-5">
+          <summary className="cursor-pointer text-sm font-medium">Latest play preview</summary>
+          <div className="mt-4"><CvSpotlight /></div>
+        </details>
       </div>
     </>
   );
@@ -62,8 +72,8 @@ function PracticeInboxSection() {
       <Card>
         <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2">
           <div>
-            <h2 className="font-display text-base font-semibold uppercase tracking-wide">
-              Practice Inbox — Processing Status
+            <h2 className="text-base font-semibold">
+              Practice Inbox
             </h2>
             <p className="mt-0.5 text-xs text-muted-foreground">
               {mockMode
@@ -80,7 +90,7 @@ function PracticeInboxSection() {
               {failed > 0 ? <StatusBadge tone="danger" dot>{failed} failed</StatusBadge> : null}
               <Button asChild variant="link" size="sm" className="h-auto p-0 text-primary">
                 <Link href="/film-room/?tab=upload">
-                  Pipeline detail <ArrowRight className="size-3.5" />
+                  Processing detail <ArrowRight className="size-3.5" />
                 </Link>
               </Button>
             </div>
@@ -95,7 +105,7 @@ function PracticeInboxSection() {
 }
 
 function InboxBody() {
-  const { inboxItems, data, mockMode, apiStatus } = useAppState();
+  const { inboxItems, data, mockMode, apiStatus, apiError } = useAppState();
   const jobs = data.jobs;
 
   // Outside mock mode, never substitute a fake job-based view. Distinguish
@@ -104,7 +114,7 @@ function InboxBody() {
   // is not reachable.
   if (!mockMode && inboxItems.length === 0) {
     const isLoading = apiStatus === "loading" || apiStatus === "idle";
-    const isOffline = apiStatus === "offline";
+    const isOffline = apiStatus === "offline" || apiStatus === "error";
     return (
       <EmptyState
         icon={Clapperboard}
@@ -112,12 +122,12 @@ function InboxBody() {
           isLoading
             ? "Connecting to the inbox…"
             : isOffline
-              ? "Inbox unavailable — not connected to the team server."
+              ? "Your local library is not connected."
               : "No videos in the inbox yet."
         }
         hint={
           isLoading || isOffline
-            ? undefined
+            ? isOffline ? apiError ?? "Open This computer to check the local services, then reconnect." : undefined
             : "Upload practice or game film to begin processing."
         }
       />
@@ -158,7 +168,7 @@ function InboxBody() {
 function MockJobGroup({ label, jobs }: { label: string; jobs: ApiJob[] }) {
   return (
     <div>
-      <h3 className="mb-1 font-display text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+      <h3 className="mb-1 text-xs font-semibold text-muted-foreground">
         {label}
       </h3>
       {jobs.map((j) => {
@@ -170,7 +180,7 @@ function MockJobGroup({ label, jobs }: { label: string; jobs: ApiJob[] }) {
           >
             <span className="min-w-0 flex-1 truncate font-medium">
               {j.job_type}
-              <Badge variant="secondary" className="ml-2 text-[0.62rem] uppercase">
+              <Badge variant="secondary" className="ml-2 text-[0.62rem]">
                 {sameSession ? "Same-Session" : "Nightly"}
               </Badge>
             </span>
@@ -186,11 +196,11 @@ function MockJobGroup({ label, jobs }: { label: string; jobs: ApiJob[] }) {
 
 function InboxVideoRow({ item }: { item: VideoInboxItem }) {
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border-soft py-2 text-[0.8rem] last:border-b-0">
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-border-soft py-3 text-sm last:border-b-0">
       <span className="min-w-0 flex-1 basis-48 truncate font-medium">
         <Link
           href={
-            item.video_status === "failed"
+            item.clip_count === 0 || item.video_status === "failed"
               ? "/film-room/?tab=upload"
               : `/film-room/?tab=review&videoId=${item.video_id}`
           }
@@ -198,26 +208,25 @@ function InboxVideoRow({ item }: { item: VideoInboxItem }) {
         >
           {item.filename}
         </Link>
-        {item.same_session_job_count > 0 ? (
-          <Badge variant="secondary" className="ml-2 text-[0.62rem] uppercase">
-            {item.same_session_job_count} same-session
-          </Badge>
-        ) : null}
       </span>
       <span data-numeric className="font-mono text-xs text-muted-foreground">
         {item.succeeded_jobs}/{item.total_jobs} jobs
         {item.clip_count > 0 && ` · ${item.clip_count} clips`}
-        {item.calibration_safe_pct !== null && ` · ${item.calibration_safe_pct}% safe`}
       </span>
       <StatusBadge tone={toneForVideoStatus(item.video_status)} dot className="capitalize">
         {item.video_status}
       </StatusBadge>
+      <Button asChild variant="outline" size="sm">
+        <Link href={item.clip_count > 0 ? `/film-room/?tab=review&videoId=${encodeURIComponent(item.video_id)}` : "/film-room/?tab=upload"}>
+          {item.clip_count > 0 ? "Review plays" : item.video_status === "uploaded" ? "Process film" : "View progress"}<ArrowRight className="size-3.5" />
+        </Link>
+      </Button>
       {item.latest_error_message ? (
         <span
           title={item.latest_error_message}
-          className="cursor-help text-xs text-status-danger"
+          className="basis-full text-sm text-status-danger"
         >
-          {item.latest_error_stage ?? "Error"}
+          {item.latest_error_stage ? `${item.latest_error_stage}: ` : ""}{item.latest_error_message}
         </span>
       ) : null}
     </div>
@@ -229,14 +238,14 @@ function InboxVideoRow({ item }: { item: VideoInboxItem }) {
 function RecentFilmCard({ onUploadClick }: { onUploadClick: () => void }) {
   const { data, apiStatus } = useAppState();
   const videos = [...data.videos]
-    .sort((a, b) => (b.created_at ?? "").localeCompare(a.created_at ?? ""))
+    .sort((a, b) => (b.recorded_at ?? b.created_at ?? "").localeCompare(a.recorded_at ?? a.created_at ?? ""))
     .slice(0, 6);
 
   return (
     <section data-testid="dashboard-recent-film">
       <Card className="h-full">
         <CardHeader className="flex flex-row items-center justify-between gap-2">
-          <h2 className="font-display text-base font-semibold uppercase tracking-wide">
+          <h2 className="text-base font-semibold">
             Recent Film
           </h2>
           <Button size="sm" onClick={onUploadClick}>
@@ -268,7 +277,7 @@ function VideoLine({ video }: { video: ApiVideo }) {
   return (
     <div className="flex items-center justify-between gap-2 border-b border-border-soft py-2 last:border-b-0">
       <div className="min-w-0">
-        <span className="block truncate text-[0.82rem] font-medium">{video.filename}</span>
+        <Link href={`/film-room/?tab=review&videoId=${encodeURIComponent(video.id)}`} className="block truncate text-sm font-medium hover:text-primary">{video.filename}</Link>
         <span className="text-xs text-muted-foreground">
           {formatStamp(video.recorded_at ?? video.created_at)}
         </span>
@@ -286,7 +295,7 @@ function filmEmptyMessage(status: ApiStatus): string {
     case "idle":
       return "Loading film…";
     case "offline":
-      return "Film list unavailable — not connected to the team server.";
+      return "Open This computer to reconnect to your local library.";
     default:
       return "No film yet. Upload practice or game video to get started.";
   }
@@ -306,7 +315,7 @@ function AlertsSummaryCard() {
     <section data-testid="dashboard-alerts">
       <Card className="h-full">
         <CardHeader>
-          <h2 className="font-display text-base font-semibold uppercase tracking-wide">
+          <h2 className="text-base font-semibold">
             Coaching Alerts
           </h2>
         </CardHeader>
@@ -349,7 +358,7 @@ function AlertLine({ alert }: { alert: ApiAlert }) {
   return (
     <div className="flex items-center justify-between gap-2 border-b border-border-soft py-2 last:border-b-0">
       <div className="min-w-0">
-        <span className="block truncate text-[0.82rem] font-medium">{alert.alert_type}</span>
+        <span className="block truncate text-sm font-medium">{alert.alert_type}</span>
         <span className="text-xs text-muted-foreground">
           {alert.position_group} · {alert.metric_name} · {Math.round(alert.confidence * 100)}%
         </span>

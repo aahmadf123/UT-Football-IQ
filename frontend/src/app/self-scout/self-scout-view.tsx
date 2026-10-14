@@ -21,6 +21,7 @@ import { Card, CardHeader } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { NativeSelect } from "@/components/ui/native-select";
 import { ActiveFilterChip } from "@/components/composite/active-filter-chip";
+import { FilterBar } from "@/components/composite/filter-bar";
 import { StatusBadge } from "@/components/composite/status-badge";
 
 type ScoutDataState = FetchState<SelfScoutResponse>;
@@ -39,20 +40,11 @@ export function SelfScoutView() {
   const [selectedVideoId, setSelectedVideoId] = useState<string>(ALL_VIDEOS);
   const [state, setState] = useState<ScoutDataState>({ kind: "loading" });
 
-  // Build the source film picker. Self-scout sources are our own film:
-  // practice and scrimmage (game film with our possession is also valid, but
-  // most coaches scout opponent-facing tendencies on practice). We expose any
-  // video that isn't tagged with an opponent — `opponent_team is null` is the
-  // closest server-side proxy for "Toledo film" today.
+  // Opponent names describe who Toledo played, not ownership of the film.
+  // Explicit Toledo possession keeps our game film in the source picker.
   useEffect(() => {
-    const baseUrl = process.env.NEXT_PUBLIC_API_URL;
-    if (!baseUrl) {
-      setVideos([]);
-      setVideosError(null);
-      return;
-    }
     let cancelled = false;
-    const filters: VideoFilters = { limit: 200 };
+    const filters: VideoFilters = { limit: 200, library_role: "toledo" };
     if (selectedDate) {
       filters.recorded_after = `${selectedDate}T00:00:00Z`;
       filters.recorded_before = `${selectedDate}T23:59:59.999999Z`;
@@ -65,7 +57,7 @@ export function SelfScoutView() {
         if (cancelled) return;
         // Self-scout = our film. Drop entries that are tagged with an
         // opponent (those belong on the Opponent Prep tab).
-        const ourFilm = all.filter((v) => !v.opponent_team);
+        const ourFilm = all.filter((v) => v.library_role === "toledo" || (v.library_role !== "opponent" && (Boolean(v.our_possession) || !v.opponent_team)));
         setVideos(ourFilm);
         setVideosError(null);
       })
@@ -86,15 +78,13 @@ export function SelfScoutView() {
   }, [selectedVideoId, videos]);
 
   const loadTendencies = useCallback(async () => {
-    const baseUrl = process.env.NEXT_PUBLIC_API_URL;
-    if (!baseUrl) {
-      setState({ kind: "offline" });
-      return;
-    }
     setState({ kind: "loading" });
     try {
       const videoId = selectedVideoId === ALL_VIDEOS ? null : selectedVideoId;
-      const data = await fetchSelfScoutTendencies(videoId, authToken);
+      const data = await fetchSelfScoutTendencies(videoId, authToken, {
+        ...(selectedDate ? { recorded_after: `${selectedDate}T00:00:00Z`, recorded_before: `${selectedDate}T23:59:59.999999Z` } : {}),
+        ...(sessionType !== "all" ? { session_kind: sessionType } : {}),
+      });
       if (data.clip_count === 0) {
         setState({ kind: "empty" });
       } else {
@@ -106,7 +96,7 @@ export function SelfScoutView() {
         message: err instanceof Error ? err.message : String(err),
       });
     }
-  }, [selectedVideoId, authToken]);
+  }, [selectedVideoId, authToken, selectedDate, sessionType]);
 
   useEffect(() => {
     loadTendencies();
@@ -117,11 +107,6 @@ export function SelfScoutView() {
   const [generating, setGenerating] = useState(false);
 
   const loadBreaks = useCallback(async () => {
-    const baseUrl = process.env.NEXT_PUBLIC_API_URL;
-    if (!baseUrl) {
-      setBreakState({ kind: "offline" });
-      return;
-    }
     setBreakState({ kind: "loading" });
     try {
       const res = await fetchTendencyBreakAlerts({ limit: 100 }, authToken);
@@ -221,11 +206,12 @@ export function SelfScoutView() {
 
   return (
     <div className="flex flex-col gap-4">
+      <FilterBar />
       <ActiveFilterChip className="mb-0" />
       <Card>
         <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-3">
           <div>
-            <h2 className="font-display text-base font-semibold uppercase tracking-wide">
+            <h2 className="text-base font-semibold">
               Self-Scout filter
             </h2>
             <p className="mt-0.5 max-w-2xl text-xs text-muted-foreground">
@@ -242,7 +228,7 @@ export function SelfScoutView() {
           <div className="flex min-w-72 flex-col gap-1">
             <Label
               htmlFor="self-scout-video-picker"
-              className="font-display text-[0.68rem] font-semibold uppercase tracking-widest text-muted-foreground"
+              className="text-xs font-semibold text-muted-foreground"
             >
               Source film
             </Label>
@@ -309,7 +295,7 @@ export function SelfScoutView() {
                   data-testid={`pre-snap-tell-${tell.grouping_key}`}
                 >
                   <div className="min-w-0">
-                    <span className="text-[0.85rem] font-semibold">{tell.formation}</span>
+                    <span className="text-sm font-semibold">{tell.formation}</span>
                     <div className="mt-0.5 text-xs text-muted-foreground">{tell.message}</div>
                   </div>
                   <StatusBadge
@@ -363,7 +349,7 @@ function TendencyBreakList({
         >
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <span className="text-[0.85rem] font-semibold">{a.grouping_key}</span>
+              <span className="text-sm font-semibold">{a.grouping_key}</span>
               {a.tendency_kind === "pattern_break" && <ExperimentalBadge label="Pattern break" />}
             </div>
             <div className="mt-0.5 text-xs text-muted-foreground">{a.message}</div>
@@ -402,7 +388,7 @@ function MotionRow({
   split: { total: number; run_rate: number; pass_rate: number };
 }) {
   return (
-    <div className="grid grid-cols-[1fr_auto_auto_auto] items-baseline gap-3 text-[0.82rem]">
+    <div className="grid grid-cols-[1fr_auto_auto_auto] items-baseline gap-3 text-sm">
       <span className="font-medium">{label}</span>
       <span data-numeric className="font-mono text-xs text-muted-foreground">
         {split.total} plays

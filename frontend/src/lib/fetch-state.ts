@@ -18,6 +18,8 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useMocks } from "./mock-flag";
+import { useOptionalAuth } from "./auth";
 
 export type FetchState<T> =
   | { kind: "loading" }
@@ -46,13 +48,14 @@ export function useFetchState<T>(
   const isEmptyRef = useRef(options?.isEmpty);
   isEmptyRef.current = options?.isEmpty;
   const runRef = useRef(0);
+  const mockMode = useMocks();
+  const auth = useOptionalAuth();
+  const canFetch = !auth || (auth.ready && (!auth.authRequired || Boolean(auth.token)));
 
   const reload = useCallback(async () => {
     const run = ++runRef.current;
-    if (!process.env.NEXT_PUBLIC_API_URL) {
-      setState({ kind: "offline" });
-      return;
-    }
+    if (mockMode) { setState({ kind: "offline" }); return; }
+    if (!canFetch) return;
     setState({ kind: "loading" });
     try {
       const data = await fetcher();
@@ -68,7 +71,7 @@ export function useFetchState<T>(
         message: err instanceof Error ? err.message : String(err),
       });
     }
-  }, [fetcher]);
+  }, [fetcher, mockMode, canFetch]);
 
   useEffect(() => {
     void reload();

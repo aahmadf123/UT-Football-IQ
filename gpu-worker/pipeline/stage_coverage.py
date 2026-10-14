@@ -28,6 +28,7 @@ import structlog
 
 from pipeline import backend
 from pipeline.coverage.gnn_classifier import CoverageClassifier, coverage_bust_flag
+from pipeline.runtime import PipelineInterrupted, check_control
 from pipeline.spatial import feature_schema as fs
 
 log = structlog.get_logger(__name__)
@@ -62,6 +63,9 @@ def run(
 
     snap_event = next((e for e in events if e.get("event_type") == "snap"), None)
     snap_frame = snap_event.get("frame_number", 0) if snap_event else 0
+    if snap_event is None:
+        return {"label_count": 0, "label_ids": [], "skipped": True, "reason": "snap_not_observed",
+                "feature_packet": None}
 
     los_x = _estimate_los(tracklets, snap_frame)
 
@@ -134,6 +138,7 @@ def run(
         classifier=classifier,
     )
     shell = str(shell_value["shell"])
+    source = shell_value.get("source", "heuristic")
     shell_label: dict[str, Any] = {
         "shell": shell,
         "confidence": shell_value["coverage_confidence"],
@@ -147,22 +152,33 @@ def run(
         "defender_count": len(defense),
         "coverage_bust_flag": bust["coverage_bust_flag"],
         "bust_detail": bust,
+        "source": source,
+        "provenance": {"source": source, "actual_model": shell_value.get("model"),
+                       "validated": not shell_value["experimental"] and source == "real"},
     }
     labels.append({"label_type": "coverage_shell", "label_value": shell_label})
 
     # Write labels
     label_ids: list[str] = []
     for lbl in labels:
+        check_control()
+        lbl["label_value"].setdefault("source", "heuristic")
+        lbl["label_value"].setdefault("provenance", {"source": lbl["label_value"]["source"],
+                                                     "validated": False})
         try:
             resp = backend.create_label(
                 lbl["label_type"],
                 lbl["label_value"],
                 clip_id=clip_id,
                 source="model",
+                model_version_id=shell_value.get("model_version_id") if lbl["label_type"] == "coverage_shell" else None,
             )
             label_ids.append(resp["id"])
+        except PipelineInterrupted:
+            raise
         except Exception as exc:
             log.warning("coverage_label_write_failed", error=str(exc))
+            raise
 
     log.info(
         "stage_coverage_done",
@@ -186,6 +202,11 @@ def run(
         # computed here and dropped, which is why nothing was ever queued.
         "uncertainty": shell_value["uncertainty"],
         "is_calibrated": shell_value["is_calibrated"],
+        "feature_packet": ({"clip_id": clip_id, "graph": shell_value["feature_graph"],
+                            "analytics_safe": analytics_safe,
+                            "source": "synthetic_test" if any(p.get("source") == "synthetic_test"
+                                      for t in tracklets for p in t.get("track_points", [])) else "real"}
+                           if shell_value.get("feature_graph") is not None else None),
     }
 
 
@@ -335,10 +356,14 @@ def _classify_shell(
                 "coverage_confidence": out["confidence"],
                 "calibration_method": out["calibration_method"],
                 "is_calibrated": out["is_calibrated"],
-                "experimental": out["experimental"],
+                "experimental": out["experimental"] or not (
+                    clf.gnn and (clf.gnn.provenance or {}).get("validated") is True),
                 "uncertainty": out["uncertainty"],
                 "probabilities": out.get("probabilities"),
                 "model": out.get("detail", {}).get("model"),
+                "source": (clf.gnn.provenance or {}).get("source", "real") if clf.gnn else "heuristic",
+                "feature_graph": graph.to_dict(),
+                "model_version_id": (clf.gnn.provenance or {}).get("model_version_id") if clf.gnn else None,
             }
         except fs.FieldFrameError:
             log.warning("coverage_shell_field_frame_guard_tripped")

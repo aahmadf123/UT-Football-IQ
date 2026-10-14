@@ -17,22 +17,21 @@ boundaries (the whole video collapses to a single clip).
 
 Phase 2.5 context (Issue #75 spike):
 
-* ``OpticalFlowSegmenter`` is the same-session production path. It must
-  stay default because it meets the Issue #16 latency budget without
-  GPU model loads.
+* ``OpticalFlowSegmenter`` is the default CPU heuristic baseline. Timing and
+  boundary quality must be measured on the actual recording and computer.
 * ``SportsBDSegmenter`` is an experimental adapter around the SportsBD
   *shot*-boundary detector. The Issue #75 benchmark in
   ``docs/segment-benchmark.md`` shows SportsBD is **not useful** for
   continuous drone / all-22 practice film, so this adapter ships as a
-  benchmark/experimental hook only and falls back to the stub when the
+  benchmark/experimental hook only and reports unavailable when the
   ``sportsbd`` package is not installed.
 * ``LearnedPlaySegmenter`` is the football-specific candidate that the
   spike recommends investing in. It currently runs a rules+ML hybrid on
   top of optical flow (huddle gap prior, snap-onset peak detection,
   duration prior) and is the seam where a trained boundary model will
   plug in once weights exist. It is opt-in via env var.
-* ``StubSegmenter`` is deterministic, dependency-free, and used by tests
-  and any CI path without OpenCV / model weights.
+* ``StubSegmenter`` is an explicit deterministic test adapter, not an implicit
+  production fallback for missing dependencies or weights.
 """
 
 from __future__ import annotations
@@ -42,6 +41,9 @@ from pathlib import Path
 from typing import Any
 
 import structlog
+
+from pipeline.runtime import ModelUnavailableError, check_control
+from pipeline.video_timeline import VideoTimeline
 
 log = structlog.get_logger(__name__)
 
@@ -90,7 +92,7 @@ class SegmenterBase(ABC):
 # ── Optical flow (current production path) ────────────────────────────────────
 
 
-def _quiet_frames_and_fps(video_path: Path) -> tuple[list[tuple[int, float]], float, float]:
+def _quiet_frames_and_fps(video_path: Path, timeline: VideoTimeline | None = None) -> tuple[list[tuple[int, float]], float, float]:
     """Sample frames and return (quiet_frame_idx + magnitude, fps, duration).
 
     Centralised here so both the optical-flow and the learned hybrid
@@ -105,16 +107,25 @@ def _quiet_frames_and_fps(video_path: Path) -> tuple[list[tuple[int, float]], fl
     fps: float = cap.get(cv2.CAP_PROP_FPS) or 30.0
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     duration = total_frames / fps if fps else 0.0
+    timeline = timeline or VideoTimeline.from_path(video_path, fps_fallback=fps,
+                                                  frame_count_fallback=total_frames)
+    if timeline.verified:
+        duration = timeline.duration
 
     step = max(1, int(fps / SAMPLE_FPS))
     quiet: list[tuple[int, float]] = []
     prev_gray = None
     frame_idx = 0
+    next_sample_seconds = 0.
     while True:
+        check_control()
         ret, frame = cap.read()
         if not ret:
             break
-        if frame_idx % step == 0:
+        if (timeline.verified and timeline.timestamp(frame_idx) >= next_sample_seconds) or (
+            not timeline.verified and frame_idx % step == 0
+        ):
+            next_sample_seconds = timeline.timestamp(frame_idx) + 1 / SAMPLE_FPS
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             if prev_gray is not None:
                 flow = cv2.calcOpticalFlowFarneback(
@@ -130,7 +141,7 @@ def _quiet_frames_and_fps(video_path: Path) -> tuple[list[tuple[int, float]], fl
 
 
 def _gap_groups(
-    quiet: list[tuple[int, float]], fps: float
+    quiet: list[tuple[int, float]], fps: float, timeline: VideoTimeline | None = None
 ) -> list[tuple[int, int, float]]:
     """Cluster quiet frame samples into (start, end, mean_mag) gap groups."""
     if not quiet:
@@ -139,7 +150,8 @@ def _gap_groups(
     group_start, group_end = quiet[0][0], quiet[0][0]
     mags: list[float] = [quiet[0][1]]
     for f, m in quiet[1:]:
-        if f - group_end <= int(fps):
+        gap = (timeline.timestamp(f) - timeline.timestamp(group_end)) if timeline and timeline.verified else (f - group_end) / fps
+        if gap <= 1.:
             group_end = f
             mags.append(m)
         else:
@@ -176,14 +188,18 @@ class OpticalFlowSegmenter(SegmenterBase):
     source = SOURCE_OPTICAL_FLOW
 
     def segment(self, video_path: Path) -> list[dict[str, Any]]:
-        quiet, fps, _duration = _quiet_frames_and_fps(video_path)
-        groups = _gap_groups(quiet, fps)
+        supplied = getattr(self, "timeline", None)
+        quiet, fps, _duration = (_quiet_frames_and_fps(video_path, supplied)
+                                if supplied is not None else _quiet_frames_and_fps(video_path))
+        timeline = supplied or VideoTimeline.from_path(video_path, fps_fallback=fps)
+        groups = _gap_groups(quiet, fps, timeline)
         boundaries: list[dict[str, Any]] = []
         for start, end, mean_mag in groups:
             mid = (start + end) // 2
             boundaries.append({
-                "time_s": float(mid / fps) if fps else 0.0,
-                "confidence": _confidence_from_gap(end - start, mean_mag, fps),
+                "time_s": timeline.timestamp(mid),
+                "confidence": _confidence_from_gap(
+                    (timeline.timestamp(end) - timeline.timestamp(start)) * fps, mean_mag, fps),
                 "source": self.source,
             })
         boundaries.sort(key=lambda b: b["time_s"])
@@ -279,16 +295,20 @@ class LearnedPlaySegmenter(SegmenterBase):
         self._min_confidence = min_confidence
 
     def segment(self, video_path: Path) -> list[dict[str, Any]]:
-        quiet, fps, _duration = _quiet_frames_and_fps(video_path)
-        groups = _gap_groups(quiet, fps)
+        supplied = getattr(self, "timeline", None)
+        quiet, fps, _duration = (_quiet_frames_and_fps(video_path, supplied)
+                                if supplied is not None else _quiet_frames_and_fps(video_path))
+        timeline = supplied or VideoTimeline.from_path(video_path, fps_fallback=fps)
+        groups = _gap_groups(quiet, fps, timeline)
         if not groups:
             return []
 
         boundaries: list[dict[str, Any]] = []
         last_time = 0.0
         for start, end, mean_mag in groups:
-            mid_t = (start + end) / 2.0 / fps if fps else 0.0
-            base = _confidence_from_gap(end - start, mean_mag, fps)
+            mid_t = timeline.timestamp((start + end) // 2) if timeline.verified else (start + end) / 2.0 / fps
+            base = _confidence_from_gap(
+                (timeline.timestamp(end) - timeline.timestamp(start)) * fps, mean_mag, fps)
             prior = self._duration_prior(mid_t - last_time)
             score = round(0.7 * base + 0.3 * prior, 3)
             if score < self._min_confidence:
@@ -378,8 +398,7 @@ def get_segmenter(variant: str | None) -> SegmenterBase:
         try:
             return SportsBDSegmenter()
         except ImportError:
-            log.warning("sportsbd_unavailable_using_stub", variant=variant)
-            return StubSegmenter()
+            raise ModelUnavailableError("SportsBD is unavailable; use the real optical-flow baseline.") from None
 
     if v == LEARNED_PLAY:
         return LearnedPlaySegmenter()
@@ -387,8 +406,7 @@ def get_segmenter(variant: str | None) -> SegmenterBase:
     if v == STUB_SEGMENTER:
         return StubSegmenter()
 
-    log.warning("unknown_segmenter_variant_using_stub", variant=variant)
-    return StubSegmenter()
+    raise ValueError(f"Unknown segmenter variant: {variant!r}")
 
 
 # ── Schema helpers ────────────────────────────────────────────────────────────

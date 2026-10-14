@@ -3,30 +3,29 @@
 Thin orchestrator on top of the play-boundary segmenter adapters in
 ``pipeline.segment_models`` (Issue #75). The adapter is selected via
 the ``SEGMENTER_VARIANT`` environment variable; default stays
-``optical_flow`` so the same-session latency budget from Issue #16 is
-unchanged.
+``optical_flow`` for a CPU heuristic baseline. Runtime depends on the actual
+recording and computer, rather than a fixed same-session latency guarantee.
 
 Variants:
   - ``optical_flow`` (default): the historical mean-flow-magnitude
-    heuristic. Same-session safe.
+    heuristic; proposals require review.
   - ``learned_play``: rules + ML hybrid with a play-duration prior.
     Opt-in candidate from the Phase 2.5 spike.
   - ``sportsbd``: experimental adapter; benchmark only. See
     ``docs/segment-benchmark.md``.
   - ``stub``: deterministic, used by tests.
 
-All boundaries are tagged ``boundary_source="model"`` (preserved for
-backward compatibility with the clips API and downstream consumers).
-The model identifier itself is logged via ``boundary_model`` so
-operators can see which adapter ran. ``boundary_confidence`` is now
-model-derived rather than a flat placeholder. Manual overrides are
-still handled by coaches via PATCH /api/v1/clips/{id}.
+Boundaries retain heuristic or explicit synthetic-test provenance. Invalid or
+out-of-source proposals abstain; manual overrides remain coach-controlled.
+Review processing preserves a source-wide annotation window if no usable play
+proposals exist, including recordings shorter than the minimum play duration.
 
 Output: ``clips`` rows for each proposed play segment.
 """
 
 from __future__ import annotations
 
+import math
 import os
 from pathlib import Path
 from typing import Any
@@ -35,11 +34,14 @@ import cv2
 import structlog
 
 from pipeline import backend, object_store
+from pipeline.lightweight_config import processing_profile as select_processing_profile
+from pipeline.runtime import check_control
 from pipeline.segment_models import (
     OPTICAL_FLOW,
     SegmenterBase,
     get_segmenter,
 )
+from pipeline.video_timeline import VideoTimeline
 
 log = structlog.get_logger(__name__)
 
@@ -49,7 +51,9 @@ log = structlog.get_logger(__name__)
 MIN_PLAY_DURATION = 3.0  # seconds — ignore very short segments
 
 
-def run(video_id: str, input_uri: str, job_id: str, *, priority: int = 0) -> dict[str, Any]:
+def run(video_id: str, input_uri: str, job_id: str, *, priority: int = 0,
+        timeline: VideoTimeline | None = None,
+        processing_profile: str | None = None) -> dict[str, Any]:
     """Run Stage 2: propose clip boundaries and write them to the backend.
 
     ``priority`` selects the clip result tier (Issue #147): same-session jobs
@@ -58,6 +62,8 @@ def run(video_id: str, input_uri: str, job_id: str, *, priority: int = 0) -> dic
     """
     variant = os.environ.get("SEGMENTER_VARIANT", OPTICAL_FLOW)
     segmenter = get_segmenter(variant)
+    if timeline is not None:
+        segmenter.timeline = timeline
     log.info(
         "stage_segment_start",
         video_id=video_id,
@@ -69,7 +75,8 @@ def run(video_id: str, input_uri: str, job_id: str, *, priority: int = 0) -> dic
     object_key = _uri_to_object_key(input_uri)
     video_path = object_store.download_to_temp(object_key)
     try:
-        return _segment(video_id, video_path, job_id, segmenter, priority)
+        return _segment(video_id, video_path, job_id, segmenter, priority,
+                        review_fallback=select_processing_profile(processing_profile) == "review")
     finally:
         video_path.unlink(missing_ok=True)
 
@@ -96,15 +103,23 @@ def _segment(
     job_id: str,
     segmenter: SegmenterBase,
     priority: int = 0,
+    *,
+    review_fallback: bool = False,
 ) -> dict[str, Any]:
     from pipeline.model_router import is_same_session
 
+    if getattr(segmenter, "timeline", None) is None:
+        segmenter.timeline = VideoTimeline.from_path(video_path)
     boundaries = segmenter.segment(video_path)
     duration = _video_duration(video_path)
+    timeline = getattr(segmenter, "timeline", None)
+    if timeline is not None and timeline.verified:
+        duration = timeline.duration
     # Same-session clips are a first pass (preliminary); nightly clips are final.
     result_state = "preliminary" if is_same_session(priority) else "final"
     clips = _write_clips(
-        video_id, boundaries, duration, job_id, segmenter.source, result_state
+        video_id, boundaries, duration, job_id, segmenter.source, result_state,
+        review_fallback=review_fallback,
     )
 
     log.info(
@@ -130,6 +145,7 @@ def _segment(
             for c in clips
         ],
         "boundary_model": segmenter.source,
+        "data_source": "synthetic_test" if segmenter.source == "stub" else "heuristic",
     }
 
 
@@ -140,6 +156,8 @@ def _write_clips(
     job_id: str,
     boundary_model: str,
     result_state: str | None = None,
+    *,
+    review_fallback: bool = False,
 ) -> list[dict[str, Any]]:
     """Post one clip per segment to the backend.
 
@@ -149,15 +167,28 @@ def _write_clips(
     of the video) and trailing edge (end of the video) are treated as
     fully trusted boundaries with confidence 1.0.
     """
-    pivots: list[tuple[float, float]] = [(0.0, 1.0)]
+    if not math.isfinite(duration) or duration <= 0:
+        raise ValueError("Source duration must be finite and positive")
+    pivots_by_time = {0.: 1., duration: 1.}
     for b in boundaries:
-        pivots.append((float(b["time_s"]), float(b["confidence"])))
-    pivots.append((duration, 1.0))
-    pivots.sort(key=lambda p: p[0])
+        try:
+            time_s, confidence = float(b["time_s"]), float(b["confidence"])
+        except (KeyError, TypeError, ValueError):
+            log.warning("segment_boundary_ignored", reason="malformed_boundary")
+            continue
+        if not math.isfinite(time_s) or not 0 < time_s < duration:
+            log.warning("segment_boundary_ignored", reason="outside_source_duration")
+            continue
+        if not math.isfinite(confidence) or not 0 <= confidence <= 1:
+            log.warning("segment_boundary_ignored", reason="invalid_confidence")
+            continue
+        pivots_by_time[time_s] = min(pivots_by_time.get(time_s, confidence), confidence)
+    pivots = sorted(pivots_by_time.items())
 
     clips: list[dict[str, Any]] = []
     play_idx = 0
     for (start_t, start_c), (end_t, end_c) in zip(pivots, pivots[1:]):
+        check_control()
         if end_t - start_t < MIN_PLAY_DURATION:
             continue
         play_idx += 1
@@ -166,7 +197,7 @@ def _write_clips(
             video_id,
             start_time=start_t,
             end_time=end_t,
-            boundary_source="model",
+            boundary_source="synthetic_test" if boundary_model == "stub" else "heuristic",
             boundary_confidence=confidence,
             play_number=play_idx,
             job_id=job_id,
@@ -175,6 +206,19 @@ def _write_clips(
         # Tag the in-memory clip dict so callers/tests can see which
         # adapter produced it without re-querying the backend.
         clip.setdefault("boundary_model", boundary_model)
+        clips.append(clip)
+
+    if not clips and review_fallback:
+        # A short recording is still valid film for annotation. Preserve it as
+        # an explicitly unconfirmed review window, not a detected football play.
+        check_control()
+        clip = backend.create_clip(
+            video_id, start_time=0., end_time=duration,
+            boundary_source="synthetic_test" if boundary_model == "stub" else "heuristic",
+            boundary_confidence=0., play_number=1, job_id=job_id, result_state=result_state,
+        )
+        clip.setdefault("boundary_model", boundary_model)
+        clip["review_window"] = True
         clips.append(clip)
 
     return clips

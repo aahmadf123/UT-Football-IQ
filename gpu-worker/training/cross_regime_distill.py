@@ -529,6 +529,11 @@ def run_nightly(
     practice/game footage. Raises ``ValueError`` if fewer than ``MIN_PAIRED_PLAYS``
     validated pairs exist — we never train on too small / unvalidated a dataset.
     """
+    raise RuntimeError(
+        "Cross-recording box transfer is quarantined: matching play calls do not "
+        "share image coordinates. Use human-reviewed labels on the SAME target "
+        "frame and an independent Toledo holdout before training or promotion."
+    )
     from training.play_call_aligner import align_plays
 
     config = config or DistillConfig()

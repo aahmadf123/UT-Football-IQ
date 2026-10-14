@@ -39,11 +39,6 @@ export function OpponentScoutView() {
   });
 
   const loadOpponents = useCallback(async () => {
-    const baseUrl = process.env.NEXT_PUBLIC_API_URL;
-    if (!baseUrl) {
-      setOpponentList({ kind: "offline" });
-      return;
-    }
     setOpponentList({ kind: "loading" });
     try {
       const opponents = await fetchOpponents(authToken);
@@ -169,7 +164,7 @@ export function OpponentScoutView() {
       <Card>
         <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-3">
           <div>
-            <h2 className="font-display text-base font-semibold uppercase tracking-wide">
+            <h2 className="text-base font-semibold">
               Opponent picker
             </h2>
             <p className="mt-0.5 max-w-2xl text-xs text-muted-foreground">
@@ -224,7 +219,7 @@ export function OpponentScoutView() {
                   data-testid={`opp-pre-snap-tell-${tell.grouping_key}`}
                 >
                   <div className="min-w-0">
-                    <span className="text-[0.85rem] font-semibold">{tell.formation}</span>
+                    <span className="text-sm font-semibold">{tell.formation}</span>
                     <div className="mt-0.5 text-xs text-muted-foreground">{tell.message}</div>
                   </div>
                   <StatusBadge
@@ -256,7 +251,7 @@ function OpponentPicker({
     <div className="flex min-w-56 flex-col gap-1">
       <Label
         htmlFor="opponent-picker"
-        className="font-display text-[0.68rem] font-semibold uppercase tracking-widest text-muted-foreground"
+        className="text-xs font-semibold text-muted-foreground"
       >
         Opponent
       </Label>
@@ -304,7 +299,7 @@ function VideoPicker({
     <div className="flex min-w-64 flex-col gap-1">
       <Label
         htmlFor="opponent-video-picker"
-        className="font-display text-[0.68rem] font-semibold uppercase tracking-widest text-muted-foreground"
+        className="text-xs font-semibold text-muted-foreground"
       >
         Opponent film
       </Label>

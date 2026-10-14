@@ -35,6 +35,7 @@ describe("AuthProvider", () => {
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
+    window.history.replaceState(null, "", "/");
   });
 
   test("login stores tokens, decodes role, and logout clears", async () => {
@@ -135,6 +136,14 @@ describe("AuthProvider", () => {
     expect(window.localStorage.getItem("football-iq-auth-v1")).toBeNull();
   });
 
+  test("a temporarily unavailable local API preserves the stored session", async () => {
+    window.localStorage.setItem("football-iq-auth-v1", JSON.stringify({ token: makeJwt("coach"), refreshToken: "refresh-kept", user: { email: "coach@localhost", role: "coach" } }));
+    vi.stubGlobal("fetch", vi.fn(() => Promise.reject(new TypeError("Failed to fetch"))));
+    render(<AuthProvider><Probe /></AuthProvider>);
+    await waitFor(() => expect(screen.getByTestId("email").textContent).toBe("coach@localhost"));
+    expect(window.localStorage.getItem("football-iq-auth-v1")).toContain("refresh-kept");
+  });
+
   test("surfaces FastAPI 422 validation messages instead of a generic error", async () => {
     vi.stubGlobal(
       "fetch",
@@ -212,8 +221,9 @@ describe("AuthProvider", () => {
     );
   });
 
-  test("mock mode (no API base) does not require auth", async () => {
+  test("explicit mock mode does not require auth", async () => {
     vi.stubEnv("NEXT_PUBLIC_API_URL", "");
+    vi.stubEnv("NEXT_PUBLIC_USE_MOCKS", "1");
     render(
       <AuthProvider>
         <Probe />
@@ -221,5 +231,47 @@ describe("AuthProvider", () => {
     );
     await waitFor(() => expect(screen.getByTestId("ready").textContent).toBe("true"));
     expect(screen.getByTestId("required").textContent).toBe("false");
+  });
+
+  test("local launcher exchanges its one-time token and removes it from the URL", async () => {
+    vi.stubEnv("NEXT_PUBLIC_API_URL", "");
+    window.history.replaceState(null, "", "/login/?localToken=one-time-test");
+    const calls: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      calls.push(url);
+      return { ok: true, status: 200, json: async () => url.endsWith("/auth/me") ? { email: "local@localhost", role: "admin" } : { access_token: makeJwt("admin"), refresh_token: "local-refresh" } };
+    }));
+    render(<AuthProvider><Probe /></AuthProvider>);
+    await waitFor(() => expect(screen.getByTestId("email").textContent).toBe("local@localhost"));
+    expect(window.location.search).not.toContain("localToken");
+    expect(calls).toContain("/api/v1/local/login");
+    expect(calls).toContain("/api/v1/auth/me");
+  });
+
+  test("a launcher token is never sent to a configured remote team API", async () => {
+    window.history.replaceState(null, "", "/login/?localToken=one-time-test");
+    window.localStorage.setItem("football-iq-api-origin", "https://team.test");
+    const fetchMock = vi.fn(async (url: string) => ({ ok: false, status: 401, json: async () => ({ detail: `expired: ${url}` }) }));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<AuthProvider><Probe /></AuthProvider>);
+    await waitFor(() => expect(screen.getByTestId("ready").textContent).toBe("true"));
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchMock.mock.calls[0][0]).toBe("/api/v1/local/login");
+    expect(window.localStorage.getItem("football-iq-api-origin")).toBe("https://team.test");
+    expect(window.location.search).not.toContain("localToken");
+  });
+
+  test("opening a local library replaces a previously saved team connection only after validated local sign-in", async () => {
+    window.localStorage.setItem("football-iq-api-origin", "https://team.test");
+    window.history.replaceState(null, "", "/login/?localToken=fresh-local-token");
+    const calls: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      calls.push(url);
+      return { ok: true, status: 200, json: async () => url.endsWith("/auth/me") ? { email: "local@localhost", role: "admin" } : { access_token: makeJwt("admin"), refresh_token: "local-refresh" } };
+    }));
+    render(<AuthProvider><Probe /></AuthProvider>);
+    await waitFor(() => expect(screen.getByTestId("email").textContent).toBe("local@localhost"));
+    expect(window.localStorage.getItem("football-iq-api-origin")).toBe("");
+    expect(calls).toEqual(["/api/v1/local/login", "/api/v1/auth/me"]);
   });
 });

@@ -8,6 +8,7 @@ cached data is queryable without any further CFBD call.
 
 from __future__ import annotations
 
+import uuid
 from collections.abc import AsyncGenerator
 
 import httpx
@@ -18,7 +19,7 @@ from app.cfbd.models import CFBDSyncStatus
 from app.cfbd.sync import sync_season
 from app.config import get_settings
 from app.database import Base
-from sqlalchemy import func, inspect, select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 _TABLES = [
@@ -177,25 +178,27 @@ def _client(handler: object) -> CFBDClient:
 
 @pytest_asyncio.fixture
 async def cfbd_session() -> AsyncGenerator[AsyncSession, None]:
-    engine = create_async_engine(get_settings().database_url)
-    # Determine which CFBD tables already exist (e.g. migration 0016 has run)
-    # so teardown only drops the tables this fixture actually created and does
-    # not silently delete pre-existing tables and leave the DB out of sync.
-    async with engine.connect() as conn:
-        existing_names: set[str] = set(await conn.run_sync(lambda c: inspect(c).get_table_names()))
-    created_tables = [t for t in _TABLES if t.name not in existing_names]
+    # Sync history is cumulative; each test gets a private schema so repeat
+    # runs never mistake previous runs' audit rows for new network activity.
+    schema = f"cfbd_test_{uuid.uuid4().hex}"
+    admin_engine = create_async_engine(get_settings().database_url)
+    async with admin_engine.begin() as conn:
+        await conn.exec_driver_sql(f'CREATE SCHEMA "{schema}"')
+    engine = create_async_engine(
+        get_settings().database_url,
+        connect_args={"server_settings": {"search_path": f"{schema},public"}},
+    )
     async with engine.begin() as conn:
-        await conn.run_sync(lambda c: Base.metadata.create_all(c, tables=created_tables))
+        await conn.run_sync(lambda c: Base.metadata.create_all(c, tables=_TABLES, checkfirst=False))
     maker = async_sessionmaker(engine, expire_on_commit=False)
     try:
         async with maker() as session:
             yield session
     finally:
-        if created_tables:
-            async with engine.begin() as conn:
-                await conn.run_sync(lambda c: Base.metadata.drop_all(c, tables=created_tables))
-                await conn.exec_driver_sql("DROP TYPE IF EXISTS cfbd_sync_status")
         await engine.dispose()
+        async with admin_engine.begin() as conn:
+            await conn.exec_driver_sql(f'DROP SCHEMA "{schema}" CASCADE')
+        await admin_engine.dispose()
 
 
 async def _count(session: AsyncSession, model: type[object]) -> int:

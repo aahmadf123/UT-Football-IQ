@@ -115,8 +115,9 @@ const SAMPLE_TENDENCIES = {
 };
 
 describe("OpponentScoutPage", () => {
-  test("shows unavailable card state when NEXT_PUBLIC_API_URL is missing", async () => {
+  test("shows a retryable error when the local library cannot be reached", async () => {
     vi.stubEnv("NEXT_PUBLIC_API_URL", "");
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
     const { OpponentScoutPage, AppStateProvider } = await importPage();
     render(
       <AppStateProvider>
@@ -124,7 +125,7 @@ describe("OpponentScoutPage", () => {
       </AppStateProvider>,
     );
     await waitFor(() => {
-      expect(screen.getAllByTestId("card-unavailable").length).toBeGreaterThan(0);
+      expect(screen.getAllByTestId("card-error").length).toBeGreaterThan(0);
     });
   });
 

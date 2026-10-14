@@ -163,6 +163,7 @@ def test_reid_strategy_reports_ocr_backend(_stub_video_and_backend) -> None:
         "id": "tk", "player_id": None, "team_label": "unknown",
         "track_points": _points([0, 1], [10, 12]),
     }
-    # No PARSeq adapter available in tests -> reports the tesseract fallback.
+    # No roster or known identity can use OCR; do not decode film for nothing.
     result = _run([t], NIGHTLY_PRIORITY)
-    assert result["reid_strategy"]["ocr"] == "jersey-ocr"
+    assert result["reid_strategy"]["ocr"] == "disabled"
+    assert result["skipped"] is True

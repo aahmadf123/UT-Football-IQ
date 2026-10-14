@@ -19,7 +19,7 @@ export function AlertsBell({ active = false }: { active?: boolean }) {
   const [unread, setUnread] = useState(0);
 
   useEffect(() => {
-    if (!process.env.NEXT_PUBLIC_API_URL) return;
+    if (auth && (!auth.ready || (auth.authRequired && !token))) return;
     let cancelled = false;
 
     const load = async () => {
@@ -37,7 +37,7 @@ export function AlertsBell({ active = false }: { active?: boolean }) {
       cancelled = true;
       clearInterval(id);
     };
-  }, [token]);
+  }, [auth?.ready, auth?.authRequired, token, auth]);
 
   const countLabel = unread > 9 ? "9+" : String(unread);
 
@@ -45,8 +45,8 @@ export function AlertsBell({ active = false }: { active?: boolean }) {
     <Button
       asChild
       variant={active ? "secondary" : "ghost"}
-      size="icon"
-      className="relative size-10"
+      size="sm"
+      className="relative h-10"
     >
       <Link
         href="/alerts"
@@ -54,6 +54,7 @@ export function AlertsBell({ active = false }: { active?: boolean }) {
         title="Coaching alerts inbox"
       >
         <BellRing className="size-[18px]" />
+        <span className="hidden sm:inline">Inbox</span>
         {unread > 0 ? (
           <span
             data-testid="alerts-unread-count"

@@ -37,6 +37,7 @@ import {
   type UploadMetadataDraft,
 } from "@/lib/upload-metadata";
 import type { OurPossession, SessionKind, SourceType } from "@/lib/types";
+import type { UploadMetadata } from "@/lib/app-state";
 
 const VIDEO_EXTENSIONS = /\.(mp4|mov|m4v|avi|mkv|mts|m2ts|webm)$/i;
 
@@ -63,6 +64,8 @@ export interface UploadDialogProps {
   onSubmit: (files: File[], draft: UploadMetadataDraft) => Promise<void> | void;
   /** Team names offered as opponent suggestions (from the schedule). */
   opponentSuggestions?: string[];
+  defaults?: Partial<UploadMetadata>;
+  sessionTitle?: string;
 }
 
 export function UploadDialog({
@@ -70,6 +73,8 @@ export function UploadDialog({
   onOpenChange,
   onSubmit,
   opponentSuggestions = [],
+  defaults,
+  sessionTitle,
 }: UploadDialogProps) {
   const [files, setFiles] = useState<File[]>([]);
   const [draft, setDraft] = useState<UploadMetadataDraft>(() => draftFromFiles([]));
@@ -78,6 +83,7 @@ export function UploadDialog({
   const [submitting, setSubmitting] = useState(false);
   const [showErrors, setShowErrors] = useState(false);
   const [rejected, setRejected] = useState<string[]>([]);
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const errors = useMemo(() => validateDraft(draft), [draft]);
@@ -90,6 +96,7 @@ export function UploadDialog({
     setShowErrors(false);
     setRejected([]);
     setDragging(false);
+    setSubmitError(null);
   }, []);
 
   const addFiles = useCallback(
@@ -117,9 +124,11 @@ export function UploadDialog({
             return {
               ...seeded,
               ...existing,
-              sessionKind: existing.sessionKind ?? seeded.sessionKind,
-              recordedAt: existing.recordedAt ?? seeded.recordedAt,
+              sessionKind: defaults?.session_kind ?? existing.sessionKind ?? seeded.sessionKind,
+              recordedAt: seeded.recordedAt ?? defaults?.recorded_at ?? existing.recordedAt,
               sourceType: existing.sourceType ?? seeded.sourceType,
+              opponentTeam: defaults?.opponent_team ?? existing.opponentTeam,
+              libraryRole: defaults?.library_role ?? existing.libraryRole ?? "toledo",
             };
           });
         }
@@ -127,7 +136,7 @@ export function UploadDialog({
       });
       setRejected(skipped);
     },
-    [],
+    [defaults],
   );
 
   const handleDrop = useCallback(
@@ -143,10 +152,13 @@ export function UploadDialog({
     setShowErrors(true);
     if (files.length === 0 || Object.keys(errors).length > 0) return;
     setSubmitting(true);
+    setSubmitError(null);
     try {
       await onSubmit(files, draft);
       reset();
       onOpenChange(false);
+    } catch (cause) {
+      setSubmitError(cause instanceof Error ? cause.message : String(cause));
     } finally {
       setSubmitting(false);
     }
@@ -167,9 +179,9 @@ export function UploadDialog({
         <DialogHeader>
           <DialogTitle>Upload film</DialogTitle>
           <DialogDescription>
-            Drop a whole practice at once. What you enter here is what makes the film findable
-            later — session type and opponent drive the Library filters and Opponent Prep.
+            Add recordings from any camera or angle. Choose when the film was recorded and whose film it is.
           </DialogDescription>
+          {sessionTitle ? <p className="rounded-lg bg-secondary p-3 text-sm">Adding to session: <strong>{sessionTitle}</strong></p> : null}
         </DialogHeader>
 
         {/* ── Step 1: files ─────────────────────────────────────────────── */}
@@ -250,9 +262,17 @@ export function UploadDialog({
         {/* ── Step 2: describe ──────────────────────────────────────────── */}
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="grid gap-1.5">
+            <Label htmlFor="upload-library-role">Film belongs to</Label>
+            <NativeSelect id="upload-library-role" value={draft.libraryRole ?? "toledo"} disabled={Boolean(defaults?.library_role)} onChange={(event) => update("libraryRole", event.target.value as "toledo" | "opponent")}>
+              <option value="toledo">Toledo</option><option value="opponent">Opponent scouting</option>
+            </NativeSelect>
+          </div>
+          <div className="grid gap-1.5"><Label htmlFor="upload-camera-label">Camera angle name, optional</Label><Input id="upload-camera-label" value={draft.cameraLabel ?? ""} onChange={(event) => update("cameraLabel", event.target.value || null)} placeholder="Sideline, end zone, drone…" maxLength={120} /></div>
+          <div className="grid gap-1.5">
             <Label htmlFor="upload-session-kind">Session type</Label>
             <NativeSelect
               id="upload-session-kind"
+              disabled={Boolean(defaults?.practice_session_id)}
               value={draft.sessionKind ?? ""}
               onChange={(e) => update("sessionKind", (e.target.value || null) as SessionKind | null)}
               aria-invalid={showErrors && !!errors.sessionKind}
@@ -292,6 +312,7 @@ export function UploadDialog({
               <Label htmlFor="upload-opponent">Opponent</Label>
               <Input
                 id="upload-opponent"
+                disabled={Boolean(defaults?.practice_session_id)}
                 list="upload-opponent-options"
                 placeholder="e.g. Ball State"
                 value={draft.opponentTeam ?? ""}
@@ -368,6 +389,7 @@ export function UploadDialog({
             )}
           </div>
         </div>
+        {submitError ? <p role="alert" className="rounded-lg border border-status-danger/40 p-3 text-sm text-status-danger">Upload failed: {submitError}</p> : null}
 
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={submitting}>

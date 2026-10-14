@@ -43,6 +43,7 @@ import structlog
 from pipeline import backend, object_store
 from pipeline.detection.official_suppressor import filter_non_players
 from pipeline.homography import field_orientation as fo
+from pipeline.runtime import PipelineInterrupted, check_control
 from pipeline.team_classification import (
     ClassificationResult,
     classify_tracklet_frames,
@@ -69,6 +70,16 @@ def run(
 ) -> dict[str, Any]:
     """Generate formation and coverage labels for a clip."""
     log.info("stage_labels_start", clip_id=clip_id)
+    synthetic = any(
+        (track.get("provenance") or {}).get("source") == "synthetic_test"
+        or any(point.get("source") == "synthetic_test" for point in track.get("track_points", []))
+        for track in tracklets
+    ) or any(
+        event.get("source") == "synthetic_test"
+        or (event.get("provenance") or {}).get("source") == "synthetic_test"
+        or ((event.get("attributes") or {}).get("provenance") or {}).get("source") == "synthetic_test"
+        for event in events
+    )
 
     # ── Official / sideline suppression (Issue #148) ──────────────────────
     # Drop officials and off-field figures before any team/formation/personnel
@@ -95,6 +106,14 @@ def run(
         frames_by_number=frames_by_number,
     )
     team_by_tracklet = _aggregate_team_results(team_results)
+    # DB patches alone do not update the observation bundle used by subsequent
+    # stages in this process. Return enriched records as well.
+    tracklets = [
+        {**t, "team_label": team_by_tracklet[str(t.get("id"))].label,
+         "team_confidence": team_by_tracklet[str(t.get("id"))].confidence}
+        if str(t.get("id")) in team_by_tracklet else dict(t)
+        for t in tracklets
+    ]
     official_tracklet_ids = {
         tracklet_id
         for tracklet_id, result in team_by_tracklet.items()
@@ -110,6 +129,14 @@ def run(
     snap_positions = _positions_at_frame(analysis_tracklets, snap_frame)
 
     labels: list[dict[str, Any]] = []
+    if snap_event is None:
+        ids = _write_team_labels(clip_id, team_by_tracklet, synthetic=synthetic)
+        return {
+            "label_count": len(ids), "label_ids": ids, "labels": [], "tracklets": tracklets,
+            "skipped": True, "reason": "snap_not_observed",
+            "team_classification": {"classified_tracklets": len(team_by_tracklet),
+                                    "fallback": "no_visual_samples" if not team_by_tracklet else None},
+        }
 
     # ── Offensive formation (enhanced) ────────────────────────────────────
     off_formation, off_conf = _classify_offensive_formation(snap_positions)
@@ -222,20 +249,29 @@ def run(
     # Write labels to backend
     label_ids: list[str] = []
     for lbl in labels:
+        check_control()
+        source = "synthetic_test" if synthetic else "heuristic"
+        lbl["label_value"].update(
+            source=source, experimental=True, review_required=True,
+            provenance={"source": source, "validated": False},
+        )
         try:
             resp = backend.create_label(
                 lbl["label_type"],
                 lbl["label_value"],
                 clip_id=clip_id,
-                source="model",
+                source="synthetic_test" if synthetic else "model",
             )
             label_ids.append(resp["id"])
+        except PipelineInterrupted:
+            raise
         except Exception as exc:
             log.warning(
                 "label_write_failed", label_type=lbl.get("label_type"), error=str(exc)
             )
+            raise
 
-    team_label_ids = _write_team_labels(clip_id, team_by_tracklet)
+    team_label_ids = _write_team_labels(clip_id, team_by_tracklet, synthetic=synthetic)
     label_ids.extend(team_label_ids)
 
     log.info(
@@ -251,6 +287,7 @@ def run(
         # Full label dicts for in-process consumers (render HUD reads
         # label_type/label_value without a backend round trip).
         "labels": labels,
+        "tracklets": tracklets,
         "team_classification": {
             "classified_tracklets": len(team_by_tracklet),
             "official_tracklets": len(official_tracklet_ids),
@@ -325,6 +362,8 @@ def _load_team_frames(
                 frames[frame_number] = frame
         cap.release()
         return frames
+    except PipelineInterrupted:
+        raise
     except Exception as exc:
         log.warning("team_classification_frame_load_failed", error=str(exc))
         return {}
@@ -378,6 +417,8 @@ def _aggregate_team_results(
 def _write_team_labels(
     clip_id: str,
     team_by_tracklet: dict[str, ClassificationResult],
+    *,
+    synthetic: bool = False,
 ) -> list[str]:
     written_ids: list[str] = []
     for tracklet_id, result in team_by_tracklet.items():
@@ -394,16 +435,20 @@ def _write_team_labels(
                     "frame_number": result.frame_number,
                     "reason": result.reason,
                     "stripe_score": round(result.stripe_score, 4),
+                    "provenance": {"source": "synthetic_test" if synthetic else "heuristic", "validated": False},
                 },
                 clip_id=clip_id,
                 tracklet_id=tracklet_id,
-                source="model",
+                source="synthetic_test" if synthetic else "model",
             )
             written_ids.append(resp["id"])
+        except PipelineInterrupted:
+            raise
         except Exception as exc:
             log.warning(
                 "team_label_write_failed", tracklet_id=tracklet_id, error=str(exc)
             )
+            raise
     return written_ids
 
 

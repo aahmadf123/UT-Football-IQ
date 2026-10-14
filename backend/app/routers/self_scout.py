@@ -12,14 +12,25 @@ from typing import Annotated, Any
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.analytics import tendency_break as tb
 from app.cfbd.models import CFBDPlay
 from app.database import get_db
 from app.deps import get_current_user, require_coach_or_above
-from app.models import Alert, AlertSeverity, AlertType, Clip, Label, User, UserRole
+from app.models import (
+    Alert,
+    AlertSeverity,
+    AlertType,
+    Clip,
+    Label,
+    PlayView,
+    SessionKind,
+    User,
+    UserRole,
+    Video,
+)
 from app.routers.alerts_sse import publish_alert
 from app.workload import require_workload_capacity
 
@@ -135,6 +146,11 @@ async def get_tendencies(
     db: Annotated[AsyncSession, Depends(get_db)],
     _current_user: Annotated[User, Depends(get_current_user)],
     video_id: uuid.UUID | None = Query(default=None),
+    session_id: uuid.UUID | None = Query(default=None),
+    recorded_after: datetime | None = Query(default=None),
+    recorded_before: datetime | None = Query(default=None),
+    session_kind: SessionKind | None = Query(default=None),
+    library_role: str | None = Query(default=None, pattern="^(toledo|opponent)$"),
     limit: int = Query(default=500, ge=1, le=2000),
 ) -> SelfScoutResponse:
     """Compute and return self-scout tendency analysis."""
@@ -147,6 +163,11 @@ async def get_tendencies(
         db=db,
         video_id=video_id,
         limit=limit,
+        session_id=session_id,
+        recorded_after=recorded_after,
+        recorded_before=recorded_before,
+        session_kind=session_kind,
+        library_role=library_role,
     )
 
 
@@ -173,8 +194,31 @@ async def _run_tendency_engine(
     db: AsyncSession,
     video_id: uuid.UUID | None,
     limit: int,
+    session_id: uuid.UUID | None = None,
+    recorded_after: datetime | None = None,
+    recorded_before: datetime | None = None,
+    session_kind: SessionKind | None = None,
+    library_role: str | None = None,
 ) -> SelfScoutResponse:
-    q = select(Clip).order_by(Clip.start_time, Clip.id).limit(limit)
+    play_key = func.coalesce(PlayView.play_id, Clip.id)
+    q = (
+        select(Clip)
+        .join(Video, Video.id == Clip.video_id)
+        .outerjoin(PlayView, PlayView.clip_id == Clip.id)
+        .distinct(play_key)
+        .order_by(play_key, Clip.is_reviewed.desc(), Clip.created_at)
+        .limit(limit)
+    )
+    if session_id is not None:
+        q = q.where(Video.practice_session_id == session_id)
+    if recorded_after is not None:
+        q = q.where(Video.recorded_at >= recorded_after)
+    if recorded_before is not None:
+        q = q.where(Video.recorded_at <= recorded_before)
+    if session_kind is not None:
+        q = q.where(Video.session_kind == session_kind)
+    if library_role is not None:
+        q = q.where(Video.library_role == library_role)
     if video_id is not None:
         q = q.where(Clip.video_id == video_id)
     clip_result = await db.execute(q)
@@ -184,7 +228,20 @@ async def _run_tendency_engine(
     if not clip_ids:
         return _empty_self_scout_response()
 
-    labels_result = await db.execute(select(Label).where(Label.clip_id.in_(clip_ids)))
+    # Human tags are usable immediately. Unvalidated model/heuristic proposals
+    # stay review candidates and never silently enter a trusted tendency.
+    labels_result = await db.execute(
+        select(Label)
+        .where(
+            Label.clip_id.in_(clip_ids),
+            (Label.source == "human")
+            | (
+                (Label.source == "model")
+                & Label.label_value["provenance"]["validated"].as_boolean().is_(True)
+            ),
+        )
+        .order_by(Label.created_at.desc())
+    )
     all_labels = list(labels_result.scalars().all())
 
     labels_by_clip: dict[uuid.UUID, list[Label]] = defaultdict(list)
@@ -217,7 +274,7 @@ async def _run_tendency_engine(
         clip_id = str(clip.id)
         formation = _get_formation(clip_labels)
         has_motion = _get_motion_detected(clip_labels)
-        field_zone = clip.field_zone or "mid_field"
+        field_zone = clip.field_zone or "unknown"
         personnel = clip.personnel_grouping or "unknown"
         down_distance_key = _get_down_distance_key(clip)
         concept_family = _get_concept_family(clip_labels)

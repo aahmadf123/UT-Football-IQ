@@ -153,11 +153,12 @@ describe("fetchVideoDownloadUrl", () => {
     expect(reqUrl).toContain("key=raw%2F123.mp4");
   });
 
-  test("returns null when the API base is not configured", async () => {
+  test("gets a signed playback URL from the same local origin", async () => {
     vi.stubEnv("NEXT_PUBLIC_API_URL", "");
     const { fetchVideoDownloadUrl } = await freshImport();
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({ downloadUrl: "/api/v1/storage/raw-video/raw/test.mp4?sig=test" }) })));
     const url = await fetchVideoDownloadUrl("raw-video", "raw/test.mp4");
-    expect(url).toBeNull();
+    expect(url).toBe("/api/v1/storage/raw-video/raw/test.mp4?sig=test");
   });
 
   test("returns null on non-ok response", async () => {
@@ -242,9 +243,13 @@ describe("subscribeAlerts", () => {
     handle.close();
   });
 
-  test("throws when API URL is not configured", async () => {
+  test("connects the alert stream on the local origin", async () => {
     vi.stubEnv("NEXT_PUBLIC_API_URL", "");
+    const fetchMock = vi.fn(async (_url: string) => ({ ok: false, status: 503 }));
+    vi.stubGlobal("fetch", fetchMock);
     const { subscribeAlerts } = await freshImport();
-    expect(() => subscribeAlerts(() => {})).toThrow(/NEXT_PUBLIC_API_URL/);
+    const handle = subscribeAlerts(() => {});
+    expect(fetchMock.mock.calls[0][0]).toBe("/api/v1/alerts/stream");
+    handle.close();
   });
 });

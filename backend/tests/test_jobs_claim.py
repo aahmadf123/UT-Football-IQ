@@ -26,7 +26,7 @@ from app.models import (
     Video,
     VideoStatus,
 )
-from sqlalchemy import inspect, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
@@ -37,6 +37,8 @@ from sqlalchemy.ext.asyncio import (
 # both reach model_versions / training_datasets / field_calibrations / users).
 _TABLES = [
     Base.metadata.tables["users"],
+    Base.metadata.tables["football_sessions"],
+    Base.metadata.tables["worker_runtimes"],
     Base.metadata.tables["training_datasets"],
     Base.metadata.tables["model_versions"],
     Base.metadata.tables["videos"],
@@ -60,31 +62,26 @@ _ENUM_TYPES = (
 
 @pytest_asyncio.fixture
 async def db() -> AsyncGenerator[async_sessionmaker[AsyncSession], None]:
-    engine = create_async_engine(get_settings().database_url)
-    async with engine.connect() as conn:
-        existing: set[str] = set(await conn.run_sync(lambda c: inspect(c).get_table_names()))
-    created = [t for t in _TABLES if t.name not in existing]
+    # Claims inspect the entire queue. A unique schema makes repeated runs on
+    # an already-migrated test database independent of other suites' rows.
+    schema = f"queue_test_{uuid.uuid4().hex}"
+    admin_engine = create_async_engine(get_settings().database_url)
+    async with admin_engine.begin() as conn:
+        await conn.exec_driver_sql(f'CREATE SCHEMA "{schema}"')
+    engine = create_async_engine(
+        get_settings().database_url,
+        connect_args={"server_settings": {"search_path": f"{schema},public"}},
+    )
     async with engine.begin() as conn:
-        await conn.run_sync(lambda c: Base.metadata.create_all(c, tables=created))
+        await conn.run_sync(lambda c: Base.metadata.create_all(c, tables=_TABLES, checkfirst=False))
     maker = async_sessionmaker(engine, expire_on_commit=False)
     try:
         yield maker
     finally:
-        if created:
-            async with engine.begin() as conn:
-                # Raw CASCADE drops keep teardown robust even if a previous
-                # aborted run left partial state behind.
-                for table in reversed(created):
-                    await conn.exec_driver_sql(f'DROP TABLE IF EXISTS "{table.name}" CASCADE')
-            for enum_name in _ENUM_TYPES:
-                # A type still referenced elsewhere (e.g. the alembic schema
-                # pre-exists locally) must not error the teardown.
-                try:
-                    async with engine.begin() as conn:
-                        await conn.exec_driver_sql(f"DROP TYPE IF EXISTS {enum_name}")
-                except Exception:
-                    pass
         await engine.dispose()
+        async with admin_engine.begin() as conn:
+            await conn.exec_driver_sql(f'DROP SCHEMA "{schema}" CASCADE')
+        await admin_engine.dispose()
 
 
 async def _seed_video(maker: async_sessionmaker[AsyncSession]) -> uuid.UUID:
@@ -244,14 +241,24 @@ async def test_heartbeat_extends_lease_and_merges_progress(
     async with db() as session:
         await heartbeat_job(
             claimed.id,
-            JobHeartbeatRequest(worker_id="w1", progress={"ingest": {"status": "succeeded"}}),
+            JobHeartbeatRequest(
+                worker_id="w1",
+                lease_token=claimed.lease_token,
+                attempt_count=claimed.attempt_count,
+                progress={"ingest": {"status": "succeeded"}},
+            ),
             session,
             MagicMock(spec=User),
         )
         await session.commit()
         await heartbeat_job(
             claimed.id,
-            JobHeartbeatRequest(worker_id="w1", progress={"detect": {"status": "started"}}),
+            JobHeartbeatRequest(
+                worker_id="w1",
+                lease_token=claimed.lease_token,
+                attempt_count=claimed.attempt_count,
+                progress={"detect": {"status": "started"}},
+            ),
             session,
             MagicMock(spec=User),
         )
