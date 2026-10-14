@@ -408,10 +408,21 @@ async def test_actual_holdout_eval_gates_promotion_and_counts_abstentions(
         assert measured["passed"]
         await promote_model(db, model=model, stage=ModelStage.production, actor=actor)
         assert model.promoted_stage == ModelStage.production
+        approved_sha = model.metrics["approved_artifact_sha256"]
+        assert approved_sha == measured["artifact_sha256"]
         training_path.write_text(training_body + "{}\n")
         with pytest.raises(HTTPException, match="422"):
             await promote_model(db, model=model, stage=ModelStage.production, actor=actor)
         training_path.write_text(training_body)
+        await evaluate_model(
+            db,
+            model_id=model.id,
+            benchmark_id=uuid.UUID(benchmark["id"]),
+            prediction_label_ids=predictions[:10],
+            actor=actor,
+        )
+        # A later failed evaluation never moves the human-approved serving binding.
+        assert model.metrics["approved_artifact_sha256"] == approved_sha
         await db.commit()
 
 

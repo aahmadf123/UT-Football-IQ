@@ -102,6 +102,12 @@ def _fetch_production_version(model_type: str) -> dict | None:
         return None
 
 
+def _approved_sha256(version: dict) -> str | None:
+    """Artifact hash bound by a passing, human-approved promotion (never an evaluation)."""
+    approved = (version.get("metrics") or {}).get("approved_artifact_sha256")
+    return str(approved) if approved else None
+
+
 def _materialise(version: dict) -> Path | None:
     artifact_uri = version.get("artifact_uri")
     if not artifact_uri:
@@ -117,7 +123,7 @@ def _materialise(version: dict) -> Path | None:
         / str(version.get("version", "v"))
         / Path(str(artifact_uri)).name
     )
-    expected = (version.get("metrics") or {}).get("artifact_sha256")
+    expected = _approved_sha256(version) or (version.get("metrics") or {}).get("artifact_sha256")
 
     def approved_bytes(path: Path) -> bool:
         if not expected:
@@ -183,8 +189,9 @@ def resolve(model_type: str) -> ResolvedModel | None:
                     model_name=str(version.get("model_name", "")),
                     version=str(version.get("version", "")),
                     local_path=path,
-                    artifact_sha256=(version.get("metrics") or {}).get("artifact_sha256"),
-                    validated=bool((version.get("metrics") or {}).get("artifact_sha256")),
+                    artifact_sha256=_approved_sha256(version)
+                    or (version.get("metrics") or {}).get("artifact_sha256"),
+                    validated=_approved_sha256(version) is not None,
                 )
                 log.info(
                     "model_registry_serving",

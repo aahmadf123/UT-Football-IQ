@@ -148,20 +148,7 @@ def profile_stages(profile: str | None) -> list[str]:
 
 
 def local_model_variant(stage: str, priority: int, profile: str) -> str:
-    """Use bounded CPU variants; accelerated routing remains explicitly opt-in."""
+    """Use bounded CPU variants; device routing lives in the model router."""
     from pipeline import model_router
 
-    device = os.environ.get("PIPELINE_DEVICE", "cpu").strip().lower()
-    if device == "cpu":
-        variants = {
-            "detect": os.environ.get("PIPELINE_LOCAL_DETECT_VARIANT", "yolov8n"),
-            "track": "iou-tracker",
-            "reid": "jersey-ocr",
-            "calibrate": model_router.CALIB_HOUGH_DLT,
-        }
-        if stage in variants:
-            candidate = variants[stage]
-            if priority >= 10 and model_router.is_nightly_only_variant(candidate):
-                return model_router.select_model(stage, priority)
-            return candidate
-    return model_router.select_model(stage, priority)
+    return model_router.select_device_model(stage, priority)

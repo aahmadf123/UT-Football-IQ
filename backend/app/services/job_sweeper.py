@@ -17,7 +17,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 import structlog
-from sqlalchemy import CursorResult, func, update
+from sqlalchemy import CursorResult, String, func, literal, update
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import JobStatus, ProcessingJob
@@ -132,6 +133,10 @@ async def recover_shutdown_pauses(db: AsyncSession) -> int:
             status=JobStatus.queued,
             finished_at=None,
             attempt_count=func.greatest(0, ProcessingJob.attempt_count - 1),
+            # Consume the marker so a later explicit pause is never auto-resumed.
+            output_artifacts=ProcessingJob.output_artifacts.op("-", return_type=JSONB)(
+                literal("interrupted_action", type_=String)
+            ),
         )
     )
     return _rowcount(result)

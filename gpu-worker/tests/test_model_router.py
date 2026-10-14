@@ -538,3 +538,38 @@ def test_build_routing_artifact_for_reid() -> None:
     assert build_routing_artifact("reid", NIGHTLY_PRIORITY) == {
         "reid": model_router.PARSEQ_OCR
     }
+
+
+# ── CPU device routing (local libraries) ──────────────────────────────────────
+
+
+def test_cpu_routing_uses_bounded_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PIPELINE_DEVICE", "cpu")
+    monkeypatch.delenv("PIPELINE_LOCAL_DETECT_VARIANT", raising=False)
+    for priority in (SAME_SESSION_PRIORITY, NIGHTLY_PRIORITY):
+        assert model_router.select_device_model("detect", priority) == model_router.YOLOV8N
+        assert model_router.select_device_model("track", priority) == model_router.IOU_TRACKER
+        assert model_router.select_device_model("reid", priority) == model_router.JERSEY_OCR
+
+
+def test_cpu_routing_honors_routing_config(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cfg = tmp_path / "routing.json"
+    cfg.write_text(json.dumps({"detect": {"same_session": "custom-fast", "nightly": "custom-heavy"}}))
+    monkeypatch.setenv("MODEL_ROUTING_CONFIG", str(cfg))
+    monkeypatch.setenv("PIPELINE_DEVICE", "cpu")
+    assert model_router.select_device_model("detect", SAME_SESSION_PRIORITY) == "custom-fast"
+    assert model_router.select_device_model("detect", NIGHTLY_PRIORITY) == "custom-heavy"
+
+
+def test_cpu_local_detect_variant_requires_sam3_nightly_flag(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PIPELINE_DEVICE", "cpu")
+    monkeypatch.setenv("PIPELINE_LOCAL_DETECT_VARIANT", model_router.SAM3_1)
+    assert model_router.select_device_model("detect", NIGHTLY_PRIORITY) == model_router.YOLOV8N
+    monkeypatch.setenv("ENABLE_SAM3_NIGHTLY", "1")
+    assert model_router.select_device_model("detect", NIGHTLY_PRIORITY) == model_router.SAM3_1
+    # Never on the same-session path, even with the flag.
+    assert model_router.select_device_model("detect", SAME_SESSION_PRIORITY) == model_router.YOLOV8N

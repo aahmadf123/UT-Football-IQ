@@ -588,6 +588,17 @@ def _ensure_worker_lease(
         raise HTTPException(409, "Worker lease has expired")
 
 
+def _set_interrupted_action(job: ProcessingJob, action: str | None) -> None:
+    artifacts = dict(job.output_artifacts or {})
+    if action is None:
+        if "interrupted_action" not in artifacts:
+            return
+        artifacts.pop("interrupted_action")
+    else:
+        artifacts["interrupted_action"] = action
+    job.output_artifacts = artifacts
+
+
 async def _control_job(job_id: uuid.UUID, action: str, db: AsyncSession) -> JobResponse:
     job = (
         await db.execute(select(ProcessingJob).where(ProcessingJob.id == job_id).with_for_update())
@@ -602,11 +613,14 @@ async def _control_job(job_id: uuid.UUID, action: str, db: AsyncSession) -> JobR
         job.finished_at = None
         # A deliberate pause is not a failed attempt.
         job.attempt_count = max(0, (job.attempt_count or 0) - 1)
+        _set_interrupted_action(job, None)
     elif job.status == JobStatus.running:
         job.control_requested = action
     elif job.status in {JobStatus.queued, JobStatus.paused}:
         job.status = JobStatus.paused if action == "pause" else JobStatus.cancelled
         job.control_requested = None
+        # An explicit coach control replaces any supervisor shutdown marker.
+        _set_interrupted_action(job, action)
         if action == "cancel":
             job.finished_at = datetime.now(UTC)
     elif action == "cancel" and job.status == JobStatus.cancelled:

@@ -378,5 +378,14 @@ async def test_shutdown_recovery_preserves_explicit_pause_and_cancel(workspace_d
         await db.refresh(shutdown)
         await db.refresh(explicit)
         assert shutdown.status == JobStatus.queued and shutdown.attempt_count == 0
+        assert "interrupted_action" not in (shutdown.output_artifacts or {})
         assert explicit.status == JobStatus.paused
+        # A coach pause after recovery must survive the next restart.
+        await _control_job(shutdown.id, "pause", db)
+        assert await recover_shutdown_pauses(db) == 0
+        await db.refresh(shutdown)
+        assert shutdown.status == JobStatus.paused
+        assert shutdown.output_artifacts["interrupted_action"] == "pause"
+        await _control_job(shutdown.id, "resume", db)
+        assert "interrupted_action" not in (shutdown.output_artifacts or {})
         await db.commit()

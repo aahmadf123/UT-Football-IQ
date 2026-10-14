@@ -422,6 +422,13 @@ async def promote_model(
             )
             if actual_training_sha != expected_training_sha:
                 raise HTTPException(422, detail="Training snapshot changed after evaluation")
+        # Serving binds to the bytes a human approved after a passing evaluation;
+        # later evaluations never move this binding.
+        model.metrics = {
+            **(model.metrics or {}),
+            "approved_artifact_sha256": actual_sha256,
+            "approved_evaluation_id": str(evaluation_id),
+        }
     previous = model.promoted_stage
     if stage == ModelStage.production:
         others = (

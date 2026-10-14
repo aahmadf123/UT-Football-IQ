@@ -188,6 +188,22 @@ DEFAULT_ROUTING: dict[str, dict[str, str]] = {
     "workload_fusion": {_SAME_SESSION_KEY: "none",         _NIGHTLY_KEY: WORKLOAD_FUSION_HEURISTIC},
 }
 
+# Bounded CPU defaults for local-library processing (ADR 0006). CPU jobs start
+# from this table, then take the same ``MODEL_ROUTING_CONFIG`` overrides,
+# nightly opt-in flags and same-session guardrail as accelerated jobs. Stages
+# absent here use ``DEFAULT_ROUTING``.
+CPU_DEFAULT_ROUTING: dict[str, dict[str, str]] = {
+    "calibrate": {_SAME_SESSION_KEY: CALIB_HOUGH_DLT, _NIGHTLY_KEY: CALIB_HOUGH_DLT},
+    "detect":    {_SAME_SESSION_KEY: YOLOV8N,         _NIGHTLY_KEY: YOLOV8N},
+    "track":     {_SAME_SESSION_KEY: IOU_TRACKER,     _NIGHTLY_KEY: IOU_TRACKER},
+    "reid":      {_SAME_SESSION_KEY: JERSEY_OCR,      _NIGHTLY_KEY: JERSEY_OCR},
+}
+
+# Optional CPU detect variant for both buckets. SAM 3.1 still requires
+# ``ENABLE_SAM3_NIGHTLY`` and never serves the same-session bucket.
+_LOCAL_DETECT_ENV = "PIPELINE_LOCAL_DETECT_VARIANT"
+_SAM3_VARIANTS: frozenset[str] = frozenset({SAM3_1, SAM3_MASK_TRACKER})
+
 
 def _load_override() -> dict[str, dict[str, str]]:
     """Read the JSON override file pointed to by ``MODEL_ROUTING_CONFIG``.
@@ -303,8 +319,27 @@ def _enforce_same_session_safety(
     return routing
 
 
-def _build_routing() -> dict[str, dict[str, str]]:
-    """Merge ``DEFAULT_ROUTING`` with any JSON override.
+def _cpu_base_routing() -> dict[str, dict[str, str]]:
+    routing: dict[str, dict[str, str]] = {
+        stage: dict(variants) for stage, variants in DEFAULT_ROUTING.items()
+    }
+    routing.update({stage: dict(variants) for stage, variants in CPU_DEFAULT_ROUTING.items()})
+    local_detect = os.environ.get(_LOCAL_DETECT_ENV, "").strip()
+    if local_detect:
+        if local_detect in _SAM3_VARIANTS and not _sam3_nightly_enabled():
+            log.warning(
+                "model_router_blocked_sam3_without_nightly_flag",
+                stage="detect",
+                attempted=local_detect,
+                flag=_SAM3_NIGHTLY_ENV,
+            )
+        else:
+            routing["detect"] = {_SAME_SESSION_KEY: local_detect, _NIGHTLY_KEY: local_detect}
+    return routing
+
+
+def _build_routing(base: dict[str, dict[str, str]] | None = None) -> dict[str, dict[str, str]]:
+    """Merge ``DEFAULT_ROUTING`` (or a device ``base``) with any JSON override.
 
     Per-stage merge: overridden stages fully replace their default entry,
     but stages not mentioned in the override keep their defaults.  Then
@@ -312,7 +347,7 @@ def _build_routing() -> dict[str, dict[str, str]]:
     same-session safety guard.
     """
     routing: dict[str, dict[str, str]] = {
-        stage: dict(variants) for stage, variants in DEFAULT_ROUTING.items()
+        stage: dict(variants) for stage, variants in (base or DEFAULT_ROUTING).items()
     }
     for stage, variants in _load_override().items():
         if not isinstance(variants, dict):
@@ -378,6 +413,34 @@ def select_model(stage: str, priority: int) -> str:
         model=variant,
         priority=priority,
         bucket=bucket,
+    )
+    return variant
+
+
+def select_device_model(stage: str, priority: int, device: str | None = None) -> str:
+    """Return the variant for ``stage`` on the configured pipeline device.
+
+    CPU (the default ``PIPELINE_DEVICE``) uses ``CPU_DEFAULT_ROUTING`` plus the
+    optional ``PIPELINE_LOCAL_DETECT_VARIANT``, then the same overrides, nightly
+    flags and same-session guardrail as :func:`select_model`. Other devices
+    delegate to :func:`select_model`. Resolved per call so CPU configuration is
+    read at job time.
+    """
+    selected = (device or os.environ.get("PIPELINE_DEVICE", "cpu")).strip().lower()
+    if selected != "cpu":
+        return select_model(stage, priority)
+    variants = _build_routing(_cpu_base_routing()).get(stage)
+    if variants is None:
+        return select_model(stage, priority)
+    bucket = _priority_key(priority)
+    variant = variants.get(bucket) or variants.get(_NIGHTLY_KEY) or UNKNOWN_STAGE_FALLBACK
+    log.info(
+        "model_router_select",
+        stage=stage,
+        model=variant,
+        priority=priority,
+        bucket=bucket,
+        device=selected,
     )
     return variant
 
