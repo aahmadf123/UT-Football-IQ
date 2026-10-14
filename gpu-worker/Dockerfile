@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 # CPU-first worker. Optional CUDA image:
-# --build-arg PYTORCH_IMAGE=pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime
+# --build-arg PYTORCH_IMAGE=pytorch/pytorch:2.8.0-cuda12.8-cudnn9-runtime
 # --build-arg WORKER_REQUIREMENTS=requirements.txt
 
 ARG PYTORCH_IMAGE=python:3.11-slim

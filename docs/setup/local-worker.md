@@ -41,10 +41,12 @@ source .venv/bin/activate
 python -m pip install -r requirements-cpu.txt
 ```
 
-The pinned CPU requirements select Windows/Linux CPU Torch 2.5.1, Apple Silicon
-Torch 2.5.1, or Intel Mac Torch 2.2.2 with matching torchvision. NumPy 1.26.4,
-SciPy 1.14.1, and OpenCV 4.10.0.84 keep the image/tracker bridge compatible,
-including Intel Mac Torch's NumPy 2 limitation. Installing
+The pinned CPU requirements select Torch 2.8.0 with torchvision 0.23.0 on
+Windows/Linux CPU and Apple Silicon. Torch 2.6 or later is required for the
+`torch.load` security fix, and PyTorch publishes no such wheels for Intel Macs,
+so a native Intel Mac install fails; run the worker in the Linux CPU container
+(`gpu-worker/Dockerfile`) there instead. NumPy 1.26.4, SciPy 1.14.1, and OpenCV
+4.10.0.84 keep the image/tracker bridge compatible. Installing
 dependencies is a one-time network operation. Optional MMPose, NVIDIA TAO, and
 SAM model stacks are not required for review or basic player tracking.
 

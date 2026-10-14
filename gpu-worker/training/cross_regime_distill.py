@@ -567,7 +567,7 @@ def _train_student_torch(
     game pseudo-labels, fine-tunes the student with the KD soft-label term,
     evaluates baseline vs distilled mAP@0.5 with the Ultralytics validator, and
     returns the provenance checkpoint + report. Never imported/executed in CI;
-    the GPU-worker image (``pytorch/pytorch:2.5.1-cuda12.4``) provides torch.
+    the GPU-worker image (``pytorch/pytorch:2.8.0-cuda12.8``) provides torch.
     """
     try:
         import torch
