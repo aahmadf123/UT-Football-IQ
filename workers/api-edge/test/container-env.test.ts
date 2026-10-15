@@ -24,6 +24,31 @@ const FULL = {
 } as unknown as Env;
 
 describe("buildContainerEnv", () => {
+  it("keeps CFBD credentials on the server and forwards cache configuration", () => {
+    const out = buildContainerEnv({
+      ...FULL,
+      CFBD_API_KEY: "cfbd-test-key",
+      CFBD_BASE_URL: "https://api.collegefootballdata.com",
+      CFBD_CACHE_STALE_AFTER_HOURS: "24",
+    } as Env);
+    expect(out.CFBD_API_KEY).toBe("cfbd-test-key");
+    expect(out.CFBD_BASE_URL).toBe("https://api.collegefootballdata.com");
+    expect(out.CFBD_CACHE_STALE_AFTER_HOURS).toBe("24");
+  });
+
+  it("uses the dedicated seeded worker account for same-container CPU processing", () => {
+    const out = buildContainerEnv({
+      ...FULL,
+      SEED_WORKER_EMAIL: "worker@example.com",
+      SEED_WORKER_PASSWORD: "private-worker-fixture",
+    } as Env);
+    expect(out.HOSTED_PROCESSING_ENABLED).toBe("auto");
+    expect(out.WORKER_EMAIL).toBe("worker@example.com");
+    expect(out.WORKER_PASSWORD).toBe("private-worker-fixture");
+    expect(buildContainerEnv({ ...FULL, HOSTED_PROCESSING_ENABLED: "0" } as Env)
+      .HOSTED_PROCESSING_ENABLED).toBe("0");
+  });
+
   it("forwards everything the backend needs to reach Postgres and R2", () => {
     const out = buildContainerEnv(FULL);
     expect(out.DATABASE_URL).toBe("postgresql+asyncpg://u:p@db.example.com/footiq");

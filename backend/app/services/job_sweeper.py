@@ -120,23 +120,26 @@ def _rowcount(result: object) -> int:
     return 0
 
 
-async def recover_shutdown_pauses(db: AsyncSession) -> int:
+async def recover_shutdown_pauses(db: AsyncSession, *, worker_id: str | None = None) -> int:
     """Resume supervisor shutdown checkpoints; explicit coach pauses stay paused."""
-    result = await db.execute(
-        update(ProcessingJob)
-        .where(
-            ProcessingJob.status == JobStatus.paused,
-            ProcessingJob.control_requested.is_(None),
-            ProcessingJob.output_artifacts["interrupted_action"].as_string() == "shutdown",
+    statement = update(ProcessingJob).where(
+        ProcessingJob.status == JobStatus.paused,
+        ProcessingJob.control_requested.is_(None),
+        ProcessingJob.output_artifacts["interrupted_action"].as_string() == "shutdown",
+    )
+    if worker_id is not None:
+        statement = statement.where(
+            ProcessingJob.output_artifacts["interrupted_worker_id"].as_string() == worker_id
         )
-        .values(
+    result = await db.execute(
+        statement.values(
             status=JobStatus.queued,
             finished_at=None,
             attempt_count=func.greatest(0, ProcessingJob.attempt_count - 1),
             # Consume the marker so a later explicit pause is never auto-resumed.
             output_artifacts=ProcessingJob.output_artifacts.op("-", return_type=JSONB)(
                 literal("interrupted_action", type_=String)
-            ),
+            ).op("-", return_type=JSONB)(literal("interrupted_worker_id", type_=String)),
         )
     )
     return _rowcount(result)

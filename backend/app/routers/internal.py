@@ -18,15 +18,19 @@ reachable without a credential is worse than no tick route.
 from __future__ import annotations
 
 import hmac
+from datetime import UTC, datetime
 from typing import Annotated
 
 import structlog
 from fastapi import APIRouter, Depends, Header, HTTPException, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.database import get_db
+from app.models import JobStatus, ProcessingJob
 from app.scheduler import run_locked_tick
+from app.services.job_sweeper import recover_shutdown_pauses
 
 log = structlog.get_logger(__name__)
 
@@ -58,6 +62,34 @@ def _require_scheduler_token(authorization: Annotated[str | None, Header()] = No
             detail="Invalid scheduler token",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+
+@router.get("/runtime/activity", dependencies=[Depends(_require_scheduler_token)])
+async def runtime_activity(db: Annotated[AsyncSession, Depends(get_db)]) -> dict[str, bool]:
+    """Keep the shared container awake only for its unexpired processing work.
+
+    Loopback worker polls must not keep an idle deployment running all week.
+    An offline laptop's queued work must not keep this container awake either.
+    """
+    active = await db.scalar(
+        select(
+            select(ProcessingJob.id)
+            .where(
+                ProcessingJob.status == JobStatus.running,
+                ProcessingJob.leased_by == "cloudflare-cpu-primary",
+                ProcessingJob.lease_expires_at > datetime.now(UTC),
+            )
+            .exists()
+        )
+    )
+    return {"active": bool(active)}
+
+
+@router.post("/runtime/recover", dependencies=[Depends(_require_scheduler_token)])
+async def runtime_recover(db: Annotated[AsyncSession, Depends(get_db)]) -> dict[str, int]:
+    """Resume only this hosted worker's interrupted jobs, preserving coach pauses."""
+    recovered = await recover_shutdown_pauses(db, worker_id="cloudflare-cpu-primary")
+    return {"recovered": recovered}
 
 
 @router.post("/scheduler/tick", dependencies=[Depends(_require_scheduler_token)])

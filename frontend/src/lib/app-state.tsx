@@ -150,6 +150,7 @@ export interface UploadedClip {
   uploadedAt: string;
   storageUri?: string;
   videoId?: string;
+  duplicate?: boolean;
   phase: UploadPhase;
   progress: number;
   error?: string;
@@ -449,13 +450,16 @@ export function AppStateProvider({
       updateUpload(clip.id, {
         phase: "done",
         progress: 100,
-        storageUri: uploadResult.storageUri,
+        storageUri: video.storage_uri ?? uploadResult.storageUri,
         videoId: video.id,
+        duplicate: video.duplicate === true,
       });
       setData((current) => ({ ...current, videos: [video, ...current.videos.filter((row) => row.id !== video.id)] }));
       refreshInbox();
-      toast.success(`${file.name} uploaded`, {
-        description: "Saved in your library. Follow processing status in Film Room.",
+      toast.success(video.duplicate ? "Already in the shared library" : `${file.name} uploaded`, {
+        description: video.duplicate
+          ? "Reused the existing recording. Its session, tags and processing were preserved."
+          : "Saved in your library. Follow processing status in Film Room.",
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

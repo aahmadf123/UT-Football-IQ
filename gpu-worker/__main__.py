@@ -206,6 +206,11 @@ def worker_capabilities() -> dict[str, Any]:
     if device not in {"cpu", "cuda", "mps"}:
         device = "cpu"
     models: dict[str, Any] = {}
+    hosted_metadata: dict[str, Any] = {}
+    if os.environ.get("PIPELINE_HOSTED") == "1":
+        from pipeline.hosted_limits import processing_limits
+
+        hosted_metadata["processing_limits"] = processing_limits()
     for name, variable, default, package in (
         ("detect", "MODEL_DETECT_PATH", "yolov8n.pt", "ultralytics"),
         ("pose", "MODEL_POSE_PATH", "", "torch"),
@@ -218,7 +223,11 @@ def worker_capabilities() -> dict[str, Any]:
     return {
         "worker_id": _worker_id(),
         "device": device,
-        "profiles": ["review", "quick", "detailed"],
+        "profiles": [
+            profile
+            for profile in os.environ.get("WORKER_PROFILES", "review,quick,detailed").split(",")
+            if profile in {"review", "quick", "detailed"}
+        ],
         "models": models,
         "job_types": [
             "pipeline",
@@ -244,6 +253,7 @@ def worker_capabilities() -> dict[str, Any]:
             "train",
         ],
         "metadata": {
+            **hosted_metadata,
             "storage_transport": os.environ.get("PIPELINE_STORAGE_TRANSPORT", "direct"),
             "checkpoint_root": os.environ.get("PIPELINE_CHECKPOINT_ROOT", "data/checkpoints"),
         },
@@ -272,6 +282,11 @@ def heartbeat_worker(client: httpx.Client) -> None:
             json=worker_capabilities(),
             timeout=10,
         )
+        if response.status_code == 404:
+            # The initial registration can race API boot/recovery. A later
+            # heartbeat must recreate the row instead of staying invisible.
+            register_worker(client)
+            return
         if response.status_code != 404:
             response.raise_for_status()
     except Exception as exc:
@@ -333,6 +348,7 @@ def process_pipeline_job(job: dict[str, Any]) -> None:
     from pathlib import Path
 
     from pipeline import backend as backend_client
+    from pipeline.hosted_limits import HostedCapacityError
     from pipeline.orchestrator import DirArtifactSink, run_pipeline
     from pipeline.runtime import PipelineInterrupted, job_context
     from worker.observability import record_job_failed, record_job_started, record_job_succeeded
@@ -341,7 +357,7 @@ def process_pipeline_job(job: dict[str, Any]) -> None:
     priority = int(job.get("priority", 0))
     pipeline_mode = job.get("pipelineMode") or ("same_session" if priority >= 10 else "nightly")
     inputs = dict(job.get("inputArtifacts") or {})
-    profile = inputs.get("processing_profile") or "quick"
+    profile = inputs.get("processing_profile") or os.environ.get("PROCESSING_PROFILE", "quick")
     if not input_uri:
         _update_job_status(job_id, "failed", error_message="no input_uri resolvable")
         return
@@ -468,6 +484,8 @@ def process_pipeline_job(job: dict[str, Any]) -> None:
         stop.set()
         action = result.get("interrupted_action")
         if action in {"pause", "shutdown"}:
+            if action == "shutdown":
+                result["interrupted_worker_id"] = _worker_id()
             accepted = _update_job_status(job_id, "paused", output_artifacts=result)
             if accepted is not False:
                 backend_client.patch_video_status(
@@ -502,9 +520,21 @@ def process_pipeline_job(job: dict[str, Any]) -> None:
                 video_id, "ready" if result.get("playback_ready", True) else "uploaded"
             )
             record_job_succeeded("pipeline", pipeline_mode, time.monotonic() - started)
+    except HostedCapacityError as exc:
+        accepted = _update_job_status(job_id, "failed", error_message=str(exc))
+        if accepted is not False:
+            backend_client.patch_video_status(video_id, "uploaded")
     except PipelineInterrupted as exc:
         if exc.action != "lease_lost":
-            _update_job_status(job_id, "cancelled" if exc.action == "cancel" else "paused")
+            interrupted = {
+                "interrupted_action": exc.action,
+                "interrupted_worker_id": _worker_id(),
+            }
+            _update_job_status(
+                job_id,
+                "cancelled" if exc.action == "cancel" else "paused",
+                output_artifacts=interrupted,
+            )
     except Exception as exc:
         record_job_failed("pipeline", pipeline_mode)
         log.error("pipeline_job_failed", job_id=job_id, error=str(exc))
@@ -579,6 +609,8 @@ def _bounded_job_summary(
 
 def process_job(job: dict[str, Any]) -> None:
     """Keep standalone stage jobs fenced and alive just like full pipelines."""
+    if _reject_hosted_capacity(job):
+        return
     if job.get("jobType") == "pipeline":
         process_pipeline_job(job)
         return
@@ -619,11 +651,44 @@ def process_job(job: dict[str, Any]) -> None:
             _process_single_stage_job(job)
     except PipelineInterrupted as exc:
         if exc.action != "lease_lost":
-            _update_job_status(job_id, "cancelled" if exc.action == "cancel" else "paused")
+            _update_job_status(
+                job_id,
+                "cancelled" if exc.action == "cancel" else "paused",
+                output_artifacts={
+                    "interrupted_action": exc.action,
+                    "interrupted_worker_id": _worker_id(),
+                },
+            )
     finally:
         stop.set()
         thread.join(timeout=12)
         _CURRENT_LEASES.pop(job_id, None)
+
+
+def _reject_hosted_capacity(job: dict[str, Any]) -> bool:
+    """Check verified object size before downloading to the shared API disk."""
+    if os.environ.get("PIPELINE_HOSTED") != "1" or not job.get("videoId"):
+        return False
+    from pipeline.hosted_limits import check_source
+
+    video = _fetch_video(str(job["videoId"])) or {}
+    reason = check_source(video.get("size_bytes"))
+    if reason is None:
+        return False
+    job_id = str(job.get("jobId", ""))
+    _CURRENT_LEASES[job_id] = {
+        key: value
+        for key, value in {
+            "lease_token": job.get("leaseToken"),
+            "attempt_count": job.get("attemptCount"),
+        }.items()
+        if value is not None
+    }
+    try:
+        _update_job_status(job_id, "failed", error_message=reason)
+    finally:
+        _CURRENT_LEASES.pop(job_id, None)
+    return True
 
 
 def _process_single_stage_job(job: dict[str, Any]) -> None:

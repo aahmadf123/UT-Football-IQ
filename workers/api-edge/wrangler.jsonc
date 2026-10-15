@@ -7,8 +7,8 @@
   "observability": { "enabled": true },
 
   // ── The FastAPI backend, as a container ────────────────────────────────────
-  // Requires the Workers Paid plan. `wrangler deploy` builds backend/Dockerfile,
-  // pushes it to Cloudflare's registry, and provisions the instances.
+  // Requires the Workers Paid plan. `wrangler deploy` builds backend/Dockerfile
+  // from the repo root, pushes it and provisions the shared API+CPU instance.
   //
   // max_instances is 1 deliberately, and the image runs a single uvicorn worker
   // for the same reason: alerts_sse.py holds its subscriber map in process
@@ -19,6 +19,7 @@
     {
       "class_name": "BackendContainer",
       "image": "../../backend/Dockerfile",
+      "image_build_context": "../..",
       "max_instances": 1,
       "instance_type": "standard-1"
     }
@@ -99,9 +100,13 @@
   //   wrangler secret put R2_SECRET_ACCESS_KEY
   //   wrangler secret put R2_ENDPOINT_URL       # https://<account>.r2.cloudflarestorage.com
   //
-  // Optional bootstrap, only read when SEED_USERS_ON_STARTUP is true:
+  // Optional admin bootstrap, read when SEED_USERS_ON_STARTUP is true:
   //   wrangler secret put SEED_ADMIN_EMAIL / SEED_ADMIN_PASSWORD
+  // Dedicated hosted CPU account (auto-enabled when both secrets exist;
+  // safely created only after a team admin already exists):
   //   wrangler secret put SEED_WORKER_EMAIL / SEED_WORKER_PASSWORD
+  // Optional backend-only College Football Data integration:
+  //   wrangler secret put CFBD_API_KEY
   //
   // See docs/setup/cloudflare.md.
 }

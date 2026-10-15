@@ -1,5 +1,8 @@
-import { describe, expect, test } from "vitest";
-import { PLAYBACK_RATES, frameStepTarget, toElementTime } from "./video-transport";
+import { afterEach, describe, expect, test, vi } from "vitest";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { PLAYBACK_RATES, VideoTransport, frameStepTarget, toElementTime } from "./video-transport";
+
+afterEach(cleanup);
 
 describe("frameStepTarget", () => {
   test("steps forward one frame landing mid-frame at 30fps", () => {
@@ -40,5 +43,34 @@ describe("PLAYBACK_RATES", () => {
     expect(PLAYBACK_RATES).toContain(1);
     expect(Math.min(...PLAYBACK_RATES)).toBeLessThan(1);
     expect(Math.max(...PLAYBACK_RATES)).toBeGreaterThan(1);
+  });
+});
+
+describe("playback boundaries", () => {
+  test("replays from the clip start after reaching its end", () => {
+    const element = document.createElement("video");
+    element.currentTime = 13;
+    element.play = vi.fn().mockResolvedValue(undefined);
+    render(<VideoTransport videoRef={{ current: element }} fps={30} clipOffset={10} duration={3} currentLocalTime={3} eventTimes={[]} />);
+    fireEvent.click(screen.getByTestId("transport-play"));
+    expect(element.currentTime).toBe(10);
+    expect(element.play).toHaveBeenCalledOnce();
+  });
+
+  test("parent footage pauses at the play boundary on decoded frames", () => {
+    const element = document.createElement("video");
+    element.currentTime = 10;
+    Object.defineProperty(element, "paused", { value: false });
+    element.pause = vi.fn();
+    let callback: VideoFrameRequestCallback | null = null;
+    element.requestVideoFrameCallback = vi.fn((next: VideoFrameRequestCallback) => { callback = next; return 1; });
+    element.cancelVideoFrameCallback = vi.fn();
+    const { unmount } = render(<VideoTransport videoRef={{ current: element }} fps={30} clipOffset={10} duration={3} currentLocalTime={0} eventTimes={[]} enforceBounds />);
+    element.currentTime = 13.01;
+    act(() => { if (callback) (callback as VideoFrameRequestCallback)(0, { mediaTime: 13.01 } as VideoFrameCallbackMetadata); });
+    expect(element.pause).toHaveBeenCalledOnce();
+    expect(element.currentTime).toBeCloseTo(12.97);
+    unmount();
+    expect(element.cancelVideoFrameCallback).toHaveBeenCalled();
   });
 });

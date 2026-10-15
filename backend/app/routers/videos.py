@@ -7,11 +7,12 @@ from typing import Annotated, Any, Literal
 
 import anyio
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import get_settings
 from app.database import get_db
 from app.deps import get_current_user, require_any_staff
 from app.models import (
@@ -148,6 +149,7 @@ class VideoResponse(BaseModel):
     id: uuid.UUID
     filename: str
     storage_uri: str
+    size_bytes: int | None = None
     status: VideoStatus
     duration_seconds: float | None
     fps: float | None
@@ -167,6 +169,8 @@ class VideoResponse(BaseModel):
     regime_confidence: float | None
     metadata_: dict[str, Any] | None = None
     created_at: str
+    # Registration-only outcome; never persisted on the shared recording.
+    duplicate: bool = False
 
     model_config = {"from_attributes": True}
 
@@ -176,6 +180,7 @@ class VideoResponse(BaseModel):
             id=v.id,
             filename=v.filename,
             storage_uri=v.storage_uri,
+            size_bytes=v.size_bytes if isinstance(v.size_bytes, int) else None,
             status=v.status,
             duration_seconds=v.duration_seconds,
             fps=v.fps,
@@ -258,32 +263,44 @@ async def list_videos(
 @router.post("", response_model=VideoResponse, status_code=status.HTTP_201_CREATED)
 async def create_video(
     body: VideoCreate,
+    response: Response,
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(require_any_staff)],
 ) -> VideoResponse:
     """Register a new video record after the file has been uploaded to the object store."""
     # Storage URIs are validated before registration; local imports must point
     # to an atomically finalized object, never an arbitrary path or partial upload.
-    from app.storage import RAW_VIDEO, is_valid_key, local_object_path, parse_storage_uri
+    from app.storage import (
+        RAW_VIDEO,
+        is_valid_key,
+        local_object_path,
+        parse_storage_uri,
+        recording_fingerprint,
+    )
 
     try:
         scheme, bucket, key = parse_storage_uri(body.storage_uri)
     except ValueError as exc:
         raise HTTPException(400, "Invalid recording storage URI") from exc
-    if (scheme == "local" and bucket != RAW_VIDEO) or not is_valid_key(key):
+    if bucket != RAW_VIDEO or not is_valid_key(key):
         raise HTTPException(400, "Recording must use raw-video storage")
     if scheme == "local" and not local_object_path(bucket, key).is_file():
         raise HTTPException(409, "Recording upload is not finalized")
-    media = {}
-    if scheme == "local":
-        from app.services.media_probe import probe_local_video
-
-        try:
-            media = await anyio.to_thread.run_sync(
-                probe_local_video, local_object_path(bucket, key)
-            )
-        except (ValueError, TimeoutError) as exc:
-            raise HTTPException(422, "Recording cannot be read as video") from exc
+    try:
+        content_sha256, size_bytes = await anyio.to_thread.run_sync(
+            recording_fingerprint, body.storage_uri, get_settings().max_upload_bytes
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(409, "Recording upload is not finalized") from exc
+    except OverflowError as exc:
+        raise HTTPException(413, "Recording exceeds the upload size limit") from exc
+    except ValueError as exc:
+        raise HTTPException(422, "Recording upload is empty or invalid") from exc
+    except Exception as exc:
+        log.warning("recording_verification_failed", error_type=type(exc).__name__)
+        raise HTTPException(
+            503, "Recording storage could not be verified. Retry saving film."
+        ) from exc
     lock_id = int.from_bytes(hashlib.sha256(body.storage_uri.encode()).digest()[:8], "big") & (
         (1 << 63) - 1
     )
@@ -296,8 +313,38 @@ async def create_video(
             .limit(1)
         )
     ).scalar_one_or_none()
-    if isinstance(replay, Video):
-        return VideoResponse.from_orm_video(replay)
+    if (
+        isinstance(replay, Video)
+        and replay.content_sha256
+        and replay.content_sha256 != content_sha256
+    ):
+        raise HTTPException(409, "Recording bytes changed after registration. Use a new upload.")
+    # A different upload key (or another authorized staff member) can contain
+    # identical film. Serialize by verified bytes, then reuse the shared row.
+    # The unique constraint also guards writers outside this router.
+    content_lock = int(content_sha256[:16], 16) & ((1 << 63) - 1)
+    await db.execute(select(func.pg_advisory_xact_lock(content_lock)))
+    duplicate = (
+        await db.execute(select(Video).where(Video.content_sha256 == content_sha256).limit(1))
+    ).scalar_one_or_none()
+    existing = duplicate if isinstance(duplicate, Video) else replay
+    if isinstance(existing, Video):
+        if not existing.content_sha256:
+            existing.content_sha256 = content_sha256
+            existing.size_bytes = size_bytes
+            await db.flush()
+        response.status_code = status.HTTP_200_OK
+        return VideoResponse.from_orm_video(existing).model_copy(update={"duplicate": True})
+    media = {}
+    if scheme == "local":
+        from app.services.media_probe import probe_local_video
+
+        try:
+            media = await anyio.to_thread.run_sync(
+                probe_local_video, local_object_path(bucket, key)
+            )
+        except (ValueError, TimeoutError) as exc:
+            raise HTTPException(422, "Recording cannot be read as video") from exc
     session_id = body.practice_session_id
     if session_id:
         session = (
@@ -322,6 +369,8 @@ async def create_video(
         id=uuid.uuid4(),
         filename=body.filename,
         storage_uri=body.storage_uri,
+        content_sha256=content_sha256,
+        size_bytes=size_bytes,
         status=VideoStatus.uploaded,
         uploaded_by=current_user.id,
         recorded_at=body.recorded_at,

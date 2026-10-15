@@ -30,6 +30,19 @@ FastAPI app as a Cloudflare Container, a cron trigger for the nightly tick);
 the frontend deploys to Vercel. See `docs/setup/cloudflare.md` and
 `docs/setup/vercel.md`.
 
+Hosted processing now runs a supervised CPU pipeline alongside the API in that
+same Cloudflare Container, with separate Python environments. It uses a dedicated
+staff service account and a checksum-pinned pretrained person detector; no separate
+GPU or CPU hosting provider is required. Uploaded film and results live in the
+shared database/R2 library, and verified content hashes prevent duplicate recording
+rows across uploads and staff accounts. Local libraries remain supported.
+
+The film workspace includes frame-synchronized player boxes, identity/trail layers,
+a player inspector and a seekable play timeline. Tracking uses the original
+recording clock even when reviewing a later clip or a resized playback proxy.
+CFBD data stays server-side: administrators can refresh season context and weekly
+play-by-play from **Scouting → College Data** after configuring `CFBD_API_KEY`.
+
 ## Quick start (local)
 
 The native launcher starts a local database, API, UI, and CPU worker together.

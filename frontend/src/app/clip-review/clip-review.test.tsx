@@ -254,6 +254,66 @@ describe("ClipReviewPage overlays", () => {
     });
   });
 
+  test("recording-time tracks and mixed event clocks stay aligned with a later play", async () => {
+    const fetchMock = installFetchRoutes([
+      { url: "/api/v1/videos/download-url", body: { downloadUrl: "https://dl.test/x" } },
+      { url: "/api/v1/clips/c-1/overlays", body: {
+        ...EMPTY_OVERLAYS,
+        tracks_timebase: "recording",
+        source_start_time_seconds: 10,
+        source_fps: 60,
+        tracklets: [{ id: "recording-track", player_id: null, start_frame: 600, end_frame: 1080, team_label: "home", track_confidence: 0.94, track_points: [
+          { frame_number: 600, timestamp_seconds: 10, bbox: [100, 200, 160, 320] },
+          { frame_number: 660, timestamp_seconds: 11, bbox: [200, 200, 260, 320] },
+          { frame_number: 1080, timestamp_seconds: 18, bbox: [300, 200, 360, 320] },
+        ] }],
+        events: [
+          { id: "recording-snap", event_type: "snap", frame_number: 660, timestamp_seconds: null, timebase: "recording" },
+          { id: "manual-event", event_type: "throw", frame_number: null, timestamp_seconds: 2, timebase: "clip" },
+          { id: "unknown-event", event_type: "unknown", frame_number: 720, timestamp_seconds: 12, timebase: "unknown" },
+          { id: "outside-clip", event_type: "late", frame_number: 1500, timestamp_seconds: 25, timebase: "recording" },
+        ],
+        layers_available: { tracklets: true, events: true, labels: false, metrics: false },
+      } },
+      { url: "/api/v1/clips/c-1", body: SAMPLE_CLIP },
+      { url: "/api/v1/videos/v-1/clips", body: [SAMPLE_CLIP] },
+      { url: "/api/v1/videos/v-1", body: SAMPLE_VIDEO },
+      { url: "/api/v1/players", body: [] },
+      { url: "/api/v1/inbox/status", body: [] },
+      { url: "/api/v1/videos", body: [] },
+      { url: "/api/v1/jobs", body: [] },
+      { url: "/api/v1/self-scout/tendencies", body: { pre_snap_tells: [] } },
+    ]);
+    const { ClipReviewPage, AppStateProvider } = await importPage();
+    render(<AppStateProvider><ClipReviewPage /></AppStateProvider>);
+    await screen.findByTestId("overlay-tracklet-recording-track");
+    const player = document.querySelector("video")!;
+    fireEvent.click(screen.getByTestId("event-marker-recording-snap"));
+    expect(player.currentTime).toBe(11);
+    fireEvent.timeUpdate(player);
+    expect(screen.getByTestId("overlay-tracklet-recording-track").querySelector("rect")?.getAttribute("x")).toBe("200");
+    expect(screen.getByTestId("overlay-active-events").textContent).toContain("snap");
+    expect(screen.queryByTestId("event-marker-unknown-event")).toBeNull();
+    expect(screen.queryByTestId("event-marker-outside-clip")).toBeNull();
+    fireEvent.click(screen.getByTestId("event-marker-manual-event"));
+    expect(player.currentTime).toBe(12);
+    fireEvent.click(screen.getByRole("button", { name: "Inspect track T1" }));
+    expect(screen.getByTestId("selected-player-inspector").textContent).toContain("94%");
+    fireEvent.keyDown(screen.getByTestId("event-timeline"), { key: "Home" });
+    expect(player.currentTime).toBe(10);
+    // A browser-compatible proxy is smaller than the source recording, but
+    // the detector's boxes remain in the original 1920 × 1080 coordinates.
+    fireEvent.error(player);
+    await waitFor(() => expect(fetchMock.mock.calls.filter(([url]) => String(url).includes("videos/download-url")).length).toBeGreaterThanOrEqual(2));
+    Object.defineProperty(player, "videoWidth", { configurable: true, value: 960 });
+    Object.defineProperty(player, "videoHeight", { configurable: true, value: 540 });
+    player.currentTime = 0;
+    fireEvent.loadedMetadata(player);
+    fireEvent.timeUpdate(player);
+    expect(screen.getByTestId("clip-overlay-svg").getAttribute("viewBox")).toBe("0 0 1920 1080");
+    expect(screen.getByTestId("overlay-tracklet-recording-track").querySelector("rect")?.getAttribute("x")).toBe("100");
+  });
+
   test("transport renders, timeline seeks, and next-play navigates", async () => {
     routerPush.mockClear();
     const payload = {

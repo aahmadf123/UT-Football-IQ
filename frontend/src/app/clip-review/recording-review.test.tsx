@@ -1,10 +1,10 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
-const { video, download } = vi.hoisted(() => ({ video: vi.fn(), download: vi.fn() }));
-vi.mock("@/lib/api", () => ({ fetchVideo: video, fetchVideoDownloadUrl: download, parseStorageUri: () => ({ bucket: "raw-video", key: "raw/test.mp4" }) }));
-vi.mock("@/lib/app-state", () => ({ useAppState: () => ({ authToken: "token" }) }));
+const { video, download, clips, overlays } = vi.hoisted(() => ({ video: vi.fn(), download: vi.fn(), clips: vi.fn().mockResolvedValue([]), overlays: vi.fn() }));
+vi.mock("@/lib/api", () => ({ fetchVideo: video, fetchVideoDownloadUrl: download, fetchClipsForVideo: clips, fetchClipOverlays: overlays, parseStorageUri: () => ({ bucket: "raw-video", key: "raw/test.mp4" }) }));
+vi.mock("@/lib/app-state", () => ({ useAppState: () => ({ authToken: "token", data: { players: [] } }) }));
 import { RecordingReview } from "./recording-review";
-afterEach(() => { cleanup(); vi.resetAllMocks(); });
+afterEach(() => { cleanup(); vi.clearAllMocks(); clips.mockResolvedValue([]); });
 
 describe("raw recording playback", () => {
   test("opens imported film before model inference or segmentation", async () => {
@@ -13,7 +13,7 @@ describe("raw recording playback", () => {
     render(<RecordingReview videoId="v1" />);
     const player = await screen.findByLabelText("practice.mp4");
     expect(player.getAttribute("src")).toContain("/api/v1/storage/");
-    expect(player.hasAttribute("controls")).toBe(true);
+    expect(screen.getByTestId("video-transport")).toBeTruthy();
     expect(screen.getByRole("link", { name: "Back to session" }).getAttribute("href")).toContain("sessionId=session-1");
   });
 
@@ -24,5 +24,24 @@ describe("raw recording playback", () => {
     await screen.findByRole("alert");
     fireEvent.click(screen.getByRole("button", { name: "Refresh playback" }));
     await waitFor(() => expect(screen.getByLabelText("practice.mp4").getAttribute("src")).toContain("renewed"));
+  });
+
+  test("shows real tracking while the original recording plays through a detected play", async () => {
+    video.mockResolvedValue({ id: "v1", filename: "practice.mp4", duration_seconds: 30, status: "ready", fps: 30, width: 1280, height: 720, storage_uri: "local://raw-video/raw/test.mp4" });
+    download.mockResolvedValue("/api/v1/storage/raw-video/raw/test.mp4?sig=test");
+    clips.mockResolvedValue([{ id: "c1", video_id: "v1", start_time: 10, end_time: 18, play_number: 1 }]);
+    overlays.mockResolvedValue({ clip_id: "c1", tracks_timebase: "recording", source_start_time_seconds: 10, source_fps: 30, tracklets: [{ id: "t1", start_frame: 300, end_frame: 540, team_label: "home", player_id: null, track_confidence: 0.9, track_points: [{ frame_number: 300, timestamp_seconds: 10, bbox: [100, 100, 150, 200] }, { frame_number: 540, timestamp_seconds: 18, bbox: [200, 100, 250, 200] }] }], events: [], labels: [], metrics: [], layers_available: { tracklets: true, events: false, labels: false, metrics: false } });
+    render(<RecordingReview videoId="v1" />);
+    const player = await screen.findByLabelText("practice.mp4") as HTMLVideoElement;
+    await screen.findByRole("button", { name: "Play 1" });
+    fireEvent.click(screen.getByRole("button", { name: "Play 1" }));
+    expect(player.currentTime).toBe(10);
+    fireEvent.timeUpdate(player);
+    expect(await screen.findByTestId("overlay-tracklet-t1")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Player tracking on" }));
+    expect(screen.queryByTestId("overlay-tracklet-t1")).toBeNull();
+    player.currentTime = 20;
+    fireEvent.timeUpdate(player);
+    expect(screen.queryByTestId("clip-overlay-svg")).toBeNull();
   });
 });

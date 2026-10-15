@@ -11,12 +11,15 @@ import {
   Settings,
   ChevronDown,
   UserRound,
+  ArrowUpRight,
+  Database,
 } from "lucide-react";
 import type { PageKey } from "@/lib/types";
 import { useAppState, type ApiStatus } from "@/lib/app-state";
 import { canAccessHealthWorkload } from "@/lib/roles";
 import { StatusBadge, type StatusTone } from "@/components/composite/status-badge";
 import { cn } from "@/lib/utils";
+import { useWorkspaceContext } from "@/lib/workspace-context";
 
 // Consolidated coach-facing navigation (ADR 0003). Film Room and Scouting are
 // workspace hubs; Analytics is surfaced as "Model Insights". Player
@@ -81,6 +84,7 @@ export function SidebarContent({
   onNavigate?: () => void;
 }) {
   const { apiStatus, currentRole } = useAppState();
+  const workspace = useWorkspaceContext();
 
   // Health & Workload is hidden unless the role is approved (Issue #113). The
   // page itself also gates its content, so a deep link can't bypass this.
@@ -93,7 +97,13 @@ export function SidebarContent({
 
   return (
     <div className="flex h-full flex-col">
-      <nav aria-label="Football IQ navigation" className="flex flex-col gap-1 p-3">
+      <Link href="/film-room/" onClick={onNavigate} className="workspace-surface m-3 mb-5 flex items-center gap-3 rounded-lg border border-border-soft p-3 hover:border-primary/35">
+        <span className="flex size-9 shrink-0 items-center justify-center rounded-md border border-primary/25 bg-primary/10 text-xs font-bold tracking-wide text-primary">UT</span>
+        <span className="min-w-0 flex-1"><span className="block text-xs font-semibold text-foreground">Toledo Rockets</span><span className="mt-1 block text-[11px] text-muted-foreground">{workspace.libraryLabel}</span></span>
+        <ArrowUpRight className="size-3.5 text-muted-foreground" aria-hidden />
+      </Link>
+      <p className="section-eyebrow px-6 pb-2">Workspace</p>
+      <nav aria-label="Football IQ navigation" className="flex flex-col gap-1 px-3">
         {NAV_ITEMS.map((item) => {
           const Icon = item.icon;
           const isActive = activeKey === item.key;
@@ -104,16 +114,16 @@ export function SidebarContent({
               onClick={onNavigate}
               aria-current={isActive ? "page" : undefined}
               className={cn(
-                "relative flex min-h-12 items-center gap-3 rounded-lg px-3 text-sm font-medium transition-colors",
+                "relative flex min-h-11 items-center gap-3 rounded-md px-3 text-[13px] font-medium transition-colors",
                 isActive
-                  ? "bg-primary/12 text-primary"
+                  ? "bg-primary/10 text-primary"
                   : "text-muted-foreground hover:bg-accent hover:text-foreground",
               )}
             >
               {isActive ? (
                 <span
                   aria-hidden
-                  className="absolute inset-y-0 left-0 w-[3px] rounded-l-md bg-primary-foreground/45"
+                  className="absolute inset-y-3 left-0 w-[2px] rounded-full bg-primary"
                 />
               ) : null}
               <Icon aria-hidden className="size-[18px] shrink-0" />
@@ -138,15 +148,16 @@ export function SidebarContent({
       </details>
 
       <div className="mt-auto flex flex-col gap-2 border-t border-border-soft p-3">
-        <div className="flex items-center justify-between gap-2" data-testid="system-status">
+        <div className="flex items-center justify-between gap-2 px-2" data-testid="system-status">
           <StatusBadge tone={apiStatusTone(apiStatus)} dot>
             {apiStatusLabel(apiStatus)}
           </StatusBadge>
+          <Database className="size-3.5 text-muted-foreground" aria-hidden />
         </div>
         <Link href="/settings/" onClick={onNavigate} className="flex min-h-10 items-center gap-3 rounded-lg px-2 text-sm text-muted-foreground hover:bg-accent hover:text-foreground" aria-current={activeKey === "settings" ? "page" : undefined}>
-          <Settings className="size-4" aria-hidden /> This computer
+          <Settings className="size-4" aria-hidden /> {workspace.settingsLabel}
         </Link>
-        <p className="px-2 text-xs text-muted-foreground">Toledo Football · Local library</p>
+        <p className="truncate px-2 text-[10px] text-muted-foreground" title={workspace.host}>{workspace.host}</p>
       </div>
     </div>
   );

@@ -10,14 +10,15 @@ import { UploadProcessFilm } from "@/components/film-room/upload-process";
 import { useUploadWidget } from "@/components/shared/upload-widget";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
+import { FolderOpen, ListVideo, Activity } from "lucide-react";
 
 // "Clips & Highlights" was folded away with the mock clip grid (#96): Browse
 // Film is the clip library (real sessions → videos → clips), Review & Tag
 // Plays is the per-video clip inventory that deep-links into clip review.
 const TABS = [
-  { key: "browse", label: "Sessions & film" },
-  { key: "review", label: "Review plays" },
-  { key: "upload", label: "Upload & processing" },
+  { key: "browse", label: "Sessions & film", icon: FolderOpen },
+  { key: "review", label: "Review plays", icon: ListVideo },
+  { key: "upload", label: "Upload & processing", icon: Activity },
 ] as const;
 
 type TabKey = (typeof TABS)[number]["key"];
@@ -58,7 +59,7 @@ function FilmRoomContent() {
 
   const { openFilePicker: handleUploadClick, widget } = useUploadWidget({
     successMessage: (count) =>
-      `Uploaded ${count} clip${count === 1 ? "" : "s"} — track processing in the Upload / Process Film tab.`,
+      `Uploaded ${count} recording${count === 1 ? "" : "s"} — track progress in Upload & processing.`,
   });
 
   return (
@@ -67,7 +68,7 @@ function FilmRoomContent() {
 
       <nav
         aria-label="Film Room sections"
-        className="mb-4 flex w-fit max-w-full gap-1 overflow-x-auto rounded-lg border border-border-soft bg-secondary/40 p-1"
+        className="mb-5 flex max-w-full gap-5 overflow-x-auto border-b border-border-soft"
       >
         {TABS.map((tab) => (
           <Link
@@ -76,13 +77,13 @@ function FilmRoomContent() {
             aria-current={tab.key === activeTab ? "page" : undefined}
             data-testid={`film-room-tab-${tab.key}`}
             className={cn(
-              "inline-flex min-h-10 items-center whitespace-nowrap rounded-md px-4 py-2 text-sm font-medium transition-colors",
+              "inline-flex min-h-12 items-center gap-2 whitespace-nowrap border-b-2 px-1 pb-3 text-[13px] font-medium transition-colors",
               tab.key === activeTab
-                ? "bg-gradient-to-b from-primary to-gold-strong text-primary-foreground"
-                : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                ? "border-primary text-primary"
+                : "border-transparent text-muted-foreground hover:text-foreground",
             )}
           >
-            {tab.label}
+            <tab.icon className="size-4" aria-hidden />{tab.label}
           </Link>
         ))}
       </nav>

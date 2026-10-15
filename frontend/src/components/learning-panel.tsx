@@ -40,7 +40,7 @@ export function LearningPanel() {
     try {
       const result = await exportCorrections(scope.trim() || "general", authToken);
       await load();
-      setNotice(result.training_dataset_id ? `Created a local snapshot with ${result.exported_count} human labels. It is available below.` : "No new eligible corrections to export. Save corrections while reviewing film, then try again.");
+      setNotice(result.training_dataset_id ? `Created a saved snapshot with ${result.exported_count} human labels. It is available below.` : "No new eligible corrections to export. Save corrections while reviewing film, then try again.");
     } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
     finally { setBusy(null); }
   }
@@ -74,7 +74,7 @@ export function LearningPanel() {
       const benchmark = model.metrics?.benchmark;
       const passed = Boolean(benchmark && typeof benchmark === "object" && "passed" in benchmark && benchmark.passed === true && model.metrics?.evaluation_id && model.artifact_uri);
       return <div key={model.id} className="flex flex-wrap items-start justify-between gap-3 rounded-lg border border-border-soft p-4"><div><p className="font-medium">{model.model_name} · {model.version}</p><p className="mt-1 text-sm text-muted-foreground">{model.promoted_stage} · {model.model_type} · {passed ? "Passing human holdout evaluation recorded" : "Passing holdout evaluation required"}</p></div>{currentRole === "admin" && model.promoted_stage !== "production" ? <Button variant="outline" size="sm" disabled={!passed || busy !== null} onClick={() => void promote(model)}>{model.promoted_stage === "retired" ? "Restore validated version" : "Promote validated version"}</Button> : null}</div>;
-    })}</div> : <p className="text-sm text-muted-foreground">No locally trained model versions registered yet.</p>}</div>
+    })}</div> : <p className="text-sm text-muted-foreground">No trained model versions registered yet.</p>}</div>
     <div><h3 className="mb-2 font-medium">Holdout benchmarks</h3>{benchmarks.length ? <ul className="space-y-2 text-sm text-muted-foreground">{benchmarks.map((benchmark) => <li key={benchmark.id}>{benchmark.name} · {benchmark.samples?.length ?? 0} human-labeled examples</li>)}</ul> : <p className="text-sm text-muted-foreground">No separate evaluation benchmark is registered yet. Training film must be kept separate from holdout film.</p>}</div>
   </CardContent></Card>;
 }

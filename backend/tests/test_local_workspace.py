@@ -389,3 +389,37 @@ async def test_shutdown_recovery_preserves_explicit_pause_and_cancel(workspace_d
         await _control_job(shutdown.id, "resume", db)
         assert "interrupted_action" not in (shutdown.output_artifacts or {})
         await db.commit()
+
+
+async def test_hosted_shutdown_recovery_preserves_other_workers(workspace_db):
+    from app.services.job_sweeper import recover_shutdown_pauses
+
+    maker, user, session = workspace_db
+    suffix = user.email.split("@")[0].removeprefix("workspace-")
+    async with maker() as db:
+        video, _ = await _recording(db, session, suffix, "hosted-recovery")
+        jobs = []
+        for worker_id, action in (
+            ("cloudflare-cpu-primary", "shutdown"),
+            ("staff-laptop", "shutdown"),
+            ("cloudflare-cpu-primary", "pause"),
+        ):
+            job = ProcessingJob(
+                video_id=video.id,
+                job_type=JobType.detect,
+                status=JobStatus.paused,
+                attempt_count=1,
+                output_artifacts={
+                    "interrupted_action": action,
+                    "interrupted_worker_id": worker_id,
+                },
+            )
+            db.add(job)
+            jobs.append(job)
+        await db.flush()
+        assert await recover_shutdown_pauses(db, worker_id="cloudflare-cpu-primary") == 1
+        for job in jobs:
+            await db.refresh(job)
+        assert jobs[0].status == JobStatus.queued
+        assert "interrupted_worker_id" not in jobs[0].output_artifacts
+        assert jobs[1].status == jobs[2].status == JobStatus.paused

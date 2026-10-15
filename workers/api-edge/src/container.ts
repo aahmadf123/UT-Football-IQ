@@ -78,6 +78,17 @@ export function buildContainerEnv(env: Env): Record<string, string> {
     SEED_ADMIN_PASSWORD: env.SEED_ADMIN_PASSWORD,
     SEED_WORKER_EMAIL: env.SEED_WORKER_EMAIL,
     SEED_WORKER_PASSWORD: env.SEED_WORKER_PASSWORD,
+
+    // CPU inference runs in a separate process/venv in this same container.
+    // Reuse a dedicated seeded analyst account, never a coach's login.
+    HOSTED_PROCESSING_ENABLED: env.HOSTED_PROCESSING_ENABLED ?? "auto",
+    WORKER_EMAIL: env.SEED_WORKER_EMAIL,
+    WORKER_PASSWORD: env.SEED_WORKER_PASSWORD,
+
+    // Only the backend talks to College Football Data.
+    CFBD_API_KEY: env.CFBD_API_KEY,
+    CFBD_BASE_URL: env.CFBD_BASE_URL,
+    CFBD_CACHE_STALE_AFTER_HOURS: env.CFBD_CACHE_STALE_AFTER_HOURS,
   };
 
   // Drop unset keys rather than forwarding empty strings: pydantic-settings
@@ -186,6 +197,35 @@ export class BackendContainer extends Container<Env> {
 
   override onStop(): void {
     console.log(JSON.stringify({ event: "container_stop" }));
+  }
+
+  /** Let long CPU jobs finish after the last browser closes, then sleep. */
+  override async onActivityExpired(): Promise<void> {
+    if (!this.env.SCHEDULER_TOKEN) {
+      await this.stop();
+      return;
+    }
+    try {
+      const response = await this.containerFetch(
+        "http://backend/internal/runtime/activity",
+        {
+          headers: { Authorization: `Bearer ${this.env.SCHEDULER_TOKEN}` },
+          signal: AbortSignal.timeout(10_000),
+        },
+      );
+      if (response.ok) {
+        const activity = (await response.json()) as { active?: boolean };
+        if (activity.active === true) {
+          this.renewActivityTimeout();
+          return;
+        }
+      }
+    } catch {
+      // A database outage cannot leave a container billed forever. Existing
+      // fenced leases recover interrupted jobs on the next claim.
+      console.warn(JSON.stringify({ event: "container_activity_check_failed" }));
+    }
+    await this.stop();
   }
 
   override onError(error: unknown): never {

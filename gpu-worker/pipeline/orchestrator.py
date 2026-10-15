@@ -1034,6 +1034,9 @@ def run_pipeline(
     check_control()
     ctx.video_path = storage.download_to_temp(input_uri)
     try:
+        from pipeline.hosted_limits import validate_master
+
+        validate_master(ctx.video_path)
         from pipeline.video_timeline import VideoTimeline
 
         ctx.timeline = VideoTimeline.from_path(ctx.video_path, fps_fallback=ctx.fps)

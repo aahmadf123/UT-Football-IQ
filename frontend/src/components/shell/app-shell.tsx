@@ -38,7 +38,7 @@ export function FootballShell({
   }, [mustSignIn]);
 
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen bg-background">
       <AppTopbar activePage={activePage} onMenuClick={() => setMobileNavOpen(true)} />
 
       <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
@@ -52,13 +52,13 @@ export function FootballShell({
         </SheetContent>
       </Sheet>
 
-      <div className="lg:grid lg:grid-cols-[220px_minmax(0,1fr)]">
-        <aside className="sticky top-14 hidden h-[calc(100vh-3.5rem)] overflow-y-auto border-r border-border-soft lg:block">
+      <div className="lg:grid lg:grid-cols-[216px_minmax(0,1fr)]">
+        <aside className="sticky top-16 hidden h-[calc(100vh-4rem)] overflow-y-auto border-r border-border-soft bg-[oklch(0.17_0.026_252)] lg:block">
           <SidebarContent activeKey={activePage} />
         </aside>
 
-        <main className="min-w-0 px-4 py-5 lg:px-6">
-          <div className="mx-auto w-full max-w-[1400px]">
+        <main id="main-content" className="min-w-0 px-4 py-6 lg:px-7 lg:py-7">
+          <div className="mx-auto w-full max-w-[1520px]">
             <PageHeader page={activePage} actions={headerActions} />
             {openingLibrary ? <div role="status" className="rounded-xl border border-border-soft bg-card p-6 text-sm text-muted-foreground">{auth?.ready ? "Opening sign-in…" : "Opening your library…"}</div> : children}
           </div>

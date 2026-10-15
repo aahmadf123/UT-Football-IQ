@@ -11,9 +11,12 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { LocalSystemPanel } from "@/components/local-system-panel";
 import { LearningPanel } from "@/components/learning-panel";
+import { useWorkspaceContext } from "@/lib/workspace-context";
+import { TeamAccessPanel } from "@/components/team-access-panel";
 
 export function SettingsView() {
   const { authToken, currentRole } = useAppState();
+  const workspace = useWorkspaceContext();
   const [settings, setSettings] = useState<SystemSettingsResponse | null>(null);
   const [name, setName] = useState("");
   const [automatic, setAutomatic] = useState(true);
@@ -66,7 +69,7 @@ export function SettingsView() {
       <Card>
         <CardHeader>
           <h2 className="text-base font-semibold">Library preferences</h2>
-          <p className="text-sm text-muted-foreground">These settings apply to the library on this computer.</p>
+          <p className="text-sm text-muted-foreground">These settings apply to the connected {workspace.local ? "local" : "team"} library.</p>
         </CardHeader>
         <CardContent className="flex max-w-2xl flex-col gap-4">
           {loading ? <p role="status">Loading preferences…</p> : null}
@@ -79,7 +82,7 @@ export function SettingsView() {
             <div className="flex items-start justify-between gap-4 rounded-lg border border-border-soft p-4">
               <div>
                 <Label htmlFor="auto-process-toggle">Process film automatically on upload</Label>
-                <p className="mt-2 text-sm leading-relaxed text-muted-foreground">When enabled, new recordings enter the local processing queue. When disabled, choose Process film in Film Room.</p>
+                <p className="mt-2 text-sm leading-relaxed text-muted-foreground">When enabled, new recordings enter the connected processing queue. When disabled, choose Process film in Film Room. Model results remain suggestions for staff review.</p>
               </div>
               <Switch id="auto-process-toggle" data-testid="auto-process-toggle" checked={automatic} disabled={!canEdit || saving} onCheckedChange={(checked) => { setAutomatic(checked); setSaved(false); }} />
             </div>
@@ -87,6 +90,7 @@ export function SettingsView() {
           </> : null}
         </CardContent>
       </Card>
+      <TeamAccessPanel />
       <LearningPanel />
     </div>
   );

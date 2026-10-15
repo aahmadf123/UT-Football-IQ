@@ -15,6 +15,7 @@ on:
     paths:
       - "workers/api-edge/**"
       - "backend/**"
+      - "gpu-worker/**"
       - ".github/workflows/deploy.yml"
   workflow_dispatch: {}
 

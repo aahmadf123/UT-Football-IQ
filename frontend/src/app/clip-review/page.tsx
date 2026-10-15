@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, Clapperboard } from "lucide-react";
+import { ArrowLeft, Check, ChevronRight, Clapperboard, Crosshair, Film, Layers, Route, ScanLine, Users } from "lucide-react";
 import { AnalyticsCard } from "@/components/analytics-card";
 import { ClipStateBadges } from "@/components/clip-state-badge";
 import { FootballShell } from "@/components/shell/app-shell";
@@ -21,7 +21,9 @@ import type {
   ApiVideo,
   ClipOverlayPayload,
   OverlayLayerKey,
+  OverlayTracklet,
 } from "@/lib/types";
+import { activeTrackPointIndex, trackingTimeSeconds } from "@/lib/tracking-time";
 import { POSSESSION_LABEL, SESSION_KIND_LABEL } from "@/lib/labels";
 import { CorrectionsPanel } from "./corrections-panel";
 import { ReviewMetadataPanel } from "./review-metadata-panel";
@@ -40,9 +42,9 @@ import { StatLine } from "@/components/composite/stat-chip";
 import { cn } from "@/lib/utils";
 
 const LAYER_TOGGLES: ReadonlyArray<{ key: OverlayLayerKey; label: string }> = [
-  { key: "raw", label: "Raw" },
-  { key: "tracks", label: "Tracks" },
-  { key: "labels", label: "Labels" },
+  { key: "raw", label: "Original film" },
+  { key: "tracks", label: "Player boxes" },
+  { key: "labels", label: "Identities" },
   { key: "events", label: "Events" },
   { key: "metrics", label: "Metrics" },
   { key: "field", label: "Field view" },
@@ -287,7 +289,14 @@ function ClipReviewReady({
       ? SESSION_KIND_LABEL[video.session_kind]
       : "Session";
 
-  const fps = video.fps ?? DEFAULT_FPS;
+  const overlayPayload = overlayState.kind === "ready" || overlayState.kind === "empty"
+    ? overlayState.payload
+    : null;
+  const sourceFps = overlayPayload?.source_fps ?? video.fps;
+  const fps = sourceFps != null && sourceFps > 0 ? sourceFps : DEFAULT_FPS;
+  const sourceStartTime = overlayPayload?.source_start_time_seconds ?? clip.start_time;
+  const [showTrails, setShowTrails] = useState(true);
+  const [intrinsicSize, setIntrinsicSize] = useState<{ width: number; height: number } | null>(null);
   const [activeLayers, setActiveLayers] = useState<Set<OverlayLayerKey>>(
     () => new Set<OverlayLayerKey>(["tracks", "events", "labels", "metrics"]),
   );
@@ -359,9 +368,11 @@ function ClipReviewReady({
     });
   }, []);
 
-  const overlayPayload = overlayState.kind === "ready" || overlayState.kind === "empty"
-    ? overlayState.payload
-    : null;
+  const trackTime = trackingTimeSeconds(overlayPayload, clipLocalTime, clip.start_time);
+  const visibleTracks = overlayPayload?.tracklets.filter((track) => {
+    const index = activeTrackPointIndex(track, trackTime, fps);
+    return index >= 0 && track.track_points[index]?.bbox != null;
+  }) ?? [];
 
   // Roster names for attributed tracklets ("#7 · C. Jones" on the Labels layer
   // and the field mini-map).
@@ -378,7 +389,7 @@ function ClipReviewReady({
     for (const m of overlayPayload.metrics) {
       if (m.tracklet_id == null || m.metric_name !== "max_speed") continue;
       const yps = m.metric_value["yards_per_second"];
-      if (typeof yps === "number") map.set(m.tracklet_id, `${yps.toFixed(1)} yd/s`);
+      if (typeof yps === "number") map.set(m.tracklet_id, `Max ${yps.toFixed(1)} yd/s`);
     }
     return map;
   }, [overlayPayload]);
@@ -391,9 +402,10 @@ function ClipReviewReady({
   const eventsForTimeline = useMemo(() => {
     if (!overlayPayload) return [];
     return overlayPayload.events
-      .map((e) => ({ event: e, t: eventTimeSeconds(e, fps) }))
-      .filter((row): row is { event: typeof row.event; t: number } => row.t != null);
-  }, [overlayPayload, fps]);
+      .map((e) => ({ event: e, t: eventTimeSeconds(e, fps, sourceStartTime) }))
+      .filter((row): row is { event: typeof row.event; t: number } => row.t != null && row.t >= 0 && row.t <= clipDuration)
+      .sort((a, b) => a.t - b.t);
+  }, [overlayPayload, fps, sourceStartTime, clipDuration]);
   const eventTimesSorted = useMemo(
     () => eventsForTimeline.map((row) => row.t).sort((a, b) => a - b),
     [eventsForTimeline],
@@ -409,47 +421,49 @@ function ClipReviewReady({
   );
 
   return (
-    <div className="grid items-start gap-4 xl:grid-cols-3">
-      <Card className="xl:col-span-2">
-        <CardContent>
+    <div className="flex flex-col gap-5" data-testid="review-workspace">
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <div className="mb-2 flex items-center gap-2 text-[0.65rem] font-semibold uppercase tracking-[0.18em] text-muted-foreground"><Film className="size-3.5 text-primary" /> Film room <ChevronRight className="size-3" /> Review studio</div>
+          <h2 className="max-w-3xl break-words text-xl font-semibold tracking-tight">{video.filename}</h2>
+          <p className="mt-1 text-sm text-muted-foreground">{video.camera_label || "Camera view"} · {sessionKindLabel}{clipIndex >= 0 && siblingClips.length ? ` · Play ${clipIndex + 1} of ${siblingClips.length}` : ""}</p>
+        </div>
+        <Button asChild variant="outline" size="sm"><Link href={video.practice_session_id ? `/film-room/?tab=browse&sessionId=${encodeURIComponent(video.practice_session_id)}` : "/film-room/?tab=browse"}><ArrowLeft className="size-3.5" /> Back to film</Link></Button>
+      </div>
+
+      <div className="grid items-start gap-5 2xl:grid-cols-[minmax(0,1fr)_340px] xl:grid-cols-[minmax(0,1fr)_310px]">
+      <Card className="min-w-0 gap-0 overflow-hidden border-border-soft py-0 shadow-none">
+        <CardContent className="px-0">
+          <div className="border-b border-border-soft px-5 py-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <div className="flex flex-wrap items-center gap-2">
-                <h2 className="font-display text-lg font-semibold uppercase tracking-wide">
+                <h3 className="text-lg font-semibold tracking-tight">
                   {clip.play_number != null
                     ? `Play #${clip.play_number}`
                     : `Clip ${clip.id.slice(0, 8)}`}
-                </h2>
+                </h3>
                 <ClipStateBadges
                   isPreliminary={clip.is_preliminary}
                   reviewState={clip.review_state}
                 />
               </div>
-              <p className="mt-0.5 text-xs text-muted-foreground">
+              <p className="mt-1 text-xs text-muted-foreground">
                 {sessionKindLabel}
                 {video.opponent_team ? ` · vs. ${video.opponent_team}` : ""}
                 {possessionLabel ? ` · ${possessionLabel}` : ""}
               </p>
             </div>
-            <Button asChild variant="outline" size="sm">
-              <Link href="/film-room/?tab=browse">
-                <ArrowLeft className="size-3.5" /> Film Room
-              </Link>
-            </Button>
+            <div className="flex items-center gap-3 text-xs text-muted-foreground"><span className="inline-flex items-center gap-1.5"><Users className="size-3.5" /><strong className="font-mono text-foreground">{overlayPayload?.tracklets.length ?? 0}</strong> tracks</span><span className="h-4 border-l border-border-soft" /><span className="font-mono">{clipDuration.toFixed(1)}s</span></div>
+          </div>
           </div>
 
-          {calibration &&
-            calibration.analytics_safe === false &&
-            calibrationDismissedFor !== clip.id && (
-              <CalibrationBanner
-                reason={calibration.reason}
-                onDismiss={dismissCalibrationBanner}
-              />
-            )}
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border-soft bg-secondary/20 px-4 py-2.5">
+            <div className="flex items-center gap-2 text-xs"><ScanLine className="size-4 text-primary" /><span className="font-semibold">{activeLayers.has("raw") ? "Original film" : "Vision overlays"}</span><span className="text-muted-foreground">· {video.camera_label || "Camera view"}</span></div>
+            <span className="max-w-full truncate text-xs text-muted-foreground" title={video.filename}>{video.filename}</span>
+          </div>
 
-          {overlayPayload && (overlayPayload.warnings?.length ?? 0) > 0 && <div role="status" className="mt-3 rounded-md border border-status-warn/40 bg-status-warn/10 p-3 text-sm"><p className="font-semibold">Analysis availability</p>{overlayPayload.warnings?.map((warning) => <p key={warning} className="mt-1">{warning}</p>)}</div>}
-
-          <div className="relative mt-3 flex min-h-80 items-center justify-center overflow-hidden rounded-lg bg-black [&:fullscreen_video]:h-full [&:fullscreen_video]:max-h-none">
+          <div className="relative flex aspect-video min-h-56 items-center justify-center overflow-hidden bg-black [&:fullscreen]:h-screen [&:fullscreen]:w-screen [&:fullscreen_video]:h-full" style={{ aspectRatio: intrinsicSize ? `${intrinsicSize.width} / ${intrinsicSize.height}` : undefined }}>
             {playbackUrl ? (
               <>
                 <video
@@ -463,34 +477,46 @@ function ClipReviewReady({
                     // Parent-video playback loads at t=0, before the clip —
                     // jump to the clip start once metadata makes seeking safe.
                     const el = videoRef.current;
+                    if (el && el.videoWidth > 0 && el.videoHeight > 0) setIntrinsicSize({ width: el.videoWidth, height: el.videoHeight });
                     if (el && clipOffset > 0 && el.currentTime < clipOffset) {
                       el.currentTime = clipOffset;
                     }
+                    if (el) setVideoCurrentTime(el.currentTime);
                   }}
                   onClick={() => {
                     const el = videoRef.current;
                     if (!el) return;
-                    if (el.paused) void el.play().catch(() => undefined);
+                    if (el.paused) {
+                      if (el.currentTime >= clipOffset + clipDuration - 0.06) el.currentTime = clipOffset;
+                      void el.play().catch(() => undefined);
+                    }
                     else el.pause();
                   }}
                   aria-label={`Clip ${clip.play_number ?? clip.id} video`}
-                  className="block max-h-120 w-full cursor-pointer object-contain"
+                  className="absolute inset-0 block h-full w-full cursor-pointer object-contain"
                 />
                 {overlayPayload && (
                   <OverlayCanvas
                     tracklets={overlayPayload.tracklets}
                     events={overlayPayload.events}
-                    currentTimeSeconds={clipLocalTime}
+                    currentTimeSeconds={trackTime}
+                    eventCurrentTimeSeconds={clipLocalTime}
+                    sourceStartTimeSeconds={sourceStartTime}
                     fps={fps}
-                    videoWidth={video.width ?? null}
-                    videoHeight={video.height ?? null}
+                    videoWidth={video.width ?? intrinsicSize?.width ?? null}
+                    videoHeight={video.height ?? intrinsicSize?.height ?? null}
                     activeLayers={overlayLayersForCanvas}
                     playerNamesById={playerNamesById}
                     metricTextByTrackletId={metricTextByTrackletId}
                     selectedTrackletId={selection?.trackletId ?? null}
                     onSelectTracklet={selectTracklet}
+                    showTrails={showTrails}
                   />
                 )}
+                <div className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between gap-2 bg-gradient-to-b from-black/65 to-transparent px-4 pb-8 pt-3 text-[0.65rem] font-semibold uppercase tracking-wider text-white/85">
+                  <span className="inline-flex items-center gap-2 rounded-md border border-white/15 bg-black/35 px-2 py-1"><span className={cn("size-1.5 rounded-full", visibleTracks.length && !activeLayers.has("raw") ? "bg-emerald-400" : "bg-white/45")} />{activeLayers.has("raw") ? "Original recording" : overlayState.kind === "loading" ? "Loading tracking" : visibleTracks.length ? `${visibleTracks.length} tracks in frame` : "No player boxes at this frame"}</span>
+                  <span className="rounded-md border border-white/15 bg-black/35 px-2 py-1 font-mono normal-case">{clipLocalTime.toFixed(2)} / {clipDuration.toFixed(2)}s</span>
+                </div>
               </>
             ) : (
               <div className="p-6 text-center text-muted-foreground">
@@ -504,6 +530,7 @@ function ClipReviewReady({
             )}
           </div>
 
+          <div className="px-4 pb-4 pt-2">
           {playbackUrl && (
             <VideoTransport
               videoRef={videoRef}
@@ -519,18 +546,12 @@ function ClipReviewReady({
           )}
           {playbackError && <div role="alert" className="mt-2 text-sm text-status-danger">{playbackError}<Button size="sm" variant="outline" className="ml-2" onClick={onRefresh}>Refresh playback</Button></div>}
 
-          <p data-numeric className="mt-2 font-mono text-xs text-muted-foreground">
-            {clip.start_time.toFixed(1)}s – {clip.end_time.toFixed(1)}s{" "}
-            ({(clip.end_time - clip.start_time).toFixed(1)}s duration)
-            {clipIndex >= 0 && siblingClips.length > 1
-              ? ` · Play ${clipIndex + 1} of ${siblingClips.length}`
-              : ""}
-          </p>
-
           <OverlayToggles
             active={activeLayers}
             overlayState={overlayState}
             onToggle={toggleLayer}
+            showTrails={showTrails}
+            onToggleTrails={() => setShowTrails((value) => !value)}
           />
 
           {playbackUrl && (
@@ -542,24 +563,29 @@ function ClipReviewReady({
             />
           )}
 
+          {calibration && calibration.analytics_safe === false && calibrationDismissedFor !== clip.id ? <CalibrationBanner reason={calibration.reason} onDismiss={dismissCalibrationBanner} /> : null}
+          {overlayPayload && (overlayPayload.warnings?.length ?? 0) > 0 ? <div role="status" className="mt-3 rounded-lg border border-status-warn/30 bg-status-warn/5 p-3 text-xs"><p className="font-semibold text-status-warn">Analysis availability</p>{overlayPayload.warnings?.map((warning) => <p key={warning} className="mt-1 text-muted-foreground">{warning}</p>)}</div> : null}
+
           {overlayPayload && activeLayers.has("field") && !activeLayers.has("raw") && (
             <FieldMinimap
               tracklets={overlayPayload.tracklets}
-              currentFrame={Math.round(clipLocalTime * fps)}
-              currentTimeSeconds={clipLocalTime}
+              currentFrame={Math.round(trackTime * fps)}
+              currentTimeSeconds={trackTime}
               fps={fps}
               calibration={overlayPayload.calibration ?? null}
               playerNamesById={playerNamesById}
             />
           )}
+          </div>
+          <PlayQueue clips={siblingClips} currentClipId={clip.id} />
         </CardContent>
       </Card>
 
-      <Card>
-        <CardContent>
-          <h2 className="font-display text-base font-semibold uppercase tracking-wide">
-            Clip Metadata
-          </h2>
+      <div className="flex min-w-0 flex-col gap-4">
+      <TrackingInspector tracklets={overlayPayload?.tracklets ?? []} playerNamesById={playerNamesById} selectedTrackletId={selection?.trackletId ?? null} currentTimeSeconds={trackTime} fps={fps} onSelect={selectTracklet} onClear={() => setSelection(null)} loading={overlayState.kind === "loading"} />
+      <Card className="gap-0 border-border-soft py-4 shadow-none">
+        <CardContent className="px-4">
+          <h3 className="text-sm font-semibold">Play details</h3>
           <div className="mt-3 flex flex-col gap-1.5">
             <StatLine label="Video" value={video.filename} />
             <StatLine label="Video status" value={video.status} />
@@ -630,8 +656,66 @@ function ClipReviewReady({
           )}
         </CardContent>
       </Card>
+      </div>
+      </div>
     </div>
   );
+}
+
+function PlayQueue({ clips, currentClipId }: { clips: ApiClip[]; currentClipId: string }) {
+  if (clips.length < 2) return null;
+  return <nav aria-label="Plays in this recording" className="border-t border-border-soft bg-secondary/20 p-4">
+    <div className="mb-3 flex items-center justify-between gap-2"><h3 className="flex items-center gap-2 text-xs font-semibold"><Film className="size-3.5 text-primary" /> Play sequence</h3><span className="text-[0.65rem] text-muted-foreground">{clips.length} plays · [ / ] to navigate</span></div>
+    <div className="flex gap-2 overflow-x-auto pb-1">{clips.map((item) => <Link key={item.id} href={`/clip-review/?clipId=${encodeURIComponent(item.id)}`} aria-current={item.id === currentClipId ? "page" : undefined} className={cn("min-w-28 shrink-0 rounded-lg border px-3 py-2.5 transition-colors", item.id === currentClipId ? "border-primary/60 bg-primary/10" : "border-border-soft bg-background/40 hover:border-border hover:bg-accent/40")}>
+      <div className="flex items-center justify-between gap-3"><span className={cn("text-xs font-semibold", item.id === currentClipId && "text-primary")}>Play {item.play_number ?? clips.indexOf(item) + 1}</span>{item.is_reviewed ? <Check aria-label="Reviewed" className="size-3 text-status-ok" /> : <span className="size-1.5 rounded-full bg-muted-foreground/40" />}</div>
+      <p className="mt-2 font-mono text-[0.65rem] text-muted-foreground">{item.start_time.toFixed(1)}–{item.end_time.toFixed(1)}s</p>
+    </Link>)}</div>
+  </nav>;
+}
+
+function TrackingInspector({ tracklets, playerNamesById, selectedTrackletId, currentTimeSeconds, fps, onSelect, onClear, loading }: {
+  tracklets: OverlayTracklet[];
+  playerNamesById: ReadonlyMap<string, string>;
+  selectedTrackletId: string | null;
+  currentTimeSeconds: number;
+  fps: number;
+  onSelect: (id: string) => void;
+  onClear: () => void;
+  loading: boolean;
+}) {
+  const [teamFilter, setTeamFilter] = useState("all");
+  const selected = tracklets.find((track) => track.id === selectedTrackletId);
+  const currentIndex = selected ? activeTrackPointIndex(selected, currentTimeSeconds, fps) : -1;
+  const currentPoint = selected?.track_points[currentIndex];
+  const selectedIndex = selected ? tracklets.indexOf(selected) : -1;
+  const playerName = selected?.player_id ? playerNamesById.get(selected.player_id) : null;
+  return <Card className="gap-0 overflow-hidden border-border-soft py-0 shadow-none" data-testid="tracking-inspector">
+    <div className="flex items-center justify-between border-b border-border-soft px-4 py-3.5"><h3 className="flex items-center gap-2 text-sm font-semibold"><Crosshair className="size-4 text-primary" /> Player tracking</h3><span className="rounded-md bg-secondary px-2 py-0.5 font-mono text-xs text-muted-foreground">{tracklets.length}</span></div>
+    <div className="p-4">
+      {selected ? <div className="mb-4 rounded-lg border border-primary/25 bg-primary/5 p-3" data-testid="selected-player-inspector">
+        <div className="flex items-center justify-between gap-2"><p className="text-[0.6rem] font-semibold uppercase tracking-[0.16em] text-primary">Selected player · T{selectedIndex + 1}</p><button type="button" onClick={onClear} className="rounded px-1.5 py-1 text-[0.65rem] text-muted-foreground hover:bg-secondary hover:text-foreground" aria-label="Clear selected player">Clear</button></div>
+        <h4 className="mt-1 text-base font-semibold">{playerName ?? "Unassigned player"}</h4>
+        <p className="mt-1 text-xs text-muted-foreground">{selected.team_label === "home" ? "Toledo" : selected.team_label === "away" ? "Opponent" : "Team not assigned"}{selected.position_group ? ` · ${selected.position_group}` : ""}</p>
+        <div className="mt-3 grid grid-cols-2 gap-3 border-t border-primary/15 pt-3"><div><p className="text-[0.65rem] text-muted-foreground">Track confidence</p><p className="mt-1 font-mono text-sm">{selected.track_confidence != null ? `${Math.round(selected.track_confidence * 100)}%` : "Unverified"}</p></div><div><p className="text-[0.65rem] text-muted-foreground">Current frame</p><p className={cn("mt-1 text-xs font-medium", currentPoint?.bbox ? "text-status-ok" : "text-muted-foreground")}>{currentPoint?.bbox ? "Player visible" : "Outside track"}</p></div></div>
+        <p className="mt-3 text-[0.65rem] leading-relaxed text-muted-foreground">Use the correction form below to assign a jersey, team, or roster identity.</p>
+      </div> : <p className="mb-4 text-xs leading-relaxed text-muted-foreground">Select a player box on the film or a track below to inspect and correct its identity.</p>}
+      {loading ? <p role="status" className="text-xs text-muted-foreground">Loading player tracks…</p> : tracklets.length ? <>
+        <div role="group" aria-label="Filter player tracks by team" className="mb-3 flex gap-1 rounded-md bg-background/40 p-1">{[{ id: "all", label: "All" }, { id: "home", label: "Toledo" }, { id: "away", label: "Opponent" }].map((filter) => <button key={filter.id} type="button" aria-pressed={teamFilter === filter.id} onClick={() => setTeamFilter(filter.id)} className={cn("min-h-8 flex-1 rounded px-2 text-[0.7rem] font-medium transition-colors", teamFilter === filter.id ? "bg-secondary text-foreground" : "text-muted-foreground hover:text-foreground")}>{filter.label}</button>)}</div>
+        <div className="max-h-60 space-y-1 overflow-y-auto" aria-label="Player track list">{tracklets.map((track, index) => {
+          if (teamFilter !== "all" && track.team_label !== teamFilter) return null;
+          const pointIndex = activeTrackPointIndex(track, currentTimeSeconds, fps);
+          const visible = pointIndex >= 0 && track.track_points[pointIndex]?.bbox != null;
+          const name = track.player_id ? playerNamesById.get(track.player_id) : null;
+          return <button key={track.id} type="button" onClick={() => onSelect(track.id)} aria-pressed={selectedTrackletId === track.id} aria-label={`Inspect ${name ?? `track T${index + 1}`}`} className={cn("flex w-full items-center gap-2.5 rounded-md border px-2.5 py-2 text-left transition-colors", selectedTrackletId === track.id ? "border-primary/35 bg-primary/10" : "border-transparent hover:border-border-soft hover:bg-secondary/50")}>
+            <span className={cn("flex size-8 shrink-0 items-center justify-center rounded-md border font-mono text-[0.65rem]", track.team_label === "home" ? "border-primary/20 bg-primary/5 text-primary" : track.team_label === "away" ? "border-status-info/25 bg-status-info/5 text-status-info" : "border-border-soft bg-secondary text-muted-foreground")}>T{index + 1}</span>
+            <span className="min-w-0 flex-1"><span className="block truncate text-xs font-medium">{name ?? "Unassigned player"}</span><span className="mt-0.5 block text-[0.6rem] text-muted-foreground">{track.team_label === "home" ? "Toledo" : track.team_label === "away" ? "Opponent" : "Team unknown"}{track.track_confidence != null ? ` · ${Math.round(track.track_confidence * 100)}%` : ""}</span></span>
+            <span className={cn("size-1.5 shrink-0 rounded-full", visible ? "bg-status-ok" : "bg-muted-foreground/25")} title={visible ? "Visible in this frame" : "Outside current frame"} />
+          </button>;
+        })}</div>
+        {teamFilter !== "all" && !tracklets.some((track) => track.team_label === teamFilter) ? <p className="py-3 text-xs text-muted-foreground">No tracks assigned to this team yet.</p> : null}
+      </> : <div className="rounded-lg border border-dashed border-border-soft px-3 py-4 text-center"><ScanLine className="mx-auto mb-2 size-6 text-muted-foreground/60" /><p className="text-xs font-medium">Tracking will appear here</p><p className="mt-1 text-[0.7rem] leading-relaxed text-muted-foreground">Process this film with a configured vision model to see player boxes and identities.</p></div>}
+    </div>
+  </Card>;
 }
 
 /**
@@ -682,10 +766,14 @@ function OverlayToggles({
   active,
   overlayState,
   onToggle,
+  showTrails,
+  onToggleTrails,
 }: {
   active: ReadonlySet<OverlayLayerKey>;
   overlayState: OverlayState;
   onToggle: (key: OverlayLayerKey) => void;
+  showTrails: boolean;
+  onToggleTrails: () => void;
 }) {
   const layersAvailable =
     overlayState.kind === "ready" || overlayState.kind === "empty"
@@ -696,8 +784,9 @@ function OverlayToggles({
       data-testid="overlay-toggles"
       role="group"
       aria-label="Overlay layer toggles"
-      className="mt-3 flex flex-wrap gap-2"
+      className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-border-soft pt-3"
     >
+      <span className="mr-1 inline-flex items-center gap-1.5 text-[0.65rem] font-semibold uppercase tracking-wider text-muted-foreground"><Layers className="size-3.5" /> Layers</span>
       {LAYER_TOGGLES.map((layer) => {
         const isActive = active.has(layer.key);
         // ``raw`` and ``field`` are always available; data layers report
@@ -717,13 +806,14 @@ function OverlayToggles({
             data-testid={`overlay-toggle-${layer.key}`}
             disabled={!layerHasData && layer.key !== "raw"}
             className={cn(
-              "rounded-full border px-2.5 py-1 text-xs transition-colors",
-              isActive
+              "inline-flex min-h-8 items-center gap-1.5 rounded-md border px-2.5 py-1 text-[0.7rem] font-medium transition-colors",
+              isActive && layerHasData
                 ? "border-primary bg-primary/15 text-primary"
                 : "border-border-soft bg-transparent text-muted-foreground hover:border-border hover:text-foreground",
               !layerHasData && "cursor-not-allowed opacity-55",
             )}
           >
+            {isActive && layerHasData ? <Check className="size-3" aria-hidden /> : null}
             {layer.label}
             {!layerHasData && layer.key !== "raw" && layer.key !== "field"
               ? " · empty"
@@ -731,6 +821,7 @@ function OverlayToggles({
           </button>
         );
       })}
+      <button type="button" aria-pressed={showTrails} disabled={!active.has("tracks") || active.has("raw") || !layersAvailable?.tracklets} onClick={onToggleTrails} className={cn("inline-flex min-h-8 items-center gap-1.5 rounded-md border px-2.5 py-1 text-[0.7rem] font-medium disabled:cursor-not-allowed disabled:opacity-45", showTrails && active.has("tracks") && layersAvailable?.tracklets ? "border-primary/35 bg-primary/10 text-primary" : "border-border-soft text-muted-foreground")}><Route className="size-3" /> Trails</button>
     </div>
   );
 }
@@ -786,7 +877,8 @@ function EventTimeline({
   const playheadPct = Math.min(1, Math.max(0, currentTime / clipDuration));
 
   return (
-    <div className="mt-3">
+    <div className="mt-4 rounded-lg border border-border-soft bg-background/30 px-3 pb-3 pt-2.5">
+      <div className="mb-2 flex items-center justify-between gap-3"><h4 className="text-[0.65rem] font-semibold uppercase tracking-wider text-muted-foreground">Play timeline</h4><span className="font-mono text-[0.6rem] text-muted-foreground">{events.length} tagged event{events.length === 1 ? "" : "s"}</span></div>
       <div
         ref={trackRef}
         data-testid="event-timeline"
@@ -796,8 +888,21 @@ function EventTimeline({
         aria-valuemax={Math.round(clipDuration * 10) / 10}
         aria-valuenow={Math.round(currentTime * 10) / 10}
         aria-valuetext={`${currentTime.toFixed(1)} seconds`}
+        aria-orientation="horizontal"
         tabIndex={0}
-        className="relative h-7 cursor-pointer touch-none rounded bg-secondary/60"
+        className="relative h-9 cursor-pointer touch-none rounded-md border border-border-soft bg-secondary/60"
+        onKeyDown={(e) => {
+          if (e.target !== e.currentTarget) return;
+          if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+            e.preventDefault();
+            e.stopPropagation();
+            onSeek(Math.min(clipDuration, Math.max(0, currentTime + (e.key === "ArrowRight" ? 1 : -1) * (e.shiftKey ? 1 : 0.1))));
+          } else if (e.key === "Home" || e.key === "End") {
+            e.preventDefault();
+            e.stopPropagation();
+            onSeek(e.key === "Home" ? 0 : clipDuration);
+          }
+        }}
         onPointerDown={(e) => {
           draggingRef.current = true;
           e.currentTarget.setPointerCapture(e.pointerId);
@@ -814,6 +919,7 @@ function EventTimeline({
           draggingRef.current = false;
         }}
       >
+        <div aria-hidden className="pointer-events-none absolute inset-0 opacity-25" style={{ backgroundImage: "repeating-linear-gradient(to right, transparent 0, transparent calc(10% - 1px), var(--muted-foreground) calc(10% - 1px), var(--muted-foreground) 10%)", backgroundSize: "100% 7px", backgroundRepeat: "no-repeat", backgroundPosition: "center bottom" }} />
         {/* Elapsed fill */}
         <div
           aria-hidden
@@ -834,7 +940,7 @@ function EventTimeline({
                 e.stopPropagation();
                 onSeek(t);
               }}
-              className="absolute bottom-1 top-1 w-1 -translate-x-0.5 cursor-pointer rounded-sm bg-primary hover:w-1.5"
+              className="absolute inset-y-0 z-10 w-5 -translate-x-1/2 cursor-pointer rounded-sm after:absolute after:inset-y-1.5 after:left-1/2 after:w-1 after:-translate-x-1/2 after:rounded-sm after:bg-primary hover:bg-primary/15"
               style={{ left: `${pct * 100}%` }}
             />
           );
@@ -843,10 +949,12 @@ function EventTimeline({
         <div
           aria-hidden
           data-testid="timeline-playhead"
-          className="absolute bottom-0 top-0 w-0.5 -translate-x-px bg-foreground"
+          className="pointer-events-none absolute bottom-0 top-0 z-20 w-0.5 -translate-x-px rounded bg-foreground shadow-[0_0_8px_rgba(255,255,255,0.3)]"
           style={{ left: `${playheadPct * 100}%` }}
         />
       </div>
+      <div aria-hidden className="mt-1.5 flex justify-between font-mono text-[0.6rem] text-muted-foreground"><span>0.0s</span><span>{(clipDuration / 2).toFixed(1)}s</span><span>{clipDuration.toFixed(1)}s</span></div>
+      {events.length > 0 ? <div className="mt-3 flex flex-wrap gap-1.5">{events.map(({ event, t }) => <button key={event.id} type="button" onClick={() => onSeek(t)} aria-label={`Seek to ${event.event_type.replaceAll("_", " ")} at ${t.toFixed(1)} seconds`} className={cn("inline-flex min-h-7 items-center gap-2 rounded border px-2 text-[0.65rem] transition-colors", Math.abs(t - currentTime) <= 0.4 ? "border-primary/40 bg-primary/10 text-primary" : "border-border-soft text-muted-foreground hover:border-border hover:text-foreground")}><span className="size-1 rounded-full bg-current" /><span className="capitalize">{event.event_type.replaceAll("_", " ")}</span><span className="font-mono opacity-70">{t.toFixed(1)}s</span></button>)}</div> : null}
       {events.length === 0 && (
         <p data-testid="event-timeline-empty" className="mt-1 text-xs text-muted-foreground">
           No events tagged for this clip — drag the bar to scrub.
@@ -917,11 +1025,11 @@ function OverlaySummary({
         />
       )}
       {showLabels && payload.labels.length > 0 && (
-        <div data-testid="overlay-labels-list" className="mt-2">
-          <p className="text-[0.68rem] font-semibold uppercase tracking-widest text-muted-foreground">
-            Labels
-          </p>
-          <ul className="my-1 list-disc pl-4.5 text-[0.8rem]">
+        <details data-testid="overlay-labels-list" className="mt-3 rounded-lg border border-border-soft p-3">
+          <summary className="cursor-pointer text-xs font-medium text-muted-foreground">
+            Model suggestions · {payload.labels.length}
+          </summary>
+          <ul className="mb-1 mt-3 list-disc pl-4.5 text-[0.8rem]">
             {payload.labels.slice(0, 6).map((lb) => (
               <li key={lb.id}>
                 <strong>{lb.label_type}</strong>
@@ -932,7 +1040,7 @@ function OverlaySummary({
               </li>
             ))}
           </ul>
-        </div>
+        </details>
       )}
       {showMetrics && payload.metrics.length > 0 && (
         <div data-testid="overlay-metrics-list" className="mt-2">

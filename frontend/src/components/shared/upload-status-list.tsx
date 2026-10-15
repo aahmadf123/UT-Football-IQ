@@ -7,6 +7,7 @@
  */
 
 import { Trash2 } from "lucide-react";
+import Link from "next/link";
 import { useAppState, type UploadedClip, type UploadPhase } from "@/lib/app-state";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -61,7 +62,7 @@ export function UploadStatusList({ uploads }: { uploads: UploadedClip[] }) {
                 {(u.sizeBytes / (1024 * 1024)).toFixed(1)} MB
               </span>
               <StatusBadge tone={phaseTone(u.phase)} dot>
-                {phaseLabel(u.phase)}
+                {u.phase === "done" && u.duplicate ? "Already in library" : phaseLabel(u.phase)}
                 {u.phase === "uploading" && ` ${u.progress}%`}
               </StatusBadge>
             </div>
@@ -71,8 +72,16 @@ export function UploadStatusList({ uploads }: { uploads: UploadedClip[] }) {
             {u.phase === "error" && u.error && (
               <div className="mt-1 text-xs text-status-danger">{u.error}</div>
             )}
+            {u.phase === "done" && u.duplicate && (
+              <p className="mt-1 text-xs text-muted-foreground">Existing session and tags preserved.</p>
+            )}
           </div>
           <div className="flex shrink-0 items-center gap-2">
+            {u.phase === "done" && u.videoId && (
+              <Button asChild variant="outline" size="sm">
+                <Link href={`/clip-review/?videoId=${encodeURIComponent(u.videoId)}`}>Open recording</Link>
+              </Button>
+            )}
             {u.phase === "error" && (
               <Button variant="outline" size="sm" onClick={() => retryUpload(u.id)}>
                 Retry upload

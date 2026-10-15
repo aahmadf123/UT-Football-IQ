@@ -131,3 +131,60 @@ def test_tick_route_is_not_in_the_public_schema(monkeypatch: Any) -> None:
         assert not any(p.startswith("/internal") for p in schema.get("paths", {}))
     finally:
         _clear(monkeypatch)
+
+
+def test_runtime_activity_requires_scheduler_token(monkeypatch: Any) -> None:
+    _with_token(monkeypatch)
+    _stub_db()
+    try:
+        with TestClient(app) as client:
+            assert client.get("/internal/runtime/activity").status_code == 401
+    finally:
+        app.dependency_overrides.clear()
+        _clear(monkeypatch)
+
+
+def test_runtime_activity_only_retains_live_hosted_leases(monkeypatch: Any) -> None:
+    from sqlalchemy.dialects import postgresql
+
+    _with_token(monkeypatch)
+    database = AsyncMock()
+    database.scalar.return_value = True
+
+    async def session() -> Any:
+        yield database
+
+    app.dependency_overrides[get_db] = session
+    try:
+        with TestClient(app) as client:
+            response = client.get(
+                "/internal/runtime/activity", headers={"Authorization": f"Bearer {TOKEN}"}
+            )
+        assert response.status_code == 200
+        assert response.json() == {"active": True}
+        query = database.scalar.call_args.args[0].compile(dialect=postgresql.dialect())
+        assert "lease_expires_at >" in str(query)
+        assert "cloudflare-cpu-primary" in query.params.values()
+        assert "running" in query.params.values()
+    finally:
+        app.dependency_overrides.clear()
+        _clear(monkeypatch)
+
+
+def test_runtime_recovery_is_scoped_to_hosted_worker(monkeypatch: Any) -> None:
+    _with_token(monkeypatch)
+    _stub_db()
+    try:
+        with patch(
+            "app.routers.internal.recover_shutdown_pauses", new=AsyncMock(return_value=2)
+        ) as recover:
+            with TestClient(app) as client:
+                response = client.post(
+                    "/internal/runtime/recover", headers={"Authorization": f"Bearer {TOKEN}"}
+                )
+        assert response.status_code == 200
+        assert response.json() == {"recovered": 2}
+        assert recover.call_args.kwargs == {"worker_id": "cloudflare-cpu-primary"}
+    finally:
+        app.dependency_overrides.clear()
+        _clear(monkeypatch)

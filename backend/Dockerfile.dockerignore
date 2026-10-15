@@ -1,0 +1,30 @@
+# This Dockerfile builds from the repo root. Exclude credentials, film, model
+# files, caches and local virtualenvs from the upload/build context entirely.
+**/.env
+**/.env.*
+!.env.example
+.git
+frontend
+local_app
+Drone Footage
+data
+reports
+tests_local
+**/node_modules
+**/.venv*
+**/venv
+**/__pycache__
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+**/.wrangler
+**/*.pt
+**/*.pth
+**/*.onnx
+**/*.bin
+**/*.safetensors
+**/*.mp4
+**/*.mov
+**/*.avi
+**/data/storage
+**/data/checkpoints

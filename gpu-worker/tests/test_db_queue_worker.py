@@ -69,6 +69,54 @@ def test_claim_invalidates_and_retries_on_401() -> None:
     assert client.post.call_count == 2
 
 
+def test_missing_heartbeat_registration_is_recreated() -> None:
+    client = MagicMock()
+    client.post.side_effect = [_response(404), _response(200)]
+    with patch.object(worker_main, "_auth_headers", return_value={}):
+        worker_main.heartbeat_worker(client)
+    assert client.post.call_count == 2
+    assert client.post.call_args_list[0].args[0].endswith("/heartbeat")
+    assert client.post.call_args_list[1].args[0].endswith("/workers/register")
+
+
+def test_registration_404_does_not_recurse() -> None:
+    client = MagicMock()
+    client.post.return_value = _response(404)
+    worker_main.register_worker(client)
+    assert client.post.call_count == 1
+
+
+def test_hosted_review_worker_does_not_advertise_quick(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("WORKER_PROFILES", "review")
+    assert worker_main.worker_capabilities()["profiles"] == ["review"]
+
+
+def test_hosted_size_guard_rejects_before_pipeline_download(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PIPELINE_HOSTED", "1")
+    with (
+        patch.object(worker_main, "_fetch_video", return_value={"size_bytes": 2**30}),
+        patch.object(worker_main, "_update_job_status") as update,
+        patch.object(worker_main, "process_pipeline_job") as pipeline,
+    ):
+        worker_main.process_job({"jobId": "j1", "jobType": "pipeline", "videoId": "v1"})
+    pipeline.assert_not_called()
+    assert update.call_args.args == ("j1", "failed")
+    assert "512 MiB" in update.call_args.kwargs["error_message"]
+
+
+def test_only_hosted_worker_advertises_shared_processing_limits(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PIPELINE_HOSTED", "1")
+    limits = worker_main.worker_capabilities()["metadata"]["processing_limits"]
+    assert limits["source_max_bytes"] == 512 * 1024**2
+    assert limits["duration_max_seconds"] == 300
+    monkeypatch.delenv("PIPELINE_HOSTED")
+    assert "processing_limits" not in worker_main.worker_capabilities()["metadata"]
+
+
 # ── _db_row_to_job ────────────────────────────────────────────────────────────
 
 

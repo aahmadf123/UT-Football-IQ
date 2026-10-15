@@ -43,7 +43,7 @@ test("sign-in form: valid credentials redirects to dashboard", async ({ page }) 
 
   // After successful sign-in the app returns to the dashboard.
   await page.waitForURL("/");
-  await expect(page.getByRole("link", { name: /Film Room/ })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Film Room", exact: true })).toBeVisible();
 });
 
 test("sign-in form: invalid credentials show an error", async ({ page }) => {
@@ -107,5 +107,5 @@ test("create-account tab: registration + auto-login redirects to dashboard", asy
 
   // After register + auto-login the app returns to the dashboard.
   await page.waitForURL("/");
-  await expect(page.getByRole("link", { name: /Film Room/ })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Film Room", exact: true })).toBeVisible();
 });

@@ -1,7 +1,7 @@
 // Tracking Spotlight: the dashboard hero that plays the latest processed clip
 // with real model overlays — and never fabricates boxes (repo rule #96).
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 vi.mock("next/link", () => ({
   default: ({ children, href }: { children: React.ReactNode; href: string }) => (
@@ -137,6 +137,63 @@ describe("CvSpotlight", () => {
     await waitFor(() => {
       expect(screen.getByText(/No plays detected yet/)).toBeTruthy();
     });
+  });
+
+  test("original-film spotlight seeks to the play, uses recording tracking time, and loops at its end", async () => {
+    installFetchRoutes([
+      { url: "/api/v1/videos/v-ready/clips", body: [CLIP] },
+      { url: "/api/v1/clips/c-1/overlays", body: {
+        ...OVERLAYS,
+        tracks_timebase: "recording", source_start_time_seconds: 10, source_fps: 30,
+        tracklets: [{ id: "t-source", player_id: null, start_frame: 300, end_frame: 495, team_label: "home", track_confidence: 0.9, track_points: [
+          { frame_number: 300, timestamp_seconds: 10, bbox: [100, 200, 160, 320] },
+          { frame_number: 315, timestamp_seconds: 10.5, bbox: [200, 200, 260, 320] },
+          { frame_number: 495, timestamp_seconds: 16.5, bbox: [300, 200, 360, 320] },
+        ] }],
+        events: [{ id: "source-snap", event_type: "snap", frame_number: 315, timestamp_seconds: 10.5, timebase: "recording" }],
+        layers_available: { tracklets: true, events: true, labels: false, metrics: false },
+      } },
+      { url: "download-url", body: { downloadUrl: "https://video.test/source.mp4" } },
+      { url: "/api/v1/videos", body: [READY_VIDEO] },
+    ]);
+    const { CvSpotlight, AppStateProvider } = await importSpotlight();
+    render(<AppStateProvider><CvSpotlight /></AppStateProvider>);
+    await screen.findByTestId("cv-spotlight-player");
+    const player = document.querySelector("video")!;
+    fireEvent.loadedMetadata(player);
+    expect(player.currentTime).toBe(10);
+    player.currentTime = 10.5;
+    fireEvent.timeUpdate(player);
+    expect(screen.getByTestId("overlay-tracklet-t-source").querySelector("rect")?.getAttribute("x")).toBe("200");
+    expect(screen.getByTestId("overlay-active-events").textContent).toContain("snap");
+    player.currentTime = 17;
+    fireEvent.timeUpdate(player);
+    expect(player.currentTime).toBe(10);
+  });
+
+  test("unsupported original film falls back to its clean clip and reports a second playback failure", async () => {
+    const fetchMock = installFetchRoutes([
+      { url: "/api/v1/videos/v-ready/clips", body: [CLIP] },
+      { url: "/api/v1/clips/c-1/overlays", body: OVERLAYS },
+      { url: "download-url?bucket=raw-video", body: { downloadUrl: "https://video.test/source.mov" } },
+      { url: "download-url?bucket=clips", body: { downloadUrl: "https://video.test/clean-preview.mp4" } },
+      { url: "/api/v1/videos", body: [READY_VIDEO] },
+    ]);
+    const { CvSpotlight, AppStateProvider } = await importSpotlight();
+    render(<AppStateProvider><CvSpotlight /></AppStateProvider>);
+    await screen.findByTestId("cv-spotlight-player");
+    expect(document.querySelector("video")?.getAttribute("src")).toBe("https://video.test/source.mov");
+    fireEvent.error(document.querySelector("video")!);
+    await waitFor(() => expect(document.querySelector("video")?.getAttribute("src")).toBe("https://video.test/clean-preview.mp4"));
+    const proxy = document.querySelector("video")!;
+    Object.defineProperty(proxy, "videoWidth", { configurable: true, value: 960 });
+    Object.defineProperty(proxy, "videoHeight", { configurable: true, value: 540 });
+    fireEvent.loadedMetadata(proxy);
+    expect(proxy.currentTime).toBe(0);
+    expect(screen.getByTestId("clip-overlay-svg").getAttribute("viewBox")).toBe("0 0 1920 1080");
+    fireEvent.error(proxy);
+    expect(screen.getByRole("alert").textContent).toContain("Playback failed");
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes("download-url")).length).toBe(2);
   });
 
   test("no processed film yet renders an honest empty state", async () => {

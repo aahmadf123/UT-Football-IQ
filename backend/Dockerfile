@@ -1,50 +1,62 @@
 # syntax=docker/dockerfile:1
-
-FROM python:3.12-slim AS base
-
-LABEL maintainer="Toledo Football Analytics"
-LABEL org.opencontainers.image.source="https://github.com/aahmadf123/Football-IQ"
+# Build from the repository root: docker build -f backend/Dockerfile .
+# The API and CPU pipeline share the existing Cloudflare Container, with
+# isolated Python environments and processes. The API never imports models.
+FROM python:3.12-slim-bookworm AS base
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
-WORKDIR /app
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg libgl1 libglib2.0-0 ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 
-# ── Dependencies ─────────────────────────────────────────────────────────────
 FROM base AS deps
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY backend/requirements.txt /tmp/backend-requirements.txt
+RUN --mount=type=secret,id=proxy_ca \
+    python -m venv /opt/api && \
+    if [ -f /run/secrets/proxy_ca ]; then export PIP_CERT=/run/secrets/proxy_ca; fi && \
+    /opt/api/bin/pip install -r /tmp/backend-requirements.txt
 
-# ── Application ───────────────────────────────────────────────────────────────
+COPY gpu-worker/requirements.txt gpu-worker/requirements-cpu.txt /tmp/worker/
+RUN --mount=type=secret,id=proxy_ca \
+    python -m venv /opt/worker && \
+    if [ -f /run/secrets/proxy_ca ]; then export PIP_CERT=/run/secrets/proxy_ca; fi && \
+    /opt/worker/bin/pip install -r /tmp/worker/requirements-cpu.txt
+
+# Download the existing baseline into the image, never into Git.
+# The installer verifies the exact published asset SHA256 before accepting it.
+COPY gpu-worker/scripts/install_pretrained.py /tmp/install_pretrained.py
+RUN --mount=type=secret,id=proxy_ca \
+    if [ -f /run/secrets/proxy_ca ]; then export SSL_CERT_FILE=/run/secrets/proxy_ca; fi && \
+    python /tmp/install_pretrained.py --output /opt/models/yolov8n.pt
+
 FROM deps AS app
-COPY . .
+WORKDIR /app
+COPY backend/ /app/
+COPY gpu-worker/ /worker/
 
-# Run as non-root
 RUN addgroup --system appgroup && adduser --system --ingroup appgroup appuser && \
-    mkdir -p /app/data/storage && chown -R appuser:appgroup /app/data
+    mkdir -p /app/data/storage /app/data/checkpoints /home/appuser/.config/ultralytics && \
+    chmod -R a+rX /app /worker && \
+    chown -R appuser:appgroup /app/data /worker /home/appuser
 USER appuser
 
+ENV PIPELINE_DEVICE=cpu \
+    PIPELINE_CPU_THREADS=1 \
+    OMP_NUM_THREADS=1 \
+    MKL_NUM_THREADS=1 \
+    MODEL_DETECT_PATH=/opt/models/yolov8n.pt \
+    PIPELINE_CHECKPOINT_ROOT=/app/data/checkpoints \
+    PIPELINE_STORAGE_TRANSPORT=api \
+    YOLO_CONFIG_DIR=/home/appuser/.config/ultralytics
+
 EXPOSE 8000
+HEALTHCHECK --interval=30s --timeout=5s --start-period=180s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"
-
-# Deliberately ONE worker.
-#
-# `app/routers/alerts_sse.py` keeps its subscriber map in process memory. With
-# --workers 4, uvicorn forks four processes with four independent maps, so an
-# alert published by the process handling the POST is never delivered to a coach
-# whose GET /alerts/stream landed on one of the other three. The bug is silent:
-# the stream stays open and simply never emits.
-#
-# Running one container instance is therefore necessary but not sufficient --
-# the fork has to go too. Raising this is safe only once that map moves to a
-# Durable Object or the frontend falls back to polling.
-#
-# Capacity is not the constraint it looks like: the app is async and I/O-bound,
-# so a single worker serves a coaching staff comfortably. The one CPU-bound path
-# is PDF report rendering, which runs in a background task and briefly occupies
-# the event loop.
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
+# The supervisor keeps exactly one uvicorn process (SSE subscriber ownership),
+# starts a separate inference process, and lets it pause jobs before API exit.
+CMD ["python", "/app/scripts/hosted_runtime.py"]

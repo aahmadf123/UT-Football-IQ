@@ -48,6 +48,12 @@ export interface Env {
   SEED_ADMIN_PASSWORD?: string;
   SEED_WORKER_EMAIL?: string;
   SEED_WORKER_PASSWORD?: string;
+  /** Private CFBD credentials; forwarded only to the server container. */
+  CFBD_API_KEY?: string;
+  CFBD_BASE_URL?: string;
+  CFBD_CACHE_STALE_AFTER_HOURS?: string;
+  /** auto (default) enables the CPU worker when service-account secrets exist. */
+  HOSTED_PROCESSING_ENABLED?: string;
 
   // ── Vars ────────────────────────────────────────────────────────────────
   /** Comma-separated exact origins allowed to call the API from a browser. */

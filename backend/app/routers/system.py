@@ -118,6 +118,7 @@ async def system_status(
                 "models": cap.get("models", {}),
                 "last_seen_at": row.last_seen_at.isoformat(),
                 "online": online,
+                "processing_limits": (cap.get("metadata") or {}).get("processing_limits"),
             }
         )
     active = [w for w in workers if w["online"]]
@@ -128,6 +129,10 @@ async def system_status(
     )
     supervisor = _supervisor_status()
     available_profiles = {p for w in active for p in w["profiles"]}
+    review_ready = writable and "review" in available_profiles
+    processing_ready = review_ready or (
+        ready and bool(available_profiles.intersection({"quick", "detailed"}))
+    )
     return {
         "mode": "local" if get_settings().football_iq_data_dir else "hosted",
         "state": "ready" if ready else "review_only",
@@ -146,32 +151,35 @@ async def system_status(
         },
         "capabilities": {
             "film_review": writable,
-            "processing": ready,
+            "processing": processing_ready,
             "calibrated_metrics": False,
             "training": False,
         },
         "supervisor": supervisor,
+        "processing_limits": next(
+            (worker["processing_limits"] for worker in active if worker["processing_limits"]),
+            None,
+        ),
         "profiles": [
             {
                 "id": "review",
                 "label": "Film review",
                 "description": "Import, clip and annotate film without a model.",
-                "available": writable,
+                "available": review_ready,
             },
             {
                 "id": "quick",
                 "label": "Quick processing",
                 "description": (
-                    "Local detection and tracking; camera calibration is checked per film."
+                    "Detection and tracking on the connected processor; "
+                    "calibration is checked per film."
                 ),
                 "available": ready and "quick" in available_profiles,
             },
             {
                 "id": "detailed",
                 "label": "Detailed processing",
-                "description": (
-                    "More local analysis time; results stay experimental until reviewed."
-                ),
+                "description": ("More analysis time; results stay experimental until reviewed."),
                 "available": ready and "detailed" in available_profiles,
             },
         ],

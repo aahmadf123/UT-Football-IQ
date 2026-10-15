@@ -58,6 +58,10 @@ interface OverlayCanvasProps {
   metricTextByTrackletId?: ReadonlyMap<string, string>;
   selectedTrackletId?: string | null;
   onSelectTracklet?: (trackletId: string) => void;
+  /** Events can use either clock; their on-screen activity uses clip time. */
+  eventCurrentTimeSeconds?: number;
+  sourceStartTimeSeconds?: number;
+  showTrails?: boolean;
 }
 
 export function OverlayCanvas({
@@ -72,6 +76,9 @@ export function OverlayCanvas({
   metricTextByTrackletId,
   selectedTrackletId,
   onSelectTracklet,
+  eventCurrentTimeSeconds = currentTimeSeconds,
+  sourceStartTimeSeconds = 0,
+  showTrails = true,
 }: OverlayCanvasProps) {
   const showTracks = activeLayers.has("tracks");
   const showEvents = activeLayers.has("events");
@@ -82,7 +89,6 @@ export function OverlayCanvas({
   // off, so those toggles aren't dead. Nothing on → no canvas at all.
   if (!showTracks && !showLabels && !showMetrics && !showEvents) return null;
 
-  const currentFrame = Math.round(currentTimeSeconds * fps);
   const viewW = videoWidth ?? DEFAULT_VIEW_W;
   const viewH = videoHeight ?? DEFAULT_VIEW_H;
 
@@ -109,27 +115,29 @@ export function OverlayCanvas({
             key={t.id}
             tracklet={t}
             index={i}
-            currentFrame={currentFrame}
-          currentTimeSeconds={currentTimeSeconds}
-          fps={fps}
+            currentTimeSeconds={currentTimeSeconds}
+            fps={fps}
             viewW={viewW}
             viewH={viewH}
             videoWidth={videoWidth}
             videoHeight={videoHeight}
             showBox={showTracks}
+            showTrail={showTrails}
             showLabel={showLabels}
             metricText={showMetrics ? metricTextByTrackletId?.get(t.id) : undefined}
             playerName={
               t.player_id != null ? playerNamesById?.get(t.player_id) : undefined
             }
             selected={selectedTrackletId === t.id}
+            dimmed={Boolean(selectedTrackletId && selectedTrackletId !== t.id)}
             onSelect={onSelectTracklet}
           />
         ))}
       {showEvents && (
         <ActiveEventBadges
           events={events}
-          currentTimeSeconds={currentTimeSeconds}
+          currentTimeSeconds={eventCurrentTimeSeconds}
+          sourceStartTimeSeconds={sourceStartTimeSeconds}
           fps={fps}
           viewW={viewW}
           viewH={viewH}
@@ -142,7 +150,6 @@ export function OverlayCanvas({
 function TrackletGlyph({
   tracklet,
   index,
-  currentFrame,
   currentTimeSeconds,
   fps,
   viewW,
@@ -150,10 +157,12 @@ function TrackletGlyph({
   videoWidth,
   videoHeight,
   showBox,
+  showTrail,
   showLabel,
   metricText,
   playerName,
   selected,
+  dimmed,
   onSelect,
 }: {
   tracklet: OverlayTracklet;
@@ -161,7 +170,6 @@ function TrackletGlyph({
   // tag next to the marker so a coach can reference the same track in the
   // corrections panel.
   index: number;
-  currentFrame: number;
   currentTimeSeconds: number;
   fps: number;
   viewW: number;
@@ -170,13 +178,14 @@ function TrackletGlyph({
   videoHeight: number | null;
   /** Tracks layer on — draw the bounding box + trail. */
   showBox: boolean;
+  showTrail: boolean;
   showLabel: boolean;
   metricText: string | undefined;
   playerName: string | undefined;
   selected: boolean;
+  dimmed: boolean;
   onSelect?: (trackletId: string) => void;
 }) {
-  void currentFrame;
   const activeIdx = activeTrackPointIndex(tracklet, currentTimeSeconds, fps);
   if (activeIdx < 0) return null;
 
@@ -221,8 +230,9 @@ function TrackletGlyph({
         }
       }}
       style={{ pointerEvents: "auto", cursor: onSelect ? "pointer" : "default" }}
+      opacity={dimmed ? 0.45 : 1}
     >
-      {showBox && trail.length > 1 && (
+      {showBox && showTrail && trail.length > 1 && (
         <path
           d={trail.join(" ")}
           stroke={color}
@@ -245,20 +255,29 @@ function TrackletGlyph({
         />
       )}
       {(showLabel || showBox) && (
+        <g>
+        <rect
+          x={box.x - 1 * scale}
+          y={Math.max(box.y - 24 * scale, 0)}
+          width={(showLabel ? labelText.length * 7.2 + 16 : tag.length * 7 + 14) * scale}
+          height={20 * scale}
+          rx={3 * scale}
+          fill={selected ? color : "rgba(5,13,24,0.9)"}
+          stroke={color}
+          strokeWidth={0.8 * scale}
+        />
         <text
           data-testid={`overlay-tracklet-tag-${tracklet.id}`}
-          x={box.x}
-          y={Math.max(box.y - 6 * scale, 12 * scale)}
+          x={box.x + 6 * scale}
+          y={Math.max(box.y - 10 * scale, 14 * scale)}
           fontSize={(showLabel ? 13 : 11) * scale}
           fontFamily="ui-sans-serif"
           fontWeight={700}
-          fill={color}
-          stroke="rgba(15,23,42,0.85)"
-          strokeWidth={0.6 * scale}
-          paintOrder="stroke"
+          fill={selected ? "#071221" : color}
         >
           {showLabel ? labelText : tag}
         </text>
+        </g>
       )}
       {metricText != null && (
         <text
@@ -310,15 +329,17 @@ function ActiveEventBadges({
   fps,
   viewW,
   viewH,
+  sourceStartTimeSeconds,
 }: {
   events: OverlayEvent[];
   currentTimeSeconds: number;
   fps: number;
   viewW: number;
   viewH: number;
+  sourceStartTimeSeconds: number;
 }) {
   const active = events.filter((e) => {
-    const t = eventTimeSeconds(e, fps);
+    const t = eventTimeSeconds(e, fps, sourceStartTimeSeconds);
     if (t == null) return false;
     return Math.abs(t - currentTimeSeconds) <= EVENT_ACTIVE_WINDOW_S;
   });
@@ -353,9 +374,10 @@ function ActiveEventBadges({
   );
 }
 
-export function eventTimeSeconds(e: OverlayEvent, fps: number): number | null {
+/** Normalize an event onto the clip clock; unknown timestamps are not guessed. */
+export function eventTimeSeconds(e: OverlayEvent, fps: number, sourceStartTimeSeconds = 0): number | null {
   if (e.timebase === "unknown") return null;
-  if (e.timestamp_seconds != null) return e.timestamp_seconds;
-  if (e.frame_number != null && fps > 0) return e.frame_number / fps;
-  return null;
+  const seconds = e.timestamp_seconds ?? (e.frame_number != null && fps > 0 ? e.frame_number / fps : null);
+  if (seconds == null || !Number.isFinite(seconds)) return null;
+  return seconds - (e.timebase === "recording" ? sourceStartTimeSeconds : 0);
 }

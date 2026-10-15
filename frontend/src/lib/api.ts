@@ -288,10 +288,15 @@ export function exportCorrections(modelScope: string, token?: string): Promise<{
   return mutateJSON(`/api/v1/corrections/export?${new URLSearchParams({ model_scope: modelScope })}`, "POST", {}, token);
 }
 
+export interface VideoRegistrationResult extends ApiVideo {
+  /** The server reused identical film and preserved its existing session and tags. */
+  duplicate?: boolean;
+}
+
 export async function registerVideo(
   data: RegisterVideoRequest,
   token?: string,
-): Promise<ApiVideo> {
+): Promise<VideoRegistrationResult> {
   const base = apiBase();
   const res = await fetch(`${base}/api/v1/videos`, {
     method: "POST",
@@ -302,7 +307,7 @@ export async function registerVideo(
     const body = await res.text();
     throw new Error(`Video registration failed (${res.status}): ${body}`);
   }
-  return res.json() as Promise<ApiVideo>;
+  return res.json() as Promise<VideoRegistrationResult>;
 }
 
 // ── Inbox Status ─────────────────────────────────────────────────────────────

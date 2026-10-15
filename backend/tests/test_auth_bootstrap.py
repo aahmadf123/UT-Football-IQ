@@ -7,6 +7,7 @@ changes are admin-only, and the last admin cannot demote itself.
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from collections.abc import AsyncGenerator
 
@@ -33,6 +34,60 @@ from sqlalchemy.ext.asyncio import (
 )
 
 _USERS = Base.metadata.tables["users"]
+
+
+@pytest.mark.parametrize("cross_demote", [False, True])
+async def test_concurrent_role_changes_preserve_an_active_admin(db, cross_demote):
+    async with db() as session:
+        first = await register(_register_request("first-admin@example.com"), session)
+        second = await register(_register_request("second-admin@example.com"), session)
+        await session.commit()
+        await update_user_role(second.id, RoleUpdateRequest(role=UserRole.admin), session, first)
+        await session.commit()
+        ids = [first.id, second.id]
+
+    ready = asyncio.Event()
+    arrived = 0
+
+    async def demote(index):
+        nonlocal arrived
+        async with db() as session:
+            actor = await session.get(User, ids[index])
+            arrived += 1
+            if arrived == 2:
+                ready.set()
+            await ready.wait()
+            target = ids[1 - index] if cross_demote else ids[index]
+            try:
+                await update_user_role(
+                    target,
+                    RoleUpdateRequest(role=UserRole.viewer),
+                    session,
+                    actor,
+                )
+                await session.commit()
+                return 200
+            except HTTPException as error:
+                await session.rollback()
+                return error.status_code
+
+    outcomes = await asyncio.gather(demote(0), demote(1))
+    assert outcomes.count(200) == 1
+    assert (403 if cross_demote else 409) in outcomes
+    async with db() as session:
+        admins = (
+            (
+                await session.execute(
+                    select(User).where(
+                        User.role == UserRole.admin,
+                        User.is_active.is_(True),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert len(admins) == 1
 
 
 @pytest_asyncio.fixture
