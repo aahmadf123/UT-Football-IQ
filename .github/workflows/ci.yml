@@ -65,13 +65,16 @@ jobs:
       - name: Type check (mypy)
         run: mypy app
 
+      - name: Migrate test database
+        run: alembic upgrade head
+
       - name: Run unit tests
         run: pytest -v --cov=app --cov-report=xml
 
-      - name: Migration check (alembic up then down)
+      - name: Migration check (alembic down then up)
         run: |
-          alembic upgrade head
           alembic downgrade base
+          alembic upgrade head
 
       - name: Upload coverage
         uses: codecov/codecov-action@v7
