@@ -31,6 +31,7 @@ import {
 } from "@/components/ui/table";
 import { StatChip } from "@/components/composite/stat-chip";
 import { ConfidenceBadge } from "@/components/composite/confidence-badge";
+import { RosterEditor, RosterImport } from "@/components/roster-editor";
 
 /** Canonical profile link — CSR detail page that works for any real id. */
 export function playerProfileHref(id: string): string {
@@ -40,10 +41,13 @@ export function playerProfileHref(id: string): string {
 const ALL_GROUPS = "__all__";
 
 export function PlayersView() {
-  const { data, selectedPlayer, setSelectedPlayerId, playersStatus } = useAppState();
+  const { data, selectedPlayer, setSelectedPlayerId, playersStatus, currentRole } = useAppState();
   const router = useRouter();
   const [query, setQuery] = useState("");
   const [group, setGroup] = useState<string>(ALL_GROUPS);
+  const [editing, setEditing] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
+  const canEditRoster = currentRole === "admin" || currentRole === "analyst" || currentRole === "coach";
 
   /**
    * Whole-row navigation to the player profile. The name cell keeps its real
@@ -80,12 +84,15 @@ export function PlayersView() {
 
   return (
     <div className="grid gap-4 lg:grid-cols-3">
+      <RosterEditor playerId={editing} onClose={() => setEditing(null)} />
+      <RosterImport open={importing} onClose={() => setImporting(false)} />
       <Card className="lg:col-span-2">
         <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3">
-          <h2 className="font-display text-base font-semibold uppercase tracking-wide">
+          <h2 className="text-base font-semibold">
             Roster Intelligence
           </h2>
           <div className="flex flex-wrap items-center gap-2">
+            {canEditRoster ? <><Button variant="outline" size="sm" onClick={() => setImporting(true)}>Import roster</Button><Button size="sm" onClick={() => setEditing("")}>Add player</Button></> : null}
             <NativeSelect
               value={group}
               onChange={(e) => setGroup(e.target.value)}
@@ -115,6 +122,7 @@ export function PlayersView() {
           </div>
         </CardHeader>
         <CardContent>
+          <p className="mb-4 text-sm text-muted-foreground">Measurements use identified, calibrated tracking from your library. Missing evidence appears as a dash.</p>
           {visible.length === 0 ? (
             <p className="text-xs text-muted-foreground">
               {query.trim() || group !== ALL_GROUPS
@@ -194,10 +202,11 @@ export function PlayersView() {
                   <UserRound className="size-4" /> Open Full Profile
                 </Link>
               </Button>
+              {canEditRoster ? <Button variant="outline" className="mt-2 w-full" onClick={() => setEditing(selectedPlayer.id)}>Edit roster details</Button> : null}
             </>
           ) : (
             <>
-              <h2 className="font-display text-base font-semibold uppercase tracking-wide">
+              <h2 className="text-base font-semibold">
                 Player Focus
               </h2>
               <p className="mt-2 text-xs text-muted-foreground">
@@ -230,7 +239,7 @@ export function PlayerFocus({
   return (
     <>
       <div className="flex items-center justify-between gap-2">
-        <h2 className="font-display text-base font-semibold uppercase tracking-wide">
+        <h2 className="text-base font-semibold">
           Player Focus
         </h2>
         <NativeSelect

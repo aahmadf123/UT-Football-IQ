@@ -166,7 +166,7 @@ describe("DashboardPage — live backend", () => {
     // lives there now (see composite/job-row.test.tsx).
     const pipeline = screen.getByTestId("dashboard-jobs");
     expect(pipeline.textContent).toContain("1 running");
-    expect(pipeline.textContent).toContain("Pipeline detail");
+    expect(pipeline.textContent).toContain("Processing detail");
 
     // Alerts summary renders the real alert row.
     await waitFor(() => {
@@ -185,6 +185,7 @@ describe("DashboardPage — live backend", () => {
 describe("DashboardPage — offline backend", () => {
   test("shows honest offline states instead of fabricated data", async () => {
     vi.stubEnv("NEXT_PUBLIC_API_URL", "");
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
 
     const { DashboardPage, AppStateProvider } = await importPage();
     render(
@@ -195,14 +196,14 @@ describe("DashboardPage — offline backend", () => {
 
     await waitFor(() => {
       expect(
-        screen.getByText(/Inbox unavailable — not connected to the team server/),
+        screen.getByText(/Your local library is not connected/),
       ).toBeTruthy();
     });
     expect(
-      screen.getByText(/Film list unavailable — not connected to the team server/),
+      screen.getByText(/Open This computer to reconnect/),
     ).toBeTruthy();
     expect(
-      screen.getByText(/Alerts unavailable — not connected to the team server/),
+      screen.getAllByText(/Failed to fetch/).length,
     ).toBeTruthy();
     // No fixture rows leak in.
     expect(screen.queryByText(/Practice 5-14 All-22/)).toBeNull();

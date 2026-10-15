@@ -1,0 +1,2 @@
+# Build-only dependency; never required in a staff installation.
+pyinstaller==6.16.0

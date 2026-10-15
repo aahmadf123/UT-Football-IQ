@@ -12,9 +12,59 @@ from typing import Any
 import httpx
 import structlog
 
+from pipeline.runtime import (
+    PipelineInterrupted,
+    check_control,
+    lease_headers,
+    lease_payload,
+    stable_record_id,
+)
+
 log = structlog.get_logger(__name__)
 
 BACKEND_API_URL = os.environ.get("BACKEND_API_URL", "")
+
+
+_IDEMPOTENT_CREATES = frozenset(
+    {
+        "/api/v1/calibrations",
+        "/api/v1/tracklets",
+        "/api/v1/events",
+        "/api/v1/labels",
+        "/api/v1/metrics",
+        "/api/v1/pose/keypoints",
+    }
+)
+
+
+class _WorkerClient(httpx.Client):
+    def post(self, url: Any, *, json: Any = None, **kwargs: Any) -> httpx.Response:
+        check_control()
+        path = str(url).split("?", 1)[0]
+        if isinstance(json, dict) and (
+            path in _IDEMPOTENT_CREATES
+            or path.startswith("/api/v1/videos/")
+            and path.endswith("/clips")
+        ):
+            record_id = stable_record_id(path, json)
+            if record_id and not json.get("id"):
+                json = {**json, "id": record_id}
+        response = super().post(url, json=json, **kwargs)
+        _check_fence(response)
+        return response
+
+    def patch(self, url: Any, **kwargs: Any) -> httpx.Response:
+        check_control()
+        response = super().patch(url, **kwargs)
+        _check_fence(response)
+        return response
+
+
+def _check_fence(response: httpx.Response) -> None:
+    if response.status_code == 409:
+        detail = str(response.json().get("detail", "")).lower()
+        if "worker" in detail or "lease" in detail:
+            raise PipelineInterrupted("cancel" if "cancel" in detail else "lease_lost")
 
 
 def _client() -> httpx.Client:
@@ -27,7 +77,8 @@ def _client() -> httpx.Client:
             headers["Authorization"] = f"Bearer {bearer}"
     except ImportError:  # CLI contexts without the worker package on the path
         pass
-    return httpx.Client(base_url=BACKEND_API_URL, timeout=30, headers=headers)
+    headers.update(lease_headers())
+    return _WorkerClient(base_url=BACKEND_API_URL, timeout=30, headers=headers)
 
 
 def _offline() -> bool:
@@ -44,7 +95,11 @@ def _offline_record(payload: dict[str, Any]) -> dict[str, Any]:
     """
     import uuid
 
-    return {"id": str(uuid.uuid4()), "_offline": True, **payload}
+    return {
+        "id": stable_record_id("offline", payload) or str(uuid.uuid4()),
+        "_offline": True,
+        **payload,
+    }
 
 
 # ── Job status ────────────────────────────────────────────────────────────────
@@ -59,7 +114,7 @@ def update_job_status(
     """PATCH /api/v1/jobs/{job_id} to update status + optional artifacts."""
     if not BACKEND_API_URL:
         return
-    payload: dict[str, Any] = {"status": status}
+    payload: dict[str, Any] = {"status": status, **lease_payload(job_id)}
     if error_message:
         payload["error_message"] = error_message
     if output_artifacts:
@@ -67,6 +122,8 @@ def update_job_status(
     try:
         with _client() as c:
             c.patch(f"/api/v1/jobs/{job_id}", json=payload)
+    except PipelineInterrupted:
+        raise
     except Exception as exc:
         log.warning("backend_job_update_failed", job_id=job_id, error=str(exc))
 
@@ -107,6 +164,8 @@ def patch_video_status(
     try:
         with _client() as c:
             c.patch(f"/api/v1/videos/{video_id}/status", json=payload)
+    except PipelineInterrupted:
+        raise
     except Exception as exc:
         log.warning("backend_video_patch_failed", video_id=video_id, error=str(exc))
 
@@ -124,6 +183,7 @@ def create_clip(
     play_number: int | None = None,
     job_id: str | None = None,
     result_state: str | None = None,
+    provenance: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """POST /api/v1/videos/{video_id}/clips and return the created clip dict.
 
@@ -135,6 +195,14 @@ def create_clip(
         "start_time": start_time,
         "end_time": end_time,
         "boundary_source": boundary_source,
+        "provenance": provenance
+        or {
+            "source": boundary_source
+            if boundary_source in {"manual", "heuristic", "synthetic_test"}
+            else "unvalidated",
+            "method": "play_segmentation",
+            "validated": boundary_source == "manual",
+        },
     }
     if boundary_confidence is not None:
         payload["boundary_confidence"] = boundary_confidence
@@ -160,11 +228,16 @@ def patch_tracklet_player(tracklet_id: str, player_id: str) -> None:
         with _client() as c:
             resp = c.patch(f"/api/v1/tracklets/{tracklet_id}", json={"player_id": player_id})
             resp.raise_for_status()
+    except PipelineInterrupted:
+        raise
     except Exception as exc:
         log.warning("tracklet_player_patch_failed", tracklet_id=tracklet_id, error=str(exc))
+        raise
 
 
-def patch_clip_storage_uri(clip_id: str, storage_uri: str) -> None:
+def patch_clip_storage_uri(
+    clip_id: str, storage_uri: str, *, playback: dict[str, Any] | None = None
+) -> None:
     """PATCH /api/v1/clips/{clip_id} with the rendered overlay URI.
 
     Best-effort like the other writers, but 4xx/5xx are surfaced in the log
@@ -175,15 +248,22 @@ def patch_clip_storage_uri(clip_id: str, storage_uri: str) -> None:
         return
     try:
         with _client() as c:
-            resp = c.patch(f"/api/v1/clips/{clip_id}", json={"storage_uri": storage_uri})
+            payload: dict[str, Any] = {"storage_uri": storage_uri}
+            if playback is not None:
+                current = c.get(f"/api/v1/clips/{clip_id}")
+                current.raise_for_status()
+                provenance = dict(current.json().get("provenance") or {})
+                payload["provenance"] = {**provenance, "playback": playback}
+            resp = c.patch(f"/api/v1/clips/{clip_id}", json=payload)
             resp.raise_for_status()
+    except PipelineInterrupted:
+        raise
     except Exception as exc:
         log.warning("clip_overlay_patch_failed", clip_id=clip_id, error=str(exc))
+        raise
 
 
-def patch_clip_uncertainty(
-    clip_id: str, score: float | None, calibrated: bool
-) -> None:
+def patch_clip_uncertainty(clip_id: str, score: float | None, calibrated: bool) -> None:
     """PATCH a clip's active-learning uncertainty (Issues #145 / #146).
 
     This is what puts a clip in the coach's review queue. ``clip_uncertainty()``
@@ -206,6 +286,8 @@ def patch_clip_uncertainty(
                 json={"uncertainty_score": score, "uncertainty_calibrated": calibrated},
             )
             resp.raise_for_status()
+    except PipelineInterrupted:
+        raise
     except Exception as exc:
         log.warning("clip_uncertainty_patch_failed", clip_id=clip_id, error=str(exc))
 
@@ -225,6 +307,8 @@ def finalize_video_clips(video_id: str) -> int:
             resp = c.post(f"/api/v1/videos/{video_id}/clips/finalize")
             resp.raise_for_status()
             return int(resp.json().get("finalized_count", 0))
+    except PipelineInterrupted:
+        raise
     except Exception as exc:
         log.warning("backend_finalize_clips_failed", video_id=video_id, error=str(exc))
         return 0
@@ -297,6 +381,8 @@ def create_tracklet(
     track_confidence: float | None = None,
     team_label: str | None = None,
     job_id: str | None = None,
+    provenance: dict[str, Any] | None = None,
+    model_version_id: str | None = None,
 ) -> dict[str, Any]:
     """POST /api/v1/tracklets and return the created tracklet dict."""
     payload: dict[str, Any] = {
@@ -311,6 +397,10 @@ def create_tracklet(
         payload["team_label"] = team_label
     if job_id is not None:
         payload["job_id"] = job_id
+    if provenance is not None:
+        payload["provenance"] = provenance
+    if model_version_id is not None:
+        payload["model_version_id"] = model_version_id
     if _offline():
         return _offline_record(payload)
     with _client() as c:
@@ -332,11 +422,11 @@ def patch_tracklet_team_label(
             resp = c.patch(f"/api/v1/tracklets/{tracklet_id}", json=payload)
             resp.raise_for_status()
             return dict(resp.json())
+    except PipelineInterrupted:
+        raise
     except Exception as exc:
-        log.warning(
-            "tracklet_team_label_patch_failed", tracklet_id=tracklet_id, error=str(exc)
-        )
-        return None
+        log.warning("tracklet_team_label_patch_failed", tracklet_id=tracklet_id, error=str(exc))
+        raise
 
 
 # ── Events ────────────────────────────────────────────────────────────────────
@@ -349,6 +439,8 @@ def create_event(
     frame_number: int | None = None,
     timestamp_seconds: float | None = None,
     attributes: dict[str, Any] | None = None,
+    provenance: dict[str, Any] | None = None,
+    job_id: str | None = None,
 ) -> dict[str, Any]:
     """POST /api/v1/events and return the created event dict."""
     payload: dict[str, Any] = {"clip_id": clip_id, "event_type": event_type}
@@ -358,6 +450,13 @@ def create_event(
         payload["timestamp_seconds"] = timestamp_seconds
     if attributes is not None:
         payload["attributes"] = attributes
+        if provenance is None and isinstance(attributes.get("provenance"), dict):
+            provenance = attributes["provenance"]
+    if provenance is not None:
+        payload["provenance"] = provenance
+    current_job = job_id or lease_headers().get("X-Job-ID")
+    if current_job is not None:
+        payload["job_id"] = current_job
     if _offline():
         return _offline_record(payload)
     with _client() as c:
@@ -376,6 +475,8 @@ def create_label(
     clip_id: str | None = None,
     tracklet_id: str | None = None,
     source: str = "model",
+    model_version_id: str | None = None,
+    label_id: str | None = None,
 ) -> dict[str, Any]:
     """POST /api/v1/labels and return the created label dict."""
     payload: dict[str, Any] = {
@@ -383,10 +484,14 @@ def create_label(
         "label_value": label_value,
         "source": source,
     }
+    if label_id is not None:
+        payload["id"] = label_id
     if clip_id is not None:
         payload["clip_id"] = clip_id
     if tracklet_id is not None:
         payload["tracklet_id"] = tracklet_id
+    if model_version_id is not None:
+        payload["model_version_id"] = model_version_id
     if _offline():
         return _offline_record(payload)
     with _client() as c:
@@ -475,6 +580,8 @@ def create_alert(payload: dict[str, Any]) -> dict[str, Any] | None:
             resp = c.post("/api/v1/alerts", json=payload)
             resp.raise_for_status()
             return dict(resp.json())
+    except PipelineInterrupted:
+        raise
     except Exception as exc:
         log.warning("create_alert_failed", error=str(exc))
         return None
@@ -527,6 +634,8 @@ def fetch_roster_for_video(video_id: str) -> list[dict[str, Any]]:
             resp = c.get(f"/api/v1/videos/{video_id}")
             resp.raise_for_status()
             session_kind = (resp.json() or {}).get("session_kind")
+    except PipelineInterrupted:
+        raise
     except Exception as exc:
         log.warning("video_session_kind_fetch_failed", video_id=video_id, error=str(exc))
         return []
@@ -562,6 +671,8 @@ def fetch_roster() -> list[dict[str, Any]]:
             )
             resp.raise_for_status()
             players = resp.json()
+    except PipelineInterrupted:
+        raise
     except Exception as exc:
         log.warning("roster_fetch_failed", error=str(exc))
         return []
@@ -717,6 +828,8 @@ def create_play_predictions_batch(
             )
             resp.raise_for_status()
             return dict(resp.json())
+    except PipelineInterrupted:
+        raise
     except Exception as exc:
         log.warning("play_predictions_batch_failed", count=len(predictions), error=str(exc))
         return None
@@ -737,6 +850,8 @@ def fetch_opponent_priors(opponent_team: str | None = None) -> list[dict[str, An
             resp.raise_for_status()
             data = resp.json()
             return list(data) if isinstance(data, list) else []
+    except PipelineInterrupted:
+        raise
     except Exception as exc:
         log.warning("fetch_opponent_priors_failed", error=str(exc))
         return []
@@ -810,6 +925,57 @@ def _fetch_clips(
     return clips
 
 
+def fetch_video_context(video_id: str) -> dict[str, Any]:
+    if not BACKEND_API_URL:
+        return {}
+    with _client() as client:
+        response = client.get(f"/api/v1/videos/{video_id}")
+        response.raise_for_status()
+        return dict(response.json())
+
+
+def fetch_annotation_snapshot(video_id: str) -> list[dict[str, Any]]:
+    """Read effective cut/annotation revisions before resuming derived output."""
+    if not BACKEND_API_URL:
+        return []
+    # A failed read must fail the run rather than resume stale corrected data.
+    clips = _fetch_clips(video_id=video_id, limit=10000)
+    records = [
+        {
+            key: clip.get(key)
+            for key in (
+                "id",
+                "annotation_revision",
+                "start_time",
+                "end_time",
+                "calibration_version_id",
+                "boundary_source",
+                "label_data",
+                "personnel_grouping",
+                "down",
+                "distance",
+                "field_zone",
+                "play_number",
+                "provenance",
+                "storage_uri",
+            )
+        }
+        for clip in clips
+    ]
+    with _client() as client:
+        for record in records:
+            if (record.get("annotation_revision") or 0) <= 0:
+                continue
+            response = client.get(f"/api/v1/clips/{record['id']}/events")
+            response.raise_for_status()
+            record["human_events"] = [
+                event
+                for event in response.json()
+                if (event.get("attributes") or {}).get("source") == "human"
+            ]
+    return sorted(records, key=lambda clip: str(clip["id"]))
+
+
 def fetch_clips_with_labels(
     video_id: str | None = None,
     limit: int = 500,
@@ -823,9 +989,11 @@ def fetch_clips_with_labels(
         for clip in clips:
             clip_id = clip.get("id", "")
             try:
-                labels_resp = c.get("/api/v1/labels", params={"clip_id": clip_id})
+                labels_resp = c.get(f"/api/v1/clips/{clip_id}/labels")
                 labels_resp.raise_for_status()
                 labels_by_clip[clip_id] = labels_resp.json()
+            except PipelineInterrupted:
+                raise
             except Exception:
                 labels_by_clip[clip_id] = []
     return clips, labels_by_clip
@@ -862,6 +1030,7 @@ def register_model_version(
     artifact_uri: str | None = None,
     metrics: dict[str, Any] | None = None,
     training_dataset_id: str | None = None,
+    model_version_id: str | None = None,
 ) -> dict[str, Any] | None:
     """POST /api/v1/mlops/models to register a trained model version.
 
@@ -877,6 +1046,8 @@ def register_model_version(
         "version": version,
         "model_type": model_type,
     }
+    if model_version_id is not None:
+        payload["id"] = model_version_id
     if artifact_uri is not None:
         payload["artifact_uri"] = artifact_uri
     if metrics is not None:
@@ -895,6 +1066,8 @@ def register_model_version(
                 model_version_id=data.get("id"),
             )
             return data
+    except PipelineInterrupted:
+        raise
     except Exception as exc:
         log.warning(
             "model_version_register_failed",

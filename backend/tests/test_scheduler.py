@@ -26,7 +26,7 @@ from app.models import (
     UserRole,
 )
 from app.scheduler import _ADVISORY_LOCK_KEY, _acquire_lock, run_nightly_tick
-from sqlalchemy import inspect, select, text
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
@@ -63,26 +63,27 @@ _ENUM_TYPES = (
 
 
 @pytest_asyncio.fixture
-async def db() -> AsyncGenerator[async_sessionmaker[AsyncSession], None]:
-    engine = create_async_engine(get_settings().database_url)
-    async with engine.connect() as conn:
-        existing: set[str] = set(await conn.run_sync(lambda c: inspect(c).get_table_names()))
-    created = [t for t in _TABLES if t.name not in existing]
+async def db(tmp_path, monkeypatch) -> AsyncGenerator[async_sessionmaker[AsyncSession], None]:
+    # Schema-local tables keep repeated runs independent even when the migrated
+    # development/test database already contains human labels and jobs.
+    schema = f"scheduler_{uuid.uuid4().hex}"
+    monkeypatch.setenv("STORAGE_BACKEND", "local")
+    monkeypatch.setenv("LOCAL_STORAGE_ROOT", str(tmp_path))
+    monkeypatch.setenv("AUTO_TRAIN_ENABLED", "false")
+    get_settings.cache_clear()
+    engine = create_async_engine(
+        get_settings().database_url,
+        connect_args={"server_settings": {"search_path": f"{schema},public"}},
+        execution_options={"schema_translate_map": {None: schema}},
+    )
     async with engine.begin() as conn:
-        await conn.run_sync(lambda c: Base.metadata.create_all(c, tables=created))
+        await conn.execute(text(f'CREATE SCHEMA "{schema}"'))
+        await conn.run_sync(Base.metadata.create_all)
     try:
         yield async_sessionmaker(engine, expire_on_commit=False)
     finally:
-        if created:
-            async with engine.begin() as conn:
-                for table in reversed(created):
-                    await conn.exec_driver_sql(f'DROP TABLE IF EXISTS "{table.name}" CASCADE')
-            for enum_name in _ENUM_TYPES:
-                try:
-                    async with engine.begin() as conn:
-                        await conn.exec_driver_sql(f"DROP TYPE IF EXISTS {enum_name}")
-                except Exception:
-                    pass
+        async with engine.begin() as conn:
+            await conn.execute(text(f'DROP SCHEMA "{schema}" CASCADE'))
         await engine.dispose()
 
 
@@ -159,7 +160,7 @@ async def test_tick_below_threshold_does_not_train(
     assert await _jobs_of_type(db, JobType.train) == []
 
 
-async def test_tick_at_threshold_enqueues_train_once(
+async def test_tick_at_threshold_keeps_automatic_training_off_by_default(
     db: async_sessionmaker[AsyncSession],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -171,15 +172,14 @@ async def test_tick_at_threshold_enqueues_train_once(
     async with db() as session:
         summary = await run_nightly_tick(session)
         await session.commit()
-    assert summary["train_job_id"] is not None
+    assert summary["train_job_id"] is None
+    assert summary["training_enabled"] is False
     async with db() as session:
         again = await run_nightly_tick(session)
         await session.commit()
     assert again["train_job_id"] is None  # same-day idempotence
     trains = await _jobs_of_type(db, JobType.train)
-    assert len(trains) == 1
-    assert trains[0].status == JobStatus.queued
-    assert trains[0].input_artifacts["trigger"] == "scheduler"
+    assert trains == []
 
 
 async def test_advisory_lock_released_after_commit(

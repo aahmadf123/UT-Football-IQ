@@ -61,6 +61,8 @@ from pipeline.detector_models import (
 from pipeline.homography.field_boundary import FieldBoundary, boundary_from_diagnostics
 from pipeline.homography.project import ground_anchor
 from pipeline.model_router import select_model
+from pipeline.runtime import adapter_provenance, check_control
+from pipeline.video_timeline import VideoTimeline
 
 log = structlog.get_logger(__name__)
 
@@ -89,6 +91,7 @@ def run(
     ball_detector: DetectorBase | None = None,
     suppressor: OfficialSuppressor | None = None,
     field_boundary: dict[str, Any] | None = None,
+    timeline: VideoTimeline | None = None,
 ) -> dict[str, Any]:
     """Run Stage 4 detection and return per-frame detections + routing.
 
@@ -184,12 +187,21 @@ def run(
     video_path = object_store.download_to_temp(object_key)
     try:
         result = _detect(
-            video_path, player, ball, suppressor, boundary_from_diagnostics(field_boundary)
+            video_path, player, ball, suppressor,
+            # A pixel-space polygon from one frame moves during a pan/zoom.
+            # Applying it to a moving recording rejects real on-field players.
+            boundary_from_diagnostics(field_boundary) if capture_regime == "fixed_sideline" else None,
+            timeline=timeline,
         )
     finally:
         video_path.unlink(missing_ok=True)
 
     result["model_routing"] = {"detect": player_variant, "ball": ball_variant}
+    result["model_provenance"] = {
+        "detect": adapter_provenance(player, player_variant),
+        "ball": adapter_provenance(ball, ball_variant),
+    }
+    result["data_source"] = result["model_provenance"]["detect"]["source"]
     if served_version_id:
         # Record which registry-promoted artifact actually served this run so
         # provenance survives into job output_artifacts.
@@ -199,6 +211,7 @@ def run(
         "player": player_detection_strategy(capture_regime),
         "ball": ball_strategy(capture_regime) if ball is not None else "disabled",
         "official_suppression": suppressor.enabled,
+        "boundary_filter": "static" if capture_regime == "fixed_sideline" and field_boundary else "disabled",
     }
     return result
 
@@ -244,11 +257,17 @@ def _detect(
     ball: DetectorBase | None,
     suppressor: OfficialSuppressor,
     boundary: FieldBoundary | None = None,
+    *,
+    timeline: VideoTimeline | None = None,
 ) -> dict[str, Any]:
     from pipeline.hwaccel import nvdec_video_capture
 
     cap = nvdec_video_capture(video_path)
     fps: float = cap.get(cv2.CAP_PROP_FPS) or 30.0
+    timeline = timeline or VideoTimeline.from_path(
+        video_path, fps_fallback=fps,
+        frame_count_fallback=int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0),
+    )
 
     detections: dict[str, list[dict[str, Any]]] = {}
     frame_idx = 0
@@ -257,34 +276,40 @@ def _detect(
     ball_count = 0
     off_field_count = 0
 
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            break
+    try:
+        while True:
+            check_control()
+            ret, frame = cap.read()
+            if not ret:
+                break
 
-        if frame_idx % FRAME_STEP == 0:
-            player_dets = player.detect(frame)
-            player_dets = suppressor.suppress(frame, player_dets)
-            player_dets, dropped = _off_field(player_dets, boundary)
-            off_field_count += dropped
-            official_count += sum(
-                1 for d in player_dets if d.get("class") in ("official", "sideline")
-            )
+            if frame_idx % FRAME_STEP == 0:
+                player_dets = player.detect(frame)
+                player_dets = suppressor.suppress(frame, player_dets)
+                player_dets, dropped = _off_field(player_dets, boundary)
+                off_field_count += dropped
+                official_count += sum(
+                    1 for d in player_dets if d.get("class") in ("official", "sideline")
+                )
 
-            frame_dets: list[dict[str, Any]] = list(player_dets)
-            if ball is not None:
-                ball_dets = ball.detect(frame)
-                ball_count += len(ball_dets)
-                frame_dets.extend(ball_dets)
+                frame_dets: list[dict[str, Any]] = list(player_dets)
+                if ball is not None:
+                    ball_dets = ball.detect(frame)
+                    ball_count += len(ball_dets)
+                    frame_dets.extend(ball_dets)
 
-            if frame_dets:
-                detections[str(frame_idx)] = frame_dets
-                if any("mask" in d for d in frame_dets):
-                    masked_frame_count += 1
+                if frame_dets:
+                    for detection in frame_dets:
+                        detection["timestamp_seconds"] = timeline.timestamp(frame_idx)
+                        detection["timestamp_verified"] = timeline.verified
+                    detections[str(frame_idx)] = frame_dets
+                    if any("mask" in d for d in frame_dets):
+                        masked_frame_count += 1
 
-        frame_idx += 1
+            frame_idx += 1
 
-    cap.release()
+    finally:
+        cap.release()
     log.info(
         "stage_detect_done",
         frame_count=frame_idx,
@@ -297,6 +322,7 @@ def _detect(
     )
     return {
         "fps": fps,
+        "source_timeline": timeline.to_dict(),
         "total_frames": frame_idx,
         "detections": detections,
         "produces_masks": player.produces_masks,

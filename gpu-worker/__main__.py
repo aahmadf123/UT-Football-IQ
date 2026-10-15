@@ -9,11 +9,13 @@ Environment variables:
   BACKEND_API_URL           — backend base URL (required)
   WORKER_EMAIL / WORKER_PASSWORD — seeded service-account credentials
   WORKER_ID                 — claim identity (default: hostname-pid)
-  GPU_WORKER_POLL_INTERVAL  — seconds between queue polls (default: 10)
+  GPU_WORKER_POLL_INTERVAL  — seconds between queue polls (default: 2)
   STORAGE_BACKEND / LOCAL_STORAGE_ROOT — see pipeline.storage
   S3_* / OBJECT_STORE_*     — object-store credentials (s3 backend only)
   MODEL_DETECT_PATH         — path to YOLO weights (default: yolov8n.pt)
-  MODEL_POSE_PATH           — path to RTMPose .pth weights (optional; stub used when absent)
+  MODEL_POSE_PATH           — optional real pose weights (absent means skipped)
+  PIPELINE_DEVICE           — cpu by default; cuda/mps require explicit opt-in
+  PIPELINE_CHECKPOINT_ROOT  — durable local stage ledger (default data/checkpoints)
 """
 
 from __future__ import annotations
@@ -55,10 +57,13 @@ logging.basicConfig(level=logging.INFO)
 log = structlog.get_logger(__name__)
 
 # ── Configuration ─────────────────────────────────────────────────────────────
-POLL_INTERVAL = int(os.environ.get("GPU_WORKER_POLL_INTERVAL", "10"))
+POLL_INTERVAL = max(1, min(60, int(os.environ.get("GPU_WORKER_POLL_INTERVAL", "2"))))
 BACKEND_API_URL = os.environ.get("BACKEND_API_URL", "")
-HEARTBEAT_INTERVAL = int(os.environ.get("GPU_WORKER_HEARTBEAT_INTERVAL", "60"))
-LEASE_SECONDS = int(os.environ.get("GPU_WORKER_LEASE_SECONDS", "600"))
+LEASE_SECONDS = max(30, min(3600, int(os.environ.get("GPU_WORKER_LEASE_SECONDS", "120"))))
+HEARTBEAT_INTERVAL = max(
+    1, min(5, LEASE_SECONDS // 3, int(os.environ.get("GPU_WORKER_HEARTBEAT_INTERVAL", "5")))
+)
+_CURRENT_LEASES: dict[str, dict[str, Any]] = {}
 
 
 def _worker_id() -> str:
@@ -81,6 +86,26 @@ signal.signal(signal.SIGTERM, _handle_signal)
 signal.signal(signal.SIGINT, _handle_signal)
 
 
+def _shutdown_requested() -> bool:
+    from pathlib import Path
+
+    stop_file = os.environ.get("LOCAL_APP_STOP_FILE")
+    return _shutdown or bool(stop_file and Path(stop_file).is_file())
+
+
+def _idle_wait(seconds: float) -> None:
+    import threading
+
+    deadline = time.monotonic() + seconds
+    tick = threading.Event()
+    while not _shutdown_requested() and time.monotonic() < deadline:
+        tick.wait(min(0.25, max(0, deadline - time.monotonic())))
+
+
+if hasattr(signal, "SIGBREAK"):
+    signal.signal(signal.SIGBREAK, _handle_signal)
+
+
 # ── DB queue ──────────────────────────────────────────────────────────────────
 
 
@@ -101,7 +126,7 @@ def claim_db_job(client: httpx.Client) -> dict[str, Any] | None:
     resp = client.post(
         f"{BACKEND_API_URL}/api/v1/jobs/claim",
         headers=_auth_headers(),
-        json={"worker_id": _worker_id(), "lease_seconds": LEASE_SECONDS},
+        json=_claim_payload(),
         timeout=30,
     )
     if resp.status_code == 204:
@@ -113,7 +138,7 @@ def claim_db_job(client: httpx.Client) -> dict[str, Any] | None:
         resp = client.post(
             f"{BACKEND_API_URL}/api/v1/jobs/claim",
             headers=_auth_headers(),
-            json={"worker_id": _worker_id(), "lease_seconds": LEASE_SECONDS},
+            json=_claim_payload(),
             timeout=30,
         )
         if resp.status_code == 204:
@@ -122,25 +147,135 @@ def claim_db_job(client: httpx.Client) -> dict[str, Any] | None:
     return dict(resp.json())
 
 
-def heartbeat_db_job(job_id: str, progress: dict[str, Any] | None = None) -> None:
-    """Extend the job lease + merge progress. Best-effort, never raises."""
-    try:
-        resp = httpx.post(
-            f"{BACKEND_API_URL}/api/v1/jobs/{job_id}/heartbeat",
-            headers=_auth_headers(),
-            json={
-                "worker_id": _worker_id(),
-                "lease_seconds": LEASE_SECONDS,
-                "progress": progress or {},
-            },
-            timeout=15,
-        )
-        if resp.status_code == 401:
-            from worker import auth as worker_auth
+def _claim_payload() -> dict[str, Any]:
+    capabilities = worker_capabilities()
+    return {
+        "worker_id": _worker_id(),
+        "lease_seconds": LEASE_SECONDS,
+        "job_types": capabilities["job_types"],
+        "capabilities": {
+            "compatible_devices": [capabilities["device"]],
+            "model_names": [
+                key for key, value in capabilities["models"].items() if value.get("ready")
+            ],
+            "profiles": capabilities["profiles"],
+        },
+    }
 
-            worker_auth.invalidate()
+
+def heartbeat_db_job(
+    job_id: str,
+    progress: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    """Extend the fenced lease and return pause/cancel instructions."""
+    payload = {
+        "worker_id": _worker_id(),
+        "lease_seconds": LEASE_SECONDS,
+        "progress": progress or {},
+        **_CURRENT_LEASES.get(job_id, {}),
+    }
+    for attempt in range(2):
+        try:
+            resp = httpx.post(
+                f"{BACKEND_API_URL}/api/v1/jobs/{job_id}/heartbeat",
+                headers=_auth_headers(),
+                json=payload,
+                timeout=10,
+            )
+            if resp.status_code == 401 and attempt == 0:
+                from worker import auth as worker_auth
+
+                worker_auth.invalidate()
+                continue
+            if resp.status_code == 409:
+                return {"control_requested": "lease_lost"}
+            resp.raise_for_status()
+            return dict(resp.json())
+        except Exception as exc:
+            log.warning("heartbeat_failed", job_id=job_id, error=str(exc))
+            return None
+    return None
+
+
+def worker_capabilities() -> dict[str, Any]:
+    """Advertise installed local resources without loading heavy models."""
+    import importlib.util
+    from pathlib import Path
+
+    device = os.environ.get("PIPELINE_DEVICE", "cpu").strip().lower()
+    if device not in {"cpu", "cuda", "mps"}:
+        device = "cpu"
+    models: dict[str, Any] = {}
+    for name, variable, default, package in (
+        ("detect", "MODEL_DETECT_PATH", "yolov8n.pt", "ultralytics"),
+        ("pose", "MODEL_POSE_PATH", "", "torch"),
+        ("ball", "MODEL_BALL_PATH", "", "ultralytics"),
+    ):
+        configured = os.environ.get(variable, default)
+        path = Path(configured).expanduser() if configured else None
+        ready = bool(path and path.is_file() and importlib.util.find_spec(package))
+        models[name] = {"ready": ready, "path": str(path) if path else None}
+    return {
+        "worker_id": _worker_id(),
+        "device": device,
+        "profiles": ["review", "quick", "detailed"],
+        "models": models,
+        "job_types": [
+            "pipeline",
+            "ingest",
+            "segment",
+            "calibrate",
+            "detect",
+            "track",
+            "reid",
+            "events",
+            "pose",
+            "labels",
+            "metrics",
+            "routes",
+            "coverage",
+            "oline",
+            "pressure",
+            "render",
+            "render_hls",
+            "self_scout",
+            "embeddings",
+            "workload_rollup",
+            "train",
+        ],
+        "metadata": {
+            "storage_transport": os.environ.get("PIPELINE_STORAGE_TRANSPORT", "direct"),
+            "checkpoint_root": os.environ.get("PIPELINE_CHECKPOINT_ROOT", "data/checkpoints"),
+        },
+    }
+
+
+def register_worker(client: httpx.Client) -> None:
+    try:
+        response = client.post(
+            f"{BACKEND_API_URL}/api/v1/system/workers/register",
+            headers=_auth_headers(),
+            json=worker_capabilities(),
+            timeout=10,
+        )
+        if response.status_code != 404:
+            response.raise_for_status()
     except Exception as exc:
-        log.warning("heartbeat_failed", job_id=job_id, error=str(exc))
+        log.warning("worker_registration_failed", error=str(exc))
+
+
+def heartbeat_worker(client: httpx.Client) -> None:
+    try:
+        response = client.post(
+            f"{BACKEND_API_URL}/api/v1/system/workers/{_worker_id()}/heartbeat",
+            headers=_auth_headers(),
+            json=worker_capabilities(),
+            timeout=10,
+        )
+        if response.status_code != 404:
+            response.raise_for_status()
+    except Exception as exc:
+        log.warning("worker_capability_heartbeat_failed", error=str(exc))
 
 
 def _fetch_video(video_id: str) -> dict[str, Any] | None:
@@ -161,9 +296,16 @@ def _fetch_video(video_id: str) -> dict[str, Any] | None:
 def _db_row_to_job(row: dict[str, Any]) -> dict[str, Any]:
     """Map a claimed processing_jobs row onto the job-dict shape stages expect."""
     input_artifacts = dict(row.get("input_artifacts") or {})
+    nested = input_artifacts.pop("inputArtifacts", None) or input_artifacts.pop(
+        "input_artifacts", None
+    )
+    if isinstance(nested, dict):
+        input_artifacts.update(nested)
     # job_dispatch-created rows carry the camelCase payload in
     # input_artifacts; backend-created rows may use snake_case.
     input_uri = str(input_artifacts.get("input_uri") or input_artifacts.get("inputUri") or "")
+    if row.get("training_dataset_id"):
+        input_artifacts.setdefault("training_dataset_id", row["training_dataset_id"])
     video_id = str(row.get("video_id") or "")
     if not input_uri and video_id:
         video = _fetch_video(video_id)
@@ -173,97 +315,318 @@ def _db_row_to_job(row: dict[str, Any]) -> dict[str, Any]:
         "jobId": str(row.get("id", "")),
         "jobType": str(row.get("job_type", "")),
         "videoId": video_id,
-        "clipId": str(row.get("clip_id") or ""),
+        "clipId": str(row.get("clip_id") or input_artifacts.get("clipId") or ""),
         "inputUri": input_uri,
         "priority": int(row.get("priority") or 0),
         "inputArtifacts": input_artifacts,
+        "pipelineMode": row.get("pipeline_mode"),
+        "leaseToken": row.get("lease_token"),
+        "attemptCount": row.get("attempt_count"),
+        "modelVersionId": row.get("model_version_id"),
+        "controlRequested": row.get("control_requested"),
     }
 
 
 def process_pipeline_job(job: dict[str, Any]) -> None:
-    """Run a full-chain ``pipeline`` job via the orchestrator.
-
-    Per-stage progress flows into the job row through heartbeats; a
-    background thread keeps the lease alive between stage transitions.
-    """
+    """Run a local profile with bounded heartbeats and cooperative controls."""
     import threading
+    from pathlib import Path
 
     from pipeline import backend as backend_client
-    from pipeline.orchestrator import StorageArtifactSink, run_pipeline
-    from worker.observability import (
-        record_job_failed,
-        record_job_started,
-        record_job_succeeded,
-    )
+    from pipeline.orchestrator import DirArtifactSink, run_pipeline
+    from pipeline.runtime import PipelineInterrupted, job_context
+    from worker.observability import record_job_failed, record_job_started, record_job_succeeded
 
-    job_id = job["jobId"]
-    video_id = job["videoId"]
-    input_uri = job["inputUri"]
+    job_id, video_id, input_uri = job["jobId"], job["videoId"], job["inputUri"]
     priority = int(job.get("priority", 0))
-    pipeline_mode = "same_session" if priority >= 10 else "nightly"
-
+    pipeline_mode = job.get("pipelineMode") or ("same_session" if priority >= 10 else "nightly")
+    inputs = dict(job.get("inputArtifacts") or {})
+    profile = inputs.get("processing_profile") or "quick"
     if not input_uri:
         _update_job_status(job_id, "failed", error_message="no input_uri resolvable")
         return
 
+    fence = {
+        key: value
+        for key, value in {
+            "lease_token": job.get("leaseToken"),
+            "attempt_count": job.get("attemptCount"),
+        }.items()
+        if value is not None
+    }
+    _CURRENT_LEASES[job_id] = fence
     record_job_started("pipeline", pipeline_mode)
-    started = time.time()
-    progress_state: dict[str, Any] = {}
-    progress_lock = threading.Lock()
-    stop_heartbeat = threading.Event()
+    started = time.monotonic()
+    state: dict[str, Any] = {}
+    state_lock = threading.Lock()
+    stop = threading.Event()
+    control: dict[str, Any] = {
+        "action": job.get("controlRequested"),
+        "last_heartbeat": started,
+        "last_capability_heartbeat": started,
+    }
+
+    def beat() -> None:
+        with state_lock:
+            snapshot = dict(state)
+        reply = heartbeat_db_job(job_id, snapshot)
+        if isinstance(reply, dict):
+            control["last_heartbeat"] = time.monotonic()
+            action = reply.get("control_requested")
+            if action:
+                control["action"] = action
+            elif reply.get("status") in {"cancelled", "paused"}:
+                control["action"] = "cancel" if reply["status"] == "cancelled" else "pause"
+        elif time.monotonic() - control["last_heartbeat"] >= LEASE_SECONDS * 0.75:
+            # Stop before a lost lease can publish more output. A reclaimed run
+            # reads the same durable compatible ledger.
+            control["action"] = "lease_lost"
 
     def progress_cb(stage: str, clip_id: str | None, status: str, extra: dict[str, Any]) -> None:
-        key = f"{stage}:{clip_id[:8]}" if clip_id else stage
-        with progress_lock:
-            progress_state[key] = {"status": status, **extra}
-            snapshot = dict(progress_state)
-        # Stage transitions double as lease extensions.
-        heartbeat_db_job(job_id, snapshot)
+        # Use bounded keys: the backend merges progress and caps JSON at
+        # 64 KiB, so per-clip UUID keys cannot accumulate through a full game.
+        key = "current_clip" if clip_id else stage
+        with state_lock:
+            completed = int(state.get("completed_clip_stages", {}).get("count", 0))
+            if clip_id and status in {"succeeded", "skipped", "failed"}:
+                state["completed_clip_stages"] = {"count": completed + 1}
+            state[key] = {"stage": stage, "clip_id": clip_id, "status": status, **extra}
+        beat()
 
     def heartbeat_loop() -> None:
-        while not stop_heartbeat.wait(HEARTBEAT_INTERVAL):
-            with progress_lock:
-                snapshot = dict(progress_state)
-            heartbeat_db_job(job_id, snapshot)
+        while not stop.wait(HEARTBEAT_INTERVAL):
+            beat()
+            if time.monotonic() - control["last_capability_heartbeat"] >= 20:
+                with httpx.Client() as client:
+                    heartbeat_worker(client)
+                control["last_capability_heartbeat"] = time.monotonic()
 
-    hb_thread = threading.Thread(target=heartbeat_loop, name="job-heartbeat", daemon=True)
-    hb_thread.start()
+    def control_cb() -> str | None:
+        return control["action"] or ("shutdown" if _shutdown_requested() else None)
+
+    thread = threading.Thread(target=heartbeat_loop, name="job-heartbeat", daemon=True)
+    thread.start()
+    checkpoint_root = Path(os.environ.get("PIPELINE_CHECKPOINT_ROOT", "data/checkpoints"))
+    # IDs from the API are UUIDs, but keep directory ownership safe for tests
+    # and legacy jobs as well.
+    import hashlib
+
+    video_key = hashlib.sha256(video_id.encode()).hexdigest()
+    sink = DirArtifactSink(checkpoint_root / video_key)
+    revisions = {
+        key: inputs[key]
+        for key in (
+            "calibration_revision",
+            "correction_revision",
+            "annotation_revision",
+            "model_revision",
+            "config_revision",
+            "source_revision",
+        )
+        if key in inputs
+    }
+    if job.get("modelVersionId"):
+        revisions["model_version_id"] = job["modelVersionId"]
     try:
-        summary = run_pipeline(
-            video_id,
-            input_uri,
-            priority=priority,
-            job_id=job_id,
-            progress_cb=progress_cb,
-            artifact_sink=StorageArtifactSink(video_id),
-            # Without this stage_reid's jersey map is empty, so a correctly read
-            # number has no player to attribute to. Withheld on game film --
-            # see fetch_roster_for_video.
-            roster=backend_client.fetch_roster_for_video(video_id),
-        )
-        _update_job_status(job_id, "succeeded", output_artifacts=summary)
-        backend_client.patch_video_status(video_id, "ready")
-        record_job_succeeded("pipeline", pipeline_mode, time.time() - started)
-        log.info(
-            "pipeline_job_succeeded",
-            job_id=job_id,
-            clip_count=summary.get("clip_count"),
-            duration_seconds=round(time.time() - started, 2),
-        )
+        with job_context(
+            control=control_cb, lease={"job_id": job_id, "worker_id": _worker_id(), **fence}
+        ):
+            video_context = backend_client.fetch_video_context(video_id)
+            existing_clips = backend_client.fetch_annotation_snapshot(video_id)
+            revisions["effective_annotations"] = [
+                clip for clip in existing_clips if (clip.get("annotation_revision") or 0) > 0
+            ]
+            revisions["learning_splits"] = [
+                {"id": clip["id"], "split": (clip.get("label_data") or {}).get("_learning_split")}
+                for clip in existing_clips
+                if (clip.get("label_data") or {}).get("_learning_split")
+            ]
+            result = run_pipeline(
+                video_id,
+                input_uri,
+                priority=priority,
+                job_id=job_id,
+                progress_cb=progress_cb,
+                artifact_sink=sink,
+                roster=backend_client.fetch_roster_for_video(video_id),
+                processing_profile=profile,
+                revisions=revisions,
+                lineage={
+                    "existing_clips": existing_clips,
+                    "session_id": video_context.get("practice_session_id"),
+                    "recording_id": video_id,
+                    **{
+                        key: inputs[key]
+                        for key in ("session_id", "recording_id", "split")
+                        if key in inputs
+                    },
+                },
+            )
+            result = _bounded_job_summary(
+                result, job_id, publish=not bool(result.get("interrupted_action"))
+            )
+        stop.set()
+        action = result.get("interrupted_action")
+        if action in {"pause", "shutdown"}:
+            accepted = _update_job_status(job_id, "paused", output_artifacts=result)
+            if accepted is not False:
+                backend_client.patch_video_status(
+                    video_id, "ready" if result.get("playback_ready") else "uploaded"
+                )
+        elif action == "cancel":
+            accepted = _update_job_status(job_id, "cancelled", output_artifacts=result)
+            if accepted is not False:
+                backend_client.patch_video_status(
+                    video_id, "ready" if result.get("playback_ready") else "uploaded"
+                )
+        elif action == "lease_lost":
+            log.warning("job_lease_lost", job_id=job_id)
+        elif result.get("result_state") == "partial":
+            failures = result.get("failed_video_stages", []) + result.get("failed_clip_stages", [])
+            reason = "; ".join(f"{item['stage']}: {item['error']}" for item in failures)
+            accepted = _update_job_status(
+                job_id, "failed", error_message=reason, output_artifacts=result
+            )
+            if accepted is False:
+                return
+            # Imported film remains reviewable after an inference failure.
+            backend_client.patch_video_status(
+                video_id, "ready" if result.get("playback_ready") else "failed"
+            )
+            record_job_failed("pipeline", pipeline_mode)
+        else:
+            accepted = _update_job_status(job_id, "succeeded", output_artifacts=result)
+            if accepted is False:
+                return
+            backend_client.patch_video_status(
+                video_id, "ready" if result.get("playback_ready", True) else "uploaded"
+            )
+            record_job_succeeded("pipeline", pipeline_mode, time.monotonic() - started)
+    except PipelineInterrupted as exc:
+        if exc.action != "lease_lost":
+            _update_job_status(job_id, "cancelled" if exc.action == "cancel" else "paused")
     except Exception as exc:
         record_job_failed("pipeline", pipeline_mode)
         log.error("pipeline_job_failed", job_id=job_id, error=str(exc))
-        _update_job_status(job_id, "failed", error_message=str(exc))
-        backend_client.patch_video_status(video_id, "failed")
+        accepted = _update_job_status(job_id, "failed", error_message=str(exc))
+        if accepted is not False:
+            backend_client.patch_video_status(video_id, "failed")
     finally:
-        stop_heartbeat.set()
-        hb_thread.join(timeout=5)
+        stop.set()
+        thread.join(timeout=12)
+        _CURRENT_LEASES.pop(job_id, None)
+
+
+def _bounded_job_summary(
+    result: dict[str, Any], job_id: str, *, publish: bool = True
+) -> dict[str, Any]:
+    """Keep database rows small while preserving full evidence as an artifact."""
+    import json
+
+    from pipeline import storage
+
+    serialized = json.dumps(result, default=str).encode()
+    if len(serialized) <= 48 * 1024:
+        return result
+    fingerprint = (result.get("checkpoint") or {}).get("fingerprint", "summary")
+    uri = (
+        storage.upload_bytes(
+            serialized, f"pipeline_summaries/{job_id}/{fingerprint}.json", "application/json"
+        )
+        if publish
+        else None
+    )
+    compact = {
+        key: value
+        for key, value in result.items()
+        if key not in {"stage_states", "stage_timings", "clips"}
+    }
+    if uri:
+        compact["summary_artifact_uri"] = uri
+    compact["checkpoint"] = {
+        key: value
+        for key, value in (result.get("checkpoint") or {}).items()
+        if key in {"fingerprint", "source_sha256", "processing_profile"}
+    }
+    compact["clips"] = [
+        {
+            key: value
+            for key, value in clip.items()
+            if key not in {"proxy_timeline", "overlay_proxy_timeline"}
+        }
+        for clip in result.get("clips", [])[:50]
+    ]
+    compact["clips_truncated"] = len(result.get("clips", [])) > 50
+    for key in ("failed_video_stages", "failed_clip_stages"):
+        failures = result.get(key, [])
+        compact[f"{key}_count"] = len(failures)
+        compact[key] = [
+            {**failure, "error": str(failure.get("error", ""))[:1000]} for failure in failures[:20]
+        ]
+    # Long object URIs and many independent proxy failures can still exceed
+    # the limit; previews shrink while counts and the full artifact remain.
+    while len(json.dumps(compact, default=str).encode()) > 48 * 1024 and compact["clips"]:
+        compact["clips"] = compact["clips"][: len(compact["clips"]) // 2]
+        compact["clips_truncated"] = True
+    for key in ("failed_video_stages", "failed_clip_stages"):
+        while len(json.dumps(compact, default=str).encode()) > 48 * 1024 and len(compact[key]) > 1:
+            compact[key] = compact[key][: len(compact[key]) // 2]
+    return compact
 
 
 # ── Job processing ────────────────────────────────────────────────────────────
 
 
 def process_job(job: dict[str, Any]) -> None:
+    """Keep standalone stage jobs fenced and alive just like full pipelines."""
+    if job.get("jobType") == "pipeline":
+        process_pipeline_job(job)
+        return
+    import threading
+
+    from pipeline.runtime import PipelineInterrupted, job_context
+
+    job_id = str(job.get("jobId", ""))
+    fence = {
+        key: value
+        for key, value in {
+            "lease_token": job.get("leaseToken"),
+            "attempt_count": job.get("attemptCount"),
+        }.items()
+        if value is not None
+    }
+    _CURRENT_LEASES[job_id] = fence
+    stop = threading.Event()
+    state: dict[str, Any] = {"action": job.get("controlRequested"), "heartbeat": time.monotonic()}
+
+    def beat_loop() -> None:
+        while not stop.wait(HEARTBEAT_INTERVAL):
+            reply = heartbeat_db_job(job_id)
+            if isinstance(reply, dict):
+                state["heartbeat"] = time.monotonic()
+                if reply.get("control_requested"):
+                    state["action"] = reply["control_requested"]
+            elif time.monotonic() - state["heartbeat"] >= LEASE_SECONDS * 0.75:
+                state["action"] = "lease_lost"
+
+    thread = threading.Thread(target=beat_loop, name="stage-heartbeat", daemon=True)
+    thread.start()
+    try:
+        with job_context(
+            control=lambda: state["action"] or ("shutdown" if _shutdown_requested() else None),
+            lease={"job_id": job_id, "worker_id": _worker_id(), **fence},
+        ):
+            _process_single_stage_job(job)
+    except PipelineInterrupted as exc:
+        if exc.action != "lease_lost":
+            _update_job_status(job_id, "cancelled" if exc.action == "cancel" else "paused")
+    finally:
+        stop.set()
+        thread.join(timeout=12)
+        _CURRENT_LEASES.pop(job_id, None)
+
+
+def _process_single_stage_job(job: dict[str, Any]) -> None:
     """Dispatch a single job to the appropriate processing stage.
 
     Same-session jobs (priority >= SAME_SESSION_PRIORITY) are wrapped in the
@@ -272,6 +635,7 @@ def process_job(job: dict[str, Any]) -> None:
     """
     from pipeline import model_router
     from pipeline.lightweight_config import should_skip_stage
+    from pipeline.runtime import PipelineInterrupted, check_control
     from worker.timeout_handler import JobTimeoutError, run_with_timeout
 
     job_id: str = job.get("jobId", "unknown")
@@ -333,6 +697,7 @@ def process_job(job: dict[str, Any]) -> None:
         _jsuc(job_type, pipeline_mode, time.time() - job_start_time)
         return
 
+    check_control()
     _update_job_status(job_id, "running")
 
     try:
@@ -361,6 +726,7 @@ def process_job(job: dict[str, Any]) -> None:
                 job_id,
                 priority,
             )
+        check_control()
         artifacts = dict(artifacts or {})
         # ``build_routing_artifact`` is a priority-only fallback so every job
         # records a variant. A stage that already recorded its own routing wins —
@@ -393,6 +759,8 @@ def process_job(job: dict[str, Any]) -> None:
         if not is_same_session and job_type == "render" and video_id:
             _finalize_nightly_clips(video_id)
 
+    except PipelineInterrupted:
+        raise
     except JobTimeoutError:
         _jto(job_type, pipeline_mode)
         log.warning("job_timeout_handled", job_id=job_id, priority=priority)
@@ -567,9 +935,10 @@ def _dispatch(
 
         from pipeline import stage_workload_rollup
 
-        rollup_date = input_artifacts.get("date") or (
-            datetime.now(UTC).date() - timedelta(days=1)
-        ).isoformat()
+        rollup_date = (
+            input_artifacts.get("date")
+            or (datetime.now(UTC).date() - timedelta(days=1)).isoformat()
+        )
         return stage_workload_rollup.run(rollup_date, job_id, priority=priority)
 
     elif job_type == "routes":
@@ -597,9 +966,7 @@ def _dispatch(
         events_list = input_artifacts.get("events", [])
         analytics_safe = bool(input_artifacts.get("analytics_safe", False))
         fps = float(input_artifacts.get("fps", 30))
-        return stage_oline.run(
-            clip_id, tracklets, events_list, analytics_safe, fps, job_id
-        )
+        return stage_oline.run(clip_id, tracklets, events_list, analytics_safe, fps, job_id)
 
     elif job_type == "pressure":
         tracklets = input_artifacts.get("tracklets", [])
@@ -771,32 +1138,109 @@ def _dispatch(
             overlay_path.unlink(missing_ok=True)
 
     elif job_type == "train":
-        # Scheduled retraining from exported coach corrections (learning
-        # loop, P3). Training output registers as EXPERIMENTAL in the MLOps
-        # registry — promotion to production stays a human decision, so a
-        # scheduler-triggered run can never silently change serving behavior.
-        import dataclasses
-
-        from pipeline import backend as backend_mod
-        from training.cross_regime_distill import run_nightly
-
-        clips = backend_mod.fetch_clips_for_pairing()
-        video_dir = os.environ.get("TRAINING_VIDEO_DIR", "") or None
-        try:
-            _checkpoint, report = run_nightly(clips, video_dir=video_dir)
-        except ValueError as exc:
-            # Not enough validated paired plays yet — expected early in a
-            # team's life; the job succeeds with an explicit no-train reason.
-            log.info("train_skipped_insufficient_data", reason=str(exc))
-            return {"trained": False, "reason": str(exc)}
-        report_dict = (
-            dataclasses.asdict(report) if dataclasses.is_dataclass(report) else {"summary": str(report)}
-        )
-        return {"trained": True, "report": report_dict}
+        if input_artifacts.get("training_variant") != "local_coverage":
+            raise RuntimeError(
+                "Training requires the supported local_coverage variant and actual "
+                "reviewed labels/features artifacts; automatic pseudo-label training is unavailable."
+            )
+        return _train_local_coverage(input_artifacts, job_id)
 
     else:
         log.warning("unknown_job_type", job_type=job_type, job_id=job_id)
-        return {}
+        raise ValueError(f"Unsupported job type: {job_type}")
+
+
+def _train_local_coverage(inputs: dict[str, Any], job_id: str) -> dict[str, Any]:
+    import hashlib
+    import json
+    import tempfile
+    import uuid
+    from pathlib import Path
+
+    from pipeline import backend, storage
+    from pipeline.runtime import check_control
+    from training.local_coverage import read_jsonl, train_candidate
+
+    labels_uri, features_uri = inputs.get("labels_uri"), inputs.get("features_uri")
+    if not labels_uri or not features_uri:
+        raise ValueError("Local coverage training requires labels_uri and features_uri")
+    labels_path = storage.download_to_temp(str(labels_uri))
+    features_path = None
+    try:
+        features_path = storage.download_to_temp(str(features_uri))
+        labels, features = read_jsonl(labels_path), read_jsonl(features_path)
+        check_control()
+        with tempfile.TemporaryDirectory(prefix="football-iq-training-") as temporary:
+            result = train_candidate(labels, features, Path(temporary))
+            check_control()
+            checkpoint_sha = hashlib.sha256(
+                Path(result["checkpoint_path"]).read_bytes()
+            ).hexdigest()
+            root = f"models/local_coverage/{checkpoint_sha}"
+            artifact_uri = storage.upload_file(
+                Path(result["checkpoint_path"]), f"{root}/checkpoint.json"
+            )
+            report_uri = storage.upload_file(Path(result["report_path"]), f"{root}/evaluation.json")
+            predictions_uri = storage.upload_file(
+                Path(result["predictions_path"]), f"{root}/holdout_predictions.json"
+            )
+            metrics = {key: value for key, value in result.items() if not key.endswith("_path")}
+            metrics.update(
+                {
+                    "report_uri": report_uri,
+                    "predictions_uri": predictions_uri,
+                    "labels_uri": str(labels_uri),
+                    "features_uri": str(features_uri),
+                    "training_variant": "local_coverage",
+                    "artifact_sha256": checkpoint_sha,
+                }
+            )
+            model = backend.register_model_version(
+                model_name="local-coverage",
+                version=checkpoint_sha[:16],
+                model_type="coverage",
+                artifact_uri=artifact_uri,
+                metrics=metrics,
+                training_dataset_id=inputs.get("training_dataset_id"),
+                model_version_id=str(
+                    uuid.uuid5(uuid.NAMESPACE_URL, f"local-coverage:{checkpoint_sha}")
+                ),
+            )
+            if backend.BACKEND_API_URL and model is None:
+                raise RuntimeError(
+                    "Candidate artifacts saved but model registry publication failed"
+                )
+            prediction_label_ids = []
+            if model is not None:
+                for prediction in json.loads(Path(result["predictions_path"]).read_text()):
+                    check_control()
+                    key = (
+                        f"candidate-prediction:{model['id']}:"
+                        f"{prediction['clip_id']}:{prediction['label_type']}"
+                    )
+                    label = backend.create_label(
+                        prediction["label_type"],
+                        prediction["label_value"],
+                        clip_id=prediction["clip_id"],
+                        source="model",
+                        model_version_id=model["id"],
+                        label_id=str(uuid.uuid5(uuid.NAMESPACE_URL, key)),
+                    )
+                    prediction_label_ids.append(label["id"])
+            return {
+                "trained": True,
+                "promoted": False,
+                "model_version_id": (model or {}).get("id"),
+                "artifact_uri": artifact_uri,
+                "report_uri": report_uri,
+                "predictions_uri": predictions_uri,
+                "prediction_label_ids": prediction_label_ids,
+                **metrics,
+            }
+    finally:
+        labels_path.unlink(missing_ok=True)
+        if features_path is not None:
+            features_path.unlink(missing_ok=True)
 
 
 def _uri_to_object_key(uri: str) -> str:
@@ -885,17 +1329,29 @@ def _update_job_status(
     status: str,
     error_message: str | None = None,
     output_artifacts: dict[str, Any] | None = None,
-) -> None:
+) -> bool:
     if not BACKEND_API_URL:
-        return
+        return True
     try:
         # worker_id identifies this process as the lease holder — the backend
         # rejects state changes on a leased job from anyone else.
-        payload: dict[str, Any] = {"status": status, "worker_id": _worker_id()}
+        payload: dict[str, Any] = {
+            "status": status,
+            "worker_id": _worker_id(),
+            **_CURRENT_LEASES.get(job_id, {}),
+        }
         if error_message:
             payload["error_message"] = error_message
         if output_artifacts:
             payload["output_artifacts"] = output_artifacts
+            payload["provenance"] = {
+                "source": output_artifacts.get("source", "unvalidated"),
+                "validated": bool(output_artifacts.get("trusted_analysis", False)),
+                "model_provenance": output_artifacts.get("model_provenance", {}),
+                "checkpoint_fingerprint": (output_artifacts.get("checkpoint") or {}).get(
+                    "fingerprint"
+                ),
+            }
         with httpx.Client(base_url=BACKEND_API_URL, timeout=10, headers=_auth_headers()) as c:
             resp = c.patch(f"/api/v1/jobs/{job_id}", json=payload)
             if resp.status_code == 401:
@@ -903,9 +1359,12 @@ def _update_job_status(
 
                 worker_auth.invalidate()
                 c.headers.update(_auth_headers())
-                c.patch(f"/api/v1/jobs/{job_id}", json=payload)
+                resp = c.patch(f"/api/v1/jobs/{job_id}", json=payload)
+            resp.raise_for_status()
+        return True
     except Exception as exc:
         log.warning("status_update_failed", job_id=job_id, error=str(exc))
+        return False
 
 
 # ── Main loop ─────────────────────────────────────────────────────────────────
@@ -921,7 +1380,12 @@ def _run_db_loop() -> None:
         raise SystemExit("BACKEND_API_URL is required — it is where jobs are claimed from.")
 
     with httpx.Client() as client:
-        while not _shutdown:
+        register_worker(client)
+        last_registration = time.monotonic()
+        while not _shutdown_requested():
+            if time.monotonic() - last_registration >= 20:
+                heartbeat_worker(client)
+                last_registration = time.monotonic()
             claimed = None
             try:
                 claimed = claim_db_job(client)
@@ -941,10 +1405,10 @@ def _run_db_loop() -> None:
                     log.error("job_processing_crashed", job_id=job.get("jobId"), error=str(exc))
                 continue  # drain the queue before sleeping again
 
-            if not _shutdown:
+            if not _shutdown_requested():
                 record_heartbeat()
                 # ±20% jitter so a worker fleet doesn't thundering-herd claims.
-                time.sleep(POLL_INTERVAL * random.uniform(0.8, 1.2))
+                _idle_wait(POLL_INTERVAL * random.uniform(0.8, 1.2))
 
 
 def main() -> None:

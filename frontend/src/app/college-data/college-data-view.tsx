@@ -32,15 +32,7 @@ export function CollegeDataView() {
     kind: "loading",
   });
 
-  const apiConfigured = !!process.env.NEXT_PUBLIC_API_URL;
-
   const load = useCallback(async () => {
-    if (!apiConfigured) {
-      setTeam({ kind: "offline" });
-      setSchedule({ kind: "offline" });
-      setBenchmark({ kind: "offline" });
-      return;
-    }
     setTeam({ kind: "loading" });
     setSchedule({ kind: "loading" });
     setBenchmark({ kind: "loading" });
@@ -61,7 +53,7 @@ export function CollegeDataView() {
       run(() => fetchCfbdToledoSchedule(undefined, authToken), setSchedule),
       run(() => fetchCfbdMacBenchmark(undefined, authToken), setBenchmark),
     ]);
-  }, [apiConfigured, authToken]);
+  }, [authToken]);
 
   useEffect(() => {
     load();
@@ -77,9 +69,6 @@ export function CollegeDataView() {
   }, [team, schedule, benchmark]);
 
   const banner = useMemo<BannerInfo | null>(() => {
-    if (!apiConfigured) {
-      return { tone: "unavailable", message: OFFLINE_REASON };
-    }
     const anyError =
       team.kind === "error" || schedule.kind === "error" || benchmark.kind === "error";
     const syncError = caches.some((c) => c.sync_status === "error");
@@ -107,7 +96,7 @@ export function CollegeDataView() {
       };
     }
     return null;
-  }, [apiConfigured, team, schedule, benchmark, caches]);
+  }, [team, schedule, benchmark, caches]);
 
   return (
     <div className="flex flex-col gap-4">
@@ -116,7 +105,7 @@ export function CollegeDataView() {
           data-testid="cfbd-banner"
           data-banner-tone={banner.tone}
           className={cn(
-            "rounded-lg border px-3.5 py-2.5 text-[0.85rem]",
+            "rounded-lg border px-3.5 py-2.5 text-sm",
             banner.tone === "unavailable"
               ? "border-status-danger/50 bg-status-danger/10 text-foreground"
               : "border-primary/50 bg-primary/10 text-foreground",
@@ -158,7 +147,7 @@ export function CollegeDataView() {
               {schedule.data.games.map((g) => (
                 <div
                   key={g.cfbd_game_id}
-                  className="grid grid-cols-[74px_1fr_auto] items-baseline gap-2 text-[0.82rem]"
+                  className="grid grid-cols-[74px_1fr_auto] items-baseline gap-2 text-sm"
                 >
                   <span className="text-xs text-muted-foreground">
                     {g.start_date ? formatDate(g.start_date) : "TBD"}
@@ -191,7 +180,7 @@ export function CollegeDataView() {
         >
           {benchmark.kind === "ready" && (
             <div className="flex flex-col gap-1" data-testid="cfbd-benchmark">
-              <div className="grid grid-cols-[1fr_48px_64px_64px] gap-2 text-[0.65rem] font-semibold uppercase tracking-widest text-muted-foreground">
+              <div className="grid grid-cols-[1fr_48px_64px_64px] gap-2 text-[0.65rem] font-semibold text-muted-foreground">
                 <span>Team</span>
                 <span>G</span>
                 <span>Avg pts</span>
@@ -200,7 +189,7 @@ export function CollegeDataView() {
               {benchmark.data.teams.map((t) => (
                 <div
                   key={t.team}
-                  className="grid grid-cols-[1fr_48px_64px_64px] items-baseline gap-2 text-[0.82rem]"
+                  className="grid grid-cols-[1fr_48px_64px_64px] items-baseline gap-2 text-sm"
                 >
                   <span className="truncate font-medium">{t.team}</span>
                   <span data-numeric className="font-mono text-xs" title="Games">
@@ -220,7 +209,7 @@ export function CollegeDataView() {
 
         <Card data-testid="cfbd-field-sample">
           <CardHeader>
-            <h2 className="font-display text-sm font-semibold uppercase tracking-wide">
+            <h2 className="text-sm font-semibold">
               Field Schematic
             </h2>
           </CardHeader>
@@ -270,7 +259,7 @@ function toCardState<T>(
 
 function Row({ label, value }: { label: string; value: string }) {
   return (
-    <div className="grid grid-cols-[100px_1fr] items-baseline gap-2 text-[0.82rem]">
+    <div className="grid grid-cols-[100px_1fr] items-baseline gap-2 text-sm">
       <span className="text-xs text-muted-foreground">{label}</span>
       <span className="font-medium">{value}</span>
     </div>

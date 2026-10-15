@@ -58,7 +58,7 @@ function installFetchRoutes(routes: RouteSpec[]) {
         } as unknown as Response;
       }
     }
-    return { ok: true, status: 200, json: async () => ({}), text: async () => "{}" } as unknown as Response;
+    return { ok: true, status: 200, json: async () => [], text: async () => "[]" } as unknown as Response;
   });
   vi.stubGlobal("fetch", fetchMock);
   return fetchMock;
@@ -100,17 +100,18 @@ async function renderPage() {
 }
 
 describe("CollegeDataPage states", () => {
-  test("offline when NEXT_PUBLIC_API_URL is unset (no direct CFBD calls)", async () => {
+  test("uses the local API and surfaces unavailable cached data without calling CFBD directly", async () => {
     vi.stubEnv("NEXT_PUBLIC_API_URL", "");
-    const fetchMock = installFetchRoutes([]);
+    const fetchMock = vi.fn().mockRejectedValue(new TypeError("Failed to fetch"));
+    vi.stubGlobal("fetch", fetchMock);
     await renderPage();
     await waitFor(() => {
       expect(screen.getByTestId("cfbd-banner").getAttribute("data-banner-tone")).toBe(
         "unavailable",
       );
     });
-    // The page must never call CFBD (or anything) directly when offline.
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalled();
+    expect(fetchMock.mock.calls.every((call) => String(call[0]).startsWith("/api/"))).toBe(true);
   });
 
   test("empty cache renders empty cards and no stale banner", async () => {

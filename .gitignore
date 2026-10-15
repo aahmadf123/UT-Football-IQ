@@ -91,3 +91,8 @@ gpu-worker/-encoders
 backend/.venv/
 workers/*/node_modules/
 workers/*/.wrangler/
+
+# Local runtime artifacts and reviewed-label exports belong to staff libraries.
+data/checkpoints/
+data/storage/
+backend/data/storage/

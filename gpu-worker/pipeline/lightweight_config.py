@@ -1,24 +1,13 @@
-"""Lightweight-path configuration for same-session period-break processing.
+"""CPU-first processing profiles and compatible priority routing.
 
-Same-session jobs must complete within the ~8 minute period-break window on a
-GTX 1660 Ti (6 GB VRAM).  This module centralises the configuration that
-governs what the lightweight path does differently from the nightly full run.
+Review prepares clean play media without inference models. Quick uses bounded
+local detection/tracking and optional features; detailed adds available pose and
+advanced analysis. Throughput depends on this computer, footage and installed
+models and is measured during processing. Queue priority retains the existing
+same-session/nightly model guardrail without promising a fixed turnaround time.
 
-Routing decisions respect Issues #74 and #76:
-  - Same-session detection: yolov8n (not SAM 3.1)
-  - Same-session pose: rtmpose-t (not rtmpose-m)
-  - Same-session render: 540 p overlay via ``period_renderer`` (not full HLS)
-  - Embeddings are nightly-only
-
-After the same-session lightweight path completes:
-  1. A nightly follow-up ``render_hls`` job is queued to produce the full-
-     resolution HLS package.
-  2. Nightly full-quality re-processing can be scheduled on a T4 16 GB GPU.
-
-Environment variables:
-  SAME_SESSION_RENDER_HEIGHT — overlay height for period-break delivery (default: 540)
-  SAME_SESSION_SKIP_STAGES  — comma-separated stages to skip on the lightweight
-                               path (default: embeddings,self_scout)
+SAME_SESSION_RENDER_HEIGHT and SAME_SESSION_SKIP_STAGES preserve legacy caller
+configuration. Profiles select capabilities independently of queue priority.
 """
 
 from __future__ import annotations
@@ -104,3 +93,62 @@ def should_queue_nightly_followup(priority: int) -> bool:
     from queue.same_session_queue import SAME_SESSION_PRIORITY
 
     return priority >= SAME_SESSION_PRIORITY
+
+
+# Profiles select product capabilities independently of queue priority. Model
+# routing still enforces the existing same-session experimental-model guardrail.
+PROCESSING_PROFILES: dict[str, tuple[str, ...]] = {
+    "review": ("ingest", "segment", "playback_proxy"),
+    "quick": (
+        "ingest",
+        "segment",
+        "playback_proxy",
+        "calibrate",
+        "detect",
+        "track",
+        "reid",
+        "events",
+        "labels",
+        "metrics",
+        "routes",
+        "coverage",
+        "render",
+    ),
+    "detailed": (
+        "ingest",
+        "segment",
+        "playback_proxy",
+        "calibrate",
+        "detect",
+        "track",
+        "reid",
+        "events",
+        "pose",
+        "labels",
+        "metrics",
+        "routes",
+        "coverage",
+        "oline",
+        "pressure",
+        "render",
+        "render_hls",
+    ),
+}
+
+
+def processing_profile(value: str | None) -> str:
+    selected = (value or os.environ.get("PROCESSING_PROFILE", "quick")).strip().lower()
+    if selected not in PROCESSING_PROFILES:
+        raise ValueError(f"Unknown processing profile: {selected!r}")
+    return selected
+
+
+def profile_stages(profile: str | None) -> list[str]:
+    return list(PROCESSING_PROFILES[processing_profile(profile)])
+
+
+def local_model_variant(stage: str, priority: int, profile: str) -> str:
+    """Use bounded CPU variants; device routing lives in the model router."""
+    from pipeline import model_router
+
+    return model_router.select_device_model(stage, priority)

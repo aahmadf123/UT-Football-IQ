@@ -106,7 +106,7 @@ def test_create_correction_persists_all_fields() -> None:
     body = resp.json()
     assert body["clip_id"] == str(clip.id)
     assert body["correction_type"] == "formation_tag"
-    assert body["original_value"] == {"formation": "shotgun"}
+    assert body["original_value"]["client_original"] == {"formation": "shotgun"}
     assert body["corrected_value"] == {"formation": "trips"}
     assert body["notes"] == "QB was in pistol"
     assert body["training_eligible"] is True
@@ -117,8 +117,9 @@ def test_create_correction_persists_all_fields() -> None:
     persisted = captured[0]
     assert persisted.clip_id == clip.id
     assert persisted.correction_type == CorrectionType.formation_tag
-    assert persisted.original_value == {"formation": "shotgun"}
-    assert persisted.corrected_value == {"formation": "trips"}
+    assert persisted.original_value["client_original"] == {"formation": "shotgun"}
+    assert persisted.corrected_value["formation"] == "trips"
+    assert persisted.corrected_value["_revision"] == 1
     assert persisted.notes == "QB was in pistol"
     assert persisted.training_eligible is True
     assert persisted.corrected_by == user.id
@@ -314,7 +315,7 @@ def test_sync_corrections_persists_each_item() -> None:
     assert captured[1].notes == "WR ran post not slant"
 
 
-def test_sync_corrections_skips_unknown_clip() -> None:
+def test_sync_corrections_rejects_unknown_clip_atomically() -> None:
     captured: list[CoachCorrection] = []
 
     async def _db() -> AsyncGenerator[Any, None]:
@@ -350,17 +351,15 @@ def test_sync_corrections_skips_unknown_clip() -> None:
     finally:
         app.dependency_overrides.clear()
 
-    assert resp.status_code == 201, resp.text
-    body = resp.json()
-    assert body["synced_count"] == 0
-    assert body["skipped_count"] == 1
+    assert resp.status_code == 404, resp.text
     assert captured == []
 
 
-def test_sync_corrections_dedup_skips_recent_duplicate() -> None:
+def test_sync_corrections_replays_stable_operation_id() -> None:
     clip = _make_clip()
     captured: list[CoachCorrection] = []
     existing = _make_correction(clip_id=clip.id)
+    operation_id = uuid.uuid4()
 
     call_count = {"n": 0}
     dedup_sql: dict[str, str] = {}
@@ -368,10 +367,10 @@ def test_sync_corrections_dedup_skips_recent_duplicate() -> None:
     async def _db() -> AsyncGenerator[Any, None]:
         session = AsyncMock()
 
-        async def _execute(stmt: Any) -> Any:
+        async def _execute(stmt: Any, *_args: Any) -> Any:
             call_count["n"] += 1
             result = MagicMock()
-            # Sequence per item: 1) clip lookup, 2) dedup lookup
+            # 1) operation-scoped advisory lock, 2) durable operation lookup.
             if call_count["n"] % 2 == 1:
                 result.scalar_one_or_none.return_value = clip
             else:
@@ -396,6 +395,7 @@ def test_sync_corrections_dedup_skips_recent_duplicate() -> None:
                             "clip_id": str(clip.id),
                             "correction_type": "formation_tag",
                             "corrected_value": {"formation": "trips"},
+                            "client_operation_id": str(operation_id),
                         }
                     ],
                 },
@@ -409,12 +409,13 @@ def test_sync_corrections_dedup_skips_recent_duplicate() -> None:
     assert body["skipped_count"] == 1
     assert captured == []
 
-    # Verify the dedup query includes the created_at window predicate.
+    # Replay is identified by the operation, independent of elapsed time.
     assert "sql" in dedup_sql, "dedup lookup query was not captured"
     sql = dedup_sql["sql"]
     assert "WHERE" in sql
     where_clause = sql.split("WHERE", 1)[1]
-    assert "coach_corrections.created_at" in where_clause
+    assert "coach_corrections.corrected_value" in where_clause
+    assert "created_at" not in where_clause
 
 
 # ── Correction analytics summary ──────────────────────────────────────────────

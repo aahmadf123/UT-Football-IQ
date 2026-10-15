@@ -18,18 +18,19 @@ The payload is shaped for direct frontend consumption:
 """
 
 import uuid
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.database import get_db
 from app.deps import get_current_user
-from app.models import Clip, Event, FieldCalibration, Label, Metric, Tracklet, User, UserRole
+from app.models import Clip, Event, FieldCalibration, Label, Metric, Tracklet, User, Video
+from app.services.metric_policy import INVALID_SOURCES, metric_visibility
 
 log = structlog.get_logger(__name__)
 router = APIRouter(tags=["overlays"])
@@ -96,6 +97,7 @@ class OverlayTrackPoint(BaseModel):
     field_y: float | None
     bbox: list[float] | None
     detection_confidence: float | None
+    timestamp_seconds: float | None = None
 
 
 class OverlayTracklet(BaseModel):
@@ -110,6 +112,7 @@ class OverlayTracklet(BaseModel):
     position_group: str | None
     side_of_ball: str | None
     track_points: list[OverlayTrackPoint] = []
+    provenance: dict[str, Any] | None = None
 
 
 class OverlayEvent(BaseModel):
@@ -118,6 +121,8 @@ class OverlayEvent(BaseModel):
     frame_number: int | None
     timestamp_seconds: float | None
     attributes: dict[str, Any] | None
+    provenance: dict[str, Any] | None = None
+    timebase: Literal["clip", "recording", "unknown"] = "unknown"
 
 
 class OverlayLabel(BaseModel):
@@ -139,6 +144,7 @@ class OverlayMetric(BaseModel):
     confidence: float | None
     effort_zscore: float | None
     loaf_flag: bool | None
+    provenance: dict[str, Any] | None = None
 
 
 class OverlayLayersAvailable(BaseModel):
@@ -156,6 +162,8 @@ class OverlayCalibration(BaseModel):
     reason: str | None
     reason_codes: list[str]
     confidence: float | None
+    calibration_id: uuid.UUID | None = None
+    provenance: dict[str, Any] | None = None
 
 
 class ClipOverlayResponse(BaseModel):
@@ -167,6 +175,12 @@ class ClipOverlayResponse(BaseModel):
     metrics: list[OverlayMetric]
     layers_available: OverlayLayersAvailable
     calibration: OverlayCalibration
+    provenance: dict[str, Any] | None = None
+    warnings: list[str] = []
+    tracks_timebase: Literal["recording"] = "recording"
+    source_start_time_seconds: float = 0
+    source_fps: float = 30
+    source_fps_known: bool = False
 
 
 # ── Endpoint ────────────────────────────────────────────────────────────
@@ -188,12 +202,14 @@ async def get_clip_overlays(
     if clip is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Clip not found")
 
-    calib_result = await db.execute(
-        select(FieldCalibration)
-        .where(FieldCalibration.video_id == clip.video_id)
-        .order_by(FieldCalibration.created_at.desc())
-        .limit(1)
-    )
+    calibration_query = select(FieldCalibration).where(FieldCalibration.video_id == clip.video_id)
+    if isinstance(clip.calibration_version_id, uuid.UUID):
+        calibration_query = calibration_query.where(
+            FieldCalibration.id == clip.calibration_version_id
+        )
+    else:
+        calibration_query = calibration_query.order_by(FieldCalibration.created_at.desc()).limit(1)
+    calib_result = await db.execute(calibration_query)
     calibration_row = calib_result.scalar_one_or_none()
     if calibration_row is None:
         calibration = OverlayCalibration(
@@ -209,20 +225,57 @@ async def get_clip_overlays(
             reason=None if calibration_row.analytics_safe else _reason_text(codes),
             reason_codes=codes,
             confidence=calibration_row.confidence,
+            calibration_id=calibration_row.id,
+            provenance=calibration_row.provenance
+            if isinstance(calibration_row.provenance, dict)
+            else None,
         )
 
     tracklets_result = await db.execute(
         select(Tracklet)
         .options(selectinload(Tracklet.track_points))
-        .where(Tracklet.clip_id == clip_id)
+        .where(
+            Tracklet.clip_id == clip_id,
+            ~func.coalesce(Tracklet.provenance["source"].astext, "unknown").in_(INVALID_SOURCES),
+            func.coalesce(Tracklet.provenance["state"].astext, "current") != "superseded",
+        )
         .order_by(Tracklet.start_frame)
     )
     tracklets = tracklets_result.scalars().all()
+    tracking_flagged = isinstance(clip.label_data, dict) and bool(
+        clip.label_data.get("tracking_review_required")
+    )
+    if tracking_flagged:
+        tracklets = []
 
     events_result = await db.execute(
-        select(Event).where(Event.clip_id == clip_id).order_by(Event.frame_number)
+        select(Event)
+        .where(
+            Event.clip_id == clip_id,
+            ~func.coalesce(Event.provenance["source"].astext, "unknown").in_(INVALID_SOURCES),
+        )
+        .order_by(Event.frame_number)
     )
     events = events_result.scalars().all()
+    human_event_types = {
+        event.event_type
+        for event in events
+        if (
+            isinstance(event.attributes, dict)
+            and event.attributes.get("source") in {"human", "manual"}
+        )
+        or (isinstance(event.provenance, dict) and event.provenance.get("source") == "manual")
+    }
+    events = [
+        event
+        for event in events
+        if event.event_type not in human_event_types
+        or (
+            isinstance(event.attributes, dict)
+            and event.attributes.get("source") in {"human", "manual"}
+        )
+        or (isinstance(event.provenance, dict) and event.provenance.get("source") == "manual")
+    ]
 
     labels_result = await db.execute(
         select(Label)
@@ -230,24 +283,43 @@ async def get_clip_overlays(
             (Label.clip_id == clip_id)
             | (Label.tracklet_id.in_(select(Tracklet.id).where(Tracklet.clip_id == clip_id)))
         )
+        .where(Label.source != "synthetic_test")
         .order_by(Label.created_at)
     )
     labels = labels_result.scalars().all()
 
-    metrics_q = (
-        select(Metric)
-        .where(Metric.clip_id == clip_id, Metric.is_suppressed.is_(False))
-        .order_by(Metric.metric_name)
-    )
-    if current_user.role == UserRole.player:
-        metrics_q = metrics_q.where(Metric.experimental_flag.is_(False))
+    metrics_q = metric_visibility(
+        select(Metric).where(Metric.clip_id == clip_id), current_user
+    ).order_by(Metric.metric_name)
     metrics_result = await db.execute(metrics_q)
     metrics = metrics_result.scalars().all()
+
+    source_fps = (
+        await db.execute(select(Video.fps).where(Video.id == clip.video_id))
+    ).scalar_one_or_none()
+    fps_known = isinstance(source_fps, (float, int)) and source_fps > 0
 
     return ClipOverlayResponse(
         clip_id=clip_id,
         capture_regime=clip.capture_regime.value if clip.capture_regime else None,
         calibration=calibration,
+        tracks_timebase="recording",
+        source_start_time_seconds=clip.start_time,
+        source_fps=float(source_fps)
+        if isinstance(source_fps, (float, int)) and source_fps > 0
+        else 30,
+        source_fps_known=fps_known,
+        provenance=clip.provenance if isinstance(clip.provenance, dict) else None,
+        warnings=(
+            ["Tracking is flagged for repair; check it before using movement observations."]
+            if tracking_flagged
+            else []
+        )
+        + (
+            ["Output provenance is unknown; review observations before using analytics."]
+            if not isinstance(clip.provenance, dict)
+            else []
+        ),
         tracklets=[
             OverlayTracklet(
                 id=t.id,
@@ -258,6 +330,7 @@ async def get_clip_overlays(
                 team_label=t.team_label,
                 position_group=t.position_group,
                 side_of_ball=t.side_of_ball,
+                provenance=t.provenance if isinstance(t.provenance, dict) else None,
                 track_points=[
                     OverlayTrackPoint(
                         frame_number=p.frame_number,
@@ -265,6 +338,9 @@ async def get_clip_overlays(
                         field_y=p.field_y,
                         bbox=p.bbox,
                         detection_confidence=p.detection_confidence,
+                        timestamp_seconds=getattr(p, "timestamp_seconds", None)
+                        if isinstance(getattr(p, "timestamp_seconds", None), (float, int))
+                        else None,
                     )
                     for p in t.track_points
                 ],
@@ -278,6 +354,21 @@ async def get_clip_overlays(
                 frame_number=e.frame_number,
                 timestamp_seconds=e.timestamp_seconds,
                 attributes=e.attributes,
+                provenance=e.provenance if isinstance(e.provenance, dict) else None,
+                timebase=e.attributes["timebase"]
+                if isinstance(e.attributes, dict)
+                and e.attributes.get("timebase") in {"clip", "recording", "unknown"}
+                else (
+                    "clip"
+                    if (
+                        isinstance(e.attributes, dict)
+                        and e.attributes.get("source") in {"human", "manual"}
+                    )
+                    or (isinstance(e.provenance, dict) and e.provenance.get("source") == "manual")
+                    else "recording"
+                    if isinstance(e.provenance, dict)
+                    else "unknown"
+                ),
             )
             for e in events
         ],
@@ -301,6 +392,7 @@ async def get_clip_overlays(
                 confidence=m.confidence,
                 effort_zscore=_optional_float(getattr(m, "effort_zscore", None)),
                 loaf_flag=_optional_bool(getattr(m, "loaf_flag", None)),
+                provenance=m.provenance if isinstance(m.provenance, dict) else None,
             )
             for m in metrics
         ],

@@ -15,8 +15,10 @@ literal ``/download-url`` path wins over ``/{video_id}``.
 """
 
 import hashlib
+import os
 import re
 import time
+import uuid
 from typing import Annotated
 from urllib.parse import quote
 
@@ -97,7 +99,7 @@ async def create_upload_url(
     # Worker uses `raw/${Date.now()}-${filename}`; mirror it. The filename is
     # embedded in the key, so strip path separators and traversal sequences.
     safe_name = body.filename.replace("\\", "/").split("/")[-1].replace("..", "_") or "upload.bin"
-    key = f"raw/{int(time.time() * 1000)}-{safe_name}"
+    key = f"raw/{int(time.time() * 1000)}-{uuid.uuid4().hex}-{safe_name}"
     base = _upload_base(request)
     upload_url = f"{base}/api/v1/videos/upload/{quote(key, safe='')}"
     return {"uploadUrl": upload_url, "key": key}
@@ -126,6 +128,7 @@ async def upload_object(
 
     md5 = hashlib.md5(usedforsecurity=False)
     size = 0
+    sha256 = hashlib.sha256()
 
     if active_storage_backend() == "local":
         path = local_object_path(_RAW_BUCKET, key)
@@ -134,16 +137,27 @@ async def upload_object(
                 status_code=status.HTTP_409_CONFLICT, detail="Object already exists"
             )
         path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.upload")
         try:
-            with path.open("wb") as out:
+            with temporary.open("xb") as out:
                 async for chunk in request.stream():
                     size += len(chunk)
                     _reject_oversize(size)
                     out.write(chunk)
                     md5.update(chunk)
-        except BaseException:
-            path.unlink(missing_ok=True)  # no partial objects
-            raise
+                    sha256.update(chunk)
+                out.flush()
+                os.fsync(out.fileno())
+            if size == 0:
+                raise HTTPException(400, "Recording upload is empty")
+            # A hard link publishes complete bytes atomically and exclusively.
+            # Concurrent uploads never overwrite an existing recording.
+            try:
+                os.link(temporary, path)
+            except FileExistsError as exc:
+                raise HTTPException(409, "Object already exists") from exc
+        finally:
+            temporary.unlink(missing_ok=True)
         storage_uri = f"local://{_RAW_BUCKET}/{key}"
     else:
         import tempfile
@@ -160,6 +174,9 @@ async def upload_object(
                 _reject_oversize(size)
                 tmp.write(chunk)
                 md5.update(chunk)
+                sha256.update(chunk)
+            if size == 0:
+                raise HTTPException(400, "Recording upload is empty")
             tmp.flush()
             tmp.seek(0)
             storage_uri = await to_thread.run_sync(
@@ -167,7 +184,14 @@ async def upload_object(
             )
 
     log.info("upload_stored", key=key, size=size, backend=active_storage_backend())
-    return {"key": key, "size": size, "etag": md5.hexdigest(), "storageUri": storage_uri}
+    return {
+        "key": key,
+        "size": size,
+        "etag": md5.hexdigest(),
+        "sha256": sha256.hexdigest(),
+        "storageUri": storage_uri,
+        "finalized": True,
+    }
 
 
 @router.get("/download-url")

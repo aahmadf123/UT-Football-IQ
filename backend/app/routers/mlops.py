@@ -24,8 +24,6 @@ from app.models import (
     ActiveLearningQueueItem,
     ActiveLearningReason,
     ActiveLearningStatus,
-    Clip,
-    CoachCorrection,
     JobStatus,
     JobType,
     Label,
@@ -35,7 +33,9 @@ from app.models import (
     TrainingDataset,
     User,
 )
-from app.utils import make_dataset_artifact_uri
+from app.services.annotations import lock_output_id
+from app.services.corrections_export import export_corrections
+from app.services.learning import promote_model
 
 log = structlog.get_logger(__name__)
 router = APIRouter(prefix="/api/v1/mlops", tags=["mlops"])
@@ -56,6 +56,7 @@ def _normalized_value(value: dict[str, Any]) -> str:
 
 class ModelVersionCreate(BaseModel):
     model_config = {"protected_namespaces": ()}
+    id: uuid.UUID | None = None
 
     model_name: str = Field(min_length=1, max_length=255)
     version: str = Field(min_length=1, max_length=100)
@@ -183,6 +184,15 @@ async def create_model_version(
     db: Annotated[AsyncSession, Depends(get_db)],
     _current_user: Annotated[User, Depends(require_analyst_or_above)],
 ) -> ModelVersionResponse:
+    if body.id is not None:
+        await lock_output_id(db, body.id)
+        prior = (
+            await db.execute(select(ModelVersion).where(ModelVersion.id == body.id))
+        ).scalar_one_or_none()
+        if prior is not None:
+            if prior.model_name != body.model_name or prior.version != body.version:
+                raise HTTPException(409, detail="Model ID belongs to another candidate")
+            return ModelVersionResponse.model_validate(prior, from_attributes=True)
     if body.training_dataset_id is not None:
         dataset_result = await db.execute(
             select(TrainingDataset).where(TrainingDataset.id == body.training_dataset_id)
@@ -193,7 +203,7 @@ async def create_model_version(
             )
 
     model = ModelVersion(
-        id=uuid.uuid4(),
+        id=body.id or uuid.uuid4(),
         model_name=body.model_name,
         version=body.version,
         model_type=body.model_type,
@@ -211,20 +221,14 @@ async def promote_model_version(
     model_version_id: uuid.UUID,
     body: PromoteModelRequest,
     db: Annotated[AsyncSession, Depends(get_db)],
-    _current_user: Annotated[User, Depends(require_admin)],
+    current_user: Annotated[User, Depends(require_admin)],
 ) -> ModelVersionResponse:
     result = await db.execute(select(ModelVersion).where(ModelVersion.id == model_version_id))
     model = result.scalar_one_or_none()
     if model is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Model version not found")
 
-    if body.stage in {ModelStage.staging, ModelStage.production} and not model.metrics:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="Validation metrics are required before promoting to staging or production",
-        )
-    model.promoted_stage = body.stage
-    await db.flush()
+    await promote_model(db, model=model, stage=body.stage, actor=current_user)
     return ModelVersionResponse.model_validate(model, from_attributes=True)
 
 
@@ -330,71 +334,9 @@ async def run_nightly_active_learning(
     db.add(ingestion_job)
     await db.flush()
 
-    corrections_result = await db.execute(
-        select(CoachCorrection).where(
-            CoachCorrection.training_eligible.is_(True),
-            CoachCorrection.exported_as_label.is_(False),
-        )
-    )
-    corrections = corrections_result.scalars().all()
-
-    exported_labels: list[Label] = []
-    exported_correction_ids: list[uuid.UUID] = []
-    for correction in corrections:
-        confidence = _confidence(correction.original_value)
-        if confidence is not None and confidence < high_confidence_threshold:
-            continue
-
-        clip_result = await db.execute(select(Clip).where(Clip.id == correction.clip_id))
-        clip = clip_result.scalar_one_or_none()
-        label = Label(
-            id=uuid.uuid4(),
-            clip_id=correction.clip_id,
-            label_type=correction.correction_type.value,
-            label_value=correction.corrected_value,
-            annotated_by=correction.corrected_by,
-            source="human",
-            model_version_id=clip.model_version_id if clip is not None else None,
-        )
-        db.add(label)
-        correction.exported_as_label = True
-        exported_labels.append(label)
-        exported_correction_ids.append(correction.id)
-
-    training_dataset_id: uuid.UUID | None = None
-    if exported_labels:
-        previous_result = await db.execute(
-            select(TrainingDataset)
-            .where(TrainingDataset.model_scope == model_scope)
-            .order_by(TrainingDataset.snapshot_date.desc())
-            .limit(1)
-        )
-        previous = previous_result.scalar_one_or_none()
-        previous_corrections = (
-            {uuid.UUID(c) for c in previous.source_correction_ids}
-            if previous is not None
-            else set()
-        )
-        added_corrections = [
-            str(c_id) for c_id in exported_correction_ids if c_id not in previous_corrections
-        ]
-
-        training_dataset = TrainingDataset(
-            id=uuid.uuid4(),
-            model_scope=model_scope,
-            source_label_ids=[str(label.id) for label in exported_labels],
-            source_correction_ids=[str(c_id) for c_id in exported_correction_ids],
-            row_count=len(exported_labels),
-            artifact_uri=make_dataset_artifact_uri(model_scope),
-            changelog={"added_correction_ids": added_corrections},
-            created_by=current_user.id,
-        )
-        db.add(training_dataset)
-        await db.flush()
-        training_dataset_id = training_dataset.id
-        for label in exported_labels:
-            label.training_dataset_id = training_dataset_id
-            label.dataset_version = str(training_dataset_id)
+    exported = await export_corrections(db, model_scope=model_scope)
+    training_dataset_id = exported.training_dataset_id
+    exported_labels = exported.label_ids
 
     ingestion_job.status = JobStatus.succeeded
     ingestion_job.training_dataset_id = training_dataset_id

@@ -23,6 +23,9 @@ router = APIRouter(tags=["calibrations"])
 class CalibrationCreate(BaseModel):
     model_config = {"protected_namespaces": ()}
 
+    id: uuid.UUID | None = None
+    provenance: dict[str, Any] | None = None
+
     video_id: uuid.UUID
     homography: list[float] | None = None
     confidence: float | None = None
@@ -43,6 +46,8 @@ class CalibrationCreate(BaseModel):
 
 class CalibrationResponse(BaseModel):
     model_config = {"protected_namespaces": ()}
+
+    provenance: dict[str, Any] | None = None
 
     id: uuid.UUID
     video_id: uuid.UUID
@@ -69,6 +74,7 @@ class CalibrationResponse(BaseModel):
     def from_orm_cal(cls, c: FieldCalibration) -> "CalibrationResponse":
         meets_threshold = c.confidence is not None and c.confidence >= c.confidence_threshold
         return cls(
+            provenance=c.provenance if isinstance(c.provenance, dict) else None,
             id=c.id,
             video_id=c.video_id,
             homography=c.homography,
@@ -104,12 +110,22 @@ async def create_calibration(
     _current_user: Annotated[User, Depends(require_any_staff)],
 ) -> CalibrationResponse:
     """Store a new field calibration result for a video."""
-    vid_result = await db.execute(select(Video).where(Video.id == body.video_id))
+    vid_result = await db.execute(select(Video).where(Video.id == body.video_id).with_for_update())
     if vid_result.scalar_one_or_none() is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Video not found")
 
+    if body.id is not None:
+        existing = (
+            await db.execute(select(FieldCalibration).where(FieldCalibration.id == body.id))
+        ).scalar_one_or_none()
+        if existing is not None:
+            if existing.video_id != body.video_id:
+                raise HTTPException(409, "Operation ID belongs to another target")
+            return CalibrationResponse.from_orm_cal(existing)
+
     cal = FieldCalibration(
-        id=uuid.uuid4(),
+        id=body.id or uuid.uuid4(),
+        provenance=body.provenance,
         video_id=body.video_id,
         homography=body.homography,
         confidence=body.confidence,

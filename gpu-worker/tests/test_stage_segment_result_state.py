@@ -58,8 +58,11 @@ def test_segment_maps_priority_to_result_state(
         job_id: str,
         boundary_model: str,
         result_state: str | None = None,
+        *,
+        review_fallback: bool = False,
     ) -> list[dict[str, Any]]:
         captured["result_state"] = result_state
+        captured["review_fallback"] = review_fallback
         return []
 
     monkeypatch.setattr(stage_segment, "_video_duration", lambda _p: 10.0)
@@ -68,6 +71,7 @@ def test_segment_maps_priority_to_result_state(
     stage_segment._segment("vid-1", Path("/tmp/x.mp4"), "job-1", _FakeSegmenter(), priority)
 
     assert captured["result_state"] == expected
+    assert captured["review_fallback"] is False
 
 
 def test_write_clips_forwards_result_state_to_create_clip(

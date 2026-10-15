@@ -15,7 +15,8 @@ Layered approach, applied in priority order (Issue #131):
 
 The variant is chosen by ``pipeline.model_router`` and passed in by the
 dispatcher. Every layer only ever fills the existing ``player_id`` via
-PATCH /api/v1/tracklets/{id} — no tracklet schema changes, single-camera only.
+PATCH /api/v1/tracklets/{id}. Associations are within one recording; multiple
+independent session recordings do not imply automatic cross-view identity.
 """
 
 from __future__ import annotations
@@ -31,6 +32,7 @@ import numpy as np
 import structlog
 
 from pipeline.model_router import PARSEQ_OCR
+from pipeline.runtime import PipelineInterrupted, check_control
 from pipeline.tracking.min_cost_flow_stitcher import (
     MinCostFlowStitcher,
     TrackletNode,
@@ -40,6 +42,7 @@ from pipeline.tracking.trajectory_prior_reid import (
     TrajectoryPriorReID,
     UnknownTrack,
 )
+from pipeline.video_timeline import VideoTimeline, seek_source_frame
 
 log = structlog.get_logger(__name__)
 
@@ -56,6 +59,7 @@ def run(
     *,
     variant: str | None = None,
     priority: int | None = None,
+    timeline: VideoTimeline | None = None,
 ) -> dict[str, Any]:
     """Attempt to associate player identities with tracklets.
 
@@ -67,6 +71,11 @@ def run(
             min-cost-flow stitching layer; ``None`` is treated as nightly.
     """
     nightly = priority is None or priority < SAME_SESSION_PRIORITY
+    if not roster and not any(t.get("player_id") for t in tracklets):
+        return {"assigned": 0, "total": len(tracklets), "tracklets": tracklets,
+                "skipped": True, "reason": "roster_and_identity_seeds_unavailable",
+                "reid_strategy": {"ocr": "disabled", "trajectory_prior_assigned": 0,
+                                  "min_cost_flow_stitched": 0, "stitching_enabled": False}}
     log.info(
         "stage_reid_start",
         clip_id=clip_id,
@@ -84,6 +93,7 @@ def run(
     adapter = _get_reid_adapter()
     ocr_adapter = _get_ocr_adapter(variant)
     cap = cv2.VideoCapture(str(video_path))
+    timeline = timeline or VideoTimeline.from_path(video_path)
 
     # tracklet_id -> player_id, covering both pre-identified and newly assigned.
     assigned_ids: dict[str, str] = {}
@@ -93,28 +103,30 @@ def run(
     gallery: list[tuple[np.ndarray, str]] = []
 
     # ── Layers 1+2: OCR (PARSeq/Tesseract) and appearance gallery ──────────
-    for tracklet in tracklets:
-        if tracklet.get("player_id"):
-            assigned_ids[tracklet["id"]] = tracklet["player_id"]
-            if adapter is not None:
-                emb = _extract_tracklet_embedding(tracklet, cap, adapter)
-                if emb is not None:
-                    gallery.append((emb, tracklet["player_id"]))
-            continue
+    try:
+        for tracklet in tracklets:
+            check_control()
+            if tracklet.get("player_id"):
+                assigned_ids[tracklet["id"]] = tracklet["player_id"]
+                if adapter is not None:
+                    emb = _extract_tracklet_embedding(tracklet, cap, adapter, timeline=timeline)
+                    if emb is not None:
+                        gallery.append((emb, tracklet["player_id"]))
+                continue
 
-        player_id = _identify_tracklet(
-            tracklet, cap, jersey_map, adapter, gallery, ocr_adapter
-        )
-        if player_id:
-            _patch_tracklet(tracklet["id"], player_id, backend_api_url)
-            assigned_ids[tracklet["id"]] = player_id
-            assigned += 1
-            if adapter is not None:
-                emb = _extract_tracklet_embedding(tracklet, cap, adapter)
-                if emb is not None:
-                    gallery.append((emb, player_id))
-
-    cap.release()
+            player_id = _identify_tracklet(
+                tracklet, cap, jersey_map, adapter, gallery, ocr_adapter, timeline=timeline
+            )
+            if player_id:
+                _patch_tracklet(tracklet["id"], player_id, backend_api_url)
+                assigned_ids[tracklet["id"]] = player_id
+                assigned += 1
+                if adapter is not None:
+                    emb = _extract_tracklet_embedding(tracklet, cap, adapter, timeline=timeline)
+                    if emb is not None:
+                        gallery.append((emb, player_id))
+    finally:
+        cap.release()
 
     # ── Layer 3: trajectory-prior re-ID for the still-unidentified ─────────
     trajectory_assigned = _assign_by_trajectory(
@@ -137,9 +149,17 @@ def run(
         trajectory_assigned=trajectory_assigned,
         stitched_assigned=stitched_assigned,
     )
+    enriched = []
+    for tracklet in tracklets:
+        observation = dict(tracklet)
+        pid = assigned_ids.get(tracklet["id"])
+        if pid and not observation.get("player_id"):
+            observation.update(player_id=pid, identity_source="automatic_candidate", identity_verified=False)
+        enriched.append(observation)
     return {
         "assigned": assigned,
         "total": len(tracklets),
+        "tracklets": enriched,
         "reid_strategy": {
             "ocr": PARSEQ_OCR if ocr_adapter is not None else "jersey-ocr",
             "trajectory_prior_assigned": trajectory_assigned,
@@ -284,6 +304,8 @@ def _extract_tracklet_embedding(
     tracklet: dict[str, Any],
     cap: Any,
     adapter: NvidiaReIDAdapter,
+    *,
+    timeline: VideoTimeline | None = None,
 ) -> np.ndarray | None:
     """Extract a representative L2-normalised embedding for a tracklet."""
     points = tracklet.get("track_points", [])
@@ -297,7 +319,10 @@ def _extract_tracklet_embedding(
         bbox = pt.get("bbox")
         if not bbox:
             continue
-        cap.set(cv2.CAP_PROP_POS_FRAMES, pt.get("frame_number", 0))
+        if timeline is None:
+            cap.set(cv2.CAP_PROP_POS_FRAMES, pt.get("frame_number", 0))
+        else:
+            seek_source_frame(cap, int(pt.get("frame_number", 0)), timeline)
         ret, frame = cap.read()
         if not ret:
             continue
@@ -308,6 +333,8 @@ def _extract_tracklet_embedding(
             continue
         try:
             embeddings.append(adapter.extract_embedding(crop))
+        except PipelineInterrupted:
+            raise
         except Exception as exc:
             log.warning("reid_embedding_failed", error=str(exc))
     if not embeddings:
@@ -326,6 +353,8 @@ def _identify_tracklet(
     adapter: NvidiaReIDAdapter | None = None,
     gallery: list[tuple[np.ndarray, str]] | None = None,
     ocr_adapter: Any | None = None,
+    *,
+    timeline: VideoTimeline | None = None,
 ) -> str | None:
     """Return a player_id UUID string if we can identify this tracklet, else None."""
     points = tracklet.get("track_points", [])
@@ -341,7 +370,10 @@ def _identify_tracklet(
         if not bbox:
             continue
         frame_number = pt.get("frame_number", 0)
-        cap.set(cv2.CAP_PROP_POS_FRAMES, frame_number)
+        if timeline is None:
+            cap.set(cv2.CAP_PROP_POS_FRAMES, frame_number)
+        else:
+            seek_source_frame(cap, int(frame_number), timeline)
         ret, frame = cap.read()
         if not ret:
             continue
@@ -353,7 +385,7 @@ def _identify_tracklet(
     # OCR found nothing — fall back to appearance-based matching via the ReID adapter.
     if adapter is not None and gallery:
         try:
-            emb = _extract_tracklet_embedding(tracklet, cap, adapter)
+            emb = _extract_tracklet_embedding(tracklet, cap, adapter, timeline=timeline)
             if emb is not None:
                 best_pid: str | None = None
                 best_sim = -1.0
@@ -364,6 +396,8 @@ def _identify_tracklet(
                         best_pid = pid
                 if best_pid is not None:
                     return best_pid
+        except PipelineInterrupted:
+            raise
         except Exception as exc:
             log.warning("reid_gallery_match_failed", error=str(exc))
 

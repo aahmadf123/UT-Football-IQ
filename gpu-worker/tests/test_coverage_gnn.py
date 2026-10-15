@@ -244,3 +244,40 @@ def test_stage_coverage_uncalibrated_coords_fallback() -> None:
     assert result["calibration_method"] == "uncalibrated"
     assert result["shell"] is not None
     assert result["coverage_bust_flag"] is False
+
+
+def test_stage_coverage_synthetic_lineage_never_publishes_trusted_shell(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    from pipeline import backend, stage_coverage
+
+    graphs: list[fs.SpatialGraph] = []
+    labels: list[int] = []
+    for _ in range(8):
+        graphs.append(_nodes_and_graph(_defense_look(deep=0, box=7))[1])
+        labels.append(COVERAGE_CLASSES.index("cover_0"))
+        graphs.append(_nodes_and_graph(_defense_look(deep=4, box=6))[1])
+        labels.append(COVERAGE_CLASSES.index("cover_4"))
+    gnn, _report = trainer.train(graphs, labels, holdout_frac=0.25, seed=3)
+    gnn.provenance = {"source": "real", "validated": True, "model_version_id": "mv-approved"}
+    classifier = CoverageClassifier(gnn=gnn, baseline=DeterministicCoverageBaseline())
+
+    written: list[dict[str, Any]] = []
+
+    def _capture(label_type, label_value, **kwargs):  # type: ignore[no-untyped-def]
+        written.append({"label_type": label_type, "label_value": label_value, **kwargs})
+        return {"id": f"label-{len(written)}"}
+
+    monkeypatch.setattr(backend, "create_label", _capture)
+    tracks = _defense_look(deep=3, box=6) + _offense_skill()
+    tracks[0]["track_points"][0]["source"] = "synthetic_test"
+    events = [{"event_type": "snap", "frame_number": 10}]
+    result = stage_coverage.run(
+        "clip-1", tracks, events, fps=30.0, analytics_safe=True, offense_direction=1,
+        classifier=classifier,
+    )
+    shell = next(w for w in written if w["label_type"] == "coverage_shell")
+    assert shell["source"] == "synthetic_test"
+    assert shell["label_value"]["source"] == "synthetic_test"
+    assert shell["label_value"]["experimental"] is True
+    assert shell["label_value"]["provenance"]["validated"] is False
+    assert all(w["source"] == "synthetic_test" for w in written)
+    assert result["feature_packet"]["source"] == "synthetic_test"

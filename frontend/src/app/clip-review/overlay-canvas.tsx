@@ -1,4 +1,5 @@
 "use client";
+import { activeTrackPointIndex } from "@/lib/tracking-time";
 
 /**
  * SVG overlay layer rendered on top of the clip-review video.
@@ -109,6 +110,8 @@ export function OverlayCanvas({
             tracklet={t}
             index={i}
             currentFrame={currentFrame}
+          currentTimeSeconds={currentTimeSeconds}
+          fps={fps}
             viewW={viewW}
             viewH={viewH}
             videoWidth={videoWidth}
@@ -140,6 +143,8 @@ function TrackletGlyph({
   tracklet,
   index,
   currentFrame,
+  currentTimeSeconds,
+  fps,
   viewW,
   viewH,
   videoWidth,
@@ -157,6 +162,8 @@ function TrackletGlyph({
   // corrections panel.
   index: number;
   currentFrame: number;
+  currentTimeSeconds: number;
+  fps: number;
   viewW: number;
   viewH: number;
   videoWidth: number | null;
@@ -169,25 +176,8 @@ function TrackletGlyph({
   selected: boolean;
   onSelect?: (trackletId: string) => void;
 }) {
-  if (
-    currentFrame < tracklet.start_frame ||
-    currentFrame > tracklet.end_frame ||
-    tracklet.track_points.length === 0
-  ) {
-    return null;
-  }
-
-  // Nearest-neighbor lookup. Points are inserted in order but no guarantee
-  // every frame has a sample, so scan.
-  let activeIdx = -1;
-  let bestDistance = Number.POSITIVE_INFINITY;
-  for (let i = 0; i < tracklet.track_points.length; i++) {
-    const d = Math.abs(tracklet.track_points[i].frame_number - currentFrame);
-    if (d < bestDistance) {
-      bestDistance = d;
-      activeIdx = i;
-    }
-  }
+  void currentFrame;
+  const activeIdx = activeTrackPointIndex(tracklet, currentTimeSeconds, fps);
   if (activeIdx < 0) return null;
 
   const activePoint = tracklet.track_points[activeIdx];
@@ -364,6 +354,7 @@ function ActiveEventBadges({
 }
 
 export function eventTimeSeconds(e: OverlayEvent, fps: number): number | null {
+  if (e.timebase === "unknown") return null;
   if (e.timestamp_seconds != null) return e.timestamp_seconds;
   if (e.frame_number != null && fps > 0) return e.frame_number / fps;
   return null;

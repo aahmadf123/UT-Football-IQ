@@ -57,7 +57,7 @@ function PlayersContent() {
             aria-current={tab.key === activeTab ? "page" : undefined}
             data-testid={`players-tab-${tab.key}`}
             className={cn(
-              "inline-flex min-h-9 items-center whitespace-nowrap rounded-md px-3 py-1.5 font-display text-[0.82rem] font-semibold uppercase tracking-wide transition-colors",
+              "inline-flex min-h-9 items-center whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-semibold transition-colors",
               tab.key === activeTab
                 ? "bg-gradient-to-b from-primary to-gold-strong text-primary-foreground"
                 : "text-muted-foreground hover:bg-accent hover:text-foreground",

@@ -6,17 +6,21 @@ Supported event_type values (not enforced by the DB, but documented here):
 """
 
 import uuid
+from collections.abc import Sequence
 from typing import Annotated, Any
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import cast, func, select, update
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.deps import get_current_user, require_any_staff, require_coach_or_above
-from app.models import Clip, Event, User
+from app.models import Clip, CorrectionType, Event, User
+from app.services.annotations import submit_correction
+from app.services.metric_policy import INVALID_SOURCES
 
 log = structlog.get_logger(__name__)
 router = APIRouter(tags=["events"])
@@ -27,6 +31,10 @@ router = APIRouter(tags=["events"])
 
 class EventCreate(BaseModel):
     model_config = {"protected_namespaces": ()}
+
+    id: uuid.UUID | None = None
+    provenance: dict[str, Any] | None = None
+    job_id: uuid.UUID | None = None
 
     clip_id: uuid.UUID
     event_type: str
@@ -46,6 +54,8 @@ class EventUpdate(BaseModel):
 class EventResponse(BaseModel):
     model_config = {"protected_namespaces": ()}
 
+    provenance: dict[str, Any] | None = None
+
     id: uuid.UUID
     clip_id: uuid.UUID
     event_type: str
@@ -59,6 +69,7 @@ class EventResponse(BaseModel):
     @classmethod
     def from_orm_event(cls, e: Event) -> "EventResponse":
         return cls(
+            provenance=e.provenance if isinstance(e.provenance, dict) else None,
             id=e.id,
             clip_id=e.clip_id,
             event_type=e.event_type,
@@ -69,6 +80,20 @@ class EventResponse(BaseModel):
             model_version_id=e.model_version_id,
             created_at=e.created_at.isoformat(),
         )
+
+
+def effective_events(events: Sequence[Event]) -> list[Event]:
+    def is_manual(event: Event) -> bool:
+        return (
+            isinstance(event.provenance, dict)
+            and event.provenance.get("source") in {"manual", "human"}
+        ) or (
+            isinstance(event.attributes, dict)
+            and event.attributes.get("source") in {"manual", "human"}
+        )
+
+    manual_types = {event.event_type for event in events if is_manual(event)}
+    return [event for event in events if is_manual(event) or event.event_type not in manual_types]
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
@@ -90,7 +115,11 @@ async def list_events_for_clip(
 
     q = (
         select(Event)
-        .where(Event.clip_id == clip_id)
+        .where(
+            Event.clip_id == clip_id,
+            func.coalesce(Event.provenance["state"].as_string(), "") != "superseded",
+            ~func.coalesce(Event.provenance["source"].as_string(), "unknown").in_(INVALID_SOURCES),
+        )
         .order_by(Event.frame_number)
         .limit(limit)
         .offset(offset)
@@ -98,7 +127,7 @@ async def list_events_for_clip(
     if event_type is not None:
         q = q.where(Event.event_type == event_type)
     result = await db.execute(q)
-    return [EventResponse.from_orm_event(e) for e in result.scalars().all()]
+    return [EventResponse.from_orm_event(e) for e in effective_events(result.scalars().all())]
 
 
 @router.post(
@@ -112,12 +141,51 @@ async def create_event(
     current_user: Annotated[User, Depends(require_any_staff)],
 ) -> EventResponse:
     """Record a new game event (model-detected or manually tagged)."""
-    clip_result = await db.execute(select(Clip).where(Clip.id == body.clip_id))
+    clip_result = await db.execute(select(Clip).where(Clip.id == body.clip_id).with_for_update())
     if clip_result.scalar_one_or_none() is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Clip not found")
 
+    if body.id is not None:
+        existing = (await db.execute(select(Event).where(Event.id == body.id))).scalar_one_or_none()
+        if existing is not None:
+            if existing.clip_id != body.clip_id:
+                raise HTTPException(409, "Operation ID belongs to another target")
+            if (body.job_id or body.provenance) and not (
+                isinstance(existing.provenance, dict)
+                and existing.provenance.get("source") in {"manual", "human"}
+            ):
+                existing.provenance = {
+                    **(body.provenance or {}),
+                    **({"job_id": str(body.job_id)} if body.job_id else {}),
+                }
+                await db.flush()
+            return EventResponse.from_orm_event(existing)
+
+    provenance = dict(body.provenance or {})
+    if body.job_id is not None:
+        provenance["job_id"] = str(body.job_id)
+    job_id = provenance.get("job_id")
+    if job_id and provenance.get("source") not in {"manual", "human"}:
+        await db.execute(
+            update(Event)
+            .where(
+                Event.clip_id == body.clip_id,
+                Event.event_type == body.event_type,
+                Event.provenance["job_id"].as_string().is_not(None),
+                Event.provenance["job_id"].as_string() != str(job_id),
+                ~func.coalesce(Event.provenance["source"].as_string(), "unknown").in_(
+                    {"manual", "human"}
+                ),
+            )
+            .values(
+                provenance=func.coalesce(Event.provenance, cast({}, JSONB)).op("||")(
+                    cast({"state": "superseded"}, JSONB)
+                )
+            )
+        )
     event = Event(
-        id=uuid.uuid4(),
+        id=body.id or uuid.uuid4(),
+        provenance=provenance or None,
         clip_id=body.clip_id,
         event_type=body.event_type,
         frame_number=body.frame_number,
@@ -164,15 +232,13 @@ async def update_event(
     if event is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
 
-    if body.event_type is not None:
-        event.event_type = body.event_type
-    if body.frame_number is not None:
-        event.frame_number = body.frame_number
-    if body.timestamp_seconds is not None:
-        event.timestamp_seconds = body.timestamp_seconds
-    if body.attributes is not None:
-        event.attributes = body.attributes
-
+    await submit_correction(
+        db,
+        actor=_current_user,
+        clip_id=event.clip_id,
+        correction_type=CorrectionType.event_tag,
+        corrected_value={"event_id": str(event.id), **body.model_dump(exclude_unset=True)},
+    )
     await db.flush()
     log.info("event_updated", event_id=str(event_id))
     return EventResponse.from_orm_event(event)

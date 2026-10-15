@@ -12,9 +12,11 @@ from app.database import get_db
 from app.deps import get_current_user
 from app.main import app
 from app.models import (
+    FootballSession,
     SessionKind,
     SideOfBall,
     SourceType,
+    SystemSetting,
     User,
     UserRole,
     Video,
@@ -41,7 +43,8 @@ def _mock_db_for_create(captured: list[Video]):
         session = AsyncMock()
 
         def _add(obj: Any) -> None:
-            captured.append(obj)
+            if isinstance(obj, Video):
+                captured.append(obj)
 
         async def _flush() -> None:
             # Stand in for the Postgres server_default=func.now() on created_at.
@@ -49,6 +52,23 @@ def _mock_db_for_create(captured: list[Video]):
                 if getattr(v, "created_at", None) is None:
                     v.created_at = datetime.now(UTC)
 
+        async def _execute(stmt: Any) -> Any:
+            result = MagicMock()
+            entity = stmt.column_descriptions[0].get("entity")
+            if entity is FootballSession:
+                session_id = next(iter(stmt.compile().params.values()))
+                result.scalar_one_or_none.return_value = FootballSession(
+                    id=session_id, title="Test session", library_role="toledo"
+                )
+            elif entity is SystemSetting:
+                result.scalar_one_or_none.return_value = SystemSetting(
+                    value={"auto_process_on_upload": False}
+                )
+            else:
+                result.scalar_one_or_none.return_value = None
+            return result
+
+        session.execute = AsyncMock(side_effect=_execute)
         session.add = MagicMock(side_effect=_add)
         session.flush = AsyncMock(side_effect=_flush)
         yield session

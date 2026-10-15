@@ -10,6 +10,8 @@ from __future__ import annotations
 import math
 from typing import Any
 
+from pipeline.video_timeline import point_interval
+
 LOW_IDENTITY_CONFIDENCE = 0.70
 LOW_TRACKING_CONFIDENCE = 0.60
 LOAF_SPEED_RATIO = 0.50
@@ -141,9 +143,8 @@ def _frame_speeds(pts: list[dict[str, Any]], fps: float) -> list[tuple[int, floa
     for i in range(1, len(pts)):
         prev = pts[i - 1]
         cur = pts[i]
-        f0 = int(prev.get("frame_number", 0) or 0)
         f1 = int(cur.get("frame_number", 0) or 0)
-        dt = (f1 - f0) / max(fps, 1.0)
+        dt = point_interval(prev, cur, fps)
         if dt <= 0:
             continue
         x0 = _number(prev.get("field_x"))

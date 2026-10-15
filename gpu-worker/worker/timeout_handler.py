@@ -23,6 +23,7 @@ Environment variables:
 
 from __future__ import annotations
 
+import contextvars
 import os
 import signal
 import threading
@@ -34,9 +35,7 @@ import structlog
 
 log = structlog.get_logger(__name__)
 
-PERIOD_BREAK_TIMEOUT_SECONDS = int(
-    os.environ.get("PERIOD_BREAK_TIMEOUT_SECONDS", "480")
-)
+PERIOD_BREAK_TIMEOUT_SECONDS = int(os.environ.get("PERIOD_BREAK_TIMEOUT_SECONDS", "480"))
 BACKEND_API_URL = os.environ.get("BACKEND_API_URL", "")
 
 
@@ -92,7 +91,8 @@ def run_with_timeout(
     # worker shuts down.  The worst-case outcome of an abrupt kill is a job
     # stuck in "running" state, which the nightly cleanup sweep already handles
     # by requeuing any job started more than PERIOD_BREAK_TIMEOUT_SECONDS ago.
-    thread = threading.Thread(target=_target, daemon=True)
+    context = contextvars.copy_context()
+    thread = threading.Thread(target=lambda: context.run(_target), daemon=True)
     thread.start()
     completed = finished.wait(timeout=float(timeout_seconds))
 
@@ -149,6 +149,7 @@ def _update_job_failed(job_id: str, error_message: str) -> None:
         "error_stage": "timeout",
         "error_message": error_message,
         "worker_id": worker_id(),
+        **__import__("pipeline.runtime", fromlist=["lease_payload"]).lease_payload(job_id),
     }
     try:
         from worker import auth as worker_auth
@@ -158,7 +159,8 @@ def _update_job_failed(job_id: str, error_message: str) -> None:
         if bearer:
             headers["Authorization"] = f"Bearer {bearer}"
         with httpx.Client(base_url=BACKEND_API_URL, timeout=10, headers=headers) as c:
-            c.patch(f"/api/v1/jobs/{job_id}", json=payload)
+            response = c.patch(f"/api/v1/jobs/{job_id}", json=payload)
+            response.raise_for_status()
         log.info("timeout_job_marked_failed", job_id=job_id)
     except Exception as exc:
         log.warning("timeout_status_update_failed", job_id=job_id, error=str(exc))

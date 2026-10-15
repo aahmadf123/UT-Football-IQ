@@ -65,6 +65,7 @@ class JobStatus(enum.StrEnum):
     succeeded = "succeeded"
     failed = "failed"
     cancelled = "cancelled"
+    paused = "paused"
 
 
 class JobType(enum.StrEnum):
@@ -375,6 +376,72 @@ class Player(Base):
     )
 
 
+class FootballSession(Base):
+    """A persisted practice/game with independently usable camera recordings."""
+
+    __tablename__ = "football_sessions"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    session_kind: Mapped[SessionKind | None] = mapped_column(
+        Enum(SessionKind, name="session_kind", create_type=False), nullable=True
+    )
+    recorded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    opponent_team: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    library_role: Mapped[str] = mapped_column(String(20), nullable=False, default="toledo")
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class Play(Base):
+    """One football play; per-camera segment evidence remains in PlayView/Clip."""
+
+    __tablename__ = "plays"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    session_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("football_sessions.id", ondelete="CASCADE"), index=True
+    )
+    title: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    sequence: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    metadata_: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSONB, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class PlayView(Base):
+    """Manual camera matching; optional timing is evidence, never compulsory sync."""
+
+    __tablename__ = "play_views"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    play_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("plays.id", ondelete="CASCADE"), index=True
+    )
+    clip_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("clips.id", ondelete="CASCADE"), unique=True
+    )
+    alignment_offset_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
+    alignment_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    match_source: Mapped[str] = mapped_column(String(20), nullable=False, default="manual")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class WorkerRuntime(Base):
+    __tablename__ = "worker_runtimes"
+    worker_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    device: Mapped[str] = mapped_column(String(20), nullable=False, default="cpu")
+    capabilities: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    last_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    registered_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+
+
 class Video(Base):
     __tablename__ = "videos"
 
@@ -404,8 +471,13 @@ class Video(Base):
     )
     opponent_team: Mapped[str | None] = mapped_column(String(120), nullable=True, index=True)
     practice_session_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), nullable=True, index=True
+        UUID(as_uuid=True),
+        ForeignKey("football_sessions.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
     )
+    library_role: Mapped[str] = mapped_column(String(20), nullable=False, default="toledo")
+    camera_label: Mapped[str | None] = mapped_column(String(120), nullable=True)
     our_possession: Mapped[SideOfBall | None] = mapped_column(
         Enum(SideOfBall, name="side_of_ball"), nullable=True
     )
@@ -542,6 +614,8 @@ class Clip(Base):
     # still awaiting their nightly upgrade. See ``ClipResultState``.
     result_state: Mapped[str | None] = mapped_column(String(20), nullable=True, index=True)
 
+    # None denotes unknown legacy origin, never silently promoted to trusted CV.
+    provenance: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -603,6 +677,8 @@ class ProcessingJob(Base):
     # An expired lease makes the row claimable again until attempt_count
     # reaches max_attempts, at which point the claim sweep fails it.
     leased_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    lease_token: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    control_requested: Mapped[str | None] = mapped_column(String(20), nullable=True)
     lease_expires_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
@@ -630,6 +706,8 @@ class ProcessingJob(Base):
         ForeignKey("training_datasets.id", ondelete="SET NULL"),
         nullable=True,
     )
+    # None denotes unknown legacy origin, never silently promoted to trusted CV.
+    provenance: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -730,6 +808,8 @@ class FieldCalibration(Base):
         ForeignKey("processing_jobs.id", ondelete="SET NULL"),
         nullable=True,
     )
+    # None denotes unknown legacy origin, never silently promoted to trusted CV.
+    provenance: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -773,6 +853,8 @@ class Tracklet(Base):
         ForeignKey("processing_jobs.id", ondelete="SET NULL"),
         nullable=True,
     )
+    # None denotes unknown legacy origin, never silently promoted to trusted CV.
+    provenance: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -797,6 +879,7 @@ class TrackPoint(Base):
         index=True,
     )
     frame_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    timestamp_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
     # Field coordinates (yards) — null when calibration confidence is below threshold
     field_x: Mapped[float | None] = mapped_column(Float, nullable=True)
     field_y: Mapped[float | None] = mapped_column(Float, nullable=True)
@@ -828,6 +911,8 @@ class Event(Base):
         ForeignKey("model_versions.id", ondelete="SET NULL"),
         nullable=True,
     )
+    # None denotes unknown legacy origin, never silently promoted to trusted CV.
+    provenance: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -962,6 +1047,8 @@ class Metric(Base):
         ForeignKey("processing_jobs.id", ondelete="SET NULL"),
         nullable=True,
     )
+    # None denotes unknown legacy origin, never silently promoted to trusted CV.
+    provenance: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -1850,6 +1937,11 @@ class ReportJob(Base):
         nullable=False,
         index=True,
     )
+    lease_token: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(

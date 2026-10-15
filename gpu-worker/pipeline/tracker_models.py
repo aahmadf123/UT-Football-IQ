@@ -188,6 +188,9 @@ class _Track:
             # Carried through to track_points.detection_confidence; the
             # tracklet-level track_confidence is derived from these.
             "detection_confidence": det.get("confidence"),
+            "source": det.get("source", "real"),
+            "timestamp_seconds": det.get("timestamp_seconds"),
+            "timestamp_verified": det.get("timestamp_verified", False),
         }
         if detection_has_mask(det):
             point["mask"] = {

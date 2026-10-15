@@ -1,11 +1,13 @@
 "use client";
 
 import { Upload } from "lucide-react";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { PreliminaryBadge } from "@/components/clip-state-badge";
 import { UploadStatusList } from "@/components/shared/upload-status-list";
 import {
   fetchJobs,
+  fetchSystemStatus,
+  controlJob,
   requestVideoProcessing,
   retryJob,
   WorkloadGatedError,
@@ -15,14 +17,16 @@ import { useAppState } from "@/lib/app-state";
 import { useFetchState } from "@/lib/fetch-state";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { AsyncSection } from "@/components/composite/async-section";
 import { JobRow } from "@/components/composite/job-row";
 import { StatusBadge, type StatusTone } from "@/components/composite/status-badge";
+import { Label } from "@/components/ui/label";
+import { NativeSelect } from "@/components/ui/native-select";
+import type { ProcessingProfile } from "@/lib/types";
 
 // Per-video local request state, layered on top of the backend inbox status so
 // the coach gets immediate "Queued" feedback before the backend reflects it.
 type RequestState =
-  | { kind: "queued" }
+  | { kind: "queued"; baselineJobs: number }
   | { kind: "busy"; message: string }
   | { kind: "error"; message: string };
 
@@ -35,8 +39,12 @@ type RequestState =
 function statusBadge(
   item: VideoInboxItem,
   request: RequestState | undefined,
+  paused: boolean,
 ): { label: string; tone: StatusTone } {
   const queued = (item.queued_jobs ?? 0) > 0 || request?.kind === "queued";
+  if (item.running_jobs > 0) return { label: "Processing", tone: "info" };
+  if (queued) return { label: "Queued", tone: "warn" };
+  if (paused) return { label: "Paused", tone: "neutral" };
   switch (item.video_status) {
     case "ready":
       return { label: "Processed", tone: "ok" };
@@ -61,10 +69,24 @@ export function UploadProcessFilm({ onUploadClick }: { onUploadClick: () => void
     apiStatus,
     mockMode,
     authToken,
+    data,
   } = useAppState();
 
   const [requests, setRequests] = useState<Record<string, RequestState>>({});
   const [pending, setPending] = useState<Record<string, boolean>>({});
+  const [profile, setProfile] = useState<ProcessingProfile>("quick");
+  const runtimeFetcher = useCallback(() => fetchSystemStatus(authToken), [authToken]);
+  const { state: runtime, reload: reloadRuntime } = useFetchState(runtimeFetcher);
+  const status = runtime.kind === "ready" ? runtime.data : null;
+  useEffect(() => {
+    if (status?.profiles?.find((item) => item.id === profile)?.available === false) {
+      const available = status.profiles.find((item) => item.available);
+      if (available) setProfile(available.id);
+    }
+  }, [status, profile]);
+  useEffect(() => {
+    setRequests((current) => Object.fromEntries(Object.entries(current).filter(([id, request]) => request.kind !== "queued" || !inboxItems.some((item) => item.video_id === id && (item.total_jobs > request.baselineJobs || item.running_jobs > 0 || (item.queued_jobs ?? 0) > 0)))));
+  }, [inboxItems]);
 
   const runRequest = useCallback(
     async (videoId: string, action: () => Promise<unknown>) => {
@@ -76,7 +98,7 @@ export function UploadProcessFilm({ onUploadClick }: { onUploadClick: () => void
       });
       try {
         await action();
-        setRequests((cur) => ({ ...cur, [videoId]: { kind: "queued" } }));
+        setRequests((cur) => ({ ...cur, [videoId]: { kind: "queued", baselineJobs: inboxItems.find((item) => item.video_id === videoId)?.total_jobs ?? 0 } }));
         refreshInbox();
       } catch (err) {
         if (err instanceof WorkloadGatedError) {
@@ -94,15 +116,15 @@ export function UploadProcessFilm({ onUploadClick }: { onUploadClick: () => void
         setPending((cur) => ({ ...cur, [videoId]: false }));
       }
     },
-    [refreshInbox],
+    [refreshInbox, inboxItems],
   );
 
   const handleProcess = useCallback(
     (videoId: string) =>
       runRequest(videoId, () =>
-        requestVideoProcessing(videoId, { mode: "nightly" }, authToken),
+        requestVideoProcessing(videoId, { profile }, authToken),
       ),
-    [authToken, runRequest],
+    [authToken, runRequest, profile],
   );
 
   // Failed videos retry the failed job itself (POST /jobs/{id}/retry) so the
@@ -118,10 +140,10 @@ export function UploadProcessFilm({ onUploadClick }: { onUploadClick: () => void
         if (failed.length > 0) {
           await retryJob(failed[0].id, authToken);
         } else {
-          await requestVideoProcessing(videoId, { mode: "nightly" }, authToken);
+          await requestVideoProcessing(videoId, { profile }, authToken);
         }
       }),
-    [authToken, runRequest],
+    [authToken, runRequest, profile],
   );
 
   const inFlight = uploads.filter((u) => u.phase !== "done");
@@ -135,16 +157,24 @@ export function UploadProcessFilm({ onUploadClick }: { onUploadClick: () => void
               Upload &amp; Process Film
             </h2>
             <p className="mt-0.5 max-w-2xl text-xs text-muted-foreground">
-              Add practice or game film here. Uploaded film is saved but{" "}
-              <strong className="text-foreground">not processed automatically</strong> — click{" "}
-              <strong className="text-foreground">Process Film</strong>
-              {" when you’re ready. Jobs start as soon as the team’s processing computer picks them up."}
+              Save practice or game film in your library. Processing follows your automatic-processing setting; recordings waiting in the library can be started here. The connected processing computer runs the selected profile.
             </p>
           </div>
           <Button onClick={onUploadClick}>
             <Upload className="size-4" /> Upload Film
           </Button>
         </CardHeader>
+        <CardContent className="flex flex-col gap-2">
+          <Label htmlFor="processing-profile">Processing profile</Label>
+          <NativeSelect id="processing-profile" value={profile} onChange={(event) => setProfile(event.target.value as ProcessingProfile)}>
+            <option value="review">Film review — segment and play video</option>
+            <option value="quick" disabled={status?.profiles?.find((item) => item.id === "quick")?.available === false}>Quick CPU tracking</option>
+            <option value="detailed" disabled={status?.profiles?.find((item) => item.id === "detailed")?.available === false}>Detailed CPU analysis</option>
+          </NativeSelect>
+          <p className="text-xs text-muted-foreground">{status?.profiles?.find((item) => item.id === profile)?.description ?? "Quick tracking uses lighter local models. Detailed analysis takes longer. Processing speed depends on this laptop and the recording."}</p>
+          {status?.worker?.ready === false && <p role="status" className="text-sm text-status-warn">{status.worker.reason ?? "The processing worker is unavailable. Start it from This computer in Settings."}<Button size="sm" variant="link" onClick={reloadRuntime}>Check again</Button></p>}
+          {runtime.kind === "error" && <p role="status" className="text-xs text-status-warn">Could not check this computer. <Button size="sm" variant="link" onClick={reloadRuntime}>Check again</Button></p>}
+        </CardContent>
       </Card>
 
       {inFlight.length > 0 && (
@@ -173,6 +203,8 @@ export function UploadProcessFilm({ onUploadClick }: { onUploadClick: () => void
             mockMode={mockMode}
             requests={requests}
             pending={pending}
+            processingUnavailable={status?.capabilities?.processing === false || status?.profiles?.find((item) => item.id === profile)?.available === false}
+            pausedVideoIds={new Set(data.jobs.filter((job) => job.status === "paused" && job.video_id).map((job) => job.video_id!))}
             onProcess={handleProcess}
             onRetry={handleRetry}
           />
@@ -190,9 +222,19 @@ export function UploadProcessFilm({ onUploadClick }: { onUploadClick: () => void
  * right-rail Model Pipeline panel, and the settings jobs list.
  */
 function PipelineJobsCard() {
-  const { authToken } = useAppState();
-  const fetcher = useCallback(() => fetchJobs({ limit: 20 }, authToken), [authToken]);
-  const { state, reload } = useFetchState(fetcher);
+  const { authToken, data, refreshData, apiError, mockMode } = useAppState();
+  const [pending, setPending] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const act = async (id: string, action: "pause" | "resume" | "cancel" | "retry") => {
+    setPending(id);
+    setError(null);
+    try {
+      if (action === "retry") await retryJob(id, authToken);
+      else await controlJob(id, action, authToken);
+      await refreshData();
+    } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
+    finally { setPending(null); }
+  };
 
   return (
     <Card data-testid="pipeline-jobs">
@@ -205,22 +247,22 @@ function PipelineJobsCard() {
         </p>
       </CardHeader>
       <CardContent>
-        <AsyncSection
-          state={state}
-          onRetry={reload}
-          loadingLabel="Loading jobs"
-          offlineTitle="Jobs unavailable — not connected to the team server"
-          emptyTitle="No processing jobs yet"
-          emptyHint="Upload film and press Process Film to start the pipeline."
-        >
-          {(jobs) => (
+        {(error || apiError) && <p role="alert" className="text-xs text-status-danger">{error ?? apiError}</p>}
+        {data.jobs.length === 0 && <p className="text-sm text-muted-foreground">No processing jobs yet.</p>}
             <div className="flex flex-col">
-              {jobs.map((job) => (
+              {data.jobs.slice(0, 20).map((job) => (
+                <div key={job.id}>
                 <JobRow key={job.id} job={job} />
+                {job.control_requested && <p role="status" className="mb-2 text-xs text-status-warn">{job.control_requested === "pause" ? "Pausing processing…" : "Cancelling processing…"}</p>}
+                {!mockMode && <div className="mb-3 flex flex-wrap gap-2">
+                  {["queued", "running"].includes(job.status) && <Button size="sm" variant="outline" disabled={pending === job.id || Boolean(job.control_requested)} onClick={() => void act(job.id, "pause")}>Pause</Button>}
+                  {job.status === "paused" && <Button size="sm" variant="outline" disabled={pending === job.id} onClick={() => void act(job.id, "resume")}>Resume</Button>}
+                  {["queued", "running", "paused"].includes(job.status) && <Button size="sm" variant="outline" disabled={pending === job.id || job.control_requested === "cancel"} onClick={() => void act(job.id, "cancel")}>Cancel processing</Button>}
+                  {["failed", "cancelled"].includes(job.status) && <Button size="sm" variant="outline" disabled={pending === job.id} onClick={() => void act(job.id, "retry")}>Retry</Button>}
+                </div>}
+                </div>
               ))}
             </div>
-          )}
-        </AsyncSection>
       </CardContent>
     </Card>
   );
@@ -234,6 +276,8 @@ function ProcessingList({
   pending,
   onProcess,
   onRetry,
+  processingUnavailable,
+  pausedVideoIds,
 }: {
   items: VideoInboxItem[];
   apiStatus: ReturnType<typeof useAppState>["apiStatus"];
@@ -242,6 +286,8 @@ function ProcessingList({
   pending: Record<string, boolean>;
   onProcess: (videoId: string) => void;
   onRetry: (videoId: string) => void;
+  processingUnavailable: boolean;
+  pausedVideoIds: ReadonlySet<string>;
 }) {
   if (items.length === 0) {
     const message =
@@ -269,6 +315,8 @@ function ProcessingList({
           pending={!!pending[item.video_id]}
           onProcess={onProcess}
           onRetry={onRetry}
+            processingUnavailable={processingUnavailable}
+            paused={pausedVideoIds.has(item.video_id)}
         />
       ))}
     </div>
@@ -281,19 +329,23 @@ function ProcessingRow({
   pending,
   onProcess,
   onRetry,
+  processingUnavailable,
+  paused,
 }: {
   item: VideoInboxItem;
   request: RequestState | undefined;
   pending: boolean;
   onProcess: (videoId: string) => void;
   onRetry: (videoId: string) => void;
+  processingUnavailable: boolean;
+  paused: boolean;
 }) {
   // Server job counts, not just the local click state, gate the buttons: a
   // video with a job already queued or running must never offer "Process Film"
   // again — repeat clicks were silently stacking duplicate pipeline jobs.
   const isQueued = request?.kind === "queued" || (item.queued_jobs ?? 0) > 0;
-  const badge = statusBadge(item, request);
-  const canProcess = item.video_status === "uploaded" && !isQueued && item.running_jobs === 0;
+  const badge = statusBadge(item, request, paused);
+  const canProcess = ["uploaded", "ready"].includes(item.video_status) && !isQueued && !paused && item.running_jobs === 0;
   const isFailed = item.video_status === "failed" && !isQueued;
 
   return (
@@ -318,6 +370,8 @@ function ProcessingRow({
               ? "Queued — starts as soon as the processing computer picks it up."
               : badge.label === "Processing"
                 ? `Processing… ${item.succeeded_jobs}/${item.total_jobs} jobs done`
+                : badge.label === "Paused"
+                  ? "Paused — resume from the processing job below."
                 : badge.label === "Processed"
                   ? `Processed · ${item.clip_count} clip${item.clip_count === 1 ? "" : "s"}`
                   : `Processing failed${item.latest_error_stage ? ` at ${item.latest_error_stage}` : ""}.`}
@@ -328,7 +382,7 @@ function ProcessingRow({
             data-testid={`processing-preliminary-${item.video_id}`}
           >
             {item.preliminary_clip_count} preliminary clip
-            {item.preliminary_clip_count === 1 ? "" : "s"} — full-quality nightly upgrade pending.
+            {item.preliminary_clip_count === 1 ? "" : "s"} — detailed analysis can upgrade these results.
           </div>
         )}
         {isFailed && item.latest_error_message && (
@@ -356,9 +410,9 @@ function ProcessingRow({
           size="sm"
           data-testid={`process-film-${item.video_id}`}
           onClick={() => onProcess(item.video_id)}
-          disabled={pending}
+          disabled={pending || processingUnavailable}
         >
-          {pending ? "Starting…" : "Process Film"}
+          {pending ? "Starting…" : item.video_status === "ready" ? "Reprocess film" : "Process Film"}
         </Button>
       )}
       {isFailed && (
@@ -367,7 +421,7 @@ function ProcessingRow({
           variant="outline"
           data-testid={`retry-process-${item.video_id}`}
           onClick={() => onRetry(item.video_id)}
-          disabled={pending}
+          disabled={pending || processingUnavailable}
         >
           {pending ? "Starting…" : "Retry processing"}
         </Button>

@@ -15,6 +15,7 @@ keep working unchanged.
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 import structlog
@@ -26,7 +27,8 @@ from pipeline.homography.project import (
     ground_anchor,
     homography_from_flat,
 )
-from pipeline.tracker_models import TrackerBase, get_tracker
+from pipeline.runtime import PipelineInterrupted, check_control
+from pipeline.tracker_models import StubTracker, TrackerBase, get_tracker
 
 log = structlog.get_logger(__name__)
 
@@ -51,6 +53,9 @@ def run(
     variant: str | None = None,
     homography: list[float] | None = None,
     analytics_safe: bool = False,
+    calibration_series: list[dict[str, Any]] | None = None,
+    capture_regime: str | None = None,
+    detector_provenance: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Run tracking and write tracklets to the backend.
 
@@ -75,12 +80,17 @@ def run(
         )
 
     results = tracker.track(detections)
-    projected_points = _project_tracks(results, homography, analytics_safe)
+    projected_points = _project_tracks(
+        results, homography, analytics_safe, calibration_series=calibration_series,
+        capture_regime=capture_regime,
+    )
 
     tracklet_ids: list[str] = []
     tracklets: list[dict[str, Any]] = []
     masked_tracklet_count = 0
+    detector_provenance = detector_provenance or {}
     for track in results:
+        check_control()
         if len(track.points) < 2:
             continue
         # Tracking confidence = mean detection confidence over the track's
@@ -92,6 +102,23 @@ def run(
             if isinstance(c := p.get("detection_confidence"), (int, float))
         ]
         track_confidence = round(sum(confidences) / len(confidences), 4) if confidences else None
+        synthetic = (
+            isinstance(tracker, StubTracker)
+            or detector_provenance.get("source") == "synthetic_test"
+            or any(point.get("source") == "synthetic_test" for point in track.points)
+        )
+        source = "synthetic_test" if synthetic else detector_provenance.get("source")
+        if not source:
+            source = "real" if any(point.get("source") == "real" for point in track.points) else "unknown"
+        provenance = {
+            **detector_provenance,
+            "source": source,
+            "method": type(tracker).__name__,
+            "actual_model": detector_provenance.get("effective_variant") or detector_provenance.get("actual_model"),
+            # A detector benchmark does not independently validate track IDs.
+            "validated": False,
+            "detector_validated": not synthetic and detector_provenance.get("validated") is True,
+        }
         try:
             resp = backend.create_tracklet(
                 clip_id,
@@ -101,6 +128,8 @@ def run(
                 track_confidence=track_confidence,
                 team_label="unknown",
                 job_id=job_id,
+                provenance=provenance,
+                model_version_id=detector_provenance.get("model_version_id"),
             )
             tracklet_ids.append(resp["id"])
             # Full tracklet record for in-process consumers (reid / pose /
@@ -116,12 +145,17 @@ def run(
                     "track_points": track.points,
                     "track_confidence": track_confidence,
                     "team_label": "unknown",
+                    "provenance": provenance,
+                    "model_version_id": detector_provenance.get("model_version_id"),
                 }
             )
             if any("mask" in p for p in track.points):
                 masked_tracklet_count += 1
+        except PipelineInterrupted:
+            raise
         except Exception as exc:
             log.warning("tracklet_write_failed", track_id=track.track_id, error=str(exc))
+            raise
 
     log.info(
         "stage_track_done",
@@ -144,6 +178,9 @@ def _project_tracks(
     results: list[Any],
     homography: list[float] | None,
     analytics_safe: bool,
+    *,
+    calibration_series: list[dict[str, Any]] | None = None,
+    capture_regime: str | None = None,
 ) -> int:
     """Attach field coordinates to every track point, in place.
 
@@ -160,6 +197,28 @@ def _project_tracks(
 
     Returns the number of points projected, for the stage log.
     """
+    if not analytics_safe:
+        return 0
+    if calibration_series:
+        transforms = {int(p["frame_number"]): p for p in calibration_series}
+        pending = []
+        for track in results:
+            for point in track.points:
+                calibration = transforms.get(point.get("frame_number"))
+                if not calibration or not calibration.get("analytics_safe") or not point.get("bbox"):
+                    continue
+                matrix = homography_from_flat(calibration.get("homography"))
+                if matrix is not None:
+                    xy = apply_homography_many(matrix, [ground_anchor(point["bbox"])])[0]
+                    if all(math.isfinite(v) for v in xy):
+                        pending.append((point, xy))
+        if pending and _extent_is_possible([xy for _, xy in pending]):
+            for point, (fx, fy) in pending:
+                point["field_x"], point["field_y"] = fx, fy
+            return len(pending)
+        return 0
+    if capture_regime in {"drone_follow", "unconstrained", "unknown"}:
+        return 0
     if not analytics_safe:
         # Not an error. Film with no visible yard lines still tracks, renders,
         # and produces clips; it just cannot produce spatial metrics, and the

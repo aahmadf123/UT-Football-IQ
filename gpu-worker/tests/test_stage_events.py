@@ -99,7 +99,8 @@ def test_multisignal_snap_and_los() -> None:
     assert abs(attrs["los_x"] - 30.0) < 1.0
     assert 0.0 <= attrs["los_confidence"] <= 1.0
     assert "formation_break" in attrs["signals_present"]
-    assert attrs["source"] == "model"
+    assert attrs["source"] == "heuristic"
+    assert attrs["provenance"]["validated"] is False
 
 
 def test_multisignal_no_snap_returns_gracefully() -> None:

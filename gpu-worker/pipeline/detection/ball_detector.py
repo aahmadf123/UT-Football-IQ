@@ -19,6 +19,7 @@ the factory falls back to a deterministic stub so CI runs without a GPU.
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -65,6 +66,7 @@ class BallDetectorAdapter(DetectorBase):
                 "bbox": list(det["bbox"]),
                 "confidence": float(det.get("confidence", 0.0)),
                 "class": BALL_CLASS,
+                "source": det.get("source", "real"),
             }
             out.append(new_det)
         return out
@@ -74,6 +76,7 @@ class _StubBallDetector(DetectorBase):
     """Deterministic single-ball detector for CI (no weights, no GPU)."""
 
     produces_masks = False
+    provenance = {"effective_variant": "stub", "source": "synthetic_test", "device": "cpu"}
 
     def detect(self, frame: np.ndarray) -> list[dict[str, Any]]:
         h, w = frame.shape[:2] if frame.ndim >= 2 else (720, 1280)
@@ -84,6 +87,7 @@ class _StubBallDetector(DetectorBase):
                 "bbox": [cx - r, cy - r, cx + r, cy + r],
                 "confidence": 0.7,
                 "class": BALL_CLASS,
+                "source": "synthetic_test",
             }
         ]
 
@@ -111,16 +115,17 @@ def get_ball_detector(
     """
     v = (variant or "").lower()
     if v.startswith("yolo") and "ball" in v:
+        weights = model_path or os.environ.get("MODEL_BALL_PATH") or MODEL_BALL_PATH
+        if not Path(weights).is_file():
+            log.info("ball_disabled_no_local_weights", variant=variant)
+            return None
         try:
             base = YOLODetector(
-                model_path=model_path or MODEL_BALL_PATH,
+                model_path=weights,
                 confidence_threshold=confidence_threshold,
                 class_map={0: BALL_CLASS},
             )
             return BallDetectorAdapter(base)
-        except ImportError:
-            log.warning("ball_model_unavailable_using_stub", variant=variant)
-            return _StubBallDetector()
         except Exception as exc:
             log.warning(
                 "ball_weights_unavailable_ball_detection_disabled",
@@ -129,8 +134,10 @@ def get_ball_detector(
                 error=str(exc),
             )
             return None
-    log.warning("unknown_ball_variant_using_stub", variant=variant)
-    return _StubBallDetector()
+    if v == "stub":
+        return _StubBallDetector()
+    log.warning("unknown_ball_variant_disabled", variant=variant)
+    return None
 
 
 def ball_strategy(regime: str | None) -> str:

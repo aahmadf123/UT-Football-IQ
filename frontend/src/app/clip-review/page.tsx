@@ -24,6 +24,9 @@ import type {
 } from "@/lib/types";
 import { POSSESSION_LABEL, SESSION_KIND_LABEL } from "@/lib/labels";
 import { CorrectionsPanel } from "./corrections-panel";
+import { ReviewMetadataPanel } from "./review-metadata-panel";
+import { RecordingReview } from "./recording-review";
+import { CorrectionHistory } from "./correction-history";
 import { FieldMinimap } from "./field-minimap";
 import { OverlayCanvas, eventTimeSeconds } from "./overlay-canvas";
 import { VideoTransport } from "./video-transport";
@@ -60,6 +63,7 @@ type ReviewState =
       video: ApiVideo;
       playbackUrl: string | null;
       playbackUnavailable: "none" | "no_storage_uri" | "url_generation_failed";
+      playbackUsesClipAsset: boolean;
     };
 
 type OverlayState =
@@ -87,6 +91,8 @@ export default function ClipReviewPage() {
 function ClipReviewLoader() {
   const searchParams = useSearchParams();
   const clipId = searchParams.get("clipId") ?? "";
+  const videoId = searchParams.get("videoId") ?? "";
+  if (!clipId && videoId) return <RecordingReview key={videoId} videoId={videoId} />;
   if (!clipId) {
     return (
       <EmptyState
@@ -103,7 +109,7 @@ function ClipReviewLoader() {
       />
     );
   }
-  return <ClipReviewView clipId={clipId} />;
+  return <ClipReviewView key={clipId} clipId={clipId} />;
 }
 
 function ClipReviewView({ clipId }: { clipId: string }) {
@@ -112,14 +118,12 @@ function ClipReviewView({ clipId }: { clipId: string }) {
   const [overlayState, setOverlayState] = useState<OverlayState>({ kind: "loading" });
   // Ordered sibling clips of the same video, for prev/next play navigation.
   const [siblingClips, setSiblingClips] = useState<ApiClip[]>([]);
+  const [revision, setRevision] = useState(0);
+  const [preferClipAsset, setPreferClipAsset] = useState(false);
+  const [playbackError, setPlaybackError] = useState<string | null>(null);
+  const refresh = useCallback(() => setRevision((current) => current + 1), []);
 
   useEffect(() => {
-    const baseUrl = process.env.NEXT_PUBLIC_API_URL;
-    if (!baseUrl) {
-      setState({ kind: "offline" });
-      setOverlayState({ kind: "loading" });
-      return;
-    }
     let cancelled = false;
     (async () => {
       try {
@@ -127,10 +131,14 @@ function ClipReviewView({ clipId }: { clipId: string }) {
         const video = await fetchVideo(clip.video_id, authToken);
         let playbackUrl: string | null = null;
         let playbackUnavailable: "none" | "no_storage_uri" | "url_generation_failed" = "none";
+        let playbackUsesClipAsset = false;
         try {
           const clipStorage = parseStorageUri(clip.storage_uri);
           const videoStorage = parseStorageUri(video.storage_uri);
-          const target = clipStorage ?? videoStorage;
+          // The original recording keeps layer toggles meaningful: rendered
+          // previews may already contain permanent boxes and labels.
+          const target = preferClipAsset && clipStorage?.bucket === "clips" ? clipStorage : videoStorage ?? clipStorage;
+          playbackUsesClipAsset = Boolean(target && target === clipStorage);
           if (!target) {
             playbackUnavailable = "no_storage_uri";
           } else {
@@ -141,7 +149,8 @@ function ClipReviewView({ clipId }: { clipId: string }) {
           playbackUnavailable = "url_generation_failed";
         }
         if (cancelled) return;
-        setState({ kind: "ready", clip, video, playbackUrl, playbackUnavailable });
+        setState({ kind: "ready", clip, video, playbackUrl, playbackUnavailable, playbackUsesClipAsset });
+        if (playbackUrl) setPlaybackError(null);
         // Prev/next-play navigation degrades to disabled buttons on failure.
         try {
           const clips = await fetchClipsForVideo(clip.video_id, authToken);
@@ -162,16 +171,13 @@ function ClipReviewView({ clipId }: { clipId: string }) {
     return () => {
       cancelled = true;
     };
-  }, [clipId, authToken]);
+  }, [clipId, authToken, revision, preferClipAsset]);
 
   // Overlay fetch is independent of the clip fetch — a clip with no overlays
   // (e.g. ingest still running) should still render the player + metadata.
   useEffect(() => {
-    const baseUrl = process.env.NEXT_PUBLIC_API_URL;
-    if (!baseUrl) return;
     let cancelled = false;
-    setOverlayState({ kind: "loading" });
-    (async () => {
+    const load = async () => {
       try {
         const payload = await fetchClipOverlays(clipId, authToken);
         if (cancelled) return;
@@ -188,11 +194,16 @@ function ClipReviewView({ clipId }: { clipId: string }) {
           message: err instanceof Error ? err.message : String(err),
         });
       }
-    })();
+    };
+    void load();
+    const interval = window.setInterval(() => {
+      if (document.visibilityState !== "hidden") void load();
+    }, 5000);
     return () => {
       cancelled = true;
+      window.clearInterval(interval);
     };
-  }, [clipId, authToken]);
+  }, [clipId, authToken, revision]);
 
   if (state.kind === "loading") {
     return (
@@ -223,6 +234,7 @@ function ClipReviewView({ clipId }: { clipId: string }) {
       <Alert variant="destructive" role="alert">
         <AlertTitle>Could not load clip</AlertTitle>
         <AlertDescription>{state.message}</AlertDescription>
+        <Button variant="outline" size="sm" onClick={refresh}>Try again</Button>
         <Button asChild variant="outline" size="sm" className="mt-2 w-fit">
           <Link href="/film-room/?tab=browse">
             <ArrowLeft className="size-3.5" /> Back to Film Room
@@ -232,21 +244,32 @@ function ClipReviewView({ clipId }: { clipId: string }) {
     );
   }
 
-  return <ClipReviewReady state={state} overlayState={overlayState} siblingClips={siblingClips} />;
+  return <ClipReviewReady state={state} overlayState={overlayState} siblingClips={siblingClips} onRefresh={refresh} playbackError={playbackError} onPlaybackError={() => {
+    if (!preferClipAsset && parseStorageUri(state.clip.storage_uri)?.bucket === "clips") {
+      setPreferClipAsset(true);
+      setPlaybackError(null);
+    } else setPlaybackError("Playback failed. Refresh its link, or reprocess this recording to create a browser-compatible clean clip.");
+  }} />;
 }
 
 function ClipReviewReady({
   state,
   overlayState,
   siblingClips,
+  onRefresh,
+  playbackError,
+  onPlaybackError,
 }: {
   state: Extract<ReviewState, { kind: "ready" }>;
   overlayState: OverlayState;
   siblingClips: ApiClip[];
+  onRefresh: () => void;
+  playbackError: string | null;
+  onPlaybackError: () => void;
 }) {
   const router = useRouter();
   const { authToken, data } = useAppState();
-  const { clip, video, playbackUrl, playbackUnavailable } = state;
+  const { clip, video, playbackUrl, playbackUnavailable, playbackUsesClipAsset } = state;
   const showTechnicalDetails = canSeeTechnicalDetails(resolveCurrentRole(authToken));
   // Tracklet selected by clicking its box on the overlay; prefills corrections.
   // Stored as a fresh object per click so re-selecting the same tracklet still
@@ -268,7 +291,6 @@ function ClipReviewReady({
   const [activeLayers, setActiveLayers] = useState<Set<OverlayLayerKey>>(
     () => new Set<OverlayLayerKey>(["tracks", "events", "labels", "metrics"]),
   );
-  const playbackUsesClipAsset = Boolean(clip.storage_uri);
   // Parent-video playback uses full-video time and must be shifted into the
   // clip timeline. Rendered clip playback already starts at clip-local time 0.
   const [videoCurrentTime, setVideoCurrentTime] = useState(0);
@@ -281,6 +303,17 @@ function ClipReviewReady({
     const el = videoRef.current;
     if (el) setVideoCurrentTime(el.currentTime);
   }, []);
+  useEffect(() => {
+    const element = videoRef.current;
+    if (!element || !element.requestVideoFrameCallback) return;
+    let handle = 0;
+    const frame = (_now: number, metadata: VideoFrameCallbackMetadata) => {
+      setVideoCurrentTime(metadata.mediaTime);
+      handle = element.requestVideoFrameCallback(frame);
+    };
+    handle = element.requestVideoFrameCallback(frame);
+    return () => element.cancelVideoFrameCallback(handle);
+  }, [playbackUrl]);
 
   // Prev/next play within the same video (ordered by start time).
   const clipIndex = siblingClips.findIndex((c) => c.id === clip.id);
@@ -414,7 +447,9 @@ function ClipReviewReady({
               />
             )}
 
-          <div className="relative mt-3 flex min-h-80 items-center justify-center overflow-hidden rounded-lg bg-black">
+          {overlayPayload && (overlayPayload.warnings?.length ?? 0) > 0 && <div role="status" className="mt-3 rounded-md border border-status-warn/40 bg-status-warn/10 p-3 text-sm"><p className="font-semibold">Analysis availability</p>{overlayPayload.warnings?.map((warning) => <p key={warning} className="mt-1">{warning}</p>)}</div>}
+
+          <div className="relative mt-3 flex min-h-80 items-center justify-center overflow-hidden rounded-lg bg-black [&:fullscreen_video]:h-full [&:fullscreen_video]:max-h-none">
             {playbackUrl ? (
               <>
                 <video
@@ -423,6 +458,7 @@ function ClipReviewReady({
                   playsInline
                   onTimeUpdate={onTimeUpdate}
                   onSeeked={onTimeUpdate}
+                  onError={onPlaybackError}
                   onLoadedMetadata={() => {
                     // Parent-video playback loads at t=0, before the clip —
                     // jump to the clip start once metadata makes seeking safe.
@@ -438,7 +474,7 @@ function ClipReviewReady({
                     else el.pause();
                   }}
                   aria-label={`Clip ${clip.play_number ?? clip.id} video`}
-                  className="block max-h-120 w-full cursor-pointer"
+                  className="block max-h-120 w-full cursor-pointer object-contain"
                 />
                 {overlayPayload && (
                   <OverlayCanvas
@@ -481,6 +517,7 @@ function ClipReviewReady({
               onNextClip={goNextClip}
             />
           )}
+          {playbackError && <div role="alert" className="mt-2 text-sm text-status-danger">{playbackError}<Button size="sm" variant="outline" className="ml-2" onClick={onRefresh}>Refresh playback</Button></div>}
 
           <p data-numeric className="mt-2 font-mono text-xs text-muted-foreground">
             {clip.start_time.toFixed(1)}s – {clip.end_time.toFixed(1)}s{" "}
@@ -496,7 +533,7 @@ function ClipReviewReady({
             onToggle={toggleLayer}
           />
 
-          {overlayPayload && (
+          {playbackUrl && (
             <EventTimeline
               events={eventsForTimeline}
               clipDuration={clipDuration}
@@ -509,6 +546,8 @@ function ClipReviewReady({
             <FieldMinimap
               tracklets={overlayPayload.tracklets}
               currentFrame={Math.round(clipLocalTime * fps)}
+              currentTimeSeconds={clipLocalTime}
+              fps={fps}
               calibration={overlayPayload.calibration ?? null}
               playerNamesById={playerNamesById}
             />
@@ -525,6 +564,7 @@ function ClipReviewReady({
             <StatLine label="Video" value={video.filename} />
             <StatLine label="Video status" value={video.status} />
             <StatLine label="Session" value={sessionKindLabel} />
+            {overlayPayload && <StatLine label="Analysis source" value={overlayPayload.provenance?.source === "real" ? "Vision model output" : overlayPayload.provenance?.source === "manual" ? "Coach annotation" : overlayPayload.provenance?.source === "heuristic" ? "Estimated from video" : "Quality not verified"} />}
             {video.opponent_team && <StatLine label="Opponent" value={video.opponent_team} />}
             {possessionLabel && <StatLine label="Possession" value={possessionLabel} />}
             {clip.play_number != null && (
@@ -564,11 +604,19 @@ function ClipReviewReady({
             showLabels={activeLayers.has("labels") && !activeLayers.has("raw")}
           />
 
+          <ReviewMetadataPanel key={`${clip.id}-${clip.annotation_revision ?? 0}`} clip={clip} onSaved={onRefresh} onNext={goNextClip} />
+
           <CorrectionsPanel
+            key={clip.id}
             clipId={clip.id}
             tracklets={overlayPayload?.tracklets ?? []}
             selection={selection}
+            annotationRevision={clip.annotation_revision}
+            clipBounds={{ start: clip.start_time, end: clip.end_time, duration: video.duration_seconds ?? null }}
+            onSaved={onRefresh}
+            currentTimeSeconds={clipLocalTime}
           />
+          <CorrectionHistory clipId={clip.id} annotationRevision={clip.annotation_revision} />
 
           {showTechnicalDetails && (
             <details className="mt-4">

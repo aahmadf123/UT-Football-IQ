@@ -286,6 +286,7 @@ def test_update_clip_sets_play_call_id() -> None:
 
         session.execute = AsyncMock(side_effect=_execute)
         session.flush = AsyncMock()
+        session.add = MagicMock()
         yield session
 
     app.dependency_overrides[require_coach_or_above] = lambda: _make_user()
@@ -298,4 +299,5 @@ def test_update_clip_sets_play_call_id() -> None:
 
     assert resp.status_code == 200, resp.text
     assert resp.json()["play_call_id"] == "PLAY-Z"
+    assert resp.json()["annotation_revision"] == 1
     assert clip.play_call_id == "PLAY-Z"

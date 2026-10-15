@@ -4,15 +4,17 @@ import uuid
 from typing import Annotated, Any
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, status
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import cast, func, select, update
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.database import get_db
 from app.deps import get_current_user, require_any_staff
-from app.models import Clip, Tracklet, TrackPoint, User
+from app.models import Clip, CorrectionType, Label, Tracklet, TrackPoint, User
+from app.services.annotations import submit_correction
 
 log = structlog.get_logger(__name__)
 router = APIRouter(tags=["tracklets"])
@@ -25,6 +27,7 @@ class TrackPointSchema(BaseModel):
     id: uuid.UUID
     tracklet_id: uuid.UUID
     frame_number: int
+    timestamp_seconds: float | None = None
     field_x: float | None
     field_y: float | None
     bbox: list[float] | None
@@ -36,6 +39,9 @@ class TrackPointSchema(BaseModel):
             id=tp.id,
             tracklet_id=tp.tracklet_id,
             frame_number=tp.frame_number,
+            timestamp_seconds=tp.timestamp_seconds
+            if isinstance(tp.timestamp_seconds, (int, float))
+            else None,
             field_x=tp.field_x,
             field_y=tp.field_y,
             bbox=tp.bbox,
@@ -45,6 +51,8 @@ class TrackPointSchema(BaseModel):
 
 class TrackletResponse(BaseModel):
     model_config = {"protected_namespaces": ()}
+
+    provenance: dict[str, Any] | None = None
 
     id: uuid.UUID
     clip_id: uuid.UUID
@@ -61,6 +69,7 @@ class TrackletResponse(BaseModel):
     @classmethod
     def from_orm_tracklet(cls, t: Tracklet, include_points: bool = False) -> "TrackletResponse":
         return cls(
+            provenance=t.provenance if isinstance(t.provenance, dict) else None,
             id=t.id,
             clip_id=t.clip_id,
             player_id=t.player_id,
@@ -79,6 +88,9 @@ class TrackletResponse(BaseModel):
 
 class TrackletCreate(BaseModel):
     model_config = {"protected_namespaces": ()}
+
+    id: uuid.UUID | None = None
+    provenance: dict[str, Any] | None = None
 
     clip_id: uuid.UUID
     player_id: uuid.UUID | None = None
@@ -106,7 +118,12 @@ async def list_tracklets_for_clip(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Clip not found")
 
     result = await db.execute(
-        select(Tracklet).where(Tracklet.clip_id == clip_id).order_by(Tracklet.start_frame)
+        select(Tracklet)
+        .where(
+            Tracklet.clip_id == clip_id,
+            func.coalesce(Tracklet.provenance["state"].as_string(), "") != "superseded",
+        )
+        .order_by(Tracklet.start_frame)
     )
     return [
         TrackletResponse.from_orm_tracklet(t, include_points=False) for t in result.scalars().all()
@@ -142,12 +159,40 @@ async def create_tracklet(
     _current_user: Annotated[User, Depends(require_any_staff)],
 ) -> TrackletResponse:
     """Store a new tracklet (with optional inline track points)."""
-    clip_result = await db.execute(select(Clip).where(Clip.id == body.clip_id))
+    clip_result = await db.execute(select(Clip).where(Clip.id == body.clip_id).with_for_update())
     if clip_result.scalar_one_or_none() is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Clip not found")
 
+    if body.job_id is not None:
+        await db.execute(
+            update(Tracklet)
+            .where(
+                Tracklet.clip_id == body.clip_id,
+                Tracklet.job_id.is_not(None),
+                Tracklet.job_id != body.job_id,
+            )
+            .values(
+                provenance=func.coalesce(Tracklet.provenance, cast({}, JSONB)).op("||")(
+                    cast({"state": "superseded"}, JSONB)
+                )
+            )
+        )
+    if body.id is not None:
+        existing = (
+            await db.execute(select(Tracklet).where(Tracklet.id == body.id))
+        ).scalar_one_or_none()
+        if existing is not None:
+            if existing.clip_id != body.clip_id:
+                raise HTTPException(409, "Operation ID belongs to another target")
+            if body.job_id is not None and body.job_id != existing.job_id:
+                existing.job_id = body.job_id
+                existing.provenance = body.provenance
+                await db.flush()
+            return TrackletResponse.from_orm_tracklet(existing)
+
     tracklet = Tracklet(
-        id=uuid.uuid4(),
+        id=body.id or uuid.uuid4(),
+        provenance=body.provenance,
         clip_id=body.clip_id,
         player_id=body.player_id,
         start_frame=body.start_frame,
@@ -165,6 +210,7 @@ async def create_tracklet(
             id=uuid.uuid4(),
             tracklet_id=tracklet.id,
             frame_number=int(pt["frame_number"]),
+            timestamp_seconds=pt.get("timestamp_seconds"),
             field_x=pt.get("field_x"),
             field_y=pt.get("field_y"),
             bbox=pt.get("bbox"),
@@ -199,6 +245,7 @@ async def update_tracklet(
     body: TrackletUpdate,
     db: Annotated[AsyncSession, Depends(get_db)],
     _current_user: Annotated[User, Depends(require_any_staff)],
+    worker_job_id: Annotated[str | None, Header(alias="X-Job-ID")] = None,
 ) -> TrackletResponse:
     """Update a tracklet's identity association or team label (Re-ID / coach correction)."""
     result = await db.execute(
@@ -210,10 +257,32 @@ async def update_tracklet(
     if tracklet is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tracklet not found")
 
-    if body.player_id is not None:
-        tracklet.player_id = body.player_id
-    if body.team_label is not None:
-        tracklet.team_label = body.team_label
+    identity = body.model_dump(mode="json", exclude_unset=True, exclude={"track_confidence"})
+    if identity and worker_job_id is None:
+        await submit_correction(
+            db,
+            actor=_current_user,
+            clip_id=tracklet.clip_id,
+            correction_type=CorrectionType.player_identity,
+            corrected_value={"tracklet_id": str(tracklet.id), **identity},
+        )
+    elif identity:
+        manual = (
+            await db.execute(
+                select(Label)
+                .where(
+                    Label.tracklet_id == tracklet.id,
+                    Label.label_type == "player_identity",
+                    Label.source.in_(["human", "manual"]),
+                )
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if manual is None:
+            if "player_id" in body.model_fields_set:
+                tracklet.player_id = body.player_id
+            if body.team_label is not None:
+                tracklet.team_label = body.team_label
     if body.track_confidence is not None:
         tracklet.track_confidence = body.track_confidence
 

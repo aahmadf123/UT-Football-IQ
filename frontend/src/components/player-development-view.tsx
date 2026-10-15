@@ -120,7 +120,7 @@ export function PlayerDevelopmentView() {
 
         <Card>
           <CardHeader>
-            <h2 className="font-display text-base font-semibold uppercase tracking-wide">
+            <h2 className="text-base font-semibold">
               Body-Orientation Proxy
             </h2>
           </CardHeader>
@@ -141,7 +141,7 @@ export function PlayerDevelopmentView() {
 
         <Card>
           <CardHeader>
-            <h2 className="font-display text-base font-semibold uppercase tracking-wide">
+            <h2 className="text-base font-semibold">
               Trend Lines
             </h2>
           </CardHeader>
@@ -153,7 +153,7 @@ export function PlayerDevelopmentView() {
 
       <Card>
         <CardHeader>
-          <h2 className="font-display text-base font-semibold uppercase tracking-wide">
+          <h2 className="text-base font-semibold">
             Effort Review Candidates
           </h2>
         </CardHeader>
@@ -233,7 +233,7 @@ function EffortReviewRow({
   return (
     <div className="flex items-center justify-between gap-3 border-b border-border-soft pb-2 last:border-b-0 last:pb-0">
       <div className="min-w-0">
-        <span className="text-[0.85rem] font-semibold">
+        <span className="text-sm font-semibold">
           {flagged ? "Possible effort drop" : "Effort range check"}
         </span>
         <div data-numeric className="mt-0.5 font-mono text-xs text-muted-foreground">

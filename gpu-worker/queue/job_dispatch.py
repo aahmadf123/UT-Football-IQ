@@ -87,7 +87,9 @@ def dispatch_on_upload(
     if clip_id:
         payload["clipId"] = clip_id
     if input_artifacts:
-        payload["inputArtifacts"] = input_artifacts
+        payload["inputArtifacts"] = dict(input_artifacts)
+    if job_type == "pipeline":
+        payload.setdefault("inputArtifacts", {}).setdefault("processing_profile", "quick")
 
     log.info(
         "job_dispatch",

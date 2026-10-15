@@ -44,6 +44,8 @@ from pipeline.homography import field_boundary as fb
 from pipeline.homography import field_orientation as fo
 from pipeline.homography import yardline_keypoints as yk
 from pipeline.homography.project import projects_onto_field
+from pipeline.runtime import PipelineInterrupted, check_control
+from pipeline.video_timeline import VideoTimeline
 
 log = structlog.get_logger(__name__)
 
@@ -76,6 +78,7 @@ def run(
     *,
     variant: str = VARIANT_KALMAN,
     capture_regime: str | None = None,
+    timeline: VideoTimeline | None = None,
 ) -> dict[str, Any]:
     """Run Stage 3 for the given clip and return output artifacts.
 
@@ -98,7 +101,7 @@ def run(
     object_key = _uri_to_object_key(input_uri)
     video_path = object_store.download_to_temp(object_key)
     try:
-        return _calibrate(video_id, video_path, job_id, regime, variant)
+        return _calibrate(video_id, video_path, job_id, regime, variant, timeline=timeline)
     finally:
         video_path.unlink(missing_ok=True)
 
@@ -114,6 +117,8 @@ def _calibrate(
     job_id: str,
     regime: str,
     variant: str,
+    *,
+    timeline: VideoTimeline | None = None,
 ) -> dict[str, Any]:
     n_frames = N_SAMPLE_FRAMES_FIXED if regime == FIXED_SIDELINE else N_SAMPLE_FRAMES_DRONE
     frames = _sample_frames(video_path, n_frames)
@@ -135,7 +140,8 @@ def _calibrate(
 
     if regime == FIXED_SIDELINE:
         return _calibrate_fixed_sideline(video_id, job_id, frames, regime)
-    return _calibrate_drone(video_id, job_id, frames, regime, variant, video_path=video_path)
+    return _calibrate_drone(video_id, job_id, frames, regime, variant, video_path=video_path,
+                            timeline=timeline)
 
 
 # ── FIXED_SIDELINE: one anchor homography for the whole clip ───────────────────
@@ -199,6 +205,7 @@ def _calibrate_drone(
     variant: str,
     *,
     video_path: Path | None = None,
+    timeline: VideoTimeline | None = None,
 ) -> dict[str, Any]:
     """Per-window calibration; nightly variant adds Kalman temporal smoothing.
 
@@ -211,6 +218,7 @@ def _calibrate_drone(
     # this path is the one the drone footage actually takes.
     fits: list[tuple[np.ndarray, yk.KeypointResult, float, list[str]] | None] = []
     for frame in frames:
+        check_control()
         best = _best_frame_fit([frame])
         if best is None:
             fits.append(None)
@@ -293,6 +301,8 @@ def _calibrate_drone(
         is_game_anchor=False,
         reason_codes=list(best_codes),
         extra_diagnostics=ecc_diag,
+        video_path=video_path,
+        timeline=timeline,
     )
 
 
@@ -525,6 +535,7 @@ def _sample_frames(video_path: Path, n: int) -> list[np.ndarray]:
         times = np.linspace(0.05 * duration, 0.95 * duration, num=max(1, n), endpoint=True)
         frames: list[np.ndarray] = []
         for t in times:
+            check_control()
             cap.set(cv2.CAP_PROP_POS_MSEC, float(t) * 1000.0)
             ok, frame = cap.read()
             if ok and frame is not None:
@@ -550,6 +561,8 @@ def _persist_and_return(
     reason_codes: list[str],
     extra_diagnostics: dict[str, Any] | None = None,
     field_boundary: dict[str, Any] | None = None,
+    video_path: Path | None = None,
+    timeline: VideoTimeline | None = None,
 ) -> dict[str, Any]:
     """Write the calibration record and return the stage output artifacts."""
     confidence = breakdown.confidence if breakdown is not None else 0.0
@@ -571,6 +584,15 @@ def _persist_and_return(
     }
     has_blocking = any(rc in blocking for rc in reason_codes)
     analytics_safe = (confidence >= CONFIDENCE_THRESHOLD) and not has_blocking
+    series: list[dict[str, Any]] = []
+    if regime != FIXED_SIDELINE and video_path is not None and homography is not None:
+        from pipeline.homography.timeline import calibration_timeline
+
+        series = calibration_timeline(video_path, _best_frame_fit, threshold=CONFIDENCE_THRESHOLD,
+                                       timeline=timeline)
+        analytics_safe = bool(series) and all(p["analytics_safe"] for p in series)
+    elif regime != FIXED_SIDELINE and video_path is not None:
+        analytics_safe = False
 
     homography_list = (
         [float(v) for v in np.asarray(homography, dtype=np.float64).flatten()]
@@ -580,6 +602,8 @@ def _persist_and_return(
     calibration_points: dict[str, Any] = {
         "capture_regime": regime,
         "confidence_components": components,
+        "calibration_mode": "static" if regime == FIXED_SIDELINE else "time_indexed",
+        "calibration_series": series,
     }
     if extra_diagnostics:
         calibration_points["motion_compensation"] = extra_diagnostics
@@ -603,8 +627,11 @@ def _persist_and_return(
             is_game_anchor=is_game_anchor,
             job_id=job_id,
         )
+    except PipelineInterrupted:
+        raise
     except Exception as exc:
         log.error("write_calibration_failed", video_id=video_id, error=str(exc))
+        raise
 
     log.info(
         "stage_calibrate_done",
@@ -616,6 +643,8 @@ def _persist_and_return(
     )
     return {
         "analytics_safe": analytics_safe,
+        "calibration_mode": "static" if regime == FIXED_SIDELINE else "time_indexed",
+        "calibration_series": series,
         "confidence": float(confidence),
         "capture_regime": regime,
         "confidence_components": components,

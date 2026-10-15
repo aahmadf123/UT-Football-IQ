@@ -26,9 +26,9 @@ import { NativeSelect } from "@/components/ui/native-select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 
-export function ReviewTab({ initialVideoId }: { initialVideoId?: string }) {
+export function ReviewTab({ initialVideoId, sessionId }: { initialVideoId?: string; sessionId?: string }) {
   const { data, authToken, apiStatus } = useAppState();
-  const videos = data.videos;
+  const videos = useMemo(() => sessionId ? data.videos.filter((video) => video.practice_session_id === sessionId) : data.videos, [data.videos, sessionId]);
   const [selectedVideoId, setSelectedVideoId] = useState<string>(initialVideoId ?? "");
 
   // Default to the most recently created processed video; fall back to the
@@ -67,18 +67,17 @@ export function ReviewTab({ initialVideoId }: { initialVideoId?: string }) {
       <Card>
         <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-3">
           <div>
-            <h2 className="font-display text-base font-semibold uppercase tracking-wide">
+            <h2 className="text-base font-semibold">
               Review &amp; Tag Plays
             </h2>
             <p className="mt-0.5 max-w-2xl text-xs text-muted-foreground">
-              Pick a video to see its detected plays. Each row opens the real clip-review screen —
-              playback, tracking overlays, and coach corrections.
+              Choose a recording to review its plays, add tags, and correct tracking. Camera views can be matched in the session workspace.
             </p>
           </div>
           <div className="flex min-w-64 flex-col gap-1">
             <Label
               htmlFor="review-video-picker"
-              className="font-display text-[0.68rem] font-semibold uppercase tracking-widest text-muted-foreground"
+              className="text-xs font-semibold text-muted-foreground"
             >
               Video
             </Label>
@@ -103,7 +102,7 @@ export function ReviewTab({ initialVideoId }: { initialVideoId?: string }) {
 
       <Card>
         <CardHeader>
-          <h2 className="font-display text-base font-semibold uppercase tracking-wide">
+          <h2 className="text-base font-semibold">
             Plays{selectedVideo ? ` — ${selectedVideo.filename}` : ""}
           </h2>
         </CardHeader>
@@ -174,7 +173,7 @@ function ReviewClipRow({ clip }: { clip: ApiClip }) {
       className="group flex items-center justify-between gap-3 rounded-md border border-border-soft px-3 py-2.5 transition-colors hover:border-border hover:bg-accent/50"
     >
       <div className="min-w-0">
-        <span className="text-[0.85rem] font-semibold">
+        <span className="text-sm font-semibold">
           {clip.play_number != null ? `Play #${clip.play_number}` : `Clip ${clip.id.slice(0, 8)}`}
         </span>
         <div data-numeric className="mt-0.5 font-mono text-xs text-muted-foreground">
@@ -188,7 +187,7 @@ function ReviewClipRow({ clip }: { clip: ApiClip }) {
       </div>
       <span className="flex shrink-0 items-center gap-2">
         <ClipStateBadges isPreliminary={isPreliminary} reviewState={clip.review_state} />
-        <span className="inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-primary opacity-80 transition-opacity group-hover:opacity-100">
+        <span className="inline-flex items-center gap-1 text-xs font-semibold text-primary opacity-80 transition-opacity group-hover:opacity-100">
           Review <ArrowRight className="size-3.5" />
         </span>
       </span>

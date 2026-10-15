@@ -35,7 +35,7 @@
   --color-navy-800: var(--navy-800);
   --color-navy-700: var(--navy-700);
   --font-sans: var(--font-inter);
-  --font-display: var(--font-barlow-condensed);
+  --font-display: var(--font-inter);
   --font-mono: var(--font-jetbrains-mono);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
@@ -54,9 +54,9 @@
 
   /* Semantic surface/ink tokens (dark values live directly in :root — the
      app is dark-only by design; there is no .dark class and no light mode). */
-  --background: var(--navy-950);
+  --background: oklch(0.18 0.024 252);
   --foreground: oklch(0.96 0.009 252);
-  --card: oklch(0.19 0.044 252);
+  --card: oklch(0.23 0.029 252);
   --card-foreground: var(--foreground);
   --popover: var(--navy-900);
   --popover-foreground: var(--foreground);
@@ -66,7 +66,7 @@
   --secondary: var(--navy-850);
   --secondary-foreground: var(--foreground);
   --muted-surface: var(--navy-900);
-  --muted-foreground: oklch(0.72 0.022 252);
+  --muted-foreground: oklch(0.77 0.015 252);
   --accent: var(--navy-800);
   --accent-foreground: var(--foreground);
   --destructive: oklch(0.64 0.2 28);
@@ -75,7 +75,7 @@
   --border-soft: oklch(0.35 0.04 252 / 0.46);
   --input: oklch(0.35 0.04 252 / 0.46);
   --ring: oklch(0.84 0.18 84);
-  --radius: 0.5rem;
+  --radius: 0.75rem;
 
   /* Canonical status map — the only status→color mapping in the app.
      Gold is brand, never a status color. */
@@ -100,12 +100,11 @@
   body {
     margin: 0;
     color: var(--foreground);
-    background:
-      radial-gradient(circle at 18% 0%, oklch(0.31 0.065 252 / 0.7), transparent 34rem),
-      linear-gradient(135deg, var(--navy-950), oklch(0.11 0.034 252));
+    background: var(--background);
     background-attachment: fixed;
     font-family: var(--font-sans, Inter, "Segoe UI", system-ui, sans-serif);
     letter-spacing: 0;
+    font-size: 14px;
   }
 
   h1,
@@ -114,7 +113,7 @@
   h4,
   h5,
   h6 {
-    font-family: var(--font-display, var(--font-sans, system-ui, sans-serif));
+    font-family: var(--font-sans, system-ui, sans-serif);
   }
 
   button {

@@ -92,7 +92,7 @@ The student is registered in the router as `yolov8m-drone-distilled`, on
 # CI / smoke test — no torch, no GPU, no footage:
 python -m training.cross_regime_distill --synthetic --output /tmp/distill.json
 
-# Real run — on the GPU-worker host (pytorch/pytorch:2.5.1-cuda12.4), where torch
+# Real run — on the GPU-worker host (pytorch/pytorch:2.8.0-cuda12.8), where torch
 # and the footage live. Tag the paired clips first, then:
 python -m training.cross_regime_distill \
     --clips coach_tagged_clips.json \

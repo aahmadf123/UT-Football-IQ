@@ -1,0 +1,112 @@
+name: Native CPU application
+
+# Build on each target OS; never cross-compile or publish staff film/model weights.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: Package ${{ matrix.os }}
+    timeout-minutes: 60
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-14]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Create backend environment
+        shell: bash
+        run: |
+          python -m venv backend/.venv
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            backend_python=backend/.venv/Scripts/python.exe
+          else
+            backend_python=backend/.venv/bin/python
+          fi
+          "$backend_python" -m pip install -r backend/requirements.txt -r requirements-native-build.txt
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Build portable UI
+        working-directory: frontend
+        run: |
+          npm ci
+          npm test -- --run
+          npm run build
+      - name: Create CPU worker and launcher environment
+        shell: bash
+        run: |
+          python -m pip install -r requirements-native-build.txt
+          python -m venv gpu-worker/.venv
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            worker_python=gpu-worker/.venv/Scripts/python.exe
+          else
+            worker_python=gpu-worker/.venv/bin/python
+          fi
+          "$worker_python" -m pip install -r gpu-worker/requirements-cpu.txt -r requirements-native-build.txt
+          python -m unittest discover -s tests_local -v
+      - name: Prepare macOS PostgreSQL, pgvector and FFmpeg
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          brew install postgresql@16 ffmpeg
+          git clone --branch v0.8.1 --depth 1 https://github.com/pgvector/pgvector.git "$RUNNER_TEMP/pgvector"
+          pg_root="$(brew --prefix postgresql@16)"
+          make -C "$RUNNER_TEMP/pgvector" PG_CONFIG="$pg_root/bin/pg_config"
+          make -C "$RUNNER_TEMP/pgvector" PG_CONFIG="$pg_root/bin/pg_config" install
+          python scripts/prepare_native.py --postgres-root "$pg_root" --ffmpeg "$(command -v ffmpeg)" --ffprobe "$(command -v ffprobe)" --output "$RUNNER_TEMP/native"
+      - name: Install Windows PostgreSQL and FFmpeg
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: choco install postgresql16 ffmpeg --yes --no-progress
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: runner.os == 'Windows'
+      - name: Build Windows pgvector and prepare native files
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $env:PGROOT = 'C:\Program Files\PostgreSQL\16'
+          git clone --branch v0.8.1 --depth 1 https://github.com/pgvector/pgvector.git "$env:RUNNER_TEMP\pgvector"
+          Push-Location "$env:RUNNER_TEMP\pgvector"
+          nmake /F Makefile.win
+          if ($LASTEXITCODE -ne 0) { throw 'pgvector compilation failed' }
+          nmake /F Makefile.win install
+          if ($LASTEXITCODE -ne 0) { throw 'pgvector installation failed' }
+          Pop-Location
+          $ffmpeg = Get-ChildItem 'C:\ProgramData\chocolatey\lib\ffmpeg\tools' -Filter ffmpeg.exe -Recurse | Select-Object -First 1
+          $ffprobe = Get-ChildItem 'C:\ProgramData\chocolatey\lib\ffmpeg\tools' -Filter ffprobe.exe -Recurse | Select-Object -First 1
+          python scripts/prepare_native.py --postgres-root $env:PGROOT --ffmpeg $ffmpeg.FullName --ffprobe $ffprobe.FullName --output "$env:RUNNER_TEMP\native"
+      - name: Assemble frozen application
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            backend_python=backend/.venv/Scripts/python.exe
+            worker_python=gpu-worker/.venv/Scripts/python.exe
+            suffix=.exe
+          else
+            backend_python=backend/.venv/bin/python
+            worker_python=gpu-worker/.venv/bin/python
+            suffix=
+          fi
+          python scripts/build_native.py --backend-python "$backend_python" --worker-python "$worker_python" --postgres-root "$RUNNER_TEMP/native/postgres" --ffmpeg "$RUNNER_TEMP/native/bin/ffmpeg$suffix" --ffprobe "$RUNNER_TEMP/native/bin/ffprobe$suffix" --native-lib "$RUNNER_TEMP/native/lib"
+      - name: Verify packaged application with an owned local library
+        shell: bash
+        run: |
+          backend/.venv/$(if [ "$RUNNER_OS" = "Windows" ]; then printf 'Scripts/python.exe'; else printf 'bin/python'; fi) scripts/verify_native.py --bundle dist/Football-IQ --data-dir "$RUNNER_TEMP/football-iq-smoke"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: Football-IQ-${{ matrix.os }}-cpu
+          path: dist/Football-IQ/
+          retention-days: 14

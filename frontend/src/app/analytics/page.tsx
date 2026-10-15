@@ -57,20 +57,17 @@ function AnalyticsView() {
   const { state: videos, reload: loadVideos } = useFetchState(videosFetcher);
 
   const scoutFetcher = useCallback(
-    () => fetchSelfScoutTendencies(null, authToken),
-    [authToken],
+    () => fetchSelfScoutTendencies(null, authToken, {
+      ...(selectedDate ? { recorded_after: `${selectedDate}T00:00:00Z`, recorded_before: `${selectedDate}T23:59:59.999999Z` } : {}),
+      ...(sessionType !== "all" ? { session_kind: sessionType } : {}),
+    }),
+    [authToken, selectedDate, sessionType],
   );
   const { state: scout, reload: loadScout } = useFetchState(scoutFetcher, {
     isEmpty: (data) => data.clip_count === 0,
   });
 
   const loadFrontier = useCallback(async () => {
-    const baseUrl = process.env.NEXT_PUBLIC_API_URL;
-    if (!baseUrl) {
-      setFrontier(null);
-      setFrontierLoading(false);
-      return;
-    }
     setFrontierLoading(true);
     try {
       const res = await fetchFrontierMetrics({ limit: 100 }, authToken);

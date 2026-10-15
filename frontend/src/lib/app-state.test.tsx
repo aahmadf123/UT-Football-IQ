@@ -29,12 +29,15 @@ afterEach(() => {
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
   vi.resetModules();
+  vi.useRealTimers();
+  window.localStorage.clear();
 });
 
-describe("AppStateProvider — default offline mode", () => {
+describe("AppStateProvider — local API unavailable", () => {
   beforeEach(() => {
     vi.stubEnv("NEXT_PUBLIC_USE_MOCKS", "");
     vi.stubEnv("NEXT_PUBLIC_API_URL", "");
+    vi.stubGlobal("fetch", vi.fn(() => Promise.reject(new TypeError("Failed to fetch"))));
   });
 
   test("empty data + offline status when neither mocks nor API are configured", async () => {
@@ -58,6 +61,17 @@ describe("AppStateProvider — default offline mode", () => {
     expect(state.data.videos.length).toBe(0);
     expect(state.data.jobs.length).toBe(0);
     expect(state.mockMode).toBe(false);
+  });
+
+  test("a disconnected import fails without pretending the browser saved a recording", async () => {
+    const { AppStateProvider, useAppState } = await freshImport();
+    const { captured, Probe } = makeProbe();
+    render(<AppStateProvider><Probe useHook={useAppState} /></AppStateProvider>);
+    await act(async () => { await captured.current?.addUploads([new File(["video"], "practice.mp4", { type: "video/mp4" })]); });
+    await waitFor(() => expect(captured.current?.uploads[0].phase).toBe("error"));
+    expect(captured.current?.data.videos).toEqual([]);
+    expect(captured.current?.uploads.some((upload) => upload.phase === "done")).toBe(false);
+    expect(window.localStorage.getItem("football_iq_app_state_v1")).not.toContain("practice.mp4");
   });
 });
 
@@ -122,6 +136,33 @@ describe("AppStateProvider — empty live response does not fall back to mock", 
     expect(state.data.videos.length).toBe(0);
     expect(state.data.jobs.length).toBe(0);
     expect(state.mockMode).toBe(false);
+  });
+
+  test("old browser upload names cannot reconstitute film that was never saved", async () => {
+    window.localStorage.setItem("football_iq_app_state_v1", JSON.stringify({ sessionType: "all", selectedDate: "", uploadedNames: ["lost-practice.mp4"] }));
+    const { AppStateProvider, useAppState } = await freshImport();
+    const { captured, Probe } = makeProbe();
+    render(<AppStateProvider><Probe useHook={useAppState} /></AppStateProvider>);
+    await waitFor(() => expect(captured.current?.apiStatus).toBe("live"));
+    expect(captured.current?.uploads).toEqual([]);
+    expect(captured.current?.data.videos).toEqual([]);
+    expect(window.localStorage.getItem("football_iq_app_state_v1")).not.toContain("lost-practice.mp4");
+  });
+
+  test("polling moves the shared film and jobs into their completed state", async () => {
+    vi.useFakeTimers();
+    let ready = false;
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => ({ ok: true, status: 200, json: async () => url.includes("/api/v1/videos") ? [{ id: "v1", filename: "practice.mp4", status: ready ? "ready" : "uploaded", created_at: "2026-10-14", recorded_at: "2026-10-12" }] : url.includes("/api/v1/jobs") ? [{ id: "j1", status: ready ? "succeeded" : "running" }] : [] })));
+    const { AppStateProvider, useAppState } = await freshImport();
+    const { captured, Probe } = makeProbe();
+    await act(async () => { render(<AppStateProvider><Probe useHook={useAppState} /></AppStateProvider>); });
+    expect(captured.current?.data.videos[0].status).toBe("uploaded");
+    ready = true;
+    await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+    expect(captured.current?.data.videos[0].status).toBe("ready");
+    expect(captured.current?.data.jobs[0].status).toBe("succeeded");
+    expect(captured.current?.availableDates).toContain("2026-10-12");
+    expect(captured.current?.availableDates).not.toContain("2026-10-14");
   });
 
   test("does not send recorded_at filters until a date is selected", async () => {

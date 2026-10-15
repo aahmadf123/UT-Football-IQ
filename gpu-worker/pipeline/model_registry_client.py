@@ -19,6 +19,7 @@ serving half.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import shutil
 import threading
@@ -40,10 +41,30 @@ class ResolvedModel:
     model_name: str
     version: str
     local_path: Path
+    artifact_sha256: str | None = None
+    validated: bool = False
 
 
 _lock = threading.Lock()
 _resolved: dict[str, ResolvedModel | None] = {}
+
+
+def resolved_identity(model_types: tuple[str, ...] = ("detect", "ball", "coverage")) -> dict:
+    """Snapshot served version ids and bytes for checkpoint invalidation."""
+    from pipeline.runtime import model_provenance
+
+    identity = {}
+    for model_type in model_types:
+        resolved = resolve(model_type)
+        if resolved is not None:
+            identity[model_type] = {
+                "model_version_id": resolved.model_version_id,
+                "model_sha256": model_provenance(
+                    effective_variant=resolved.model_name, source="real",
+                    model_path=str(resolved.local_path),
+                )["model_sha256"],
+            }
+    return identity
 
 
 def _cache_dir() -> Path:
@@ -81,6 +102,12 @@ def _fetch_production_version(model_type: str) -> dict | None:
         return None
 
 
+def _approved_sha256(version: dict) -> str | None:
+    """Artifact hash bound by a passing, human-approved promotion (never an evaluation)."""
+    approved = (version.get("metrics") or {}).get("approved_artifact_sha256")
+    return str(approved) if approved else None
+
+
 def _materialise(version: dict) -> Path | None:
     artifact_uri = version.get("artifact_uri")
     if not artifact_uri:
@@ -96,12 +123,33 @@ def _materialise(version: dict) -> Path | None:
         / str(version.get("version", "v"))
         / Path(str(artifact_uri)).name
     )
+    expected = _approved_sha256(version) or (version.get("metrics") or {}).get("artifact_sha256")
+
+    def approved_bytes(path: Path) -> bool:
+        if not expected:
+            return True  # Legacy models can serve experimentally, never validated.
+        digest = hashlib.sha256()
+        try:
+            with path.open("rb") as handle:
+                for block in iter(lambda: handle.read(1024 * 1024), b""):
+                    digest.update(block)
+        except OSError as exc:
+            log.warning("model_artifact_unreadable", model_version_id=version.get("id"), error=str(exc))
+            return False
+        return digest.hexdigest() == expected
+
     if target.is_file():
-        return target
+        if approved_bytes(target):
+            return target
+        log.warning("model_cached_artifact_hash_mismatch", model_version_id=version.get("id"))
     try:
         from pipeline import storage
 
         tmp = storage.download_to_temp(str(artifact_uri))
+        if not approved_bytes(tmp):
+            log.warning("model_artifact_hash_mismatch", model_version_id=version.get("id"))
+            tmp.unlink(missing_ok=True)
+            return None
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.move(str(tmp), target)
         log.info(
@@ -123,9 +171,9 @@ def _materialise(version: dict) -> Path | None:
 def resolve(model_type: str) -> ResolvedModel | None:
     """Resolve the production model artifact for a pipeline stage, if any.
 
-    Cached per process (one registry query + at most one download per
-    model_type per worker lifetime); returns ``None`` whenever the bundled
-    default weights should be used instead.
+    Cached within a job, reset at job boundaries so promotions/rollbacks take
+    effect on the next run. Returns ``None`` when configured local defaults
+    should be used instead; approved artifact bytes are checked before serving.
     """
     with _lock:
         if model_type in _resolved:
@@ -141,6 +189,9 @@ def resolve(model_type: str) -> ResolvedModel | None:
                     model_name=str(version.get("model_name", "")),
                     version=str(version.get("version", "")),
                     local_path=path,
+                    artifact_sha256=_approved_sha256(version)
+                    or (version.get("metrics") or {}).get("artifact_sha256"),
+                    validated=_approved_sha256(version) is not None,
                 )
                 log.info(
                     "model_registry_serving",
@@ -153,6 +204,6 @@ def resolve(model_type: str) -> ResolvedModel | None:
 
 
 def reset_cache() -> None:
-    """Test hook: clear the per-process resolution cache."""
+    """Refresh promotions/rollbacks at the next job boundary; also used by tests."""
     with _lock:
         _resolved.clear()

@@ -67,7 +67,7 @@ export function CvSpotlight() {
 
   // Load the clip inventory for the spotlighted video.
   useEffect(() => {
-    if (mockMode || !process.env.NEXT_PUBLIC_API_URL || !latestReady) return;
+    if (mockMode || !latestReady) return;
     let cancelled = false;
     setClipsState({ kind: "loading" });
     fetchClipsForVideo(latestReady.id, authToken)
@@ -141,7 +141,7 @@ export function CvSpotlight() {
       <Card>
         <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3">
           <div>
-            <h2 className="flex items-center gap-2 font-display text-base font-semibold uppercase tracking-wide">
+            <h2 className="flex items-center gap-2 text-base font-semibold">
               <ScanEye aria-hidden className="size-[18px] text-primary" />
               Tracking Spotlight
             </h2>
@@ -214,7 +214,7 @@ function SpotlightBody({
       />
     );
   }
-  if (!process.env.NEXT_PUBLIC_API_URL || apiStatus === "offline") {
+  if (apiStatus === "offline") {
     return (
       <EmptyState
         icon={ScanEye}

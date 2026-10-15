@@ -41,6 +41,8 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 import structlog
 
+from pipeline.video_timeline import VideoTimeline
+
 if TYPE_CHECKING:
     pass
 
@@ -64,6 +66,12 @@ class VideoSource:
     fps: float
     total_frames: int
     metadata: dict[str, Any]
+
+    def timestamp(self, frame: int) -> float:
+        return frame / self.fps
+
+    def frame_for_time(self, seconds: float) -> int:
+        return max(0, int(seconds * self.fps))
 
     def iter_frames(self, stride: int = 1) -> Iterator[tuple[int, np.ndarray]]:
         """Yield (frame_number, BGR numpy array) pairs.
@@ -171,6 +179,17 @@ class LocalFileVideoSource(VideoSource):
         finally:
             cap.release()
 
+    @property
+    def timeline(self) -> VideoTimeline:
+        return VideoTimeline.from_path(self._path, fps_fallback=self.fps,
+                                       frame_count_fallback=self.total_frames)
+
+    def timestamp(self, frame: int) -> float:
+        return self.timeline.timestamp(frame)
+
+    def frame_for_time(self, seconds: float) -> int:
+        return self.timeline.frame_for_time(seconds)
+
 
 # ── Object store source ─────────────────────────────────────────────────────────────────
 
@@ -204,6 +223,12 @@ class ObjectStoreVideoSource(VideoSource):
         if self._inner is None:
             return
         yield from self._inner.iter_frames(stride=stride)
+
+    def timestamp(self, frame: int) -> float:
+        return self._inner.timestamp(frame) if self._inner is not None else super().timestamp(frame)
+
+    def frame_for_time(self, seconds: float) -> int:
+        return self._inner.frame_for_time(seconds) if self._inner is not None else super().frame_for_time(seconds)
 
     def cleanup(self) -> None:
         if self._temp_path and self._temp_path.exists():

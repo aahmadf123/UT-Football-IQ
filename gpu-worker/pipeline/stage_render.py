@@ -12,17 +12,18 @@ Renders an annotated video overlay on top of each clip:
 homography, and the interactive clip-review overlay already renders the
 field wireframe layer client-side when calibration allows.)
 
-Also writes the overlay URI back to the clip record so the frontend can
-find and stream the clip.
+The annotated export is separate from the clean playback proxy so live overlay
+toggles continue to work in the film room.
 
 Output: overlay video URI + dashboard index update.
 """
 
 from __future__ import annotations
 
-import shutil
+import os
 import subprocess
 import tempfile
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
@@ -30,6 +31,8 @@ import cv2
 import structlog
 
 from pipeline import object_store
+from pipeline.runtime import PipelineInterrupted, check_control
+from pipeline.video_timeline import VideoTimeline, seek_source_frame
 
 log = structlog.get_logger(__name__)
 
@@ -60,12 +63,14 @@ def _metric_callouts(
     callouts: dict[int, str] = {}
     for name in _CALLOUT_METRICS:
         for m in metrics:
-            if m.get("metric_name") != name or m.get("is_suppressed"):
+            value = m.get("metric_value") or {}
+            provenance = value.get("provenance", {})
+            if (m.get("metric_name") != name or m.get("is_suppressed") or m.get("experimental_flag")
+                    or (isinstance(provenance, dict) and provenance.get("validated") is False)):
                 continue
             idx = index_by_id.get(str(m.get("tracklet_id")))
             if idx is None or idx in callouts:
                 continue
-            value = m.get("metric_value") or {}
             scalar = value.get("value", value.get("yards", value.get("yds_per_s")))
             if isinstance(scalar, (int, float)):
                 unit = m.get("unit") or ""
@@ -92,21 +97,27 @@ def run(
     analytics_safe: bool,
     fps: float,
     backend_api_url: str,
+    *,
+    frame_start: int = 0,
+    frame_end: int | None = None,
+    timeline: VideoTimeline | None = None,
+    start_seconds: float | None = None,
+    end_seconds: float | None = None,
 ) -> dict[str, Any]:
     """Render overlay video and upload to the object store."""
     log.info("stage_render_start", clip_id=clip_id)
 
     with tempfile.TemporaryDirectory() as tmp_dir:
         out_path = Path(tmp_dir) / "overlay.mp4"
-        _render(video_path, out_path, tracklets, labels, metrics, analytics_safe, fps)
+        mapping = _render(video_path, out_path, tracklets, labels, metrics, analytics_safe, fps,
+                          frame_start=frame_start, frame_end=frame_end, timeline=timeline,
+                          start_seconds=start_seconds, end_seconds=end_seconds)
 
         object_key = f"overlays/{clip_id}/overlay.mp4"
         overlay_uri = object_store.upload_file(out_path, object_key, content_type="video/mp4")
 
-    # Update clip with overlay URI and dashboard-ready flag
-    _update_clip_overlay(clip_id, overlay_uri, backend_api_url)
     log.info("stage_render_done", clip_id=clip_id, overlay_uri=overlay_uri)
-    return {"overlay_uri": overlay_uri}
+    return {"overlay_uri": overlay_uri, "proxy_timeline": mapping}
 
 
 def _render(
@@ -117,10 +128,34 @@ def _render(
     metrics: list[dict[str, Any]],
     analytics_safe: bool,
     fps: float,
-) -> None:
+    *,
+    frame_start: int = 0,
+    frame_end: int | None = None,
+    timeline: VideoTimeline | None = None,
+    start_seconds: float | None = None,
+    end_seconds: float | None = None,
+) -> dict[str, Any] | None:
     from pipeline.hwaccel import nvdec_video_capture
 
     cap = nvdec_video_capture(video_path)
+    if not cap.isOpened():
+        cap.release()
+        raise RuntimeError("Source video could not be opened for rendering")
+    if frame_start < 0 or (frame_end is not None and frame_end <= frame_start):
+        cap.release()
+        raise ValueError("Render frame window must be nonempty and nonnegative")
+    timeline = timeline or VideoTimeline.from_path(
+        video_path, fps_fallback=fps,
+        frame_count_fallback=int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0),
+    )
+    seek_source_frame(cap, frame_start, timeline)
+    mapping = None
+    copies = None
+    if timeline.verified and timeline.timestamps:
+        final_frame = frame_end if frame_end is not None else len(timeline.timestamps)
+        mapping = timeline.proxy_mapping(frame_start, final_frame, fps,
+                                         start_seconds=start_seconds, end_seconds=end_seconds)
+        copies = Counter(mapping["proxy_to_source_frame"])
     w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
@@ -129,6 +164,10 @@ def _render(
     # play. Write to a temp file and then transcode to H.264 with ffmpeg.
     raw_path = out_path.with_suffix(".raw" + out_path.suffix)
     writer = cv2.VideoWriter(str(raw_path), fourcc, fps, (w, h))
+    if not writer.isOpened():
+        cap.release()
+        writer.release()
+        raise RuntimeError("Overlay writer could not be opened")
 
     # Pre-build track lookup: frame → list of (bbox, color, track_id)
     frame_tracks: dict[int, list[tuple[list[float], tuple[int, int, int], int]]] = {}
@@ -157,47 +196,53 @@ def _render(
     front = _label_value(labels, "defensive_front", "front", "—")
     direction = _label_value(labels, "play_direction", "direction", "—")
 
-    frame_idx = 0
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            break
+    try:
+        frame_idx = frame_start
+        while frame_end is None or frame_idx < frame_end:
+            check_control()
+            ret, frame = cap.read()
+            if not ret:
+                break
 
-        # ── Analytics-safe warning ────────────────────────────────────────
-        if not analytics_safe:
-            cv2.rectangle(frame, (0, 0), (w, 28), (0, 0, 200), -1)
-            cv2.putText(frame, "CALIBRATION WARNING — metrics suppressed",
-                        (10, 20), FONT, 0.55, (255, 255, 255), 1)
+            # ── Analytics-safe warning ────────────────────────────────────────
+            if not analytics_safe:
+                cv2.rectangle(frame, (0, 0), (w, 28), (0, 0, 200), -1)
+                cv2.putText(frame, "CALIBRATION WARNING — metrics suppressed",
+                            (10, 20), FONT, 0.55, (255, 255, 255), 1)
 
-        # ── Formation HUD + play-direction arrow ──────────────────────────
-        hud = f"OFF: {formation}  DEF: {front}  DIR: {direction}"
-        cv2.putText(frame, hud, (10, h - 12), FONT, 0.5, (255, 255, 255), 1)
-        _draw_direction_arrow(frame, direction, w, h)
+            # ── Formation HUD + play-direction arrow ──────────────────────────
+            hud = f"OFF: {formation}  DEF: {front}  DIR: {direction}"
+            cv2.putText(frame, hud, (10, h - 12), FONT, 0.5, (255, 255, 255), 1)
+            _draw_direction_arrow(frame, direction, w, h)
 
-        # ── Motion trails (recent history per visible track) ──────────────
-        for centers in track_centers:
-            trail = [(cx, cy) for fn, cx, cy in centers
-                     if frame_idx - TRAIL_FRAMES <= fn <= frame_idx]
-            for a, b in zip(trail, trail[1:]):
-                cv2.line(frame, a, b, (255, 255, 255), 1, cv2.LINE_AA)
+            # ── Motion trails (recent history per visible track) ──────────────
+            for centers in track_centers:
+                trail = [(cx, cy) for fn, cx, cy in centers
+                         if frame_idx - TRAIL_FRAMES <= fn <= frame_idx]
+                for a, b in zip(trail, trail[1:]):
+                    cv2.line(frame, a, b, (255, 255, 255), 1, cv2.LINE_AA)
 
-        # ── Player boxes + metric callouts ────────────────────────────────
-        for bbox, color, tid in frame_tracks.get(frame_idx, []):
-            x1, y1, x2, y2 = [int(v) for v in bbox]
-            cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
-            cv2.putText(frame, f"T{tid}", (x1, y1 - 4), FONT, 0.4, color, 1)
-            callout = callouts.get(tid)
-            if callout:
-                cv2.putText(frame, callout, (x1, y2 + 14), FONT, 0.4, (255, 255, 255), 1)
+            # ── Player boxes + metric callouts ────────────────────────────────
+            for bbox, color, tid in frame_tracks.get(frame_idx, []):
+                x1, y1, x2, y2 = [int(v) for v in bbox]
+                cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+                cv2.putText(frame, f"T{tid}", (x1, y1 - 4), FONT, 0.4, color, 1)
+                callout = callouts.get(tid)
+                if callout:
+                    cv2.putText(frame, callout, (x1, y2 + 14), FONT, 0.4, (255, 255, 255), 1)
 
-        writer.write(frame)
-        frame_idx += 1
+            for _ in range(copies.get(frame_idx, 0) if copies is not None else 1):
+                check_control()
+                writer.write(frame)
+            frame_idx += 1
 
-    cap.release()
-    writer.release()
+    finally:
+        cap.release()
+        writer.release()
 
     _transcode_to_h264(raw_path, out_path)
     raw_path.unlink(missing_ok=True)
+    return mapping
 
 
 def _transcode_to_h264(input_path: Path, output_path: Path) -> None:
@@ -213,18 +258,31 @@ def _transcode_to_h264(input_path: Path, output_path: Path) -> None:
         "yuv420p",
         "-preset",
         "fast",
+        "-threads",
+        str(max(1, min(4, int(os.environ.get("PIPELINE_CPU_THREADS", "4"))))),
         "-movflags",
         "+faststart",
         "-an",
         str(output_path),
     ]
     try:
-        subprocess.run(cmd, check=True, capture_output=True, text=True)
-    except (subprocess.CalledProcessError, FileNotFoundError) as exc:
-        # If ffmpeg is unavailable, fall back to the raw mp4v output so the
-        # rest of the pipeline still completes.
-        log.warning("h264_transcode_failed", error=str(exc))
-        shutil.copy2(input_path, output_path)
+        process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    except FileNotFoundError as exc:
+        raise RuntimeError("ffmpeg is required to produce a browser-playable overlay") from exc
+    try:
+        while True:
+            check_control()
+            try:
+                _, error = process.communicate(timeout=1)
+                break
+            except subprocess.TimeoutExpired:
+                continue
+        if process.returncode:
+            raise RuntimeError(f"H.264 overlay encoding failed: {error[-500:]}")
+    except PipelineInterrupted:
+        process.kill()
+        process.communicate()
+        raise
 
 
 def _label_value(

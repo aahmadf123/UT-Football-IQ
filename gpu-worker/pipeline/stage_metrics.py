@@ -43,6 +43,7 @@ Output: `metrics` rows written to the backend.
 from __future__ import annotations
 
 import math
+import os
 from typing import Any
 
 import structlog
@@ -50,6 +51,8 @@ import structlog
 from pipeline import backend
 from pipeline.metrics.effort_zscore import evaluate_effort_candidate
 from pipeline.metrics.workload_fusion import evaluate_workload_candidate
+from pipeline.runtime import PipelineInterrupted, check_control
+from pipeline.video_timeline import VideoTimeline, point_interval
 
 log = structlog.get_logger(__name__)
 
@@ -62,6 +65,8 @@ def run(
     fps: float,
     job_id: str,
     pose_metrics: dict[str, Any] | None = None,
+    *,
+    timeline: VideoTimeline | None = None,
 ) -> dict[str, Any]:
     """Compute metrics for a clip and write them to the backend."""
     log.info("stage_metrics_start", clip_id=clip_id, analytics_safe=analytics_safe)
@@ -78,7 +83,7 @@ def run(
         None,
     )
 
-    snap_frame = snap_event.get("frame_number", 0) if snap_event else 0
+    snap_frame = snap_event.get("frame_number") if snap_event else None
     throw_frame = throw_event.get("frame_number") if throw_event else None
     contact_frame = contact_event.get("frame_number") if contact_event else None
     handoff_frame = handoff_event.get("frame_number") if handoff_event else None
@@ -90,11 +95,16 @@ def run(
     metrics: list[dict[str, Any]] = []
 
     # ── Time to throw ─────────────────────────────────────────────────────
-    if throw_frame is not None and snap_frame is not None:
-        ttt = (throw_frame - snap_frame) / max(fps, 1)
+    if throw_frame is not None and snap_frame is not None and fps > 0 and throw_frame >= snap_frame:
+        first, last = snap_event.get("timestamp_seconds"), throw_event.get("timestamp_seconds")
+        if timeline is not None:
+            first, last = timeline.timestamp(snap_frame), timeline.timestamp(throw_frame)
+        ttt = float(last) - float(first) if first is not None and last is not None else (throw_frame - snap_frame) / fps
         metrics.append({
             "metric_name": "time_to_throw",
-            "metric_value": {"seconds": round(ttt, 3), "confidence": 0.75},
+            "metric_value": {"seconds": round(ttt, 3), "source": "real",
+                             "measurement": "observed_events",
+                             "review_required": any(e.get("source") != "human" for e in (snap_event, throw_event))},
             "unit": "s",
             "is_suppressed": False,
             "suppression_reason": None,
@@ -104,6 +114,13 @@ def run(
     for t in tracklets:
         pts = sorted(t.get("track_points", []), key=lambda p: p.get("frame_number", 0))
         if len(pts) < 2:
+            continue
+        # Missing map coordinates are unavailable, never an origin at (0, 0).
+        # Partial trajectories cannot stand in for a full rep's distance/speed.
+        if not analytics_safe or any(_field_position(p) is None for p in pts):
+            continue
+        if any(point_interval(pts[i - 1], pts[i], fps) > .5
+               for i in range(1, len(pts))):
             continue
         track_id = t.get("id", "unknown")
 
@@ -139,8 +156,9 @@ def run(
             })
 
         # Dropback depth (for backfield player moving away from LOS after snap)
-        snap_pt = _point_at_frame(pts, snap_frame)
-        if throw_frame is not None and snap_pt and not suppressed:
+        snap_pt = _point_at_frame(pts, snap_frame) if snap_frame is not None else None
+        if (throw_frame is not None and snap_pt and not suppressed
+                and t.get("position_group") == "QB" and t.get("side_of_ball") == "offense"):
             throw_pt = _point_at_frame(pts, throw_frame)
             if throw_pt:
                 depth = abs(
@@ -166,11 +184,11 @@ def run(
                    key=lambda p: p.get("frame_number", 0)),
             snap_frame,
         )
-        for t in tracklets
+        for t in tracklets if snap_frame is not None
     ]
     snap_positions = [p for p in snap_positions if p and p.get("field_x") is not None]
-    if len(snap_positions) >= 4:
-        cushions = _compute_cushions(snap_positions)
+    if len(snap_positions) >= 4 and analytics_safe:
+        cushions = _observed_cushions(tracklets, snap_frame)
         for cushion in cushions:
             metrics.append({
                 "metric_name": "cushion_at_snap",
@@ -185,31 +203,44 @@ def run(
     # ══════════════════════════════════════════════════════════════════════
 
     # ── Ball Carrier Analytics ────────────────────────────────────────────
-    if contact_frame is not None and not suppressed:
+    experimental = os.environ.get("EXPERIMENTAL_FOOTBALL_METRICS", "0") == "1"
+    if experimental and snap_frame is not None and contact_frame is not None and not suppressed:
         bc_metrics = _ball_carrier_analytics(
             tracklets, snap_frame, contact_frame, handoff_frame, end_frame, fps,
         )
         metrics.extend(bc_metrics)
 
     # ── QB Decision Metrics ───────────────────────────────────────────────
-    if throw_frame is not None and not suppressed:
+    if experimental and snap_frame is not None and throw_frame is not None and not suppressed:
         qb_metrics = _qb_decision_metrics(
             tracklets, snap_frame, throw_frame, fps,
         )
         metrics.extend(qb_metrics)
 
     # ── Practice Tempo & Effort ───────────────────────────────────────────
-    effort_metrics = _effort_metrics(tracklets, events, snap_frame, fps, suppressed, reason)
-    metrics.extend(effort_metrics)
+    if experimental and snap_frame is not None:
+        metrics.extend(_effort_metrics(tracklets, events, snap_frame, fps, suppressed, reason))
 
     # ── Workload Fusion (Issue #149) ──────────────────────────────────────
-    metrics.extend(
-        _workload_metrics(tracklets, fps, analytics_safe, pose_metrics, suppressed, reason)
-    )
+    if experimental:
+        metrics.extend(
+            _workload_metrics(tracklets, fps, analytics_safe, pose_metrics, suppressed, reason)
+        )
 
     # Write to backend
     metric_ids: list[str] = []
     for m in metrics:
+        check_control()
+        if m["metric_name"] != "time_to_throw":
+            m["experimental_flag"] = True
+            m["metric_value"].update(source="real", measurement="tracking_observation", review_required=True)
+        synthetic = any(p.get("source") == "synthetic_test"
+                        for t in tracklets for p in t.get("track_points", []))
+        if synthetic:
+            m["metric_value"]["source"] = "synthetic_test"
+        m["metric_value"]["provenance"] = {
+            "source": m["metric_value"]["source"], "validated": False,
+        }
         try:
             payload: dict[str, Any] = {
                 "clip_id": clip_id,
@@ -231,8 +262,11 @@ def run(
             }
             resp = backend.create_metric(**payload)
             metric_ids.append(resp["id"])
+        except PipelineInterrupted:
+            raise
         except Exception as exc:
             log.warning("metric_write_failed", name=m.get("metric_name"), error=str(exc))
+            raise
 
     log.info("stage_metrics_done", clip_id=clip_id, metric_count=len(metric_ids))
     # ``metrics`` carries the full dicts for in-process consumers (render's
@@ -246,10 +280,11 @@ def run(
 def _distance_traveled(pts: list[dict[str, Any]]) -> float:
     total = 0.0
     for i in range(1, len(pts)):
-        x0 = pts[i - 1].get("field_x") or 0
-        y0 = pts[i - 1].get("field_y") or 0
-        x1 = pts[i].get("field_x") or 0
-        y1 = pts[i].get("field_y") or 0
+        a, b = _field_position(pts[i - 1]), _field_position(pts[i])
+        if a is None or b is None:
+            continue
+        x0, y0 = a
+        x1, y1 = b
         total += math.sqrt((x1 - x0) ** 2 + (y1 - y0) ** 2)
     return total
 
@@ -257,18 +292,42 @@ def _distance_traveled(pts: list[dict[str, Any]]) -> float:
 def _frame_speeds(pts: list[dict[str, Any]], fps: float) -> list[float]:
     speeds: list[float] = []
     for i in range(1, len(pts)):
-        f0 = pts[i - 1].get("frame_number", 0)
-        f1 = pts[i].get("frame_number", 0)
-        dt = (f1 - f0) / max(fps, 1)
+        dt = point_interval(pts[i - 1], pts[i], fps)
         if dt <= 0:
             continue
-        x0 = pts[i - 1].get("field_x") or 0
-        y0 = pts[i - 1].get("field_y") or 0
-        x1 = pts[i].get("field_x") or 0
-        y1 = pts[i].get("field_y") or 0
+        a, b = _field_position(pts[i - 1]), _field_position(pts[i])
+        if a is None or b is None:
+            continue
+        x0, y0 = a
+        x1, y1 = b
         dist = math.sqrt((x1 - x0) ** 2 + (y1 - y0) ** 2)
         speeds.append(dist / dt)
     return speeds
+
+
+def _field_position(point: dict[str, Any]) -> tuple[float, float] | None:
+    try:
+        xy = float(point["field_x"]), float(point["field_y"])
+        return xy if all(math.isfinite(v) for v in xy) else None
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def _observed_cushions(tracklets: list[dict[str, Any]], snap_frame: int) -> list[float]:
+    """Distances from confirmed receivers to confirmed defenders at the snap."""
+    receivers, defenders = [], []
+    for track in tracklets:
+        points = track.get("track_points", [])
+        point = next((p for p in points if p.get("frame_number") == snap_frame), None)
+        position = _field_position(point) if point is not None else None
+        if position is None:
+            continue
+        if track.get("side_of_ball") == "defense":
+            defenders.append(position)
+        elif track.get("side_of_ball") == "offense" and track.get("position_group") in {"WR", "TE", "SLOT"}:
+            receivers.append(position)
+    return [min(math.dist(receiver, defender) for defender in defenders)
+            for receiver in receivers] if defenders else []
 
 
 def _point_at_frame(

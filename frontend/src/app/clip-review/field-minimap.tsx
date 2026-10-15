@@ -12,6 +12,7 @@
 
 import { FieldDiagram, type FieldMarker } from "@/components/field-diagram";
 import type { OverlayCalibration, OverlayTracklet } from "@/lib/types";
+import { activeTrackPointIndex } from "@/lib/tracking-time";
 
 const TEAM_COLORS: Record<string, string> = {
   home: "#fbbf24",
@@ -22,11 +23,15 @@ const TEAM_COLORS: Record<string, string> = {
 export function FieldMinimap({
   tracklets,
   currentFrame,
+  currentTimeSeconds,
+  fps = 30,
   calibration,
   playerNamesById,
 }: {
   tracklets: OverlayTracklet[];
   currentFrame: number;
+  currentTimeSeconds?: number;
+  fps?: number;
   calibration: OverlayCalibration | null;
   playerNamesById?: ReadonlyMap<string, string>;
 }) {
@@ -50,23 +55,17 @@ export function FieldMinimap({
   const markers: FieldMarker[] = [];
   for (let i = 0; i < tracklets.length; i++) {
     const t = tracklets[i];
-    if (currentFrame < t.start_frame || currentFrame > t.end_frame) continue;
-    // Nearest sample at the current frame with usable field coordinates.
-    let best: { d: number; x: number; y: number } | null = null;
-    for (const p of t.track_points) {
-      if (p.field_x == null || p.field_y == null) continue;
-      const d = Math.abs(p.frame_number - currentFrame);
-      if (best == null || d < best.d) best = { d, x: p.field_x, y: p.field_y };
-    }
-    if (!best) continue;
+    const index = activeTrackPointIndex(t, currentTimeSeconds ?? currentFrame / fps, fps);
+    const point = t.track_points[index];
+    if (!point || point.field_x == null || point.field_y == null) continue;
     const name = t.player_id != null ? playerNamesById?.get(t.player_id) : undefined;
     markers.push({
       // FieldDiagram marker x is 0–100 between the goal lines (it applies the
       // end-zone offset itself) — same span as the pipeline's field template.
       // The pipeline's field_y is centered (±26.665 yd about the midline);
       // shift to the diagram's 0–53.3 span.
-      x: best.x,
-      y: best.y + 53.3 / 2,
+      x: point.field_x,
+      y: point.field_y + 53.3 / 2,
       label: name ?? `T${i + 1}`,
       color: TEAM_COLORS[t.team_label ?? "unknown"] ?? TEAM_COLORS.unknown,
     });

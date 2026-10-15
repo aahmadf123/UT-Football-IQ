@@ -1,7 +1,7 @@
-# Pinned to match Dockerfile: pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime
-# torch and torchvision are pre-installed in the base image
+# Shared worker dependencies. Install requirements-cpu.txt for the default
+# local runtime; accelerated builds supply their Torch/runtime explicitly.
 
-# Pinned to 8.3.237 because it includes Meta SAM 3.1 — required for SAM3Detector (Issue #74).
+# Stable YOLO runtime and optional SAM adapter; model weights are separate.
 ultralytics==8.3.237
 opencv-python-headless==4.10.0.84
 boto3==1.35.76

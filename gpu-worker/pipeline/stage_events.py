@@ -35,6 +35,8 @@ from pipeline.ball.ball_tracker import observations_from_detections, track_ball
 from pipeline.events.los_estimator import LOSEstimate, LOSEstimator
 from pipeline.events.snap_detector import BayesianSnapDetector, SnapInputs
 from pipeline.homography.project import homography_from_flat
+from pipeline.runtime import PipelineInterrupted
+from pipeline.video_timeline import VideoTimeline
 
 log = structlog.get_logger(__name__)
 
@@ -68,6 +70,7 @@ def run(
     los_prior: dict[str, Any] | None = None,
     end_of_play_frame: int | None = None,
     goal_line_x: float | None = None,
+    timeline: VideoTimeline | None = None,
 ) -> dict[str, Any]:
     """Detect events in a clip and persist them.
 
@@ -109,6 +112,18 @@ def run(
         events = _detect_heuristic(detections, fps)
         summary = {}
 
+    synthetic = any(d.get("source") == "synthetic_test"
+                    for frame in detections.values() for d in frame)
+    synthetic |= any(p.get("source") == "synthetic_test"
+                     for t in (tracklets or []) for p in t.get("track_points", []))
+    for event in events:
+        if timeline is not None and event.get("frame_number") is not None:
+            event["timestamp_seconds"] = timeline.timestamp(event["frame_number"])
+        attributes = event.setdefault("attributes", {})
+        attributes["timestamp_verified"] = timeline.verified if timeline is not None else False
+        source = "synthetic_test" if synthetic else "heuristic"
+        attributes.update(source=source, review_required=True,
+                          provenance={"source": source, "validated": False})
     event_ids = _persist(clip_id, events)
     log.info(
         "stage_events_done",
@@ -467,8 +482,11 @@ def _persist(clip_id: str, events: list[dict[str, Any]]) -> list[str]:
                 attributes=ev.get("attributes"),
             )
             event_ids.append(resp["id"])
+        except PipelineInterrupted:
+            raise
         except Exception as exc:
             log.warning("event_write_failed", event_type=ev.get("event_type"), error=str(exc))
+            raise
     return event_ids
 
 

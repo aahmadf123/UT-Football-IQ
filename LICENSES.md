@@ -1,6 +1,37 @@
 # LICENSES.md
 
-Third-party models, libraries, and tools used in Football-IQ. Updated May 2026.
+Third-party models, libraries, and tools used in Football-IQ. Updated October
+2026 for the local CPU worker and native distribution. Historical model spikes
+below are not a statement that those weights are installed, validated, or bundled.
+
+## Local CPU runtime and native packaging
+
+The default worker uses `gpu-worker/requirements-cpu.txt`, with separate backend
+and worker environments. Native packaging takes explicit PostgreSQL/pgvector and
+FFmpeg binaries built for the target OS; it does not establish one universal
+license for every possible binary input. Preserve the actual distribution's
+copyright/license texts, third-party notices, and required source/relinking
+materials. This inventory does not replace those texts in a redistributed bundle.
+
+| Component | License / canonical source | Football-IQ use and distribution notes |
+|---|---|---|
+| **CPython** | [PSF License](https://docs.python.org/3/license.html) and included third-party licenses | Separate API/worker runtimes; development recommendations are Python 3.12/3.11. Native bundles include their actual interpreter. Preserve the notices from the exact Python build. |
+| **NumPy 1.26.4** | [BSD-3-Clause](https://github.com/numpy/numpy/blob/v1.26.4/LICENSE.txt) for NumPy; wheel-specific third-party licenses | CPU numerical features and the local coverage trainer. Linux wheels include OpenBLAS/LAPACK notices and GCC runtime libraries (GCC Runtime Library Exception; libquadmath LGPL). Preserve the complete installed wheel license inventory rather than calling every bundled library BSD. |
+| **SciPy 1.14.1** | [BSD-3-Clause](https://github.com/scipy/scipy/blob/v1.14.1/LICENSE.txt), plus wheel-specific bundled library licenses | Ultralytics tracking dependencies and numerical routines; pinned with NumPy 1.26.4 so tracker imports remain compatible. Preserve the installed wheel's complete third-party inventory, including BLAS/LAPACK/runtime notices. |
+| **OpenCV / opencv-python and opencv-python-headless 4.10.0.84** | [OpenCV Apache-2.0](https://github.com/opencv/opencv/blob/4.10.0/LICENSE); [Python-wheel build sources](https://github.com/opencv/opencv-python) include third-party notices | Local decode, image features, and temporary video encoding. Preserve `LICENSE.txt` and `LICENSE-3RD-PARTY.txt` from the selected wheels, including their bundled FFmpeg/other libraries. The separately supplied FFmpeg CLI has its own build terms. |
+| **PyTorch / torchvision** | [PyTorch BSD-3-Clause](https://github.com/pytorch/pytorch/blob/v2.8.0/LICENSE); [torchvision BSD-3-Clause](https://github.com/pytorch/vision/blob/v0.23.0/LICENSE), plus bundled third-party notices | Real local inference. Windows/Linux CPU and Apple Silicon pins are Torch 2.8.0/vision 0.23.0; Intel Mac has no Torch >= 2.6 wheels and uses the Linux CPU container. CUDA builds are optional. Preserve exact wheel notices; no model weights are committed. |
+| **PostgreSQL 16** | [PostgreSQL License](https://www.postgresql.org/about/licence/), permissive | Native local database process, or an explicitly configured existing server. Preserve `COPYRIGHT` and notices for the actual PostgreSQL build and its shared-library dependencies. Server credentials/data remain private runtime files. |
+| **pgvector** | [PostgreSQL License](https://github.com/pgvector/pgvector/blob/master/LICENSE), permissive | Extension compiled against the packaged PostgreSQL server; existing relational store and vector index. Preserve the extension license; no additional vector service. |
+| **FFmpeg / ffprobe** | [LGPL-2.1-or-later by default; GPL when configured with GPL components](https://ffmpeg.org/legal.html) | Actual PTS probing, browser-playable H264 media, optional HLS. `libx264` builds are GPL, not LGPL-only. `--enable-nonfree` builds are not redistributable under FFmpeg's terms. Record the exact binary version/configuration and provide the applicable notices/corresponding source for redistribution. Build inputs are configurable; the Linux verification binary is GPL-enabled. |
+| **libx264** | [GPL-2.0-or-later](https://code.videolan.org/videolan/x264) or a separately obtained commercial license | CPU H264 encoding in the supplied FFmpeg build. The default renderer invokes the external FFmpeg executable; preserve the encoder/build licensing and source obligations of that executable. |
+| **PyInstaller 6.16.0** | [GPL-2.0-or-later with the PyInstaller bootloader exception](https://github.com/pyinstaller/pyinstaller/blob/v6.16.0/COPYING.txt) | Build-only dependency in `requirements-native-build.txt`; staff do not install PyInstaller. The bootloader exception permits distributing bundled applications under their own terms and does not waive the licenses of included Python/native dependencies. Preserve the applicable exception/license notices in the native distribution. |
+
+None of these infrastructure libraries contains football training labels. Human
+annotation snapshots, private film, and learned candidate checkpoints remain in
+the configured local/object-store artifacts; they are not committed to Git.
+Multiple independent recordings per session are supported. Optional adapters
+still operate on one recording's frames and do not establish cross-view identity
+or automatic synchronized 3D reconstruction.
 
 ---
 
@@ -117,10 +148,11 @@ Third-party models, libraries, and tools used in Football-IQ. Updated May 2026.
 
 | Field | Detail |
 |---|---|
-| **License** | AGPL-3.0 (open source) |
-| **Commercial use** | Requires Ultralytics Enterprise License for commercial deployment |
-| **Access** | `pip install ultralytics` |
-| **Football-IQ usage** | Current production detector (`stagedetect.py`) — YOLOv8n, classes 0-32. SAM 3 also loaded via Ultralytics. |
+| **License** | [AGPL-3.0](https://github.com/ultralytics/ultralytics/blob/v8.3.237/LICENSE) for the open-source distribution; [Ultralytics licensing options](https://www.ultralytics.com/license) include a commercial Enterprise license |
+| **Commercial use** | AGPL permits commercial use subject to its source/distribution/network obligations. An Enterprise license is an alternative for use outside those obligations; commercial use alone is not an unconditional requirement to purchase one. Check the actual code and model-weight terms for the distribution. |
+| **Access** | Pinned `ultralytics==8.3.237`; player weights explicitly installed/downloaded to the local model directory, never committed or included as team-trained evidence |
+| **Football-IQ usage** | CPU baseline player detector in `pipeline/detector_models.py`/`pipeline/stage_detect.py` — YOLOv8n COCO **person class 0**. Generic sports-ball classes are not used as a dedicated football model. SAM remains optional and is not installed with weights by the CPU workflow. |
+| **Readiness** | Generic pretrained person detection is real inference, not independently validated Toledo analytics. Missing player weights make Quick analysis unavailable/partial; Review remains useful. Preserve AGPL and selected model notices in distributions. |
 
 ---
 
@@ -129,7 +161,7 @@ Third-party models, libraries, and tools used in Football-IQ. Updated May 2026.
 | Field | Detail |
 |---|---|
 | **License** | BSD-3-Clause |
-| **Access** | `pip install torch` — base Docker image `pytorch/pytorch:2.5.1-cuda12.4-cudnn9` |
+| **Access** | Platform-pinned `gpu-worker/requirements-cpu.txt`; default Docker base is `python:3.11-slim`, with explicit optional CUDA build arguments. See the native/CPU inventory above for wheel and third-party notices. |
 
 ---
 

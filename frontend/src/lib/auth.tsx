@@ -9,8 +9,8 @@
  * token to `AppStateProvider` (whose long-standing `authToken` prop was
  * never wired to anything).
  *
- * Mock/offline mode (no NEXT_PUBLIC_API_URL) works tokenless — callers use
- * `authRequired` to decide whether to force the login screen.
+ * Explicit demo mode works tokenless. Local and hosted libraries both use
+ * the backend authentication API.
  */
 
 import React, {
@@ -22,7 +22,8 @@ import React, {
   useState,
 } from "react";
 
-import { apiBase } from "./endpoints";
+import { apiBase, configureApiUrl } from "./endpoints";
+import { useMocks } from "./mock-flag";
 
 const STORAGE_KEY = "football-iq-auth-v1";
 const REFRESH_INTERVAL_MS = 40 * 60 * 1000;
@@ -36,6 +37,10 @@ interface StoredAuth {
   token: string;
   refreshToken: string;
   user: AuthUser;
+}
+
+class AuthRequestError extends Error {
+  constructor(message: string, readonly status: number) { super(message); }
 }
 
 export interface AuthContextValue {
@@ -87,10 +92,10 @@ function saveStored(auth: StoredAuth | null): void {
   }
 }
 
-async function postJson<T>(path: string, body: unknown): Promise<T> {
+async function postJson<T>(path: string, body: unknown, origin = apiBase()): Promise<T> {
   let res: Response;
   try {
-    res = await fetch(`${apiBase()}${path}`, {
+    res = await fetch(`${origin}${path}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -120,7 +125,7 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
     } catch {
       // fall through with the generic message
     }
-    throw new Error(detail);
+    throw new AuthRequestError(detail, res.status);
   }
   return res.json() as Promise<T>;
 }
@@ -134,6 +139,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [stored, setStored] = useState<StoredAuth | null>(null);
   const [ready, setReady] = useState(false);
   const storedRef = useRef<StoredAuth | null>(null);
+  const localBootstrapRef = useRef(false);
+  const mockMode = useMocks();
   storedRef.current = stored;
 
   const applyAuth = useCallback((auth: StoredAuth | null) => {
@@ -145,7 +152,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // The mount-time call passes the just-loaded session explicitly —
     // storedRef only reflects state after the next render commit.
     const current = explicit ?? storedRef.current;
-    if (!current || !apiBase()) return current ?? null;
+    if (!current) return null;
     try {
       const pair = await postJson<TokenPair>("/api/v1/auth/refresh", {
         refresh_token: current.refreshToken,
@@ -157,10 +164,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       };
       applyAuth(nextAuth);
       return nextAuth;
-    } catch {
-      // Refresh token expired/revoked — sign out cleanly.
-      applyAuth(null);
-      return null;
+    } catch (cause) {
+      if (cause instanceof AuthRequestError && [401, 403].includes(cause.status)) {
+        applyAuth(null);
+        return null;
+      }
+      // A restarting local API or a network interruption does not revoke a session.
+      return current;
     }
   }, [applyAuth]);
 
@@ -170,16 +180,48 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [refresh]);
 
   useEffect(() => {
+    if (localBootstrapRef.current) return;
+    const url = new URL(window.location.href);
+    const localToken = url.searchParams.get("localToken");
+    if (localToken) {
+      url.searchParams.delete("localToken");
+      window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+    }
+    if (localToken && ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)) {
+      localBootstrapRef.current = true;
+      void (async () => {
+        try {
+          // A launch token always belongs to the API that served this local
+          // page. A saved team connection never receives this secret.
+          const pair = await postJson<TokenPair>("/api/v1/local/login", { bootstrap_token: localToken }, "");
+          const response = await fetch("/api/v1/auth/me", { headers: { Authorization: `Bearer ${pair.access_token}` } });
+          if (!response.ok) throw new Error("Could not load the local account.");
+          const user = await response.json() as AuthUser;
+          if (apiBase()) configureApiUrl("");
+          applyAuth({ token: pair.access_token, refreshToken: pair.refresh_token, user: { email: user.email, role: user.role } });
+        } catch {
+          // The normal login screen remains usable when a launch token expired.
+          applyAuth(null);
+        } finally {
+          setReady(true);
+        }
+      })();
+      return;
+    }
     const persisted = loadStored();
     if (persisted) setStored(persisted);
     setReady(true);
-    if (persisted && apiBase()) {
+    if (persisted && !mockMode) {
       // Validate + rotate in the background; failures clear the session.
       void refresh(persisted);
     }
+  }, [refresh, applyAuth, mockMode]);
+
+  useEffect(() => {
+    if (!ready || mockMode) return;
     const interval = window.setInterval(() => void refresh(), REFRESH_INTERVAL_MS);
     return () => window.clearInterval(interval);
-  }, [refresh]);
+  }, [ready, mockMode, refresh]);
 
   const login = useCallback(
     async (email: string, password: string) => {
@@ -211,7 +253,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     token: stored?.token,
     user: stored?.user ?? null,
     ready,
-    authRequired: Boolean(apiBase()),
+    authRequired: !mockMode,
     refreshSession,
     login,
     register,

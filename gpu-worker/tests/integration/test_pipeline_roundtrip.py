@@ -20,6 +20,7 @@ a synthetic shapes clip (real-footage acceptance covers model quality).
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
 import socket
 import subprocess
@@ -140,6 +141,9 @@ def backend(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
         # has no stable behaviour on tiny synthetic clips, and real YOLO finds
         # no people in one — real-footage acceptance covers both).
         os.environ["SEGMENTER_VARIANT"] = "stub"
+        os.environ["PIPELINE_LOCAL_DETECT_VARIANT"] = "stub"
+        os.environ["PIPELINE_DEVICE"] = "cpu"
+        os.environ["PIPELINE_CHECKPOINT_ROOT"] = str(storage_root / "checkpoints")
         routing = storage_root / "stub-routing.json"
         routing.write_text(_STUB_ROUTING)
         os.environ["MODEL_ROUTING_CONFIG"] = str(routing)
@@ -235,6 +239,34 @@ def test_full_round_trip(backend: str, tmp_path: Path) -> None:
     assert jobs and jobs[0]["job_type"] == "pipeline", jobs
     job_id = jobs[0]["id"]
 
+    # This fixture can share the scratch database with other integration
+    # suites. Raise ONLY this newly-created job ahead of leftover queue rows;
+    # never cancel another suite's jobs or touch a production database.
+    priority_script = """
+import asyncio, os, uuid
+import asyncpg
+from sqlalchemy.engine import make_url
+async def main():
+    url = make_url(os.environ['DATABASE_URL'])
+    connection = await asyncpg.connect(host=url.host, port=url.port or 5432,
+                                      user=url.username, password=url.password,
+                                      database=url.database)
+    try:
+        await connection.execute(
+            'UPDATE processing_jobs SET priority = (SELECT COALESCE(MAX(priority),0)+1 '
+            'FROM processing_jobs), pipeline_mode = $2 WHERE id = $1',
+            uuid.UUID(os.environ['ROUNDTRIP_JOB_ID']), 'same_session')
+    finally:
+        await connection.close()
+asyncio.run(main())
+"""
+    subprocess.run(
+        [_backend_python(), "-c", priority_script],
+        env={**os.environ, "ROUNDTRIP_JOB_ID": job_id},
+        check=True,
+        capture_output=True,
+    )
+
     # One worker cycle in-process: claim the job and run it.
     worker_main = _load_worker_main()
     with httpx.Client() as worker_client:
@@ -261,15 +293,34 @@ def test_full_round_trip(backend: str, tmp_path: Path) -> None:
 
     overlays = client.get(f"/api/v1/clips/{clips[0]['id']}/overlays", headers=auth).json()
     assert "calibration" in overlays
-    assert overlays["layers_available"]["tracklets"] in (True, False)
+    # Synthetic detections must persist for wiring/debugging but never appear
+    # as trusted analytics or normal coaching overlays.
+    assert overlays["layers_available"]["tracklets"] is False
+    assert overlays["tracklets"] == []
+    assert overlays["layers_available"]["labels"] is False
+    assert overlays["events"] == []
+    assert overlays["metrics"] == []
+    assert (job["output_artifacts"] or {}).get("source") == "synthetic_test"
+    assert (job["output_artifacts"] or {}).get("trusted_analysis") is False
 
     def _tracklet_total() -> int:
         return sum(
-            len(client.get(f"/api/v1/clips/{c['id']}/overlays", headers=auth).json()["tracklets"])
-            for c in clips
+            len(client.get(f"/api/v1/clips/{clip['id']}/tracklets", headers=auth).json())
+            for clip in clips
         )
 
-    tracklet_total = _poll(_tracklet_total, lambda n: n > 0)
-    assert tracklet_total > 0, "no tracklets persisted"
+    tracklet_total = _poll(_tracklet_total, lambda count: count > 0)
+    assert tracklet_total > 0, "no explicitly synthetic test tracklets persisted"
+    assert all(clip.get("storage_uri", "").startswith("local://clips/") for clip in clips)
+    assert all(0 <= clip["start_time"] < clip["end_time"] <= 5 for clip in clips)
+    for clip in clips:
+        tracklets = client.get(f"/api/v1/clips/{clip['id']}/tracklets", headers=auth).json()
+        assert all(row["provenance"]["source"] == "synthetic_test" for row in tracklets)
+        clean_path = Path(os.environ["LOCAL_STORAGE_ROOT"]) / clip["storage_uri"].removeprefix("local://")
+        probe = json.loads(subprocess.check_output([
+            "ffprobe", "-v", "error", "-select_streams", "v:0",
+            "-show_entries", "stream=codec_name,pix_fmt", "-of", "json", str(clean_path),
+        ], text=True))
+        assert probe["streams"][0] == {"codec_name": "h264", "pix_fmt": "yuv420p"}
 
     _ = uuid.UUID(video_id)  # ids are real UUIDs end-to-end

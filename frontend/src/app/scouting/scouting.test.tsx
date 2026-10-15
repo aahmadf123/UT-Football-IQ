@@ -29,6 +29,7 @@ afterEach(() => {
 beforeEach(() => {
   vi.stubEnv("NEXT_PUBLIC_USE_MOCKS", "");
   vi.stubEnv("NEXT_PUBLIC_API_URL", "");
+  vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
 });
 
 async function renderHub() {
@@ -61,7 +62,7 @@ describe("ScoutingPage", () => {
     });
     // Offline backend → unavailable cards, not fabricated numbers.
     await waitFor(() => {
-      expect(screen.getAllByTestId("card-unavailable").length).toBeGreaterThan(0);
+      expect(screen.getAllByTestId("card-error").length).toBeGreaterThan(0);
     });
   });
 

@@ -21,6 +21,8 @@ export interface UploadMetadataDraft {
   opponentTeam: string | null;
   ourPossession: OurPossession | null;
   tags: string[];
+  libraryRole?: "toledo" | "opponent";
+  cameraLabel?: string | null;
 }
 
 export const EMPTY_DRAFT: UploadMetadataDraft = {
@@ -30,6 +32,8 @@ export const EMPTY_DRAFT: UploadMetadataDraft = {
   opponentTeam: null,
   ourPossession: null,
   tags: [],
+  libraryRole: "toledo",
+  cameraLabel: null,
 };
 
 export const SESSION_KINDS: { value: SessionKind; label: string }[] = [
@@ -152,6 +156,8 @@ export function draftToMetadata(draft: UploadMetadataDraft): {
   opponent_team?: string | null;
   our_possession?: OurPossession | null;
   tags?: string[];
+  library_role?: "toledo" | "opponent";
+  camera_label?: string | null;
 } {
   const opponent = draft.sessionKind === "game" ? (draft.opponentTeam?.trim() || null) : null;
   return {
@@ -161,6 +167,8 @@ export function draftToMetadata(draft: UploadMetadataDraft): {
     opponent_team: opponent,
     our_possession: draft.ourPossession,
     tags: draft.tags.length ? draft.tags : undefined,
+    library_role: draft.libraryRole ?? "toledo",
+    camera_label: draft.cameraLabel?.trim() || null,
   };
 }
 

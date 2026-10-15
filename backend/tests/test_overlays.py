@@ -339,8 +339,10 @@ def test_get_overlays_filters_out_suppressed_metrics_in_sql() -> None:
     assert resp.status_code == 200, resp.text
     where_clause = captured["sql"].split("WHERE", 1)[1]
     assert "metrics.is_suppressed" in where_clause
-    # Coach role: experimental_flag filter must NOT be applied.
-    assert "experimental_flag" not in where_clause
+    # Coaches only see approved experimental measurements, never workload data.
+    assert "experimental_flag" in where_clause
+    assert "analytics_safe" in where_clause
+    assert "metric_name NOT IN" in where_clause
 
 
 def test_get_overlays_filters_out_experimental_metrics_for_player_role() -> None:

@@ -65,6 +65,18 @@ def _build_parser() -> argparse.ArgumentParser:
         help="same_session = fast preview models; nightly = full quality (default same_session)",
     )
     run_p.add_argument(
+        "--profile",
+        choices=("review", "quick", "detailed"),
+        default="quick",
+        help="review imports film; quick runs bounded local CV; detailed adds optional analysis",
+    )
+    run_p.add_argument(
+        "--device",
+        choices=("cpu", "cuda", "mps"),
+        default="cpu",
+        help="Local inference device (default cpu)",
+    )
+    run_p.add_argument(
         "--stages",
         default=None,
         help="Comma-separated stage subset (default: the mode's full list)",
@@ -102,7 +114,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.no_backend or not os.environ.get("BACKEND_API_URL"):
         os.environ["BACKEND_API_URL"] = ""
     if args.stride is not None:
+        if args.stride < 1:
+            raise SystemExit("--stride must be positive")
         os.environ["DETECT_FRAME_STEP"] = str(args.stride)
+    os.environ["PIPELINE_DEVICE"] = args.device
 
     out_root = Path(args.out).expanduser().resolve()
     out_root.mkdir(parents=True, exist_ok=True)
@@ -118,13 +133,9 @@ def main(argv: list[str] | None = None) -> int:
     # which is the normal case for local runs -- tracklets then stay
     # unidentified, exactly as before. With a real backend it is also withheld
     # unless the session is intra-squad; see fetch_roster_for_video.
-    roster = (
-        backend_client.fetch_roster_for_video(args.video_id) if args.video_id else []
-    )
+    roster = backend_client.fetch_roster_for_video(args.video_id) if args.video_id else []
 
-    priority = (
-        SAME_SESSION_CLI_PRIORITY if args.mode == "same_session" else NIGHTLY_CLI_PRIORITY
-    )
+    priority = SAME_SESSION_CLI_PRIORITY if args.mode == "same_session" else NIGHTLY_CLI_PRIORITY
     stages = [s.strip() for s in args.stages.split(",") if s.strip()] if args.stages else None
 
     def progress(stage: str, clip_id: str | None, status: str, extra: dict) -> None:
@@ -134,7 +145,9 @@ def main(argv: list[str] | None = None) -> int:
 
     exit_code = 0
     for source in inputs:
-        video_id = args.video_id or str(uuid.uuid4())
+        # Stable across CLI restarts, so compatible segment IDs/checkpoints
+        # remain resumable. Source bytes are separately hashed by the ledger.
+        video_id = args.video_id or str(uuid.uuid5(uuid.NAMESPACE_URL, str(source.resolve())))
         out_dir = out_root / source.stem
         out_dir.mkdir(parents=True, exist_ok=True)
         print(f"\n▶ {source.name}  (video_id={video_id}, mode={args.mode})", flush=True)
@@ -150,6 +163,7 @@ def main(argv: list[str] | None = None) -> int:
                 progress_cb=progress,
                 artifact_sink=sink,
                 roster=roster,
+                processing_profile=args.profile,
             )
         except Exception as exc:  # keep processing remaining files
             print(f"✗ {source.name} failed: {exc}", file=sys.stderr, flush=True)
@@ -164,10 +178,13 @@ def main(argv: list[str] | None = None) -> int:
             f"{len(overlays)} overlays  →  {out_dir}",
             flush=True,
         )
+        if summary.get("result_state") == "partial":
+            exit_code = 1
+        if summary.get("failed_video_stages"):
+            print(f"  {summary['failed_video_stages']}", file=sys.stderr, flush=True)
         if summary["failed_clip_stages"]:
             print(
-                f"  ⚠ {len(summary['failed_clip_stages'])} clip-stage failures "
-                f"(see summary.json)",
+                f"  ⚠ {len(summary['failed_clip_stages'])} clip-stage failures (see summary.json)",
                 flush=True,
             )
 

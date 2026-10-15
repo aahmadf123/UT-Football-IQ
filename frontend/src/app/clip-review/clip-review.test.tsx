@@ -110,8 +110,9 @@ function installFetchRoutes(routes: RouteSpec[]) {
 }
 
 describe("ClipReviewPage overlays", () => {
-  test("shows offline notice when NEXT_PUBLIC_API_URL is missing", async () => {
+  test("explains a local API network failure", async () => {
     vi.stubEnv("NEXT_PUBLIC_API_URL", "");
+    vi.stubGlobal("fetch", vi.fn(() => Promise.reject(new TypeError("Failed to fetch"))));
     const { ClipReviewPage, AppStateProvider } = await importPage();
     render(
       <AppStateProvider>
@@ -119,7 +120,7 @@ describe("ClipReviewPage overlays", () => {
       </AppStateProvider>,
     );
     await waitFor(() => {
-      expect(screen.getByText(/Clip Review is unavailable offline/i)).toBeTruthy();
+      expect(screen.getByText(/Could not load clip/i)).toBeTruthy();
     });
   });
 
@@ -298,15 +299,15 @@ describe("ClipReviewPage overlays", () => {
     const video = document.querySelector("video")!;
     expect(video.hasAttribute("controls")).toBe(false);
 
-    // Clicking an event marker seeks the (clip-asset) video to the event time.
+    // Source-film playback shifts the clip-local event onto the recording timeline.
     fireEvent.click(screen.getByTestId("event-marker-e-1"));
-    expect(video.currentTime).toBeCloseTo(0.5, 3);
+    expect(video.currentTime).toBeCloseTo(SAMPLE_CLIP.start_time + 0.5, 3);
     fireEvent.timeUpdate(video);
     expect(screen.getByTestId("transport-readout").textContent).toContain("0.50s");
 
     // Frame stepping moves one frame at the video's own fps (30).
     fireEvent.click(screen.getByTestId("transport-frame-forward"));
-    expect(video.currentTime).toBeCloseTo((16 + 0.5) / 30, 3);
+    expect(video.currentTime).toBeCloseTo(SAMPLE_CLIP.start_time + (16 + 0.5) / 30, 3);
 
     // Prev is disabled on the first play; Next navigates to the sibling clip.
     await waitFor(() => {

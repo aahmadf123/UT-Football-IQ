@@ -31,6 +31,7 @@ afterEach(() => {
 beforeEach(() => {
   vi.stubEnv("NEXT_PUBLIC_USE_MOCKS", "");
   vi.stubEnv("NEXT_PUBLIC_API_URL", "");
+  vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
 });
 
 async function importHub() {
@@ -67,7 +68,7 @@ describe("FilmRoomPage", () => {
     await renderHub();
     // Library view is offline without NEXT_PUBLIC_API_URL.
     await waitFor(() => {
-      expect(screen.getByText(/Library unavailable/i)).toBeTruthy();
+      expect(screen.getByText(/Could not load library/i)).toBeTruthy();
     });
   });
 
@@ -92,7 +93,7 @@ describe("FilmRoomPage", () => {
     nav.tab = "clips";
     await renderHub();
     await waitFor(() => {
-      expect(screen.getByText(/Library unavailable/i)).toBeTruthy();
+      expect(screen.getByText(/Could not load library/i)).toBeTruthy();
     });
   });
 

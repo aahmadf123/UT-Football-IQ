@@ -137,7 +137,7 @@ describe("CorrectionsPanel", () => {
       expect(screen.getByTestId("correction-success")).toBeTruthy();
     });
     expect(screen.getByTestId("correction-success").textContent).toContain(
-      "feeds the nightly learning loop",
+      "Saved to this play",
     );
 
     const call = fetchMock.mock.calls.find(([u]) =>
@@ -147,7 +147,7 @@ describe("CorrectionsPanel", () => {
     const [url, init] = call as [string, RequestInit];
     expect(url).toBe("https://api.test/api/v1/corrections");
     expect(init.method).toBe("POST");
-    expect(JSON.parse(String(init.body))).toEqual({
+    expect(JSON.parse(String(init.body))).toMatchObject({
       clip_id: "c-1",
       correction_type: "player_identity",
       corrected_value: { tracklet_id: "t-2", team: "home", jersey_number: 22 },
@@ -186,13 +186,68 @@ describe("CorrectionsPanel", () => {
       String(u).includes("/api/v1/corrections"),
     );
     const [, init] = call as [string, RequestInit];
-    expect(JSON.parse(String(init.body))).toEqual({
+    expect(JSON.parse(String(init.body))).toMatchObject({
       clip_id: "c-1",
       correction_type: "formation_tag",
       corrected_value: { formation: "trips right" },
       notes: null,
     });
     expect((screen.getByLabelText(/Correct formation/) as HTMLInputElement).value).toBe("");
+  });
+
+  test.each([
+    { kind: "coverage_tag", label: "Correct coverage", value: "cover_3", key: "coverage" },
+    { kind: "route_tag", label: "Correct route", value: "curl", key: "route" },
+    { kind: "personnel_tag", label: "Correct personnel", value: "11", key: "personnel" },
+  ])("reviewed human $kind values are sent with revision and refresh the play", async ({ kind, label, value, key }) => {
+    const fetchMock = installFetch({ ok: true, status: 201, body: { id: "cc-tag", annotation_revision: 5 } });
+    const onSaved = vi.fn();
+    const { CorrectionsPanel, AppStateProvider } = await importPanel();
+    render(<AppStateProvider><CorrectionsPanel clipId="c-1" tracklets={[]} annotationRevision={4} onSaved={onSaved} /></AppStateProvider>);
+    fireEvent.click(screen.getByTestId("corrections-toggle"));
+    fireEvent.change(screen.getByLabelText(/What needs fixing/), { target: { value: kind } });
+    fireEvent.change(screen.getByLabelText(label), { target: { value } });
+    fireEvent.click(screen.getByTestId("correction-submit"));
+    await waitFor(() => expect(onSaved).toHaveBeenCalledOnce());
+    const call = fetchMock.mock.calls.find(([url]) => String(url).includes("/api/v1/corrections"));
+    const body = JSON.parse(String(call?.[1]?.body));
+    expect(body).toMatchObject({ correction_type: kind, corrected_value: { [key]: value }, expected_revision: 4 });
+    expect(body.client_operation_id).toMatch(/^[a-f0-9-]{36}$/);
+    expect((screen.getByLabelText(label) as HTMLInputElement).value).toBe("");
+  });
+
+  test("a network retry reuses the correction operation id and preserves the coach input", async () => {
+    const response = { ok: false, status: 503, body: { detail: "temporarily unavailable" } };
+    const fetchMock = installFetch(response);
+    const { CorrectionsPanel, AppStateProvider } = await importPanel();
+    render(<AppStateProvider><CorrectionsPanel clipId="c-1" tracklets={[]} annotationRevision={4} /></AppStateProvider>);
+    fireEvent.click(screen.getByTestId("corrections-toggle"));
+    fireEvent.change(screen.getByLabelText(/What needs fixing/), { target: { value: "coverage_tag" } });
+    fireEvent.change(screen.getByLabelText("Correct coverage"), { target: { value: "cover_3" } });
+    fireEvent.click(screen.getByTestId("correction-submit"));
+    await waitFor(() => expect(screen.getByTestId("correction-error")).toBeTruthy());
+    expect((screen.getByLabelText("Correct coverage") as HTMLSelectElement).value).toBe("cover_3");
+    response.ok = true;
+    response.status = 201;
+    fireEvent.click(screen.getByTestId("correction-submit"));
+    await waitFor(() => expect(screen.getByTestId("correction-success")).toBeTruthy());
+    const posts = fetchMock.mock.calls.filter(([url]) => String(url).includes("/api/v1/corrections"));
+    expect(posts).toHaveLength(2);
+    const bodies = posts.map(([, init]) => JSON.parse(String(init?.body)));
+    expect(bodies[1].client_operation_id).toBe(bodies[0].client_operation_id);
+    expect(bodies[1].corrected_value).toEqual({ coverage: "cover_3" });
+  });
+
+  test("manual play event uses the displayed clip time rather than the recording clock", async () => {
+    const fetchMock = installFetch({ ok: true, status: 201, body: { id: "cc-event" } });
+    const { CorrectionsPanel, AppStateProvider } = await importPanel();
+    render(<AppStateProvider><CorrectionsPanel clipId="c-1" tracklets={[]} clipBounds={{ start: 120, end: 128, duration: 900 }} currentTimeSeconds={2.5} /></AppStateProvider>);
+    fireEvent.click(screen.getByTestId("corrections-toggle"));
+    fireEvent.change(screen.getByLabelText(/What needs fixing/), { target: { value: "event_mark" } });
+    fireEvent.click(screen.getByTestId("correction-submit"));
+    await waitFor(() => expect(screen.getByTestId("correction-success")).toBeTruthy());
+    const call = fetchMock.mock.calls.find(([url]) => String(url).includes("/api/v1/corrections"));
+    expect(JSON.parse(String(call?.[1]?.body))).toMatchObject({ correction_type: "event_tag", corrected_value: { event_type: "snap", timestamp_seconds: 2.5 } });
   });
 
   test("failed POST surfaces the error inline", async () => {

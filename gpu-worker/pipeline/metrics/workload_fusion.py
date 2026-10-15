@@ -27,6 +27,7 @@ from pipeline.metrics.effort_zscore import (
     _number,
     _round_optional,
 )
+from pipeline.video_timeline import point_interval
 
 # ── Thresholds (defaults mirrored in backend alert_config) ────────────────────
 
@@ -68,6 +69,7 @@ def sprint_stats(
     Returns ``None`` when there are no usable field-coordinate speeds.
     """
     pts = sorted(track_points, key=lambda p: p.get("frame_number", 0))
+    by_frame = {int(p.get("frame_number", 0)): p for p in pts}
     intervals = _interval_speeds(pts, fps)
     if not intervals:
         return None
@@ -80,11 +82,11 @@ def sprint_stats(
     def _close_segment() -> int:
         if segment_start is None or segment_end is None:
             return 0
-        duration = (segment_end - segment_start) / max(fps, 1.0)
+        duration = point_interval(by_frame[segment_start], by_frame[segment_end], fps)
         return 1 if duration >= min_sprint_duration_s else 0
 
     for f0, f1, speed in intervals:
-        distance += speed * (f1 - f0) / max(fps, 1.0)
+        distance += speed * point_interval(by_frame[f0], by_frame[f1], fps)
         if speed >= sprint_speed_yps:
             if segment_start is None:
                 segment_start = f0
@@ -294,7 +296,7 @@ def _interval_speeds(
         cur = pts[i]
         f0 = int(prev.get("frame_number", 0) or 0)
         f1 = int(cur.get("frame_number", 0) or 0)
-        dt_s = (f1 - f0) / max(fps, 1.0)
+        dt_s = point_interval(prev, cur, fps)
         if dt_s <= 0:
             continue
         x0 = _number(prev.get("field_x"))

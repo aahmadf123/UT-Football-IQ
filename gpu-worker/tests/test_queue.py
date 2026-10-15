@@ -13,7 +13,11 @@ Covers:
 from __future__ import annotations
 
 import os
+import runpy
+import shutil
 import sys
+import sysconfig
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -23,6 +27,31 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 
 BACKEND_URL = "http://backend.test"
+
+
+def test_frozen_queue_uses_bundled_standard_library(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bundled = tmp_path / "_stdlib"
+    bundled.mkdir()
+    shutil.copyfile(Path(sysconfig.get_path("stdlib")) / "queue.py", bundled / "queue.py")
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "_MEIPASS", str(tmp_path), raising=False)
+    namespace = runpy.run_path(str(Path(__file__).parents[1] / "queue" / "__init__.py"))
+    queued = namespace["Queue"]()
+    queued.put("local-worker")
+    assert queued.get_nowait() == "local-worker"
+    with pytest.raises(namespace["Empty"]):
+        queued.get_nowait()
+
+
+def test_frozen_queue_missing_bundle_fails_explicitly(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "_MEIPASS", str(tmp_path), raising=False)
+    with pytest.raises(ImportError, match="Required standard-library queue implementation"):
+        runpy.run_path(str(Path(__file__).parents[1] / "queue" / "__init__.py"))
 
 
 @pytest.fixture(autouse=True)

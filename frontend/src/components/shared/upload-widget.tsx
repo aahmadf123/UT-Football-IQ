@@ -18,13 +18,15 @@
  */
 
 import { useCallback, useMemo, useState } from "react";
-import { useAppState } from "@/lib/app-state";
+import { useAppState, type UploadMetadata } from "@/lib/app-state";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { UploadDialog } from "@/components/shared/upload-dialog";
 import { draftToMetadata, type UploadMetadataDraft } from "@/lib/upload-metadata";
 
 export function useUploadWidget(options?: {
   successMessage?: (count: number) => string;
+  metadata?: Partial<UploadMetadata>;
+  sessionTitle?: string;
 }): { openFilePicker: () => void; widget: React.ReactNode } {
   const { addUploads, data } = useAppState();
   const [open, setOpen] = useState(false);
@@ -49,7 +51,7 @@ export function useUploadWidget(options?: {
   const handleSubmit = useCallback(
     async (files: File[], draft: UploadMetadataDraft) => {
       try {
-        const created = await addUploads(files, draftToMetadata(draft));
+        const created = await addUploads(files, { ...options?.metadata, ...draftToMetadata(draft), practice_session_id: options?.metadata?.practice_session_id, camera_label: draft.cameraLabel?.trim() || undefined });
         setUploadStatus({
           text:
             options?.successMessage?.(created.length) ??
@@ -62,6 +64,7 @@ export function useUploadWidget(options?: {
           text: `Upload failed: ${err instanceof Error ? err.message : String(err)}`,
           failed: true,
         });
+        throw err;
       }
     },
     [addUploads, options],
@@ -74,6 +77,8 @@ export function useUploadWidget(options?: {
         onOpenChange={setOpen}
         onSubmit={handleSubmit}
         opponentSuggestions={opponentSuggestions}
+        defaults={options?.metadata}
+        sessionTitle={options?.sessionTitle}
       />
       {uploadStatus && (
         <Alert

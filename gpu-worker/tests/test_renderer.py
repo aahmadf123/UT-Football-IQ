@@ -57,16 +57,15 @@ class TestPeriodRendererLabelValue:
 
 
 class TestPeriodRendererRun:
-    def _make_mock_cap(
-        self, width: int = 1920, height: int = 1080, frames: int = 3
-    ) -> MagicMock:
+    def _make_mock_cap(self, width: int = 1920, height: int = 1080, frames: int = 3) -> MagicMock:
         cap = MagicMock()
         cap.isOpened.return_value = True
         cap.get.side_effect = lambda prop: {
-            3: float(width),   # CAP_PROP_FRAME_WIDTH
+            3: float(width),  # CAP_PROP_FRAME_WIDTH
             4: float(height),  # CAP_PROP_FRAME_HEIGHT
         }.get(prop, 0.0)
         import numpy as np
+
         blank = np.zeros((height, width, 3), dtype="uint8")
         side_effects = [(True, blank)] * frames + [(False, blank)]
         cap.read.side_effect = side_effects
@@ -79,10 +78,14 @@ class TestPeriodRendererRun:
         with (
             patch("cv2.VideoCapture", return_value=self._make_mock_cap()),
             patch("cv2.VideoWriter") as mock_writer_cls,
+            patch("renderer.period_renderer._transcode_h264"),
             patch("cv2.rectangle"),
             patch("cv2.putText"),
             patch("cv2.resize", side_effect=lambda f, *a, **kw: f),
-            patch("pipeline.object_store.upload_file", return_value="s3://football-iq/period_overlays/c1/period_overlay.mp4"),
+            patch(
+                "pipeline.object_store.upload_file",
+                return_value="s3://football-iq/period_overlays/c1/period_overlay.mp4",
+            ),
         ):
             mock_writer = MagicMock()
             mock_writer_cls.return_value = mock_writer
@@ -96,7 +99,9 @@ class TestPeriodRendererRun:
                 fps=30.0,
             )
 
-        assert result["period_overlay_uri"] == "s3://football-iq/period_overlays/c1/period_overlay.mp4"
+        assert (
+            result["period_overlay_uri"] == "s3://football-iq/period_overlays/c1/period_overlay.mp4"
+        )
 
     def test_object_upload_called_with_correct_key(self) -> None:
         """the object store is called with the expected key path."""
@@ -105,6 +110,7 @@ class TestPeriodRendererRun:
         with (
             patch("cv2.VideoCapture", return_value=self._make_mock_cap()),
             patch("cv2.VideoWriter"),
+            patch("renderer.period_renderer._transcode_h264"),
             patch("cv2.rectangle"),
             patch("cv2.putText"),
             patch("cv2.resize", side_effect=lambda f, *a, **kw: f),
@@ -129,6 +135,7 @@ class TestPeriodRendererRun:
         with (
             patch("cv2.VideoCapture", return_value=self._make_mock_cap(frames=1)),
             patch("cv2.VideoWriter"),
+            patch("renderer.period_renderer._transcode_h264"),
             patch("cv2.rectangle") as mock_rect,
             patch("cv2.putText"),
             patch("cv2.resize", side_effect=lambda f, *a, **kw: f),

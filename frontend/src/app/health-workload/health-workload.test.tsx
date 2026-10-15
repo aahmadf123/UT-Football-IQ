@@ -57,8 +57,8 @@ describe("Health & Workload surface gating", () => {
     // No restricted notice for an approved role.
     expect(screen.queryByTestId("health-workload-restricted")).toBeNull();
     // Nav exposes the Health & Workload entry for approved roles.
-    const nav = screen.getByRole("navigation", { name: /Football IQ navigation/i });
-    expect(within(nav).queryByText("Health & Workload")).toBeTruthy();
+    const nav = screen.getByRole("navigation", { name: /Advanced tools/i });
+    expect(within(nav).queryByText("Health & workload")).toBeTruthy();
   });
 
   test("non-approved role (coach) is gated and the nav entry is hidden", async () => {
@@ -72,8 +72,8 @@ describe("Health & Workload surface gating", () => {
     expect(screen.queryByTestId("health-workload-disclaimer")).toBeNull();
     // Nav hides the Health & Workload entry (the page <h1> title still exists,
     // so we scope the assertion to the navigation landmark).
-    const nav = screen.getByRole("navigation", { name: /Football IQ navigation/i });
-    expect(within(nav).queryByText("Health & Workload")).toBeNull();
+    const nav = screen.getByRole("navigation", { name: /Advanced tools/i });
+    expect(within(nav).queryByText("Health & workload")).toBeNull();
   });
 
   test("default role (no token, no override) is gated", async () => {

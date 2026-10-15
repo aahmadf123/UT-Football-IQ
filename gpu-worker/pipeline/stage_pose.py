@@ -41,6 +41,7 @@ Metric names (written into the ``metrics`` table):
 from __future__ import annotations
 
 import math
+import os
 import statistics
 from typing import Any
 
@@ -50,12 +51,14 @@ from pipeline import backend
 from pipeline.metrics.gait_asymmetry import compute_gait_asymmetry
 from pipeline.pose.head_yaw import compute_head_yaw, summarize_body_orientation
 from pipeline.pose_estimator import (
+    PoseEstimatorBase,
     angle_degrees,
     get_estimator,
     kp,
     midpoint,
     vector_angle_from_vertical,
 )
+from pipeline.runtime import PipelineInterrupted, adapter_provenance, check_control
 from pipeline.video_ingest import VideoSource
 
 log = structlog.get_logger(__name__)
@@ -100,6 +103,10 @@ def run(
     fps: float,
     job_id: str,
     model_path: str | None = None,
+    *,
+    estimator: PoseEstimatorBase | None = None,
+    frame_start: int = 0,
+    frame_end: int | None = None,
 ) -> dict[str, Any]:
     """Run the pose-lite biomechanics stage for a clip.
 
@@ -128,19 +135,51 @@ def run(
     """
     log.info("stage_pose_start", clip_id=clip_id, tracklet_count=len(tracklets))
 
-    estimator = get_estimator(model_path)
-
-    # ── Build frame → keypoints map ───────────────────────────────────────────
-    frame_keypoints: dict[int, list[dict[str, Any]]] = {}
-    for frame_num, frame in video_source.iter_frames(stride=_POSE_FRAME_STRIDE):
-        frame_keypoints[frame_num] = estimator.estimate(frame)
-
-    total_frames_processed = len(frame_keypoints)
-    log.info("stage_pose_frames_processed", count=total_frames_processed)
-
-    if not frame_keypoints and not tracklets:
-        log.info("stage_pose_no_data", clip_id=clip_id)
+    if not tracklets:
         return {"keypoint_count": 0, "metric_count": 0, "metric_ids": [], "pose_metrics": {}}
+    estimator = estimator or get_estimator(model_path)
+    if estimator is None:
+        return {
+            "keypoint_count": 0, "metric_count": 0, "metric_ids": [], "pose_metrics": {},
+            "skipped": True, "reason": "pose_model_not_configured_or_unavailable",
+            "model_provenance": {"pose": adapter_provenance(None, "pose")},
+        }
+    provenance = adapter_provenance(estimator, model_path or "injected")
+    # Only a player's own observed bbox can attribute a skeleton to that player.
+    # Decode once; never run the same whole-frame skeleton for every tracklet.
+    by_track: dict[str, dict[int, list[dict[str, Any]]]] = {}
+    observations = {
+        str(t.get("id")): {int(p["frame_number"]): p["bbox"] for p in t.get("track_points", [])
+                           if p.get("bbox") and p.get("frame_number") is not None}
+        for t in tracklets
+    }
+    max_frame = frame_end if frame_end is not None else max(
+        (max(points) for points in observations.values() if points), default=-1
+    )
+    for frame_num, frame in video_source.iter_frames(stride=_POSE_FRAME_STRIDE):
+        check_control()
+        if frame_num < frame_start:
+            continue
+        if frame_num > max_frame:
+            break
+        h, w = frame.shape[:2]
+        for tid, points in observations.items():
+            box = points.get(frame_num)
+            if box is None:
+                continue
+            x1, y1, x2, y2 = [int(v) for v in box]
+            x1, y1, x2, y2 = max(0, x1), max(0, y1), min(w, x2), min(h, y2)
+            if x2 - x1 < 16 or y2 - y1 < 32:
+                continue
+            keypoints = estimator.estimate(frame[y1:y2, x1:x2])
+            if not keypoints:
+                continue
+            by_track.setdefault(tid, {})[frame_num] = [
+                {**point, "x": point["x"] + x1, "y": point["y"] + y1,
+                 "source": provenance["source"]}
+                for point in keypoints
+            ]
+    experimental_metrics = os.environ.get("POSE_EXPERIMENTAL_METRICS", "0") == "1"
 
     # ── Resolve key events ────────────────────────────────────────────────────
     snap_frame = _event_frame(events, "snap")
@@ -160,8 +199,8 @@ def run(
 
         # Collect the keypoint sequence for this tracklet's frame range
         t_start = tracklet.get("start_frame", 0)
-        t_end = tracklet.get("end_frame", total_frames_processed * _POSE_FRAME_STRIDE)
-        kp_seq = _build_keypoint_sequence(frame_keypoints, t_start, t_end)
+        t_end = tracklet.get("end_frame", max_frame)
+        kp_seq = _build_keypoint_sequence(by_track.get(str(tracklet_id), {}), t_start, t_end)
 
         if not kp_seq:
             continue
@@ -169,6 +208,8 @@ def run(
         # Write raw keypoints to pose_keypoints table
         kp_ids = _write_keypoints(clip_id, tracklet_id, kp_seq, job_id)
         keypoint_count += len(kp_ids)
+        if not experimental_metrics:
+            continue
 
         orientation_metric = _compute_body_orientation_proxy(
             kp_seq,
@@ -203,14 +244,8 @@ def run(
                 pose_metrics[str(tracklet_id)] = dict(gait_summary)
 
     # ── Biomechanical drift (across all OL tracklets in clip) ─────────────────
-    ol_tracklets = [
-        t for t in tracklets
-        if (t.get("position_group") or "").upper() in ("OL", "DL", "OT", "OG", "OC", "DE", "DT")
-    ]
-    if len(ol_tracklets) >= 2:
-        drift = _compute_biomechanical_drift(ol_tracklets, frame_keypoints)
-        if drift:
-            metrics.append(drift)
+    # Cross-player drift cannot be calculated by sharing one person's skeleton.
+    # Keep this legacy helper out of real per-player processing.
 
     # ── Write metrics to backend ──────────────────────────────────────────────
     metric_ids: list[str] = []
@@ -220,7 +255,11 @@ def run(
                 "clip_id": clip_id,
                 "tracklet_id": m.get("tracklet_id"),
                 "metric_name": m["metric_name"],
-                "metric_value": m["metric_value"],
+                "metric_value": {**m["metric_value"], "model_provenance": provenance,
+                                 "source": provenance["source"],
+                                 "provenance": {"source": provenance["source"],
+                                                "actual_model": provenance["effective_variant"],
+                                                "validated": False}},
                 "unit": m.get("unit"),
                 "experimental_flag": True,
                 "analytics_safe": False,
@@ -230,8 +269,11 @@ def run(
             }
             resp = backend.create_metric(**payload)
             metric_ids.append(resp["id"])
+        except PipelineInterrupted:
+            raise
         except Exception as exc:
             log.warning("pose_metric_write_failed", name=m.get("metric_name"), error=str(exc))
+            raise
 
     log.info(
         "stage_pose_done",
@@ -244,6 +286,8 @@ def run(
         "metric_count": len(metric_ids),
         "metric_ids": metric_ids,
         "pose_metrics": pose_metrics,
+        "model_provenance": {"pose": provenance},
+        "experimental_metrics_enabled": experimental_metrics,
     }
 
 
@@ -1188,12 +1232,15 @@ def _write_keypoints(
                 job_id=job_id,
             )
             ids.append(resp.get("id", ""))
+        except PipelineInterrupted:
+            raise
         except Exception as exc:
             log.debug(
                 "keypoint_write_failed",
                 frame=entry["frame_number"],
                 error=str(exc),
             )
+            raise
     return ids
 
 

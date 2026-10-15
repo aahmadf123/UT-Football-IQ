@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -84,3 +85,67 @@ def test_resolve_query_failure_falls_back(monkeypatch: pytest.MonkeyPatch) -> No
     monkeypatch.setenv("BACKEND_API_URL", "http://backend.test")
     with patch("httpx.get", side_effect=ConnectionError("down")):
         assert mrc.resolve("detect") is None
+
+
+def test_verified_artifact_hash_rejects_modified_production_bytes(monkeypatch, tmp_path):
+    monkeypatch.setenv("BACKEND_API_URL", "http://backend.test")
+    artifact = tmp_path / "coverage.json"
+    artifact.write_bytes(b"approved checkpoint")
+    approved_hash = hashlib.sha256(artifact.read_bytes()).hexdigest()
+    version = _version_payload(f"file://{artifact}")[0]
+    version["metrics"] = {"artifact_sha256": approved_hash, "approved_artifact_sha256": approved_hash}
+    response = MagicMock()
+    response.json.return_value = [version]
+    with patch("httpx.get", return_value=response):
+        resolved = mrc.resolve("coverage")
+        assert resolved is not None and resolved.validated
+        assert resolved.artifact_sha256 == approved_hash
+        # A changed cache can heal from unchanged approved source bytes.
+        resolved.local_path.write_bytes(b"changed cached checkpoint")
+        mrc.reset_cache()
+        healed = mrc.resolve("coverage")
+        assert healed is not None and healed.local_path.read_bytes() == b"approved checkpoint"
+        # Changing both source and cache cannot inherit the former approval.
+        artifact.write_bytes(b"changed source checkpoint")
+        healed.local_path.write_bytes(b"changed cached checkpoint")
+        mrc.reset_cache()
+        assert mrc.resolve("coverage") is None
+
+
+def test_legacy_production_name_does_not_imply_validation(monkeypatch, tmp_path):
+    monkeypatch.setenv("BACKEND_API_URL", "http://backend.test")
+    artifact = tmp_path / "coverage.json"
+    artifact.write_bytes(b"legacy checkpoint")
+    response = MagicMock()
+    response.json.return_value = _version_payload(f"file://{artifact}")
+    with patch("httpx.get", return_value=response):
+        resolved = mrc.resolve("coverage")
+    assert resolved is not None and resolved.validated is False
+
+
+def test_failed_reevaluation_hash_cannot_validate_changed_production_bytes(monkeypatch, tmp_path):
+    monkeypatch.setenv("BACKEND_API_URL", "http://backend.test")
+    artifact = tmp_path / "coverage.json"
+    approved_hash = hashlib.sha256(b"approved checkpoint").hexdigest()
+    artifact.write_bytes(b"changed checkpoint")
+    changed_hash = hashlib.sha256(artifact.read_bytes()).hexdigest()
+    version = _version_payload(f"file://{artifact}")[0]
+    # A failed re-evaluation records the changed bytes' hash; approval does not move.
+    version["metrics"] = {"artifact_sha256": changed_hash, "approved_artifact_sha256": approved_hash}
+    response = MagicMock()
+    response.json.return_value = [version]
+    with patch("httpx.get", return_value=response):
+        assert mrc.resolve("coverage") is None
+
+
+def test_evaluation_hash_without_promotion_binding_is_not_validated(monkeypatch, tmp_path):
+    monkeypatch.setenv("BACKEND_API_URL", "http://backend.test")
+    artifact = tmp_path / "coverage.json"
+    artifact.write_bytes(b"evaluated checkpoint")
+    version = _version_payload(f"file://{artifact}")[0]
+    version["metrics"] = {"artifact_sha256": hashlib.sha256(artifact.read_bytes()).hexdigest()}
+    response = MagicMock()
+    response.json.return_value = [version]
+    with patch("httpx.get", return_value=response):
+        resolved = mrc.resolve("coverage")
+    assert resolved is not None and resolved.validated is False

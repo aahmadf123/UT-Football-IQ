@@ -529,6 +529,11 @@ def run_nightly(
     practice/game footage. Raises ``ValueError`` if fewer than ``MIN_PAIRED_PLAYS``
     validated pairs exist — we never train on too small / unvalidated a dataset.
     """
+    raise RuntimeError(
+        "Cross-recording box transfer is quarantined: matching play calls do not "
+        "share image coordinates. Use human-reviewed labels on the SAME target "
+        "frame and an independent Toledo holdout before training or promotion."
+    )
     from training.play_call_aligner import align_plays
 
     config = config or DistillConfig()
@@ -562,7 +567,7 @@ def _train_student_torch(
     game pseudo-labels, fine-tunes the student with the KD soft-label term,
     evaluates baseline vs distilled mAP@0.5 with the Ultralytics validator, and
     returns the provenance checkpoint + report. Never imported/executed in CI;
-    the GPU-worker image (``pytorch/pytorch:2.5.1-cuda12.4``) provides torch.
+    the GPU-worker image (``pytorch/pytorch:2.8.0-cuda12.8``) provides torch.
     """
     try:
         import torch

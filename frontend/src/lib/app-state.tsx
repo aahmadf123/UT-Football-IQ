@@ -4,6 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { footballData } from "./mock-data";
 import { emptyFootballData } from "./empty-data";
 import { useMocks } from "./mock-flag";
+import { useOptionalAuth } from "./auth";
 import { resolveCurrentRole, type UserRole } from "./roles";
 import { toast } from "sonner";
 import {
@@ -29,7 +30,7 @@ import type {
 } from "./types";
 
 export type SessionType = "all" | "practice" | "game" | "scrimmage";
-export type ApiStatus = "idle" | "loading" | "live" | "offline" | "mock";
+export type ApiStatus = "idle" | "loading" | "live" | "offline" | "error" | "mock";
 
 const SESSION_LABELS: Record<SessionType, string> = {
   all: "Practice & Games",
@@ -117,7 +118,7 @@ export function mergePlayerMetrics(
   players: PlayerSummary[],
   rows: ApiPlayerMetricsSummary[],
 ): PlayerSummary[] {
-  if (rows.length === 0) return players;
+  if (!Array.isArray(rows) || rows.length === 0) return players;
   const byId = new Map(rows.map((r) => [r.player_id, r]));
   return players.map((p) => {
     const m = byId.get(p.id);
@@ -161,12 +162,14 @@ export interface UploadMetadata {
   opponent_team?: string | null;
   our_possession?: OurPossession | null;
   tags?: string[];
+  practice_session_id?: string | null;
+  library_role?: "toledo" | "opponent";
+  camera_label?: string | null;
 }
 
 interface PersistedState {
   sessionType: SessionType;
   selectedDate: string;
-  uploadedNames: string[];
 }
 
 interface AppStateValue {
@@ -182,6 +185,7 @@ interface AppStateValue {
 
   // Connectivity
   apiStatus: ApiStatus;
+  apiError?: string;
   playersStatus: ApiStatus;
   mockMode: boolean;
 
@@ -200,6 +204,7 @@ interface AppStateValue {
   // Inbox
   inboxItems: VideoInboxItem[];
   refreshInbox: () => void;
+  refreshData: () => Promise<void>;
 
   // Auth
   authToken?: string;
@@ -231,16 +236,11 @@ function savePersisted(state: PersistedState) {
   }
 }
 
-function todayISO() {
-  const d = new Date();
-  return d.toISOString().slice(0, 10);
-}
-
 function buildDates(uploads: UploadedClip[], videos: ApiVideo[]): string[] {
   const set = new Set<string>();
-  set.add(todayISO());
   for (const v of videos) {
-    if (v.created_at) set.add(v.created_at.slice(0, 10));
+    const recorded = v.recorded_at ?? v.created_at;
+    if (recorded) set.add(recorded.slice(0, 10));
   }
   for (const u of uploads) {
     set.add(u.uploadedAt.slice(0, 10));
@@ -258,16 +258,17 @@ export function AppStateProvider({
   getValidToken?: () => Promise<string | undefined>;
 }) {
   const mockMode = useMocks();
+  const auth = useOptionalAuth();
+  const canFetch = !auth || (auth.ready && (!auth.authRequired || Boolean(authToken)));
   const initialData = mockMode ? footballData : emptyFootballData;
 
-  const persisted = typeof window !== "undefined" ? loadPersisted() : null;
-
-  const [sessionType, setSessionType] = useState<SessionType>(persisted?.sessionType ?? "all");
-  const [selectedDate, setSelectedDate] = useState<string>(persisted?.selectedDate ?? "");
+  const [sessionType, setSessionType] = useState<SessionType>("all");
+  const [selectedDate, setSelectedDate] = useState<string>("");
   const [uploads, setUploads] = useState<UploadedClip[]>([]);
 
   const [data, setData] = useState<FootballData>(initialData);
   const [apiStatus, setApiStatus] = useState<ApiStatus>(mockMode ? "mock" : "idle");
+  const [apiError, setApiError] = useState<string>();
   const [playersStatus, setPlayersStatus] = useState<ApiStatus>(mockMode ? "mock" : "idle");
   const [selectedPlayerId, setSelectedPlayerId] = useState<string>(
     initialData.players[0]?.id ?? "",
@@ -278,6 +279,7 @@ export function AppStateProvider({
 
   // Keep a ref to the latest metadata for retries
   const retryMetaRef = useRef<Map<string, { file: File; metadata?: UploadMetadata }>>(new Map());
+  const uploadAbortRef = useRef<Map<string, AbortController>>(new Map());
 
   // Auth token ref — updated from props, read by async upload/inbox calls
   const tokenRef = useRef(authToken);
@@ -294,104 +296,68 @@ export function AppStateProvider({
     return tokenRef.current;
   }, [getValidToken]);
 
-  // Hydrate uploaded clip names from storage on mount
+  // Only preferences persist in the browser. Film comes exclusively from durable storage.
   useEffect(() => {
-    const p = loadPersisted();
-    if (p?.uploadedNames?.length) {
-      const rehydrated: UploadedClip[] = p.uploadedNames.map((name, i) => ({
-        id: `persist-${i}-${name}`,
-        filename: name,
-        sizeBytes: 0,
-        uploadedAt: new Date().toISOString(),
-        phase: "done" as UploadPhase,
-        progress: 100,
-      }));
-      setUploads(rehydrated);
-      mergeUploadsIntoData(rehydrated);
+    const saved = loadPersisted();
+    if (saved) {
+      setSessionType(saved.sessionType ?? "all");
+      setSelectedDate(saved.selectedDate ?? "");
     }
   }, []);
-
-  // Persist filters and upload names. (Old persisted payloads may carry a
-  // stray `sideOfBall` key from the retired global filter — harmlessly
-  // ignored on load.)
   useEffect(() => {
-    savePersisted({
-      sessionType,
-      selectedDate,
-      uploadedNames: uploads.filter((u) => u.phase === "done").map((u) => u.filename),
-    });
-  }, [sessionType, selectedDate, uploads]);
+    savePersisted({ sessionType, selectedDate });
+  }, [sessionType, selectedDate]);
 
-  // Fetch live data when the API is configured and we are not in mock mode.
-  useEffect(() => {
-    if (mockMode) {
-      setApiStatus("mock");
-      return;
-    }
-    const baseUrl = process.env.NEXT_PUBLIC_API_URL;
-    if (!baseUrl) {
-      setApiStatus("offline");
-      return;
-    }
-    let cancelled = false;
-    setApiStatus("loading");
-    const videoFilters: Record<string, string> = {};
+  const fetchRunRef = useRef(0);
+  const refreshData = useCallback(async () => {
+    if (mockMode || !canFetch) return;
+    const run = ++fetchRunRef.current;
+    const filters: Record<string, string> = {};
     if (selectedDate) {
-      videoFilters.recorded_after = `${selectedDate}T00:00:00Z`;
-      videoFilters.recorded_before = `${selectedDate}T23:59:59.999999Z`;
+      filters.recorded_after = `${selectedDate}T00:00:00Z`;
+      filters.recorded_before = `${selectedDate}T23:59:59.999999Z`;
     }
-    if (sessionType !== "all") {
-      videoFilters.session_kind = sessionType;
-    }
-    (async () => {
-      try {
-        // Typed api.ts clients with the auth token — the previous raw
-        // fetch() calls here were the one unauthenticated code path left.
-        const token = tokenRef.current;
-        const [videosRes, jobsRes] = await Promise.allSettled([
-          fetchVideos(videoFilters, token),
-          fetchJobs({}, token),
-        ]);
-        if (cancelled) return;
-        const anyFulfilled =
-          videosRes.status === "fulfilled" || jobsRes.status === "fulfilled";
-        if (!anyFulfilled) {
-          const rejectedReasons = [videosRes, jobsRes]
-            .filter((r): r is PromiseRejectedResult => r.status === "rejected")
-            .map((r) => r.reason);
-          const allNetworkFailures =
-            rejectedReasons.length > 0 && rejectedReasons.every(looksNetworkFailure);
-          // HTTP 4xx/5xx means the backend is reachable (not offline), even if
-          // a specific surface is forbidden or currently erroring.
-          setApiStatus(allNetworkFailures ? "offline" : "live");
-          return;
-        }
-        setData((cur) => ({
-          ...cur,
-          videos: pickArrLive<ApiVideo>(videosRes, cur.videos),
-          jobs: pickArrLive<ApiJob>(jobsRes, cur.jobs),
-        }));
-        setApiStatus("live");
-      } catch (err) {
-        if (!cancelled) setApiStatus(looksNetworkFailure(err) ? "offline" : "live");
-      }
-    })();
+    if (sessionType !== "all") filters.session_kind = sessionType;
+    const token = tokenRef.current;
+    const [videos, jobs, inbox, metrics, roster] = await Promise.allSettled([
+      fetchVideos(filters, token), fetchJobs({}, token), fetchInboxStatus(token, true), fetchPlayerMetricsSummaries(token), fetchPlayers({ is_active: true, limit: 500 }, token),
+    ]);
+    if (run !== fetchRunRef.current) return;
+    setData((current) => ({
+      ...current,
+      videos: pickArrLive<ApiVideo>(videos, current.videos),
+      jobs: pickArrLive<ApiJob>(jobs, current.jobs),
+      players: mergePlayerMetrics(roster.status === "fulfilled" && Array.isArray(roster.value) ? roster.value.map(apiPlayerToSummary) : current.players.map((player) => ({ ...player, maxSpeed: undefined, distance: undefined, confidence: undefined, identityBucket: undefined, trackedClips: undefined, lastTrackedAt: undefined })), metrics.status === "fulfilled" ? metrics.value : []),
+    }));
+    if (inbox.status === "fulfilled" && Array.isArray(inbox.value)) setInboxItems(inbox.value);
+    const failures = [videos, jobs, inbox].filter((result): result is PromiseRejectedResult => result.status === "rejected");
+    setApiError(failures.length ? failures.map((result) => result.reason instanceof Error ? result.reason.message : String(result.reason)).join("; ") : undefined);
+    setApiStatus(failures.length === 0 ? "live" : failures.every((result) => looksNetworkFailure(result.reason)) ? "offline" : "error");
+  }, [mockMode, selectedDate, sessionType, canFetch]);
+
+  useEffect(() => {
+    if (mockMode || !canFetch) return;
+    setApiStatus("loading");
+    void refreshData();
+    const interval = window.setInterval(() => {
+      if (document.visibilityState !== "hidden") void refreshData();
+    }, 5000);
+    const onFocus = () => void refreshData();
+    window.addEventListener("focus", onFocus);
     return () => {
-      cancelled = true;
+      ++fetchRunRef.current;
+      window.clearInterval(interval);
+      window.removeEventListener("focus", onFocus);
     };
-  }, [mockMode, selectedDate, sessionType, authToken]);
+  }, [mockMode, refreshData, authToken, canFetch]);
 
   // Fetch the active roster from /api/v1/players on mount and whenever
   // mockMode changes. Roster data is independent of the date/session filters
   // because the player table is roster-scoped, not film-scoped.
   useEffect(() => {
+    if (!canFetch) return;
     if (mockMode) {
       setPlayersStatus("mock");
-      return;
-    }
-    const baseUrl = process.env.NEXT_PUBLIC_API_URL;
-    if (!baseUrl) {
-      setPlayersStatus("offline");
       return;
     }
     let cancelled = false;
@@ -401,7 +367,7 @@ export function AppStateProvider({
         // Metrics ride alongside the roster fetch; a metrics failure must
         // never take down the roster itself, so it degrades to "no numbers".
         const [apiPlayers, metricRows] = await Promise.all([
-          fetchPlayers({ is_active: true }, tokenRef.current),
+          fetchPlayers({ is_active: true, limit: 500 }, tokenRef.current),
           fetchPlayerMetricsSummaries(tokenRef.current).catch(
             () => [] as ApiPlayerMetricsSummary[],
           ),
@@ -412,78 +378,33 @@ export function AppStateProvider({
         setPlayersStatus("live");
       } catch (err) {
         // Keep "offline" only for genuine network/CORS failures.
-        if (!cancelled) setPlayersStatus(looksNetworkFailure(err) ? "offline" : "live");
+        if (!cancelled) setPlayersStatus(looksNetworkFailure(err) ? "offline" : "error");
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [mockMode]);
+  }, [mockMode, authToken, canFetch]);
 
-  // Fetch inbox status periodically in non-mock mode
-  const refreshInbox = useCallback(() => {
-    if (mockMode) return;
-    const base = process.env.NEXT_PUBLIC_API_URL;
-    if (!base) return;
-    fetchInboxStatus(tokenRef.current, true)
-      .then(setInboxItems)
-      .catch(() => { /* silently degrade */ });
-  }, [mockMode]);
-
-  useEffect(() => {
-    refreshInbox();
-    const id = setInterval(refreshInbox, 15_000);
-    return () => clearInterval(id);
-  }, [refreshInbox]);
-
-  // Uploads only ever update the uploads/videos state — they never fabricate
-  // clips or plays (that mock behavior was removed with the app-state cleanup).
-  function mergeUploadsIntoData(newUploads: UploadedClip[]) {
-    setData((cur) => {
-      const existing = new Set(cur.videos.map((v) => v.filename));
-      const additions = newUploads.filter((u) => !existing.has(u.filename));
-      if (!additions.length) return cur;
-
-      const newVideos: ApiVideo[] = [
-        ...cur.videos,
-        ...additions.map((u) => ({
-          id: u.videoId ?? u.id,
-          filename: u.filename,
-          status: "uploaded",
-          duration_seconds: null,
-          fps: null,
-          width: null,
-          height: null,
-          created_at: u.uploadedAt,
-        })),
-      ];
-
-      return { ...cur, videos: newVideos };
-    });
-  }
+  const refreshInbox = useCallback(() => { void refreshData(); }, [refreshData]);
 
   function updateUpload(id: string, patch: Partial<UploadedClip>) {
     setUploads((cur) => cur.map((u) => (u.id === id ? { ...u, ...patch } : u)));
   }
 
   async function executeUpload(clip: UploadedClip, file: File, metadata?: UploadMetadata) {
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-
-    // In mock mode or when the API is not configured, fall back to local-only
-    if (mockMode || !apiUrl) {
-      updateUpload(clip.id, { phase: "done", progress: 100 });
-      mergeUploadsIntoData([clip]);
-      toast.success(`${file.name} added`, {
-        description: "Stored locally — no backend configured for processing.",
-      });
+    if (mockMode) {
+      updateUpload(clip.id, { phase: "error", error: "Uploads require a real local library. Demo mode does not save film." });
       return;
     }
-
+    const controller = new AbortController();
+    uploadAbortRef.current.set(clip.id, controller);
     try {
       // Step 1: Request a presigned upload URL from the backend
       updateUpload(clip.id, { phase: "requesting-url", progress: 0 });
       const token = await resolveToken();
       const { uploadUrl } = await requestUploadUrl(file.name, token);
+      if (controller.signal.aborted) return;
 
       // Step 2: PUT the file to the presigned upload URL
       updateUpload(clip.id, { phase: "uploading", progress: 0 });
@@ -492,7 +413,7 @@ export function AppStateProvider({
         uploadResult = await uploadToObjectStore(uploadUrl, file, token, (loaded, total) => {
           const pct = Math.round((loaded / total) * 100);
           updateUpload(clip.id, { progress: pct });
-        });
+        }, controller.signal);
       } catch (err) {
         const msg = err instanceof Error ? err.message.toLowerCase() : String(err).toLowerCase();
         const tokenExpired = msg.includes("401") && (msg.includes("expired token") || msg.includes("invalid token"));
@@ -504,9 +425,10 @@ export function AppStateProvider({
         uploadResult = await uploadToObjectStore(uploadUrl, file, retriedToken, (loaded, total) => {
           const pct = Math.round((loaded / total) * 100);
           updateUpload(clip.id, { progress: pct });
-        });
+        }, controller.signal);
       }
 
+      if (controller.signal.aborted) return;
       // Step 3: Register video with backend
       updateUpload(clip.id, { phase: "registering", progress: 100 });
       const registerToken = tokenRef.current;
@@ -519,6 +441,9 @@ export function AppStateProvider({
         opponent_team: metadata?.opponent_team,
         our_possession: metadata?.our_possession,
         tags: metadata?.tags,
+        practice_session_id: metadata?.practice_session_id,
+        library_role: metadata?.library_role ?? "toledo",
+        camera_label: metadata?.camera_label,
       }, registerToken);
 
       updateUpload(clip.id, {
@@ -527,15 +452,17 @@ export function AppStateProvider({
         storageUri: uploadResult.storageUri,
         videoId: video.id,
       });
-      mergeUploadsIntoData([{ ...clip, videoId: video.id }]);
+      setData((current) => ({ ...current, videos: [video, ...current.videos.filter((row) => row.id !== video.id)] }));
       refreshInbox();
       toast.success(`${file.name} uploaded`, {
-        description: "Registered with the team server — processing starts shortly.",
+        description: "Saved in your library. Follow processing status in Film Room.",
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       updateUpload(clip.id, { phase: "error", error: message });
-      toast.error(`Upload failed: ${file.name}`, { description: message });
+      if (!controller.signal.aborted) toast.error(`Upload failed: ${file.name}`, { description: message });
+    } finally {
+      uploadAbortRef.current.delete(clip.id);
     }
   }
 
@@ -544,7 +471,6 @@ export function AppStateProvider({
     const created: UploadedClip[] = arr.map((f, i) => ({
       id: `up-${Date.now()}-${i}`,
       filename: f.name,
-      objectUrl: typeof URL !== "undefined" ? URL.createObjectURL(f) : undefined,
       sizeBytes: f.size,
       uploadedAt: new Date().toISOString(),
       phase: "idle" as UploadPhase,
@@ -558,10 +484,16 @@ export function AppStateProvider({
       retryMetaRef.current.set(created[i].id, { file: arr[i], metadata });
     }
 
-    // Execute uploads concurrently
-    for (let i = 0; i < created.length; i++) {
-      executeUpload(created[i], arr[i], metadata);
-    }
+    // Bound transfers to protect laptop memory and disk throughput.
+    let next = 0;
+    const drain = async () => {
+      while (next < created.length) {
+        const index = next++;
+        if (retryMetaRef.current.has(created[index].id)) await executeUpload(created[index], arr[index], metadata);
+      }
+    };
+    void drain();
+    void drain();
 
     return created;
   }, [mockMode, refreshInbox, resolveToken]);
@@ -576,6 +508,8 @@ export function AppStateProvider({
   }, [uploads, mockMode, refreshInbox, resolveToken]);
 
   const removeUpload = useCallback((id: string) => {
+    uploadAbortRef.current.get(id)?.abort();
+    uploadAbortRef.current.delete(id);
     setUploads((cur) => {
       const target = cur.find((u) => u.id === id);
       if (target?.objectUrl) {
@@ -607,6 +541,7 @@ export function AppStateProvider({
     availableDates,
     data,
     apiStatus,
+    apiError,
     playersStatus,
     mockMode,
     selectedPlayerId,
@@ -619,6 +554,7 @@ export function AppStateProvider({
     removeUpload,
     inboxItems,
     refreshInbox,
+    refreshData,
     authToken,
     currentRole,
   };

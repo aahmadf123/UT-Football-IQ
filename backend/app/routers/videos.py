@@ -1,19 +1,22 @@
 """Videos router — upload records, status, and presigned URL helpers."""
 
+import hashlib
 import uuid
 from datetime import datetime
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
+import anyio
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, field_validator, model_validator
-from sqlalchemy import select
+from pydantic import BaseModel, Field, field_validator, model_validator
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.deps import get_current_user, require_any_staff
 from app.models import (
     CaptureRegime,
+    FootballSession,
     JobStatus,
     JobType,
     PipelineMode,
@@ -85,13 +88,15 @@ async def _maybe_auto_enqueue_pipeline(db: AsyncSession, video: Video) -> Proces
 
 
 class VideoCreate(BaseModel):
-    filename: str
+    filename: str = Field(min_length=1, max_length=512)
     storage_uri: str
     recorded_at: datetime | None = None
     session_kind: SessionKind | None = None
     source_type: SourceType | None = None
     opponent_team: str | None = None
     practice_session_id: uuid.UUID | None = None
+    library_role: Literal["toledo", "opponent"] = "toledo"
+    camera_label: str | None = None
     our_possession: SideOfBall | None = None
     #: Free-form coach labels ("red zone", "install", "period 4"). Stored in the
     #: ``metadata`` bag rather than as a column: they are a browsing aid, not
@@ -155,6 +160,8 @@ class VideoResponse(BaseModel):
     source_type: SourceType | None
     opponent_team: str | None
     practice_session_id: uuid.UUID | None
+    library_role: str = "toledo"
+    camera_label: str | None = None
     our_possession: SideOfBall | None
     capture_regime: CaptureRegime | None
     regime_confidence: float | None
@@ -181,6 +188,8 @@ class VideoResponse(BaseModel):
             source_type=v.source_type,
             opponent_team=v.opponent_team,
             practice_session_id=v.practice_session_id,
+            library_role=v.library_role if isinstance(v.library_role, str) else "toledo",
+            camera_label=v.camera_label if isinstance(v.camera_label, str) else None,
             our_possession=v.our_possession,
             capture_regime=v.capture_regime,
             regime_confidence=v.regime_confidence,
@@ -216,6 +225,7 @@ async def list_videos(
     source_type: SourceType | None = Query(default=None),
     opponent_team: str | None = Query(default=None),
     practice_session_id: uuid.UUID | None = Query(default=None),
+    library_role: Literal["toledo", "opponent"] | None = Query(default=None),
 ) -> list[VideoResponse]:
     """List videos with Hudl-style filters; ``recorded_at`` newest first."""
     q = (
@@ -238,6 +248,8 @@ async def list_videos(
         q = q.where(Video.opponent_team == opponent_team)
     if practice_session_id is not None:
         q = q.where(Video.practice_session_id == practice_session_id)
+    if library_role is not None:
+        q = q.where(Video.library_role == library_role)
     result = await db.execute(q)
     videos = result.scalars().all()
     return [VideoResponse.from_orm_video(v) for v in videos]
@@ -250,6 +262,62 @@ async def create_video(
     current_user: Annotated[User, Depends(require_any_staff)],
 ) -> VideoResponse:
     """Register a new video record after the file has been uploaded to the object store."""
+    # Storage URIs are validated before registration; local imports must point
+    # to an atomically finalized object, never an arbitrary path or partial upload.
+    from app.storage import RAW_VIDEO, is_valid_key, local_object_path, parse_storage_uri
+
+    try:
+        scheme, bucket, key = parse_storage_uri(body.storage_uri)
+    except ValueError as exc:
+        raise HTTPException(400, "Invalid recording storage URI") from exc
+    if (scheme == "local" and bucket != RAW_VIDEO) or not is_valid_key(key):
+        raise HTTPException(400, "Recording must use raw-video storage")
+    if scheme == "local" and not local_object_path(bucket, key).is_file():
+        raise HTTPException(409, "Recording upload is not finalized")
+    media = {}
+    if scheme == "local":
+        from app.services.media_probe import probe_local_video
+
+        try:
+            media = await anyio.to_thread.run_sync(
+                probe_local_video, local_object_path(bucket, key)
+            )
+        except (ValueError, TimeoutError) as exc:
+            raise HTTPException(422, "Recording cannot be read as video") from exc
+    lock_id = int.from_bytes(hashlib.sha256(body.storage_uri.encode()).digest()[:8], "big") & (
+        (1 << 63) - 1
+    )
+    await db.execute(select(func.pg_advisory_xact_lock(lock_id)))
+    replay = (
+        await db.execute(
+            select(Video)
+            .where(Video.storage_uri == body.storage_uri)
+            .order_by(Video.created_at)
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if isinstance(replay, Video):
+        return VideoResponse.from_orm_video(replay)
+    session_id = body.practice_session_id
+    if session_id:
+        session = (
+            await db.execute(select(FootballSession).where(FootballSession.id == session_id))
+        ).scalar_one_or_none()
+        if session is None:
+            raise HTTPException(404, "Session not found")
+    else:
+        session = FootballSession(
+            id=uuid.uuid4(),
+            title=body.filename[:255],
+            session_kind=body.session_kind,
+            recorded_at=body.recorded_at,
+            opponent_team=body.opponent_team,
+            library_role=body.library_role,
+            created_by=current_user.id,
+        )
+        db.add(session)
+        await db.flush()
+        session_id = session.id
     video = Video(
         id=uuid.uuid4(),
         filename=body.filename,
@@ -260,9 +328,24 @@ async def create_video(
         session_kind=body.session_kind,
         source_type=body.source_type,
         opponent_team=body.opponent_team,
-        practice_session_id=body.practice_session_id,
+        practice_session_id=session_id,
+        library_role=(
+            body.library_role if "library_role" in body.model_fields_set else session.library_role
+        ),
+        camera_label=body.camera_label,
+        duration_seconds=media.get("duration_seconds"),
+        fps=media.get("fps"),
+        width=media.get("width"),
+        height=media.get("height"),
+        codec=media.get("codec"),
         our_possession=body.our_possession,
-        metadata_={"tags": body.tags} if body.tags else None,
+        metadata_=(
+            {
+                **({"tags": body.tags} if body.tags else {}),
+                **({"probe_state": media["probe_state"]} if media else {}),
+            }
+            or None
+        ),
     )
     db.add(video)
     await db.flush()
@@ -361,3 +444,53 @@ async def list_video_jobs(
         )
         for j in jobs
     ]
+
+
+class VideoMetadataUpdate(BaseModel):
+    recorded_at: datetime | None = None
+    session_kind: SessionKind | None = None
+    source_type: SourceType | None = None
+    opponent_team: str | None = None
+    practice_session_id: uuid.UUID | None = None
+    library_role: Literal["toledo", "opponent"] | None = None
+    camera_label: str | None = None
+    our_possession: SideOfBall | None = None
+    tags: list[str] | None = None
+
+
+@router.patch("/{video_id}", response_model=VideoResponse)
+async def update_video_metadata(
+    video_id: uuid.UUID,
+    body: VideoMetadataUpdate,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    _user: Annotated[User, Depends(require_any_staff)],
+) -> VideoResponse:
+    video = (
+        await db.execute(select(Video).where(Video.id == video_id).with_for_update())
+    ).scalar_one_or_none()
+    if video is None:
+        raise HTTPException(404, "Recording not found")
+    changes = body.model_dump(exclude_unset=True)
+    if (
+        "practice_session_id" in changes
+        and changes["practice_session_id"] != video.practice_session_id
+    ):
+        from app.routers.sessions import RecordingAssociation, associate_recording
+
+        if changes["practice_session_id"] is None:
+            raise HTTPException(
+                409, "Move a recording to a session instead of removing its workspace"
+            )
+        await associate_recording(
+            changes["practice_session_id"],
+            RecordingAssociation(video_id=video_id, camera_label=body.camera_label),
+            db,
+            _user,
+        )
+    for key, value in changes.items():
+        if key == "tags":
+            video.metadata_ = {**(video.metadata_ or {}), "tags": VideoCreate._clean_tags(value)}
+        else:
+            setattr(video, key, value)
+    await db.flush()
+    return VideoResponse.from_orm_video(video)

@@ -59,7 +59,7 @@ def test_stub_ball_detector_returns_one_ball() -> None:
 # ── Factory + regime composition ──────────────────────────────────────────────
 
 
-def test_get_ball_detector_falls_back_to_stub_without_weights(
+def test_get_ball_detector_disables_without_dependencies(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     def _boom(*args: Any, **kwargs: Any) -> None:
@@ -67,11 +67,17 @@ def test_get_ball_detector_falls_back_to_stub_without_weights(
 
     monkeypatch.setattr("pipeline.detector_models.YOLODetector.__init__", _boom)
     det = get_ball_detector(YOLO_BALL)
-    assert isinstance(det, _StubBallDetector)
+    assert det is None
 
 
-def test_get_ball_detector_unknown_variant_uses_stub() -> None:
-    assert isinstance(get_ball_detector("not-a-ball-model"), _StubBallDetector)
+def test_get_ball_detector_unknown_variant_disables() -> None:
+    assert get_ball_detector("not-a-ball-model") is None
+
+
+def test_get_ball_detector_explicit_stub_is_labelled() -> None:
+    detector = get_ball_detector("stub")
+    assert isinstance(detector, _StubBallDetector)
+    assert detector.provenance["source"] == "synthetic_test"
 
 
 def test_build_ball_detector_drone_follow_wraps_sahi() -> None:

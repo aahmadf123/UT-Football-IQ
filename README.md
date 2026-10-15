@@ -1,6 +1,17 @@
 # Football-IQ
 
-Football-IQ is the Toledo Rockets' video intelligence platform. Coaches upload practice and game film — **from any camera, any angle, any height** — and the system tracks players, detects formations and coverages, generates analytics, and surfaces clips for review, all without manual tagging. Occasional one-click corrections feed a nightly learning loop that improves the models over time.
+Football-IQ is a local American-football film room and computer-vision platform
+for the Toledo Rockets. Import practice or game film from any angle or height,
+group multiple recordings into a session, review plays, and correct observations.
+Processing defaults to the computer's CPU; cloud GPUs are optional external
+infrastructure, not a dependency.
+
+Film review works without inference models. A configured real player detector
+adds candidate tracks; football events, identity, field measurements, and tactical
+labels have explicit review and validation limits. Human corrections can train a
+local coverage candidate, with independent evaluation and administrator promotion
+before serving. The repository does not establish Hudl/SkillCorner accuracy or
+automatic tactical tagging on arbitrary footage.
 
 ## Service map
 
@@ -9,7 +20,7 @@ Football-IQ is the Toledo Rockets' video intelligence platform. Coaches upload p
 | **Frontend** | Coach-facing web UI: dashboard, film room, clip review with overlays, scouting, analytics | Next.js 16 (static export), React 19, TypeScript |
 | **Backend API** | REST API: auth (JWT), videos, clips, the job queue (claim/lease/heartbeat), corrections, storage facade + signed streaming, nightly scheduler | FastAPI, Python 3.12, SQLAlchemy |
 | **Database** | Primary data store, pgvector similarity index, and the **job queue** (`processing_jobs` with `FOR UPDATE SKIP LOCKED` leases) | PostgreSQL 16 + pgvector |
-| **Pipeline worker** | Claims jobs, runs the full stage chain in-process (detect → track → re-ID → pose → events → metrics → render), writes results back through the API | Python; YOLOv8 + SAHI, RTMPose; CPU-capable, CUDA optional |
+| **Pipeline worker** | Claims jobs, prepares clean playback, runs selected local CV stages, checkpoints work and writes results through the API | Python 3.11; CPU-first YOLO + IoU; optional pose/acceleration |
 | **Storage** | `local://` disk (default) or `s3://` buckets `raw-video` / `clips` / `overlays` / `artifacts` — one `STORAGE_BACKEND` switch | Local volume or any S3-compatible object store |
 
 There is no message broker. The backend's `processing_jobs` table *is* the
@@ -21,11 +32,17 @@ the frontend deploys to Vercel. See `docs/setup/cloudflare.md` and
 
 ## Quick start (local)
 
-Prerequisites: Python 3.12, Node 20+, PostgreSQL 16 with the `pgvector`
-extension, and `ffmpeg` on `PATH`.
+The native launcher starts a local database, API, UI, and CPU worker together.
+See [the local runbook](docs/runbook-local.md) for source setup, native packaging,
+and connecting the laptop to an existing team backend, including Cloudflare.
+Native distributions must be built and checked on their target operating system.
+
+For manual development, use separate environments: Python 3.12 for the backend,
+Python 3.11 for the CPU worker, Node 20+, PostgreSQL 16 with `pgvector`, and
+`ffmpeg` **and** `ffprobe` on `PATH` (H264 encoding requires `libx264`).
 
 ```bash
-cp .env.example .env      # defaults target a local Postgres + local disk
+cp .env.example backend/.env  # edit local database/login and development secrets
 ```
 
 **1. Database**
@@ -39,6 +56,8 @@ psql footiq -c 'CREATE EXTENSION IF NOT EXISTS vector;'
 
 ```bash
 cd backend
+python3.12 -m venv .venv
+source .venv/bin/activate   # Windows: .venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 alembic upgrade head
 python -m scripts.seed_users        # admin + gpu-worker service account
@@ -49,8 +68,12 @@ uvicorn app.main:app --reload --port 8000
 
 ```bash
 cd gpu-worker
-pip install -r requirements.txt
-BACKEND_API_URL=http://localhost:8000 python __main__.py
+python3.11 -m venv .venv
+source .venv/bin/activate   # Windows: .venv\Scripts\Activate.ps1
+pip install -r requirements-cpu.txt
+BACKEND_API_URL=http://localhost:8000 PIPELINE_STORAGE_TRANSPORT=api \
+WORKER_EMAIL=worker@example.com WORKER_PASSWORD=change-me-worker \
+PIPELINE_DEVICE=cpu MODEL_DETECT_PATH=/absolute/path/to/yolov8n.pt python __main__.py
 ```
 
 **4. Frontend** (separate shell)
@@ -61,18 +84,25 @@ npm ci
 npm run dev
 ```
 
-Open `http://localhost:3000`, sign in (seeded `admin@example.com` /
-`change-me-admin`, or register — the first user becomes admin), upload a clip,
-and watch it process: per-stage progress on the dashboard, then clips with
-bounding-box overlays in Clip Review. Uploads auto-process by default
-(Settings → "Process film automatically on upload" turns it off).
+Open `http://localhost:3000`, sign in with the configured development account,
+create a session, add recordings, and select Review, Quick, or Detailed processing.
+Configure actual model weights before Quick processing; the installation and
+license steps are in [the worker guide](docs/setup/local-worker.md). Review
+processing prepares film without a detection model. Progress, unavailable
+capabilities, and partial analysis are shown in the film room. Development
+example credentials must be changed for a shared installation.
 
 **No services at all** — run the pipeline directly on any video file:
 
 ```bash
 cd gpu-worker
-python -m pipeline run --input "../Drone Footage/DJI_0119.mp4" --no-backend --out ./out
+python -m pipeline run --input "../Drone Footage/Dji 20260416111539 0284 D.mp4" \
+  --profile review --device cpu --no-backend --out ./out
 ```
+
+Use `--profile quick` after selecting local player weights. This command writes
+artifacts to disk; saving sessions, review corrections, and team workflows uses
+the application/backend. See [CPU readiness and metric limits](docs/setup/local-worker.md#profiles-and-model-readiness).
 
 ## Repository layout
 
@@ -88,10 +118,10 @@ Football-IQ/
 
 ## Environment variables
 
-Copy `.env.example` to `.env`. It is the single source of truth for every knob:
-the local defaults work as-is, and each cloud-facing value is blank so nothing
-silently points at infrastructure you do not own. The backend's typed settings
-live in [`backend/app/config.py`](backend/app/config.py).
+The backend reads its `.env`; the worker reads process environment. The native
+launcher supplies local paths and credentials. `.env.example` documents shared
+defaults and optional settings; hosted credentials remain blank. Backend typed
+settings live in [`backend/app/config.py`](backend/app/config.py).
 
 The connection points worth knowing:
 
@@ -103,11 +133,15 @@ The connection points worth knowing:
 | `NEXT_PUBLIC_API_URL` | Backend origin, **baked into the frontend bundle at build time** (static export). |
 | `CORS_ORIGINS` | Exact frontend origins the API accepts. A deployed origin missing here shows up as "login doesn't work". |
 | `BACKEND_API_URL` | Where the pipeline worker claims jobs from. |
+| `PIPELINE_DEVICE` / `PIPELINE_CPU_THREADS` | CPU by default, with bounded inference threads; local acceleration is explicit. |
+| `PROCESSING_PROFILE` | `review`, `quick`, or `detailed`, independent of legacy queue priority. |
+| `MODEL_DETECT_PATH` | Installed local player weights; missing models produce unavailable/partial analysis. |
+| `PIPELINE_STORAGE_TRANSPORT` | `api` for authenticated backend media transfer; `direct` for shared disk/object-store access. |
 
 ## Deploying
 
-Nothing here is prescribed — the app is three ordinary processes plus a
-database, and each is a normal deployment target:
+The app can run entirely locally or connect local CPU processing to the existing
+Cloudflare/Vercel deployment. Its service boundaries remain deployable:
 
 - **Backend** — any container host. `backend/Dockerfile` builds it; it needs
   `DATABASE_URL`, `SECRET_KEY`, and `CORS_ORIGINS` set to the frontend's real
@@ -115,7 +149,8 @@ database, and each is a normal deployment target:
 - **Frontend** — a static export (`npm run build` → `out/`), servable by any
   static host or CDN. `NEXT_PUBLIC_API_URL` must be set **at build time**.
 - **Pipeline worker** — any host that can reach the backend; `gpu-worker/Dockerfile`
-  builds it. CUDA is optional.
+  builds a CPU image by default. Dedicated GPUs and hosted GPU providers are
+  optional; no burst-provider integration is configured.
 - **Database** — any managed or self-hosted Postgres 16+ with pgvector.
 - **Object storage** — optional. Local disk is the default; set `S3_*` and
   `STORAGE_BACKEND=s3` to move objects to an S3-compatible bucket.

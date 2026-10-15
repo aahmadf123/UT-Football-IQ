@@ -46,6 +46,7 @@ from pipeline.calibration.calibrated_output import (
     CalibratedOutput,
     TemperatureScaler,
 )
+from pipeline.runtime import check_control
 from pipeline.spatial import feature_schema as fs
 
 log = structlog.get_logger(__name__)
@@ -197,7 +198,9 @@ class CoverageGNN:
         b = np.zeros(c)
         onehot = np.zeros((n, c))
         onehot[np.arange(n), y] = 1.0
-        for _ in range(epochs):
+        for epoch in range(epochs):
+            if epoch % 10 == 0:
+                check_control()
             logits = xs @ w.T + b
             logits -= logits.max(axis=1, keepdims=True)
             probs = np.exp(logits)
@@ -244,13 +247,9 @@ class CoverageGNN:
     def from_checkpoint(cls, d: dict[str, Any]) -> CoverageGNN:
         version = int(d.get("schema_version", -1))
         if version != fs.SCHEMA_VERSION:
-            log.warning(
-                "coverage_gnn_checkpoint_schema_mismatch",
-                checkpoint_version=version,
-                expected=fs.SCHEMA_VERSION,
-            )
+            raise ValueError("Coverage checkpoint schema is incompatible")
         temp = d.get("temperature")
-        return cls(
+        model = cls(
             weight=np.asarray(d["weight"], dtype=np.float64),
             bias=np.asarray(d["bias"], dtype=np.float64),
             feat_mean=None if d.get("feat_mean") is None else np.asarray(d["feat_mean"], dtype=np.float64),
@@ -259,13 +258,38 @@ class CoverageGNN:
             labels=tuple(d.get("labels", COVERAGE_CLASSES)),
             provenance=d.get("provenance", {}),
         )
+        dimension = 4 * len(fs.NODE_FEATURE_NAMES)
+        if (model.weight.shape != (len(model.labels), dimension)
+                or model.bias.shape != (len(model.labels),)
+                or set(model.labels) != set(COVERAGE_CLASSES)
+                or not np.isfinite(model.weight).all() or not np.isfinite(model.bias).all()):
+            raise ValueError("Coverage checkpoint shape/labels/weights are invalid")
+        for parameter in (model.feat_mean, model.feat_std):
+            if parameter is not None and (parameter.shape != (dimension,) or not np.isfinite(parameter).all()):
+                raise ValueError("Coverage feature scaling is invalid")
+        return model
 
     @classmethod
     def load_from_env(cls, env_var: str = COVERAGE_GNN_MODEL_ENV) -> CoverageGNN | None:
         """Load a checkpoint from the path in ``env_var`` (None when absent/bad)."""
         path_str = os.environ.get(env_var)
         if not path_str:
-            return None
+            from pipeline import model_registry_client
+
+            resolved = model_registry_client.resolve("coverage")
+            if resolved is None:
+                return None
+            try:
+                model = cls.from_checkpoint(json.loads(resolved.local_path.read_text()))
+                # Production status is accepted only through the backend's
+                # measured-holdout/admin promotion gate, never a local filename.
+                model.provenance = {**(model.provenance or {}), "validated": resolved.validated,
+                                    "artifact_sha256": resolved.artifact_sha256,
+                                    "model_version_id": resolved.model_version_id}
+                return model
+            except (OSError, json.JSONDecodeError, ValueError, KeyError) as exc:
+                log.warning("coverage_registry_artifact_invalid", error=str(exc))
+                return None
         path = Path(path_str)
         if not path.is_file():
             log.warning("coverage_gnn_checkpoint_missing", path=path_str)

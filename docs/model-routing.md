@@ -258,6 +258,15 @@ changes.
 If the file is missing or malformed the worker logs a warning and falls
 back to the defaults — it does not crash.
 
+### CPU device routing
+
+With `PIPELINE_DEVICE=cpu` (the default), `select_device_model` starts from
+`CPU_DEFAULT_ROUTING` (`yolov8n`, `iou-tracker`, `jersey-ocr`,
+`calib-hough-dlt` in both buckets). `PIPELINE_LOCAL_DETECT_VARIANT` may replace
+the CPU detect variant, then the same `MODEL_ROUTING_CONFIG` overrides,
+nightly flags and same-session guardrail apply. SAM 3.1 still requires
+`ENABLE_SAM3_NIGHTLY` and never serves the same-session bucket.
+
 ## Audit trail
 
 Every completed job records the routing decision in
