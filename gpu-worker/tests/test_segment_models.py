@@ -94,9 +94,7 @@ def test_stub_segmenter_short_clip_yields_no_boundaries(tmp_path: Path) -> None:
 
 def test_stub_segmenter_does_not_open_video(tmp_path: Path) -> None:
     # No file exists at this path — adapter must still succeed.
-    out = StubSegmenter(duration_s=60.0, period_s=20.0).segment(
-        tmp_path / "missing.mp4"
-    )
+    out = StubSegmenter(duration_s=60.0, period_s=20.0).segment(tmp_path / "missing.mp4")
     assert len(out) == 2
 
 
@@ -158,7 +156,7 @@ def test_learned_play_segmenter_applies_duration_prior(
     # Two gaps: one at ~25 s (matches play prior), one at ~3 s (too close
     # — likely a false positive). The second should be either dropped or
     # have lower confidence than the first.
-    near = [(i, 0.4) for i in range(60, 121, 15)]      # ~3 s mark
+    near = [(i, 0.4) for i in range(60, 121, 15)]  # ~3 s mark
     typical = [(i, 0.4) for i in range(720, 781, 15)]  # ~25 s mark
     _fake_quiet_pipeline(monkeypatch, near + typical)
     out = LearnedPlaySegmenter(min_confidence=0.0).segment(tmp_path / "v.mp4")
@@ -219,9 +217,13 @@ def test_sportsbd_segmenter_works_with_fake_module(
 # ── Factory routing ───────────────────────────────────────────────────────────
 
 
-def test_get_segmenter_default_is_optical_flow() -> None:
-    assert isinstance(get_segmenter(None), OpticalFlowSegmenter)
-    assert isinstance(get_segmenter(""), OpticalFlowSegmenter)
+def test_get_segmenter_default_is_game_film_with_optical_flow_fallback() -> None:
+    from pipeline.segment_models import GameFilmSegmenter
+
+    for variant in (None, "", "auto", "game_film"):
+        segmenter = get_segmenter(variant)
+        assert isinstance(segmenter, GameFilmSegmenter)
+        assert isinstance(segmenter.fallback, OpticalFlowSegmenter)
     assert isinstance(get_segmenter(OPTICAL_FLOW), OpticalFlowSegmenter)
     assert isinstance(get_segmenter("optical-flow-fast"), OpticalFlowSegmenter)
 
@@ -276,9 +278,7 @@ def _patch_stage(
     fake = _FakeBackend()
     monkeypatch.setattr(stage_segment.backend, "create_clip", fake.create_clip)
     monkeypatch.setattr(stage_segment, "_video_duration", lambda _p: duration)
-    monkeypatch.setattr(
-        stage_segment, "get_segmenter", lambda _v: segmenter
-    )
+    monkeypatch.setattr(stage_segment, "get_segmenter", lambda _v: segmenter)
     monkeypatch.setattr(
         stage_segment.object_store,
         "download_to_temp",
@@ -338,36 +338,40 @@ def test_stage_segment_no_boundaries_writes_single_clip(
 def test_segmenter_proposals_cannot_extend_beyond_actual_source(monkeypatch):
     # Explicit test segmenters can have a nominal duration unrelated to this
     # uploaded recording. Their proposals must still respect real media bounds.
-    fake = _patch_stage(monkeypatch, segmenter=StubSegmenter(), duration=5.)
+    fake = _patch_stage(monkeypatch, segmenter=StubSegmenter(), duration=5.0)
     result = stage_segment.run("short-film", "file:///short-film.mp4", "job-short")
     assert result["clip_count"] == 1
-    assert [(call["start_time"], call["end_time"]) for call in fake.calls] == [(0., 5.)]
+    assert [(call["start_time"], call["end_time"]) for call in fake.calls] == [(0.0, 5.0)]
 
 
 def test_invalid_boundary_values_are_abstentions_not_invalid_clips(monkeypatch):
     fake = _FakeBackend()
     monkeypatch.setattr(stage_segment.backend, "create_clip", fake.create_clip)
-    boundaries = [{"time_s": time_s, "confidence": .8}
-                  for time_s in [-3, 0, 5, 30, float("nan"), float("inf"), None]]
+    boundaries = [
+        {"time_s": time_s, "confidence": 0.8}
+        for time_s in [-3, 0, 5, 30, float("nan"), float("inf"), None]
+    ]
     boundaries.extend([{"time_s": 2, "confidence": float("nan")}, {}])
-    clips = stage_segment._write_clips("film", boundaries, 5., "job", "optical_flow")
+    clips = stage_segment._write_clips("film", boundaries, 5.0, "job", "optical_flow")
     assert len(clips) == 1
-    assert [(call["start_time"], call["end_time"]) for call in fake.calls] == [(0., 5.)]
+    assert [(call["start_time"], call["end_time"]) for call in fake.calls] == [(0.0, 5.0)]
 
 
 def test_review_keeps_short_source_available_for_manual_annotation(monkeypatch):
-    fake = _patch_stage(monkeypatch, segmenter=StubSegmenter(no_boundaries=True), duration=2.)
-    result = stage_segment.run("short-film", "file:///short-film.mp4", "job-short",
-                               processing_profile="review")
+    fake = _patch_stage(monkeypatch, segmenter=StubSegmenter(no_boundaries=True), duration=2.0)
+    result = stage_segment.run(
+        "short-film", "file:///short-film.mp4", "job-short", processing_profile="review"
+    )
     assert result["clip_count"] == 1
-    assert [(call["start_time"], call["end_time"]) for call in fake.calls] == [(0., 2.)]
-    assert fake.calls[0]["boundary_confidence"] == 0.
+    assert [(call["start_time"], call["end_time"]) for call in fake.calls] == [(0.0, 2.0)]
+    assert fake.calls[0]["boundary_confidence"] == 0.0
 
 
 def test_quick_does_not_claim_a_short_window_is_a_detected_play(monkeypatch):
-    fake = _patch_stage(monkeypatch, segmenter=StubSegmenter(no_boundaries=True), duration=2.)
-    result = stage_segment.run("short-film", "file:///short-film.mp4", "job-short",
-                               processing_profile="quick")
+    fake = _patch_stage(monkeypatch, segmenter=StubSegmenter(no_boundaries=True), duration=2.0)
+    result = stage_segment.run(
+        "short-film", "file:///short-film.mp4", "job-short", processing_profile="quick"
+    )
     assert result["clip_count"] == 0
     assert fake.calls == []
 
@@ -408,11 +412,11 @@ def test_stage_segment_env_var_selects_variant(
 
     monkeypatch.setenv("SEGMENTER_VARIANT", LEARNED_PLAY)
     monkeypatch.setattr(stage_segment, "get_segmenter", fake_factory)
-    monkeypatch.setattr(stage_segment.backend, "create_clip",
-                        lambda *_a, **k: {"id": "x", **k})
+    monkeypatch.setattr(stage_segment.backend, "create_clip", lambda *_a, **k: {"id": "x", **k})
     monkeypatch.setattr(stage_segment, "_video_duration", lambda _p: 60.0)
-    monkeypatch.setattr(stage_segment.object_store, "download_to_temp",
-                        lambda _k: Path("/tmp/__seg_env.mp4"))
+    monkeypatch.setattr(
+        stage_segment.object_store, "download_to_temp", lambda _k: Path("/tmp/__seg_env.mp4")
+    )
 
     stage_segment.run("vid-env", "s3://b/k/x.mp4", "job-env")
     assert captured["variant"] == LEARNED_PLAY

@@ -26,6 +26,7 @@ export type ApiSideOfBall = "offense" | "defense" | "special_teams";
 export type CaptureRegime =
   | "drone_follow"
   | "fixed_sideline"
+  | "fixed_endzone"
   | "unconstrained"
   | "unknown";
 

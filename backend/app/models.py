@@ -223,6 +223,8 @@ class CaptureRegime(enum.StrEnum):
 
     drone_follow = "drone_follow"
     fixed_sideline = "fixed_sideline"
+    #: End-zone angle of edited game film (behind the offense or defense).
+    fixed_endzone = "fixed_endzone"
     unconstrained = "unconstrained"
     unknown = "unknown"
 
