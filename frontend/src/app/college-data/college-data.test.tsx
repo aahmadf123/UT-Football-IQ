@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 vi.mock("next/link", () => ({
   default: ({ children, href }: { children: React.ReactNode; href: string }) => (
@@ -42,13 +42,14 @@ interface RouteSpec {
   body: unknown;
   ok?: boolean;
   status?: number;
+  method?: string;
 }
 
 function installFetchRoutes(routes: RouteSpec[]) {
-  const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+  const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input.toString();
     for (const r of routes) {
-      if (url.includes(r.url)) {
+      if (url.includes(r.url) && (!r.method || r.method === (init?.method ?? "GET"))) {
         const ok = r.ok ?? true;
         return {
           ok,
@@ -100,6 +101,77 @@ async function renderPage() {
 }
 
 describe("CollegeDataPage states", () => {
+  test("a slow previous season cannot overwrite the selected season", async () => {
+    vi.stubEnv("NEXT_PUBLIC_API_URL", "https://api.test");
+    const originalFetch = installFetchRoutes(routes(EMPTY_TEAM, EMPTY_SCHEDULE, EMPTY_BENCH));
+    let resolveOld!: (value: Response) => void;
+    const oldSeasonResponse = new Promise<Response>((resolve) => { resolveOld = resolve; });
+    const currentYear = new Date().getFullYear();
+    const makeSchedule = (opponent: string) => ({ season: currentYear, cache: cache(), games: [{ cfbd_game_id: 401, season: currentYear, home_team: "Toledo", away_team: opponent }] });
+    const response = (body: unknown) => ({ ok: true, status: 200, json: async () => body }) as Response;
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes(`/schedule?season=${currentYear}`)) return oldSeasonResponse;
+      if (url.includes(`/schedule?season=${currentYear - 1}`)) return Promise.resolve(response(makeSchedule("Current selection")));
+      return originalFetch(input, init);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    await renderPage();
+    await waitFor(() => expect(fetchMock.mock.calls.some((call) => String(call[0]).includes(`/schedule?season=${currentYear}`))).toBe(true));
+    fireEvent.change(screen.getByLabelText("Season"), { target: { value: String(currentYear - 1) } });
+    await screen.findByRole("button", { name: "Current selection @ Toledo" });
+    await act(async () => { resolveOld(response(makeSchedule("Stale season"))); await oldSeasonResponse; });
+    expect(screen.getByRole("button", { name: "Current selection @ Toledo" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Stale season @ Toledo" })).toBeNull();
+  });
+
+  test("a schedule entry opens its cached play-by-play", async () => {
+    vi.stubEnv("NEXT_PUBLIC_API_URL", "https://api.test");
+    installFetchRoutes([
+      { url: "/api/cfbd/games/401/plays", body: { game_id: 401, cache: cache(), plays: [{ cfbd_play_id: 9, offense: "Toledo", defense: "Akron", period: 1, down: 3, distance: 4, yard_line: 30, yards_gained: 6, play_type: "Rush", play_text: "Recorded third-down run" }] } },
+      ...routes(EMPTY_TEAM, { season: 2026, cache: cache(), games: [{ cfbd_game_id: 401, season: 2026, home_team: "Toledo", away_team: "Akron" }] }, EMPTY_BENCH),
+    ]);
+    await renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: "Akron @ Toledo" }));
+    expect(await screen.findByText("Recorded third-down run")).toBeTruthy();
+    expect(screen.getByText("3 & 4")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Close game plays" }));
+    expect(screen.queryByText("Recorded third-down run")).toBeNull();
+  });
+
+  test("administrators refresh bounded scopes through the team API", async () => {
+    vi.stubEnv("NEXT_PUBLIC_API_URL", "https://api.test");
+    vi.stubEnv("NEXT_PUBLIC_DEMO_ROLE", "admin");
+    const fetchMock = installFetchRoutes([
+      { url: "/api/cfbd/status", body: { configured: true, source: "CollegeFootballData.com" } },
+      { url: "/api/cfbd/sync", body: { status: "succeeded", rows_written: 4, message: "Updated" } },
+      ...routes(EMPTY_TEAM, EMPTY_SCHEDULE, EMPTY_BENCH),
+    ]);
+    await renderPage();
+    const button = await screen.findByRole("button", { name: "Refresh season data" });
+    await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(button);
+    await screen.findByText(/Updated 12 cached records/);
+    const writes = fetchMock.mock.calls.filter((call) => String(call[0]).endsWith("/sync"));
+    expect(writes).toHaveLength(3);
+    const bodies = writes.map((call) => JSON.parse(String((call[1] as RequestInit).body)));
+    expect(bodies.map((body) => body.scope)).toEqual(["teams", "schedule", "benchmark"]);
+    expect(bodies.every((body) => Object.keys(body).sort().join(",") === "scope,season,season_type")).toBe(true);
+    expect(fetchMock.mock.calls.every((call) => String(call[0]).startsWith("https://api.test/"))).toBe(true);
+  });
+
+  test("missing server connection disables quota-consuming refresh", async () => {
+    vi.stubEnv("NEXT_PUBLIC_API_URL", "https://api.test");
+    vi.stubEnv("NEXT_PUBLIC_DEMO_ROLE", "admin");
+    installFetchRoutes([
+      { url: "/api/cfbd/status", body: { configured: false, source: "CollegeFootballData.com" } },
+      ...routes(EMPTY_TEAM, EMPTY_SCHEDULE, EMPTY_BENCH),
+    ]);
+    await renderPage();
+    await screen.findByText(/CFBD key is not configured/);
+    expect((screen.getByRole("button", { name: "Refresh season data" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
   test("uses the local API and surfaces unavailable cached data without calling CFBD directly", async () => {
     vi.stubEnv("NEXT_PUBLIC_API_URL", "");
     const fetchMock = vi.fn().mockRejectedValue(new TypeError("Failed to fetch"));

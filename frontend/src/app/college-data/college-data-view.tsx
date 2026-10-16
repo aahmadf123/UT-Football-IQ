@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnalyticsCard, type AnalyticsCardState } from "@/components/analytics-card";
 import { FieldDiagram } from "@/components/field-diagram";
 import { useAppState } from "@/lib/app-state";
@@ -18,6 +18,15 @@ import type {
 } from "@/lib/types";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
+import { Database, RefreshCw, ArrowRight, X } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { NativeSelect } from "@/components/ui/native-select";
+import {
+  fetchCfbdConnection, fetchCfbdGamePlays, refreshCfbdScope,
+  type CfbdConnectionStatus, type CfbdGamePlays, type CfbdSyncScope,
+} from "@/lib/cfbd-admin";
 
 const SOURCE_LABEL = "CollegeFootballData.com";
 
@@ -25,7 +34,17 @@ const OFFLINE_REASON =
   "Cached CFBD analytics are unavailable offline — they load when the team server is connected.";
 
 export function CollegeDataView() {
-  const { authToken } = useAppState();
+  const { authToken, currentRole } = useAppState();
+  const [season, setSeason] = useState(new Date().getFullYear());
+  const [seasonType, setSeasonType] = useState<"regular" | "postseason">("regular");
+  const [week, setWeek] = useState(1);
+  const [connection, setConnection] = useState<CfbdConnectionStatus | null>(null);
+  const [syncing, setSyncing] = useState<string | null>(null);
+  const [syncNotice, setSyncNotice] = useState<string | null>(null);
+  const [syncError, setSyncError] = useState<string | null>(null);
+  const [selectedGame, setSelectedGame] = useState<{ id: number; label: string } | null>(null);
+  const [plays, setPlays] = useState<FetchState<CfbdGamePlays>>({ kind: "empty" });
+  const loadGeneration = useRef(0);
   const [team, setTeam] = useState<FetchState<CfbdTeamResponse>>({ kind: "loading" });
   const [schedule, setSchedule] = useState<FetchState<CfbdScheduleResponse>>({ kind: "loading" });
   const [benchmark, setBenchmark] = useState<FetchState<CfbdMacBenchmarkResponse>>({
@@ -33,6 +52,7 @@ export function CollegeDataView() {
   });
 
   const load = useCallback(async () => {
+    const generation = ++loadGeneration.current;
     setTeam({ kind: "loading" });
     setSchedule({ kind: "loading" });
     setBenchmark({ kind: "loading" });
@@ -42,21 +62,62 @@ export function CollegeDataView() {
       set: (s: FetchState<T>) => void,
     ): Promise<void> => {
       try {
-        set({ kind: "ready", data: await fn() });
+        const data = await fn();
+        if (generation === loadGeneration.current) set({ kind: "ready", data });
       } catch (err) {
-        set({ kind: "error", message: err instanceof Error ? err.message : String(err) });
+        if (generation === loadGeneration.current) set({ kind: "error", message: err instanceof Error ? err.message : String(err) });
       }
     };
 
     await Promise.all([
       run(() => fetchCfbdToledoTeam(authToken), setTeam),
-      run(() => fetchCfbdToledoSchedule(undefined, authToken), setSchedule),
-      run(() => fetchCfbdMacBenchmark(undefined, authToken), setBenchmark),
+      run(() => fetchCfbdToledoSchedule(season, authToken), setSchedule),
+      run(() => fetchCfbdMacBenchmark(season, authToken), setBenchmark),
     ]);
+  }, [authToken, season]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchCfbdConnection(authToken).then((value) => {
+      if (!cancelled && typeof value.configured === "boolean") setConnection(value);
+    }).catch(() => { if (!cancelled) setConnection(null); });
+    return () => { cancelled = true; };
   }, [authToken]);
 
   useEffect(() => {
-    load();
+    if (!selectedGame) return;
+    let cancelled = false;
+    setPlays({ kind: "loading" });
+    fetchCfbdGamePlays(selectedGame.id, authToken).then((data) => {
+      if (!cancelled) setPlays({ kind: "ready", data });
+    }).catch((error: unknown) => {
+      if (!cancelled) setPlays({ kind: "error", message: error instanceof Error ? error.message : "Unable to load plays." });
+    });
+    return () => { cancelled = true; };
+  }, [selectedGame, authToken, syncNotice]);
+
+  async function sync(scopes: CfbdSyncScope[]) {
+    setSyncError(null); setSyncNotice(null);
+    let count = 0;
+    try {
+      for (const scope of scopes) {
+        setSyncing(scope === "plays" ? `week ${week} play-by-play` : scope);
+        const result = await refreshCfbdScope({ season, season_type: seasonType, scope, ...(scope === "plays" ? { week } : {}) }, authToken);
+        count += result.rows_written;
+        if (result.status !== "succeeded") throw new Error(result.message);
+      }
+      setSyncNotice(`Updated ${count} cached records for ${season}.`);
+    } catch (error) {
+      setSyncError(error instanceof Error ? error.message : "Unable to refresh college data.");
+    } finally {
+      setSyncing(null);
+      await load();
+    }
+  }
+
+  useEffect(() => {
+    void load();
+    return () => { loadGeneration.current += 1; };
   }, [load]);
 
   // Aggregate cache freshness across whichever responses have loaded.
@@ -100,6 +161,27 @@ export function CollegeDataView() {
 
   return (
     <div className="flex flex-col gap-4">
+      <section className="rounded-xl border border-border bg-card p-5" aria-label="College data connection">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex gap-3"><Database className="mt-1 size-5 text-primary" /><div>
+            <h2 className="text-lg font-semibold">College football intelligence</h2>
+            <p className="mt-1 max-w-2xl text-sm text-muted-foreground">Toledo schedules, conference benchmarks, and game context from CollegeFootballData.com.</p>
+            <p role="status" className="mt-2 text-xs text-muted-foreground">{connection?.configured ? "CFBD connected · shared server cache" : connection?.configured === false ? "CFBD key is not configured on the team server. Cached data stays available." : "Connection status unavailable. Cached data can still be browsed."}</p>
+          </div></div>
+          <Button size="sm" variant="outline" onClick={() => void load()} disabled={syncing !== null}><RefreshCw className="size-4" /> Reload cached data</Button>
+        </div>
+        <div className="mt-5 flex flex-wrap items-end gap-3">
+          <div><Label htmlFor="cfbd-season">Season</Label><NativeSelect id="cfbd-season" className="mt-2 w-28" value={season} disabled={syncing !== null} onChange={(event) => { setSeason(Number(event.target.value)); setSelectedGame(null); setSyncNotice(null); }}>{Array.from({ length: new Date().getFullYear() - 1998 }, (_, index) => new Date().getFullYear() + 1 - index).map((year) => <option key={year} value={year}>{year}</option>)}</NativeSelect></div>
+          {currentRole === "admin" ? <>
+            <div><Label htmlFor="cfbd-season-type">Season type</Label><NativeSelect id="cfbd-season-type" className="mt-2" value={seasonType} disabled={syncing !== null} onChange={(event) => setSeasonType(event.target.value as "regular" | "postseason")}><option value="regular">Regular season</option><option value="postseason">Postseason</option></NativeSelect></div>
+            <Button disabled={!connection?.configured || syncing !== null} onClick={() => void sync(["teams", "schedule", "benchmark"])}><RefreshCw className={cn("size-4", syncing && "animate-spin")} />{syncing ? `Refreshing ${syncing}…` : "Refresh season data"}</Button>
+            <div><Label htmlFor="cfbd-week">Week</Label><Input id="cfbd-week" type="number" min={1} max={20} className="mt-2 w-20" value={week} disabled={syncing !== null} onChange={(event) => setWeek(Math.min(20, Math.max(1, Number(event.target.value))))} /></div>
+            <Button variant="outline" disabled={!connection?.configured || syncing !== null} onClick={() => void sync(["plays"])}>Refresh week’s plays</Button>
+          </> : <p className="pb-2 text-xs text-muted-foreground">An administrator can refresh the shared CFBD cache.</p>}
+        </div>
+        {syncNotice ? <p role="status" className="mt-3 text-sm text-status-ok">{syncNotice}</p> : null}
+        {syncError ? <p role="alert" className="mt-3 text-sm text-status-danger">{syncError}</p> : null}
+      </section>
       {banner && (
         <div
           data-testid="cfbd-banner"
@@ -119,7 +201,7 @@ export function CollegeDataView() {
         <AnalyticsCard
           title="Toledo Team"
           state={toCardState(team, (r) => (r.team ? "live" : "empty"), load, {
-            empty: "No cached Toledo team record yet. Run the CFBD ingestion (Issues #161/#162).",
+            empty: "No cached Toledo team record yet. An administrator can refresh season data above.",
           })}
         >
           {team.kind === "ready" && team.data.team && (
@@ -147,13 +229,13 @@ export function CollegeDataView() {
               {schedule.data.games.map((g) => (
                 <div
                   key={g.cfbd_game_id}
-                  className="grid grid-cols-[74px_1fr_auto] items-baseline gap-2 text-sm"
+                  className="grid grid-cols-[74px_1fr_auto] items-center gap-2 border-b border-border-soft py-3 text-sm last:border-0"
                 >
                   <span className="text-xs text-muted-foreground">
                     {g.start_date ? formatDate(g.start_date) : "TBD"}
                   </span>
                   <span className="truncate font-medium">
-                    {g.away_team} @ {g.home_team}
+                    <button type="button" onClick={() => setSelectedGame({ id: g.cfbd_game_id, label: `${g.away_team} @ ${g.home_team}` })} className="inline-flex max-w-full items-center gap-2 text-left hover:text-primary">{g.away_team} @ {g.home_team}<ArrowRight className="size-3 shrink-0" /></button>
                   </span>
                   <span data-numeric className="font-mono text-xs">
                     {g.home_points != null && g.away_points != null
@@ -166,6 +248,16 @@ export function CollegeDataView() {
           )}
         </AnalyticsCard>
       </div>
+
+      {selectedGame ? <Card>
+        <CardHeader className="flex flex-row items-center justify-between gap-3"><div><h2 className="font-semibold">{selectedGame.label}</h2><p className="mt-1 text-xs text-muted-foreground">Cached play-by-play · external game context</p></div><Button size="icon" variant="ghost" aria-label="Close game plays" onClick={() => setSelectedGame(null)}><X className="size-4" /></Button></CardHeader>
+        <CardContent>
+          {plays.kind === "loading" ? <p role="status">Loading game plays…</p> : null}
+          {plays.kind === "error" ? <p role="alert" className="text-sm text-status-danger">{plays.message}</p> : null}
+          {plays.kind === "ready" && plays.data.plays.length === 0 ? <p className="text-sm text-muted-foreground">No cached plays for this game. An administrator can refresh its week above.</p> : null}
+          {plays.kind === "ready" && plays.data.plays.length > 0 ? <div className="max-h-96 overflow-auto"><table className="w-full text-left text-sm"><thead className="sticky top-0 bg-card text-xs text-muted-foreground"><tr><th className="p-2">Quarter</th><th className="p-2">Situation</th><th className="p-2">Play</th><th className="p-2 text-right">Yards</th></tr></thead><tbody>{plays.data.plays.map((play) => <tr key={play.cfbd_play_id} className="border-t border-border-soft"><td className="p-2 tabular-nums">{play.period ?? "—"}</td><td className="whitespace-nowrap p-2">{play.down != null ? `${play.down} & ${play.distance ?? "—"}` : "—"}<span className="block text-xs text-muted-foreground">{play.offense ?? "Unknown offense"}</span></td><td className="p-2">{play.play_text || play.play_type || "Play details unavailable"}</td><td className="p-2 text-right tabular-nums">{play.yards_gained ?? "—"}</td></tr>)}</tbody></table></div> : null}
+        </CardContent>
+      </Card> : null}
 
       <div className="grid gap-4 lg:grid-cols-3">
         <AnalyticsCard
@@ -216,8 +308,7 @@ export function CollegeDataView() {
           <CardContent>
             <FieldDiagram />
             <p className="mt-2 text-xs text-muted-foreground">
-              Generic NCAA field rendered natively in SVG. Calibrated route overlays land with the
-              tracking pipeline (#127/#128/#129).
+              NCAA field dimensions for reference. View calibrated tracking overlays alongside your film in Clip Review.
             </p>
           </CardContent>
         </Card>

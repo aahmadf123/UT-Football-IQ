@@ -22,6 +22,7 @@ import { StatusBadge, type StatusTone } from "@/components/composite/status-badg
 import { Label } from "@/components/ui/label";
 import { NativeSelect } from "@/components/ui/native-select";
 import type { ProcessingProfile } from "@/lib/types";
+import { useWorkspaceContext } from "@/lib/workspace-context";
 
 // Per-video local request state, layered on top of the backend inbox status so
 // the coach gets immediate "Queued" feedback before the backend reflects it.
@@ -70,7 +71,10 @@ export function UploadProcessFilm({ onUploadClick }: { onUploadClick: () => void
     mockMode,
     authToken,
     data,
+    currentRole,
   } = useAppState();
+  const workspace = useWorkspaceContext();
+  const canProcess = ["admin", "analyst", "coach", "sportsperformance"].includes(currentRole);
 
   const [requests, setRequests] = useState<Record<string, RequestState>>({});
   const [pending, setPending] = useState<Record<string, boolean>>({});
@@ -78,6 +82,10 @@ export function UploadProcessFilm({ onUploadClick }: { onUploadClick: () => void
   const runtimeFetcher = useCallback(() => fetchSystemStatus(authToken), [authToken]);
   const { state: runtime, reload: reloadRuntime } = useFetchState(runtimeFetcher);
   const status = runtime.kind === "ready" ? runtime.data : null;
+  const selectedProfile = status?.profiles?.find((item) => item.id === profile);
+  const profileUnavailable = selectedProfile
+    ? !selectedProfile.available
+    : profile !== "review" && status?.capabilities?.processing === false;
   useEffect(() => {
     if (status?.profiles?.find((item) => item.id === profile)?.available === false) {
       const available = status.profiles.find((item) => item.available);
@@ -146,7 +154,9 @@ export function UploadProcessFilm({ onUploadClick }: { onUploadClick: () => void
     [authToken, runRequest, profile],
   );
 
-  const inFlight = uploads.filter((u) => u.phase !== "done");
+  // Keep duplicate outcomes visible so coaches can open the preserved film
+  // after a completed upload, rather than losing the result with the spinner.
+  const uploadActivity = uploads.filter((u) => u.phase !== "done" || u.duplicate);
 
   return (
     <div className="flex flex-col gap-4">
@@ -157,35 +167,37 @@ export function UploadProcessFilm({ onUploadClick }: { onUploadClick: () => void
               Upload &amp; Process Film
             </h2>
             <p className="mt-0.5 max-w-2xl text-xs text-muted-foreground">
-              Save practice or game film in your library. Processing follows your automatic-processing setting; recordings waiting in the library can be started here. The connected processing computer runs the selected profile.
+              Save practice or game film in your {workspace.local ? "local" : "team"} library. Choose a processing profile and start any recording below. Progress and results are saved with the film.
             </p>
           </div>
-          <Button onClick={onUploadClick}>
+          <Button onClick={onUploadClick} disabled={!canProcess}>
             <Upload className="size-4" /> Upload Film
           </Button>
         </CardHeader>
         <CardContent className="flex flex-col gap-2">
           <Label htmlFor="processing-profile">Processing profile</Label>
           <NativeSelect id="processing-profile" value={profile} onChange={(event) => setProfile(event.target.value as ProcessingProfile)}>
-            <option value="review">Film review — segment and play video</option>
+            <option value="review" disabled={status?.profiles?.find((item) => item.id === "review")?.available === false}>Film review — segment and play video</option>
             <option value="quick" disabled={status?.profiles?.find((item) => item.id === "quick")?.available === false}>Quick CPU tracking</option>
             <option value="detailed" disabled={status?.profiles?.find((item) => item.id === "detailed")?.available === false}>Detailed CPU analysis</option>
           </NativeSelect>
-          <p className="text-xs text-muted-foreground">{status?.profiles?.find((item) => item.id === profile)?.description ?? "Quick tracking uses lighter local models. Detailed analysis takes longer. Processing speed depends on this laptop and the recording."}</p>
-          {status?.worker?.ready === false && <p role="status" className="text-sm text-status-warn">{status.worker.reason ?? "The processing worker is unavailable. Start it from This computer in Settings."}<Button size="sm" variant="link" onClick={reloadRuntime}>Check again</Button></p>}
-          {runtime.kind === "error" && <p role="status" className="text-xs text-status-warn">Could not check this computer. <Button size="sm" variant="link" onClick={reloadRuntime}>Check again</Button></p>}
+          <p className="text-xs text-muted-foreground">{selectedProfile?.description ?? "Quick tracking uses lighter models. Detailed analysis takes longer. Processing speed depends on the connected processor and recording."}</p>
+          {status?.processing_limits?.message ? <p className="rounded-lg border border-border-soft bg-secondary/30 p-3 text-xs leading-relaxed text-muted-foreground">{status.processing_limits.message}</p> : null}
+          {profileUnavailable ? <p role="status" className="text-sm text-status-warn">{status?.worker?.reason ?? "No connected processor is ready for this profile."}<Button size="sm" variant="link" onClick={reloadRuntime}>Check again</Button></p> : status && selectedProfile?.available ? <p role="status" className="text-xs text-status-ok">{workspace.local ? "Local processor" : "Team processor"} available for {selectedProfile.label.toLowerCase()}.</p> : null}
+          {!canProcess ? <p className="text-xs text-muted-foreground">Your account has read-only film access. Authorized staff can upload and process recordings.</p> : null}
+          {runtime.kind === "error" && <p role="status" className="text-xs text-status-warn">Could not check the connected processor. <Button size="sm" variant="link" onClick={reloadRuntime}>Check again</Button></p>}
         </CardContent>
       </Card>
 
-      {inFlight.length > 0 && (
+      {uploadActivity.length > 0 && (
         <Card>
           <CardHeader>
             <h2 className="font-display text-base font-semibold uppercase tracking-wide">
-              Uploading now
+              Upload activity
             </h2>
           </CardHeader>
           <CardContent>
-            <UploadStatusList uploads={inFlight} />
+            <UploadStatusList uploads={uploadActivity} />
           </CardContent>
         </Card>
       )}
@@ -203,7 +215,7 @@ export function UploadProcessFilm({ onUploadClick }: { onUploadClick: () => void
             mockMode={mockMode}
             requests={requests}
             pending={pending}
-            processingUnavailable={status?.capabilities?.processing === false || status?.profiles?.find((item) => item.id === profile)?.available === false}
+            processingUnavailable={!canProcess || profileUnavailable}
             pausedVideoIds={new Set(data.jobs.filter((job) => job.status === "paused" && job.video_id).map((job) => job.video_id!))}
             onProcess={handleProcess}
             onRetry={handleRetry}

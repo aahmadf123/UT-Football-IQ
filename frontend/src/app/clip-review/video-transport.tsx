@@ -33,6 +33,7 @@ import {
   Volume2,
   VolumeX,
   Maximize,
+  Keyboard,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { NativeSelect } from "@/components/ui/native-select";
@@ -59,7 +60,7 @@ export function frameStepTarget(localTime: number, fps: number, delta: number): 
 function isTypingTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
   if (target.isContentEditable) return true;
-  return ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName);
+  return ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName) || target.closest('[role="slider"]') != null;
 }
 
 /**
@@ -69,7 +70,7 @@ function isTypingTarget(target: EventTarget | null): boolean {
  */
 function isActivationTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
-  return target.closest('button, a, select, [role="button"]') != null;
+  return target.closest('button, a, select, summary, [role="button"]') != null;
 }
 
 export function VideoTransport({
@@ -132,20 +133,30 @@ export function VideoTransport({
   // playback doesn't run into unrelated footage.
   useEffect(() => {
     const el = videoRef.current;
-    if (!el || (!loop && !enforceBounds)) return;
-    const boundary = clipOffset + duration - 0.05;
+    if (!el || duration <= 0 || (!loop && !enforceBounds)) return;
+    const boundary = clipOffset + Math.max(0, duration - 0.03);
     const onTime = () => {
       if (el.currentTime < boundary) return;
       if (loop) {
         el.currentTime = clipOffset;
         void el.play().catch(() => undefined);
       } else {
+        if (el.paused && Math.abs(el.currentTime - boundary) < 0.001) return;
         el.pause();
         el.currentTime = boundary;
       }
     };
     el.addEventListener("timeupdate", onTime);
-    return () => el.removeEventListener("timeupdate", onTime);
+    let frameHandle = 0;
+    const onFrame = () => {
+      onTime();
+      frameHandle = el.requestVideoFrameCallback(onFrame);
+    };
+    if (el.requestVideoFrameCallback) frameHandle = el.requestVideoFrameCallback(onFrame);
+    return () => {
+      el.removeEventListener("timeupdate", onTime);
+      if (frameHandle) el.cancelVideoFrameCallback(frameHandle);
+    };
   }, [videoRef, loop, enforceBounds, clipOffset, duration]);
 
   const seekLocal = useCallback(
@@ -161,9 +172,12 @@ export function VideoTransport({
   const togglePlay = useCallback(() => {
     const el = videoRef.current;
     if (!el) return;
-    if (el.paused) void el.play().catch(() => undefined);
+    if (el.paused) {
+      if (el.currentTime >= clipOffset + duration - 0.06) el.currentTime = clipOffset;
+      void el.play().catch(() => undefined);
+    }
     else el.pause();
-  }, [videoRef]);
+  }, [videoRef, clipOffset, duration]);
 
   const stepFrame = useCallback(
     (delta: number) => {
@@ -285,7 +299,7 @@ export function VideoTransport({
       data-testid="video-transport"
       role="group"
       aria-label="Playback transport"
-      className="mt-2 flex flex-wrap items-center gap-1.5"
+      className="mt-1 flex flex-wrap items-center gap-1.5"
     >
       <Button
         variant="outline"
@@ -362,7 +376,7 @@ export function VideoTransport({
         data-testid="transport-readout"
         className="ml-1 font-mono text-xs text-muted-foreground"
       >
-        {currentLocalTime.toFixed(2)}s / {duration.toFixed(1)}s · F{frame}
+        {currentLocalTime.toFixed(2)}s <span className="text-muted-foreground/60">/ {duration.toFixed(1)}s · F{frame}</span>
       </span>
 
       <div className="ml-auto flex items-center gap-1.5">
@@ -393,6 +407,10 @@ export function VideoTransport({
         >
           <Repeat className="size-3.5" />
         </Button>
+        <details className="relative">
+          <summary aria-label="Playback keyboard shortcuts" title="Keyboard shortcuts" className="flex size-8 cursor-pointer list-none items-center justify-center rounded-md border border-border-soft text-muted-foreground hover:bg-accent"><Keyboard className="size-3.5" /></summary>
+          <div className="absolute right-0 top-10 z-30 w-64 rounded-lg border border-border bg-popover p-3 text-xs shadow-xl"><p className="mb-2 font-semibold">Keyboard shortcuts</p><dl className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-2 text-muted-foreground"><dt>Play / pause</dt><dd className="font-mono">Space / K</dd><dt>Previous / next frame</dt><dd className="font-mono">← / →</dd><dt>Slower / faster</dt><dd className="font-mono">J / L</dd><dt>Previous / next event</dt><dd className="font-mono">Shift E / E</dd><dt>Previous / next play</dt><dd className="font-mono">[ / ]</dd></dl></div>
+        </details>
       </div>
     </div>
   );

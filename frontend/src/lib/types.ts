@@ -185,6 +185,13 @@ export interface SystemStatus {
   supervisor: Record<string, unknown> | null;
   profiles: Array<{ id: ProcessingProfile; label: string; description: string; available: boolean }>;
   limitations: string[];
+  processing_limits?: {
+    source_max_bytes: number;
+    duration_max_seconds: number;
+    max_pixels: number;
+    min_scratch_free_bytes: number;
+    message: string;
+  } | null;
 }
 
 export interface TrainingDataset {

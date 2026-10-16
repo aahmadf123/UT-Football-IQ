@@ -376,6 +376,7 @@ def _api_download(ref: str, bucket: str, key: str) -> Path:
     """Use delegated signed film access without database/object-store secrets."""
     import httpx
 
+    from pipeline.hosted_limits import MAX_SOURCE_BYTES, HostedCapacityError
     from pipeline.runtime import check_control
 
     base = os.environ["BACKEND_API_URL"].rstrip("/")
@@ -393,12 +394,23 @@ def _api_download(ref: str, bucket: str, key: str) -> Path:
             url = base + url
         descriptor, temporary = tempfile.mkstemp(suffix=Path(key).suffix or ".bin")
         path = Path(temporary)
+        # The shared hosted container must never fill its disk before the
+        # post-download probe runs, whatever object the reference resolves to.
+        limit = MAX_SOURCE_BYTES if os.environ.get("PIPELINE_HOSTED") == "1" else None
         try:
             with os.fdopen(descriptor, "wb") as target:
                 with client.stream("GET", url) as response:
                     response.raise_for_status()
+                    written = 0
                     for chunk in response.iter_bytes():
                         check_control()
+                        written += len(chunk)
+                        if limit is not None and written > limit:
+                            raise HostedCapacityError(
+                                "Hosted CPU processing accepts up to 512 MiB per recording. "
+                                "Upload a short segment for processing; the original stays in "
+                                "the shared library."
+                            )
                         target.write(chunk)
             return path
         except BaseException:

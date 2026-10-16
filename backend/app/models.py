@@ -25,6 +25,7 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     Date,
     DateTime,
@@ -448,6 +449,10 @@ class Video(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     filename: Mapped[str] = mapped_column(String(512), nullable=False)
     storage_uri: Mapped[str] = mapped_column(Text, nullable=False)
+    # Server-verified content identity. NULL preserves older recordings until
+    # they are registered again; Postgres permits multiple NULLs in this index.
+    content_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True, unique=True)
+    size_bytes: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     status: Mapped[VideoStatus] = mapped_column(
         Enum(VideoStatus, name="video_status"), nullable=False, default=VideoStatus.uploaded
     )

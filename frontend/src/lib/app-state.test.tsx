@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { act, cleanup, render, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 
 // We capture the context value via a probe component so each test can read
 // the live app-state snapshot without depending on UI structure.
@@ -136,6 +136,37 @@ describe("AppStateProvider — empty live response does not fall back to mock", 
     expect(state.data.videos.length).toBe(0);
     expect(state.data.jobs.length).toBe(0);
     expect(state.mockMode).toBe(false);
+  });
+
+  test("duplicate upload reuses the existing recording and reports its preserved context", async () => {
+    const original = { id: "existing-video", filename: "original.mp4", status: "ready", created_at: "2026-10-14", practice_session_id: "original-session", storage_uri: "local://raw-video/original.mp4" };
+    vi.stubGlobal("XMLHttpRequest", undefined);
+    vi.stubGlobal("fetch", vi.fn(async (input: string, options?: RequestInit) => {
+      const url = String(input);
+      const result = url.endsWith("/upload-url")
+        ? { uploadUrl: "http://api.test/upload", key: "new-key" }
+        : options?.method === "PUT"
+          ? { storageUri: "local://raw-video/new-key.mp4", size: 5, etag: "etag" }
+          : url.endsWith("/api/v1/videos") && options?.method === "POST"
+            ? { ...original, duplicate: true }
+            : url.endsWith("/api/v1/videos") ? [original] : [];
+      return { ok: true, status: 200, json: async () => result };
+    }));
+    const { AppStateProvider, useAppState } = await freshImport();
+    const { UploadProcessFilm } = await import("@/components/film-room/upload-process");
+    const { captured, Probe } = makeProbe();
+    render(<AppStateProvider><Probe useHook={useAppState} /><UploadProcessFilm onUploadClick={() => {}} /></AppStateProvider>);
+    await waitFor(() => expect(captured.current?.apiStatus).toBe("live"));
+    await act(async () => {
+      await captured.current?.addUploads([new File(["bytes"], "renamed.mp4", { type: "video/mp4" })]);
+    });
+    await waitFor(() => expect(captured.current?.uploads[0]?.phase).toBe("done"));
+    expect(captured.current?.uploads[0]).toMatchObject({ videoId: original.id, duplicate: true, storageUri: original.storage_uri });
+    expect(captured.current?.data.videos).toHaveLength(1);
+    expect(captured.current?.data.videos[0]).toMatchObject(original);
+    expect(captured.current?.data.videos[0]?.practice_session_id).toBe("original-session");
+    expect(screen.getByText("Already in library")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Open recording" }).getAttribute("href")).toMatch(/^\/clip-review\/?\?videoId=existing-video$/);
   });
 
   test("old browser upload names cannot reconstitute film that was never saved", async () => {

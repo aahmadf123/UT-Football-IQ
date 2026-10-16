@@ -43,6 +43,8 @@ DEFAULT_SEASON_TYPE = "regular"
 # CFBD's /plays endpoint requires a week; regular-season weeks plus a buffer for
 # conference championship week. Postseason is synced separately when requested.
 DEFAULT_WEEKS: tuple[int, ...] = tuple(range(1, 16))
+# Stay safely below asyncpg's 32,767 bind-parameter ceiling per statement.
+_MAX_BIND_PARAMS = 30_000
 
 
 @dataclass
@@ -95,14 +97,23 @@ async def _upsert(
     """
     if not rows:
         return 0
-    stmt = pg_insert(table).values(rows)
-    value_keys = set(rows[0].keys())
-    update_set: dict[str, Any] = {
-        key: stmt.excluded[key] for key in value_keys if key not in conflict_cols
-    }
-    update_set["updated_at"] = func.now()
-    stmt = stmt.on_conflict_do_update(index_elements=list(conflict_cols), set_=update_set)
-    await session.execute(stmt)
+    # asyncpg caps one statement at 32,767 bind parameters; a conference
+    # week of plays exceeds that, so split the multi-row VALUES into batches.
+    # Python-side column defaults also become per-row parameters, so size
+    # batches by the full table width rather than the supplied keys.
+    columns = getattr(table, "__table__", table).columns
+    width = max(len(columns), *(len(row) for row in rows))
+    batch_size = max(1, _MAX_BIND_PARAMS // width)
+    for start in range(0, len(rows), batch_size):
+        batch = rows[start : start + batch_size]
+        stmt = pg_insert(table).values(batch)
+        value_keys = set(batch[0].keys())
+        update_set: dict[str, Any] = {
+            key: stmt.excluded[key] for key in value_keys if key not in conflict_cols
+        }
+        update_set["updated_at"] = func.now()
+        stmt = stmt.on_conflict_do_update(index_elements=list(conflict_cols), set_=update_set)
+        await session.execute(stmt)
     return len(rows)
 
 

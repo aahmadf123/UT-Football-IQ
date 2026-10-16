@@ -25,11 +25,15 @@ interface MockOptions {
   jobResponse?: { status: number; body: unknown };
   postBodies?: Array<Record<string, unknown>>;
   inboxItems?: Array<Record<string, unknown>>;
+  systemStatus?: Record<string, unknown>;
 }
 
 function installFetch(opts: MockOptions = {}) {
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
     const method = init?.method ?? "GET";
+    if (url.includes("/api/v1/system/status") && opts.systemStatus) {
+      return { ok: true, status: 200, json: async () => opts.systemStatus } as Response;
+    }
     if (method === "POST" && url.includes("/api/v1/jobs")) {
       opts.postBodies?.push(JSON.parse((init?.body as string) ?? "{}"));
       const r = opts.jobResponse ?? { status: 201, body: { id: "job-1", status: "queued" } };
@@ -86,6 +90,38 @@ beforeEach(() => {
 });
 
 describe("UploadProcessFilm", () => {
+  test("model-free review can run when tracking is unavailable", async () => {
+    vi.stubEnv("NEXT_PUBLIC_API_URL", "https://api.test");
+    const postBodies: Array<Record<string, unknown>> = [];
+    installFetch({ postBodies, systemStatus: {
+      capabilities: { processing: false },
+      worker: { ready: false, reason: "No ready detector" },
+      profiles: [
+        { id: "review", label: "Film review", description: "Prepare film without a model", available: true },
+        { id: "quick", label: "Quick tracking", available: false },
+      ],
+    } });
+    await renderUploadProcess();
+    await waitFor(() => expect((screen.getByLabelText("Processing profile") as HTMLSelectElement).value).toBe("review"));
+    const process = screen.getByTestId("process-film-vid-1") as HTMLButtonElement;
+    expect(process.disabled).toBe(false);
+    fireEvent.click(process);
+    await waitFor(() => expect(postBodies[0]).toMatchObject({ processing_profile: "review" }));
+  });
+
+  test("read-only viewers cannot start processing", async () => {
+    vi.stubEnv("NEXT_PUBLIC_API_URL", "https://api.test");
+    vi.stubEnv("NEXT_PUBLIC_DEMO_ROLE", "viewer");
+    const postBodies: Array<Record<string, unknown>> = [];
+    installFetch({ postBodies });
+    await renderUploadProcess();
+    const process = await screen.findByTestId("process-film-vid-1") as HTMLButtonElement;
+    expect(process.disabled).toBe(true);
+    fireEvent.click(process);
+    expect(postBodies).toHaveLength(0);
+    expect(screen.getByText(/Your account has read-only film access/)).toBeTruthy();
+  });
+
   test("processed film can be reprocessed with the selected CPU profile after coach edits", async () => {
     vi.stubEnv("NEXT_PUBLIC_API_URL", "https://api.test");
     const postBodies: Array<Record<string, unknown>> = [];

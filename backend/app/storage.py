@@ -29,6 +29,7 @@ from urllib.parse import quote
 
 import boto3
 from botocore.config import Config
+from botocore.exceptions import ClientError
 
 from app.config import get_settings
 
@@ -257,6 +258,41 @@ def upload_fileobj(bucket: str, key: str, fileobj: Any, content_type: str) -> st
         fileobj, physical_bucket(bucket), key, ExtraArgs={"ContentType": content_type}
     )
     return f"s3://{bucket}/{key}"
+
+
+def recording_fingerprint(uri: str, max_bytes: int) -> tuple[str, int]:
+    """Hash finalized raw film from trusted storage, with bounded memory.
+
+    The browser's filename, digest and multipart ETag are not content identity.
+    Read the actual object for both local imports and direct R2 uploads so all
+    upload paths share the same duplicate check. No object bytes are logged.
+    """
+    scheme, bucket, key = parse_storage_uri(uri)
+    if bucket != RAW_VIDEO or not is_valid_key(key):
+        raise ValueError("Recording must use raw-video storage")
+    if scheme == "local":
+        source = local_object_path(bucket, key).open("rb")
+    else:
+        try:
+            response = get_s3_client().get_object(Bucket=physical_bucket(bucket), Key=key)
+        except ClientError as exc:
+            if str(exc.response.get("Error", {}).get("Code")) in {"404", "NoSuchKey", "NotFound"}:
+                raise FileNotFoundError("Recording upload is not finalized") from exc
+            raise
+        source = response["Body"]
+    digest = hashlib.sha256()
+    size = 0
+    try:
+        while chunk := source.read(1024 * 1024):
+            size += len(chunk)
+            if size > max_bytes:
+                raise OverflowError("Recording exceeds the upload size limit")
+            digest.update(chunk)
+    finally:
+        source.close()
+    if size == 0:
+        raise ValueError("Recording upload is empty")
+    return digest.hexdigest(), size
 
 
 def _use_signed_app_url(scheme: str) -> bool:

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 vi.mock("next/link", () => ({
   default: ({ children, href }: { children: React.ReactNode; href: string }) => (
@@ -156,5 +156,49 @@ describe("LibraryPage", () => {
       expect(screen.getByRole("button", { name: /Expand session Wednesday team period.*May 20, 2026/ })).toBeTruthy();
       expect(screen.getByText(/May 20, 2026 · Practice/)).toBeTruthy();
     });
+  });
+
+  test("keeps ungrouped uploads visible and searches camera labels with a recoverable empty state", async () => {
+    vi.stubEnv("NEXT_PUBLIC_API_URL", "https://api.test");
+    const videos = [{ id: "v-ungrouped", filename: "team-period.mp4", camera_label: "End zone", status: "uploaded", created_at: "2026-05-20T16:00:00Z" }];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const body = String(input).includes("/api/v1/videos") ? videos : [];
+      return { ok: true, status: 200, json: async () => body, text: async () => JSON.stringify(body) };
+    }));
+    const { LibraryPage, AppStateProvider } = await importPage();
+    render(<AppStateProvider><LibraryPage /></AppStateProvider>);
+    await screen.findByRole("button", { name: /Expand session.*May 20, 2026/ });
+    fireEvent.change(screen.getByLabelText("Search film"), { target: { value: "end zone" } });
+    await waitFor(() => expect(screen.queryByText("No film matches these filters")).toBeNull());
+    fireEvent.click(screen.getByRole("button", { name: /Expand session.*May 20, 2026/ }));
+    const watchLink = await screen.findByRole("link", { name: "Watch recording" });
+    expect(watchLink.getAttribute("href")).toBe("/clip-review/?videoId=v-ungrouped");
+    fireEvent.change(screen.getByLabelText("Search film"), { target: { value: "missing recording" } });
+    await screen.findByText("No film matches these filters");
+    fireEvent.click(screen.getAllByRole("button", { name: "Clear filters" })[0]);
+    await screen.findByRole("button", { name: /Expand session.*May 20, 2026/ });
+    expect((screen.getByLabelText("Search film") as HTMLInputElement).value).toBe("");
+  });
+
+  test("loads the next recording page instead of hiding film after the first 200 uploads", async () => {
+    vi.stubEnv("NEXT_PUBLIC_API_URL", "https://api.test");
+    const videos = Array.from({ length: 200 }, (_, index) => ({ id: `v-${index}`, filename: `recording-${index}.mp4`, status: "uploaded", created_at: "2026-05-20T16:00:00Z" }));
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      const body = url.includes("/api/v1/videos")
+        ? url.includes("offset=200") ? [{ ...videos[0], id: "v-201", filename: "last-recording.mp4" }] : videos
+        : [];
+      return { ok: true, status: 200, json: async () => body, text: async () => JSON.stringify(body) };
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const { LibraryPage, AppStateProvider } = await importPage();
+    render(<AppStateProvider><LibraryPage /></AppStateProvider>);
+    fireEvent.click(await screen.findByRole("button", { name: "Load more recordings" }));
+    await screen.findByText("201 loaded");
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes("offset=200"))).toBe(true);
+    expect(screen.queryByRole("button", { name: "Load more recordings" })).toBeNull();
+    fireEvent.change(screen.getByLabelText("Search film"), { target: { value: "last-recording" } });
+    fireEvent.click(await screen.findByRole("button", { name: /Expand session.*May 20, 2026/ }));
+    await screen.findByRole("link", { name: "last-recording.mp4" });
   });
 });

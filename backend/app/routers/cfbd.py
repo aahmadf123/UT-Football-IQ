@@ -26,16 +26,18 @@ Endpoints (prefix ``/api/cfbd``):
 
 from __future__ import annotations
 
+from collections.abc import AsyncGenerator
 from datetime import UTC, datetime, timedelta
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, Depends, Query
-from pydantic import BaseModel
-from sqlalchemy import desc, select
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field, model_validator
+from sqlalchemy import desc, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.database import get_db
+from app.deps import require_admin
 from app.governance import Action, Resource, require_policy
 from app.models import (
     CfbdDrive,
@@ -67,6 +69,115 @@ SYNC_ENDPOINT_ALIASES = {
 
 # Read-policy dependency shared by every endpoint (coaching staff only).
 _require_cfbd_read = require_policy(Resource.CFBD_ANALYTICS, Action.READ)
+
+
+# The vendor calls below are explicit administrator actions. Ordinary reads
+# continue to use the cache, including when the vendor is unavailable.
+class CfbdSyncRequest(BaseModel):
+    season: int = Field(ge=2000, le=2100)
+    scope: Literal["teams", "schedule", "benchmark", "plays", "drives"]
+    season_type: Literal["regular", "postseason"] = "regular"
+    week: int | None = Field(default=None, ge=1, le=20)
+
+    @model_validator(mode="after")
+    def require_play_week(self) -> CfbdSyncRequest:
+        if self.scope == "plays" and self.week is None:
+            raise ValueError("Choose a week when refreshing play-by-play data.")
+        return self
+
+
+class CfbdConnectionStatus(BaseModel):
+    configured: bool
+    source: str = SOURCE_LABEL
+
+
+class CfbdSyncResponse(BaseModel):
+    scope: str
+    season: int
+    status: str
+    rows_written: int
+    message: str
+
+
+async def _sync_lock() -> AsyncGenerator[None, None]:
+    """Serialize vendor refreshes even across API replicas.
+
+    Ingestion commits each cache table independently. Keep this transaction
+    on its own connection so those commits cannot release the refresh lock.
+    Cancellation/connection loss releases it without leaving a pooled lock.
+    """
+    from app.database import engine
+
+    async with engine.begin() as connection:
+        acquired = (
+            await connection.execute(text("SELECT pg_try_advisory_xact_lock(722419608)"))
+        ).scalar_one()
+        if not acquired:
+            raise HTTPException(
+                409,
+                "Another CFBD refresh is running. Wait for it to finish, then try again.",
+                headers={"Retry-After": "15"},
+            )
+        yield
+
+
+@router.get("/status", response_model=CfbdConnectionStatus)
+async def cfbd_connection_status(
+    _user: Annotated[User, Depends(_require_cfbd_read)],
+) -> CfbdConnectionStatus:
+    """Report readiness without ever returning the credential or vendor URL."""
+    return CfbdConnectionStatus(configured=bool(get_settings().cfbd_api_key.strip()))
+
+
+@router.post("/sync", response_model=CfbdSyncResponse)
+async def refresh_cfbd_cache(
+    body: CfbdSyncRequest,
+    _user: Annotated[User, Depends(require_admin)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    _lock: Annotated[None, Depends(_sync_lock)],
+) -> CfbdSyncResponse:
+    """Refresh one bounded scope, preserving cached data on vendor failure."""
+    from app.cfbd.client import CFBDClient
+    from app.cfbd.sync import (
+        sync_drives,
+        sync_games,
+        sync_plays,
+        sync_team_game_stats,
+        sync_teams,
+    )
+
+    if not get_settings().cfbd_api_key.strip():
+        raise HTTPException(503, "CFBD is not connected. Configure its key on the team server.")
+    # Interactive refreshes are deliberately smaller than a whole-season CLI
+    # sync, and have a bounded retry/timeout budget per upstream call.
+    async with CFBDClient.from_settings(timeout=10.0, max_retries=1) as client:
+        options: dict[str, Any] = {"season": body.season, "season_type": body.season_type}
+        if body.scope == "teams":
+            result = await sync_teams(db, client, **options)
+        elif body.scope == "schedule":
+            result = await sync_games(db, client, **options)
+        elif body.scope == "benchmark":
+            result = await sync_team_game_stats(db, client, **options)
+        elif body.scope == "plays":
+            weeks = [body.week] if body.week is not None else []
+            result = await sync_plays(db, client, weeks=weeks, **options)
+        else:
+            result = await sync_drives(db, client, **options)
+    succeeded = result.status.value == "succeeded"
+    return CfbdSyncResponse(
+        scope=body.scope,
+        season=body.season,
+        status=result.status.value,
+        rows_written=result.rows_written,
+        message=(
+            f"Refreshed {result.rows_written} cached records."
+            if succeeded
+            else (
+                "CFBD could not refresh all requested data. "
+                "Previously cached records remain available."
+            )
+        ),
+    )
 
 
 # ── Schemas ───────────────────────────────────────────────────────────────────

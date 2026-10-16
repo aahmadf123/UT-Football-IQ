@@ -16,13 +16,14 @@
  */
 
 import Link from "next/link";
-import { ArrowRight, Clapperboard, Upload } from "lucide-react";
+import { ArrowRight, Clapperboard, Upload, Activity, ScanEye, CircleAlert, Film, ChevronRight } from "lucide-react";
 import { useCallback } from "react";
 import { useAppState, type ApiStatus } from "@/lib/app-state";
 import { useFetchState } from "@/lib/fetch-state";
 import { fetchAlerts, type ApiAlert, type VideoInboxItem } from "@/lib/api";
 import { useUploadWidget } from "@/components/shared/upload-widget";
 import { CvSpotlight } from "@/components/cv-spotlight";
+import { useWorkspaceContext } from "@/lib/workspace-context";
 import type { ApiJob, ApiVideo } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -33,29 +34,48 @@ import { StatusBadge, toneForJobStatus, toneForSeverity, toneForVideoStatus } fr
 
 export function DashboardView() {
   const { openFilePicker, widget } = useUploadWidget();
+  const workspace = useWorkspaceContext();
   return (
     <>
       {widget}
       <div className="flex flex-col gap-5">
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border-soft bg-card p-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h2 className="text-base font-semibold">Start with your next session</h2>
-            <p className="mt-1 text-sm text-muted-foreground">Upload film from any camera. Your computer processes it while you keep working.</p>
+            <p className="text-sm font-medium">Your next advantage starts on film.</p>
+            <p className="mt-1 max-w-3xl text-xs text-muted-foreground">{workspace.description} Review video with tracking, then turn coach corrections into reviewed labels.</p>
           </div>
-          <Button onClick={openFilePicker}><Upload className="size-4" /> Upload film</Button>
+          <div className="flex gap-2"><Button asChild variant="outline"><Link href="/film-room/">Open Film Room <ArrowRight className="size-4" /></Link></Button><Button onClick={openFilePicker}><Upload className="size-4" /> Upload film</Button></div>
+        </div>
+        <WorkspaceOverview />
+        <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1.85fr)_minmax(280px,1fr)]">
+          <CvSpotlight />
+          <div className="flex flex-col gap-4"><WorkflowCard /><AlertsSummaryCard /></div>
         </div>
         <PracticeInboxSection />
-        <div className="grid gap-4 md:grid-cols-2">
-          <RecentFilmCard onUploadClick={openFilePicker} />
-          <AlertsSummaryCard />
-        </div>
-        <details className="rounded-xl border border-border-soft bg-card p-5">
-          <summary className="cursor-pointer text-sm font-medium">Latest play preview</summary>
-          <div className="mt-4"><CvSpotlight /></div>
-        </details>
+        <RecentFilmCard onUploadClick={openFilePicker} />
       </div>
     </>
   );
+}
+
+function WorkspaceOverview() {
+  const { data, inboxItems, apiStatus, mockMode } = useAppState();
+  const available = apiStatus === "live" && !mockMode;
+  const summaries = [
+    { label: "Recordings loaded", value: data.videos.length, detail: "Current library view", icon: Film, href: "/film-room/?tab=browse" },
+    { label: "Plays detected", value: inboxItems.reduce((count, item) => count + item.clip_count, 0), detail: "Available in the film inbox", icon: ScanEye, href: "/film-room/?tab=review" },
+    { label: "Active processing", value: data.jobs.filter((job) => job.status === "running" || job.status === "queued").length, detail: "Queued or running jobs", icon: Activity, href: "/film-room/?tab=upload" },
+    { label: "Needs attention", value: inboxItems.filter((item) => item.failed_jobs > 0 || item.video_status === "failed").length, detail: "Recordings with processing errors", icon: CircleAlert, href: "/film-room/?tab=upload" },
+  ];
+  return <section aria-label="Workspace overview" className="grid grid-cols-2 gap-3 lg:grid-cols-4">{summaries.map(({ label, value, detail, icon: Icon, href }) => <Link key={label} href={href} className="workspace-surface group rounded-lg border border-border-soft p-4 transition-colors hover:border-primary/35"><div className="flex items-center justify-between gap-2"><span className="text-[11px] font-medium text-muted-foreground">{label}</span><Icon className="size-4 text-primary/75" aria-hidden /></div><p data-numeric className="mt-3 text-[1.75rem] font-semibold leading-none tracking-tight">{available ? value : "—"}</p><p className="mt-2 text-[10px] text-muted-foreground">{available ? detail : mockMode ? "Connect real film to see totals" : "Waiting for library connection"}</p></Link>)}</section>;
+}
+
+function WorkflowCard() {
+  return <Card className="gap-4 py-5"><CardHeader className="px-5"><p className="section-eyebrow">Film to feedback</p><h2 className="text-sm font-semibold">One connected workflow</h2></CardHeader><CardContent className="px-5"><div className="flex flex-col gap-1">{[
+    { step: "01", title: "Organize your film", detail: "Sessions, recordings and camera angles", href: "/film-room/?tab=browse" },
+    { step: "02", title: "Run the vision pipeline", detail: "Choose a profile and connected processor", href: "/film-room/?tab=upload" },
+    { step: "03", title: "Review and improve", detail: "Watch tracking and verify play labels", href: "/film-room/?tab=review" },
+  ].map((item) => <Link key={item.step} href={item.href} className="group flex items-center gap-3 rounded-md py-3 hover:bg-secondary/40"><span className="font-mono text-[10px] text-primary/65">{item.step}</span><span className="min-w-0 flex-1"><span className="block text-xs font-medium">{item.title}</span><span className="mt-1 block text-[10px] text-muted-foreground">{item.detail}</span></span><ChevronRight className="size-3.5 text-muted-foreground group-hover:text-primary" aria-hidden /></Link>)}</div></CardContent></Card>;
 }
 
 // ── Practice Inbox ───────────────────────────────────────────────────────────
@@ -106,6 +126,7 @@ function PracticeInboxSection() {
 
 function InboxBody() {
   const { inboxItems, data, mockMode, apiStatus, apiError } = useAppState();
+  const workspace = useWorkspaceContext();
   const jobs = data.jobs;
 
   // Outside mock mode, never substitute a fake job-based view. Distinguish
@@ -122,12 +143,12 @@ function InboxBody() {
           isLoading
             ? "Connecting to the inbox…"
             : isOffline
-              ? "Your local library is not connected."
+              ? workspace.local ? "Your local library is not connected." : "Your team library is not connected."
               : "No videos in the inbox yet."
         }
         hint={
           isLoading || isOffline
-            ? isOffline ? apiError ?? "Open This computer to check the local services, then reconnect." : undefined
+            ? isOffline ? apiError ?? `Open ${workspace.settingsLabel} to check the connection, then reconnect.` : undefined
             : "Upload practice or game film to begin processing."
         }
       />
@@ -237,6 +258,7 @@ function InboxVideoRow({ item }: { item: VideoInboxItem }) {
 
 function RecentFilmCard({ onUploadClick }: { onUploadClick: () => void }) {
   const { data, apiStatus } = useAppState();
+  const workspace = useWorkspaceContext();
   const videos = [...data.videos]
     .sort((a, b) => (b.recorded_at ?? b.created_at ?? "").localeCompare(a.recorded_at ?? a.created_at ?? ""))
     .slice(0, 6);
@@ -254,7 +276,7 @@ function RecentFilmCard({ onUploadClick }: { onUploadClick: () => void }) {
         </CardHeader>
         <CardContent className="flex h-full flex-col">
           {videos.length === 0 ? (
-            <p className="text-xs text-muted-foreground">{filmEmptyMessage(apiStatus)}</p>
+            <p className="text-xs text-muted-foreground">{filmEmptyMessage(apiStatus, workspace.local)}</p>
           ) : (
             <div className="flex flex-col">
               {videos.map((v) => (
@@ -275,11 +297,12 @@ function RecentFilmCard({ onUploadClick }: { onUploadClick: () => void }) {
 
 function VideoLine({ video }: { video: ApiVideo }) {
   return (
-    <div className="flex items-center justify-between gap-2 border-b border-border-soft py-2 last:border-b-0">
+    <div className="flex items-center justify-between gap-3 border-b border-border-soft py-3 last:border-b-0">
+      <span className="flex size-10 shrink-0 items-center justify-center rounded-md border border-border-soft bg-secondary/40"><Film className="size-4 text-muted-foreground" aria-hidden /></span>
       <div className="min-w-0">
-        <Link href={`/film-room/?tab=review&videoId=${encodeURIComponent(video.id)}`} className="block truncate text-sm font-medium hover:text-primary">{video.filename}</Link>
+        <Link href={`/clip-review/?videoId=${encodeURIComponent(video.id)}`} className="block truncate text-sm font-medium hover:text-primary">{video.filename}</Link>
         <span className="text-xs text-muted-foreground">
-          {formatStamp(video.recorded_at ?? video.created_at)}
+          {formatStamp(video.recorded_at ?? video.created_at)}{video.camera_label ? ` · ${video.camera_label}` : ""}{video.opponent_team ? ` · vs. ${video.opponent_team}` : ""}
         </span>
       </div>
       <StatusBadge tone={toneForVideoStatus(video.status)} dot className="capitalize">
@@ -289,13 +312,14 @@ function VideoLine({ video }: { video: ApiVideo }) {
   );
 }
 
-function filmEmptyMessage(status: ApiStatus): string {
+function filmEmptyMessage(status: ApiStatus, local: boolean): string {
   switch (status) {
     case "loading":
     case "idle":
       return "Loading film…";
     case "offline":
-      return "Open This computer to reconnect to your local library.";
+    case "error":
+      return local ? "Open This computer to reconnect to your local library." : "Open Workspace settings to reconnect to your team library.";
     default:
       return "No film yet. Upload practice or game video to get started.";
   }

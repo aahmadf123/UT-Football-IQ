@@ -229,16 +229,24 @@ async def update_user_role(
     db: Annotated[AsyncSession, Depends(get_db)],
     admin: Annotated[User, Depends(require_admin)],
 ) -> User:
-    """Change a user's role (admin only). The last admin cannot demote itself."""
+    """Change a role while preserving an active administrator under concurrency."""
+    # Signup and hosted-account bootstrap share this lock. Recheck the actor
+    # after waiting: another administrator may have changed its role meanwhile.
+    await db.execute(text("SELECT pg_advisory_xact_lock(571_202_001)"))
+    await db.refresh(admin)
+    if not admin.is_active or admin.role != UserRole.admin:
+        raise HTTPException(status_code=403, detail="Administrator access is required")
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
     if user is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
-    if user.role == UserRole.admin and body.role != UserRole.admin and user.id == admin.id:
+    if user.role == UserRole.admin and user.is_active and body.role != UserRole.admin:
         admin_count = (
             await db.execute(
-                select(func.count()).select_from(User).where(User.role == UserRole.admin)
+                select(func.count())
+                .select_from(User)
+                .where(User.role == UserRole.admin, User.is_active.is_(True))
             )
         ).scalar_one()
         if admin_count <= 1:

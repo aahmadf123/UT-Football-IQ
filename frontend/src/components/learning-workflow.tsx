@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useAppState } from "@/lib/app-state";
+import { useWorkspaceContext } from "@/lib/workspace-context";
 import { createFeatureManifest, evaluateLearningCandidate, fetchSessions, listFeatureManifests, listLearningCandidates, previewFeatureManifest, queueCoverageTraining, type LearningFeatureManifest, type LearningFeaturePreview, type LearningSessionSplit } from "@/lib/api";
 import type { ApiSession, ModelVersion } from "@/lib/types";
 import { Button } from "@/components/ui/button";
@@ -17,6 +18,7 @@ const COVERAGE_NAMES: Record<string, string> = { cover_0: "Cover 0", cover_1: "C
 
 export function LearningWorkflow({ onUpdated }: { onUpdated: () => Promise<void> | void }) {
   const { authToken, data } = useAppState();
+  const workspace = useWorkspaceContext();
   const [sessions, setSessions] = useState<ApiSession[]>([]);
   const [history, setHistory] = useState<LearningFeatureManifest[]>([]);
   const [selectedSplits, setSelectedSplits] = useState<Record<string, Split | "">>({});
@@ -94,7 +96,7 @@ export function LearningWorkflow({ onUpdated }: { onUpdated: () => Promise<void>
     setBusy("train"); setError(null); setNotice(null);
     try {
       const job = await queueCoverageTraining({ training_dataset_id: manifest.training_dataset_id, features_uri: manifest.features_uri }, authToken);
-      setTrainingId(job.job_id); setRequestedTrainingStatus(job.status); setNotice(`CPU coverage training job is ${job.status}. Progress stays in this local library.`);
+      setTrainingId(job.job_id); setRequestedTrainingStatus(job.status); setNotice(`CPU coverage training job is ${job.status}. Progress stays in the connected library.`);
     } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
     finally { setBusy(null); }
   }
@@ -111,8 +113,8 @@ export function LearningWorkflow({ onUpdated }: { onUpdated: () => Promise<void>
     finally { setBusy(null); }
   }
 
-  return <section className="rounded-xl border border-border-soft p-4" aria-label="Local coverage learning workflow">
-    <div className="flex flex-wrap items-start justify-between gap-3"><div><h3 className="text-base font-semibold">Train and evaluate a local coverage model</h3><p className="mt-2 max-w-3xl text-sm leading-relaxed text-muted-foreground">Choose separate sessions for training, confidence calibration, and a final holdout test. Only detailed processing results with reviewed human coverage labels can enter the feature set.</p></div><Button size="sm" variant="outline" onClick={() => void load()} disabled={loading}>Refresh film</Button></div>
+  return <section className="rounded-xl border border-border-soft p-4" aria-label={workspace.local ? "Local coverage learning workflow" : "Team coverage learning workflow"}>
+    <div className="flex flex-wrap items-start justify-between gap-3"><div><h3 className="text-base font-semibold">Train and evaluate a {workspace.local ? "local" : "team"} coverage model</h3><p className="mt-2 max-w-3xl text-sm leading-relaxed text-muted-foreground">Choose separate sessions for training, confidence calibration, and a final holdout test. Only detailed processing results with reviewed human coverage labels can enter the feature set.</p></div><Button size="sm" variant="outline" onClick={() => void load()} disabled={loading}>Refresh film</Button></div>
     {loading ? <p role="status" className="mt-3 text-sm">Loading available sessions and feature sets…</p> : null}
     {error ? <p role="alert" className="mt-3 text-sm text-status-danger">{error}</p> : null}
     {notice ? <p role="status" className="mt-3 rounded-lg border border-status-info/40 p-3 text-sm">{notice}</p> : null}
@@ -123,7 +125,7 @@ export function LearningWorkflow({ onUpdated }: { onUpdated: () => Promise<void>
       <Button variant="outline" className="self-start" disabled={!splitsComplete || !name.trim() || busy !== null} onClick={() => void inspect()}>{busy === "preview" ? "Checking footage…" : "Preview training readiness"}</Button>
       {preview ? <div className="rounded-lg bg-secondary/30 p-4"><div className="grid gap-3 sm:grid-cols-3">{SPLITS.map((split) => <div key={split.value}><p className="text-sm font-medium">{split.label}</p><p className="mt-1 text-sm text-muted-foreground">{preview.counts[split.value] ?? 0} eligible examples · {preview.required[split.value] ?? 0} required</p></div>)}</div>{preview.issues.length ? <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-status-warn">{preview.issues.map((issue) => <li key={issue}>{issue}</li>)}</ul> : <p className="mt-3 text-sm text-status-ok">{preview.ready ? "This selection meets the data requirements." : "More eligible film is needed before training."}</p>}<details className="mt-3 text-xs text-muted-foreground"><summary className="cursor-pointer">Coverage examples per class</summary><CoverageClassCounts counts={preview.class_counts} /></details><Button className="mt-4" disabled={!preview.ready || busy !== null} onClick={() => void build()}>{busy === "build" ? "Saving feature set…" : "Build feature set"}</Button></div> : null}
     </div></details>
-    {manifest ? <div className="mt-4 rounded-lg border border-border-soft p-4"><h4 className="font-medium">2. Train on this computer</h4><p className="mt-2 text-sm text-muted-foreground">The saved feature set contains {manifest.counts.train ?? 0} training, {manifest.counts.calibration ?? 0} calibration, and {manifest.counts.holdout ?? 0} holdout examples.</p><Button className="mt-3" disabled={busy !== null || trainingStatus === "queued" || trainingStatus === "running" || trainingStatus === "paused"} onClick={() => void train()}>{busy === "train" ? "Queueing…" : "Train CPU coverage model"}</Button>{visibleTrainingId ? <div className="mt-3 flex flex-wrap items-center gap-3 text-sm"><StatusBadge dot tone={toneForJobStatus(trainingStatus ?? "queued")}>{trainingStatus ?? "queued"}</StatusBadge><span className="text-muted-foreground">{trainingJob?.error_message || "Progress is saved in the local job queue."}</span></div> : null}
+    {manifest ? <div className="mt-4 rounded-lg border border-border-soft p-4"><h4 className="font-medium">2. Train with the connected processor</h4><p className="mt-2 text-sm text-muted-foreground">The saved feature set contains {manifest.counts.train ?? 0} training, {manifest.counts.calibration ?? 0} calibration, and {manifest.counts.holdout ?? 0} holdout examples.</p><Button className="mt-3" disabled={busy !== null || trainingStatus === "queued" || trainingStatus === "running" || trainingStatus === "paused"} onClick={() => void train()}>{busy === "train" ? "Queueing…" : "Train CPU coverage model"}</Button>{visibleTrainingId ? <div className="mt-3 flex flex-wrap items-center gap-3 text-sm"><StatusBadge dot tone={toneForJobStatus(trainingStatus ?? "queued")}>{trainingStatus ?? "queued"}</StatusBadge><span className="text-muted-foreground">{trainingJob?.error_message || "Progress is saved in the connected job queue."}</span></div> : null}
       <h4 className="mt-5 font-medium">3. Evaluate the candidate on held-out film</h4>{candidates.length ? <div className="mt-3 space-y-3">{candidates.map((candidate) => {
         const measured = evaluations[candidate.id] ?? persistedEvaluation(candidate);
         const predictionCount = candidate.prediction_count ?? (typeof candidate.metrics?.prediction_count === "number" ? candidate.metrics.prediction_count : 0);

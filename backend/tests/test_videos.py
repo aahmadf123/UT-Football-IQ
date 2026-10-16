@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
 from app.database import get_db
 from app.deps import get_current_user
 from app.main import app
@@ -23,6 +24,12 @@ from app.models import (
     VideoStatus,
 )
 from fastapi.testclient import TestClient
+
+
+@pytest.fixture(autouse=True)
+def verified_storage(monkeypatch: pytest.MonkeyPatch) -> None:
+    """These metadata tests isolate storage; content tests use real stored bytes."""
+    monkeypatch.setattr("app.storage.recording_fingerprint", lambda *_: ("a" * 64, 100))
 
 
 def _make_user() -> User:
@@ -94,7 +101,7 @@ def _make_video(**overrides: Any) -> Video:
     v = MagicMock(spec=Video)
     v.id = overrides.get("id", uuid.uuid4())
     v.filename = overrides.get("filename", "t.mp4")
-    v.storage_uri = overrides.get("storage_uri", "s3://x/t.mp4")
+    v.storage_uri = overrides.get("storage_uri", "s3://raw-video/t.mp4")
     v.status = overrides.get("status", VideoStatus.uploaded)
     v.duration_seconds = overrides.get("duration_seconds", None)
     v.fps = overrides.get("fps", None)
@@ -137,7 +144,7 @@ def test_create_video_persists_recorded_at() -> None:
                 "/api/v1/videos",
                 json={
                     "filename": "t.mp4",
-                    "storage_uri": "s3://x/t.mp4",
+                    "storage_uri": "s3://raw-video/t.mp4",
                     "recorded_at": "2026-05-26T14:00:00+00:00",
                 },
             )
@@ -169,7 +176,7 @@ def test_create_video_persists_session_metadata() -> None:
                 "/api/v1/videos",
                 json={
                     "filename": "practice.mp4",
-                    "storage_uri": "s3://x/practice.mp4",
+                    "storage_uri": "s3://raw-video/practice.mp4",
                     "recorded_at": "2026-05-26T14:00:00+00:00",
                     "session_kind": "practice",
                     "source_type": "drone",
@@ -206,7 +213,7 @@ def test_create_video_game_requires_opponent() -> None:
                 "/api/v1/videos",
                 json={
                     "filename": "game.mp4",
-                    "storage_uri": "s3://x/game.mp4",
+                    "storage_uri": "s3://raw-video/game.mp4",
                     "session_kind": "game",
                 },
             )
@@ -227,7 +234,7 @@ def test_create_video_game_with_opponent_ok() -> None:
                 "/api/v1/videos",
                 json={
                     "filename": "game.mp4",
-                    "storage_uri": "s3://x/game.mp4",
+                    "storage_uri": "s3://raw-video/game.mp4",
                     "session_kind": "game",
                     "opponent_team": "Ohio",
                 },
@@ -373,7 +380,7 @@ def test_create_video_normalizes_tags() -> None:
                 "/api/v1/videos",
                 json={
                     "filename": "practice.mp4",
-                    "storage_uri": "s3://x/practice.mp4",
+                    "storage_uri": "s3://raw-video/practice.mp4",
                     "session_kind": "practice",
                     "tags": ["Red Zone", "red zone", "  Install  ", ""],
                 },
@@ -394,7 +401,7 @@ def test_create_video_without_tags_leaves_metadata_unset() -> None:
                 "/api/v1/videos",
                 json={
                     "filename": "practice.mp4",
-                    "storage_uri": "s3://x/practice.mp4",
+                    "storage_uri": "s3://raw-video/practice.mp4",
                     "session_kind": "practice",
                 },
             )
@@ -415,7 +422,7 @@ def test_create_video_rejects_too_many_tags() -> None:
                 "/api/v1/videos",
                 json={
                     "filename": "practice.mp4",
-                    "storage_uri": "s3://x/practice.mp4",
+                    "storage_uri": "s3://raw-video/practice.mp4",
                     "session_kind": "practice",
                     "tags": [f"tag-{i}" for i in range(25)],
                 },

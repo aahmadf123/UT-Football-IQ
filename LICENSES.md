@@ -150,7 +150,7 @@ or automatic synchronized 3D reconstruction.
 |---|---|
 | **License** | [AGPL-3.0](https://github.com/ultralytics/ultralytics/blob/v8.3.237/LICENSE) for the open-source distribution; [Ultralytics licensing options](https://www.ultralytics.com/license) include a commercial Enterprise license |
 | **Commercial use** | AGPL permits commercial use subject to its source/distribution/network obligations. An Enterprise license is an alternative for use outside those obligations; commercial use alone is not an unconditional requirement to purchase one. Check the actual code and model-weight terms for the distribution. |
-| **Access** | Pinned `ultralytics==8.3.237`; player weights explicitly installed/downloaded to the local model directory, never committed or included as team-trained evidence |
+| **Access** | Pinned `ultralytics==8.3.237`; player weights explicitly installed/downloaded to the model directory, never committed or included as team-trained evidence. The hosted image pins the published `v8.3.0/yolov8n.pt` asset to SHA256 `f59b3d833e2ff32e194b5bb8e08d211dc7c5bdf144b90d2c8412c47ccfc83b36` |
 | **Football-IQ usage** | CPU baseline player detector in `pipeline/detector_models.py`/`pipeline/stage_detect.py` — YOLOv8n COCO **person class 0**. Generic sports-ball classes are not used as a dedicated football model. SAM remains optional and is not installed with weights by the CPU workflow. |
 | **Readiness** | Generic pretrained person detection is real inference, not independently validated Toledo analytics. Missing player weights make Quick analysis unavailable/partial; Review remains useful. Preserve AGPL and selected model notices in distributions. |
 

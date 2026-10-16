@@ -1,9 +1,20 @@
-import type { OverlayTracklet } from "./types";
+import type { ClipOverlayPayload, OverlayTracklet } from "./types";
+
+/** Tracks are stored against the original recording, even for rendered clips. */
+export function trackingTimeSeconds(
+  payload: Pick<ClipOverlayPayload, "tracks_timebase" | "source_start_time_seconds"> | null,
+  clipLocalSeconds: number,
+  clipStartSeconds: number,
+): number {
+  return clipLocalSeconds + (payload?.tracks_timebase === "recording"
+    ? payload.source_start_time_seconds ?? clipStartSeconds
+    : 0);
+}
 
 /** Presentation timestamps are authoritative for variable-frame-rate recordings. */
 export function activeTrackPointIndex(track: OverlayTracklet, seconds: number, fps: number): number {
   const points = track.track_points;
-  if (!points.length) return -1;
+  if (!points.length || !Number.isFinite(seconds) || !Number.isFinite(fps) || fps <= 0) return -1;
   const time = (index: number) => points[index].timestamp_seconds ?? points[index].frame_number / fps;
   if (points[0].timestamp_seconds != null && points[points.length - 1].timestamp_seconds != null) {
     const first = time(0);

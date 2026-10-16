@@ -24,6 +24,7 @@ import {
 } from "@/lib/api";
 import type { ApiClip, ApiVideo, ClipOverlayPayload, OverlayLayerKey } from "@/lib/types";
 import { OverlayCanvas } from "@/app/clip-review/overlay-canvas";
+import { trackingTimeSeconds } from "@/lib/tracking-time";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { NativeSelect } from "@/components/ui/native-select";
@@ -47,7 +48,7 @@ type ClipsState =
 type PlaybackState =
   | { kind: "loading" }
   | { kind: "error"; message: string }
-  | { kind: "ready"; payload: ClipOverlayPayload; playbackUrl: string | null };
+  | { kind: "ready"; payload: ClipOverlayPayload; playbackUrl: string | null; playbackUsesClipAsset: boolean; error: string | null };
 
 export function CvSpotlight() {
   const { data, apiStatus, mockMode, authToken } = useAppState();
@@ -64,13 +65,16 @@ export function CvSpotlight() {
   const [clipsState, setClipsState] = useState<ClipsState>({ kind: "loading" });
   const [selectedClipId, setSelectedClipId] = useState<string>("");
   const [playback, setPlayback] = useState<PlaybackState>({ kind: "loading" });
+  const [fallbackClipId, setFallbackClipId] = useState<string | null>(null);
+  const latestReadyId = latestReady?.id;
+  const originalStorageUri = latestReady?.storage_uri;
 
   // Load the clip inventory for the spotlighted video.
   useEffect(() => {
-    if (mockMode || !latestReady) return;
+    if (mockMode || !latestReadyId) return;
     let cancelled = false;
     setClipsState({ kind: "loading" });
-    fetchClipsForVideo(latestReady.id, authToken)
+    fetchClipsForVideo(latestReadyId, authToken)
       .then((clips) => {
         if (cancelled) return;
         if (clips.length === 0) {
@@ -96,33 +100,40 @@ export function CvSpotlight() {
     return () => {
       cancelled = true;
     };
-  }, [mockMode, latestReady, authToken]);
+  }, [mockMode, latestReadyId, authToken]);
 
   const selectedClip = useMemo(() => {
     if (clipsState.kind !== "ready") return null;
     return clipsState.clips.find((c) => c.id === selectedClipId) ?? clipsState.clips[0];
   }, [clipsState, selectedClipId]);
+  const activeClipId = selectedClip?.id;
+  const clipStorageUri = selectedClip?.storage_uri;
 
   // Load overlays + a signed playback URL for the selected play.
   useEffect(() => {
-    if (!selectedClip || !latestReady) return;
+    if (!activeClipId || !latestReadyId) return;
     let cancelled = false;
     setPlayback({ kind: "loading" });
     (async () => {
       try {
-        const payload = await fetchClipOverlays(selectedClip.id, authToken);
-        let playbackUrl: string | null = null;
-        try {
-          const target =
-            parseStorageUri(selectedClip.storage_uri) ?? parseStorageUri(latestReady.storage_uri);
-          if (target) {
-            playbackUrl = await fetchVideoDownloadUrl(target.bucket, target.key, authToken);
-          }
-        } catch {
-          playbackUrl = null;
-        }
+        // Original film keeps the overlay switchable; some clip previews
+        // already have permanent boxes burned into their pixels.
+        const clipStorage = parseStorageUri(clipStorageUri);
+        const cleanClipAvailable = clipStorage?.bucket === "clips";
+        const target = fallbackClipId === activeClipId && cleanClipAvailable
+          ? clipStorage
+          : parseStorageUri(originalStorageUri) ?? clipStorage;
+        const [payload, playbackUrl] = await Promise.all([
+          fetchClipOverlays(activeClipId, authToken),
+          target ? fetchVideoDownloadUrl(target.bucket, target.key, authToken).catch(() => null) : Promise.resolve(null),
+        ]);
         if (cancelled) return;
-        setPlayback({ kind: "ready", payload, playbackUrl });
+        const playbackUsesClipAsset = Boolean(target && target === clipStorage);
+        if (!playbackUrl && !playbackUsesClipAsset && cleanClipAvailable && fallbackClipId !== activeClipId) {
+          setFallbackClipId(activeClipId);
+          return;
+        }
+        setPlayback({ kind: "ready", payload, playbackUrl, playbackUsesClipAsset, error: null });
       } catch (err) {
         if (cancelled) return;
         setPlayback({
@@ -134,20 +145,29 @@ export function CvSpotlight() {
     return () => {
       cancelled = true;
     };
-  }, [selectedClip, latestReady, authToken]);
+  }, [activeClipId, latestReadyId, clipStorageUri, originalStorageUri, fallbackClipId, authToken]);
+
+  const onPlaybackError = () => {
+    if (!selectedClip || playback.kind !== "ready") return;
+    if (!playback.playbackUsesClipAsset && parseStorageUri(selectedClip.storage_uri)?.bucket === "clips" && fallbackClipId !== selectedClip.id) {
+      setFallbackClipId(selectedClip.id);
+    } else {
+      setPlayback({ ...playback, error: "Playback failed. Open this play in Clip Review to refresh its link or create a compatible clip." });
+    }
+  };
 
   return (
     <section data-testid="cv-spotlight">
-      <Card>
-        <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3">
+      <Card className="overflow-hidden gap-4 border-primary/15 py-5">
+        <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3 px-5">
           <div>
+            <p className="section-eyebrow mb-2">Computer vision <span className="ml-1.5 text-primary">/ Film playback</span></p>
             <h2 className="flex items-center gap-2 text-base font-semibold">
               <ScanEye aria-hidden className="size-[18px] text-primary" />
               Tracking Spotlight
             </h2>
-            <p className="mt-0.5 max-w-2xl text-xs text-muted-foreground">
-              The vision model&rsquo;s output on your latest processed play — player boxes, path
-              tails, and detected events, straight from the pipeline.
+            <p className="mt-1.5 max-w-2xl text-xs leading-relaxed text-muted-foreground">
+              Watch your latest processed play with player boxes, movement trails, and detected events.
             </p>
           </div>
           {clipsState.kind === "ready" && selectedClip ? (
@@ -174,7 +194,7 @@ export function CvSpotlight() {
             </div>
           ) : null}
         </CardHeader>
-        <CardContent>
+        <CardContent className="px-5">
           <SpotlightBody
             mockMode={mockMode}
             apiStatus={apiStatus}
@@ -182,6 +202,7 @@ export function CvSpotlight() {
             clipsState={clipsState}
             selectedClip={selectedClip}
             playback={playback}
+            onPlaybackError={onPlaybackError}
           />
         </CardContent>
       </Card>
@@ -196,6 +217,7 @@ function SpotlightBody({
   clipsState,
   selectedClip,
   playback,
+  onPlaybackError,
 }: {
   mockMode: boolean;
   apiStatus: ReturnType<typeof useAppState>["apiStatus"];
@@ -203,6 +225,7 @@ function SpotlightBody({
   clipsState: ClipsState;
   selectedClip: ApiClip | null;
   playback: PlaybackState;
+  onPlaybackError: () => void;
 }) {
   if (mockMode) {
     return (
@@ -219,7 +242,7 @@ function SpotlightBody({
       <EmptyState
         icon={ScanEye}
         title="Tracking preview unavailable — not connected to the team server"
-        hint="The latest tracked play appears here when the system is back online."
+        hint="Check your workspace connection to load the latest tracked play."
       />
     );
   }
@@ -235,7 +258,9 @@ function SpotlightBody({
       <EmptyState
         icon={ScanEye}
         title="No processed film yet"
-        hint="Upload film and run processing — the latest tracked play appears here automatically."
+        hint="Add your recording, run a tracking profile, and watch real model output here. Bounding boxes follow the video as it plays."
+        className="field-grid min-h-72 border-solid bg-background/70"
+        action={<Button asChild variant="outline" size="sm"><Link href="/film-room/?tab=upload">Prepare your first recording <ArrowRight className="size-3.5" /></Link></Button>}
         data-testid="cv-spotlight-empty"
       />
     );
@@ -277,7 +302,7 @@ function SpotlightBody({
   if (!selectedClip || playback.kind !== "ready") return null;
 
   return (
-    <SpotlightPlayer video={latestReady} clip={selectedClip} playback={playback} />
+    <SpotlightPlayer key={`${selectedClip.id}-${playback.playbackUrl}`} video={latestReady} clip={selectedClip} playback={playback} onPlaybackError={onPlaybackError} />
   );
 }
 
@@ -285,27 +310,51 @@ function SpotlightPlayer({
   video,
   clip,
   playback,
+  onPlaybackError,
 }: {
   video: ApiVideo;
   clip: ApiClip;
   playback: Extract<PlaybackState, { kind: "ready" }>;
+  onPlaybackError: () => void;
 }) {
-  const { payload, playbackUrl } = playback;
-  const fps = video.fps ?? DEFAULT_FPS;
+  const { payload, playbackUrl, playbackUsesClipAsset } = playback;
+  const sourceFps = payload.source_fps ?? video.fps;
+  const fps = sourceFps != null && sourceFps > 0 ? sourceFps : DEFAULT_FPS;
+  const [intrinsicSize, setIntrinsicSize] = useState<{ width: number; height: number } | null>(null);
 
   // Rendered clip assets start at clip-local time 0; parent-video playback
   // must be shifted into the clip timeline (same rule as Clip Review).
-  const playbackUsesClipAsset = Boolean(clip.storage_uri);
   const [videoCurrentTime, setVideoCurrentTime] = useState(0);
   const clipLocalTime = playbackUsesClipAsset
     ? Math.max(0, videoCurrentTime)
     : Math.max(0, videoCurrentTime - clip.start_time);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const clipOffset = playbackUsesClipAsset ? 0 : clip.start_time;
+  const clipDuration = Math.max(0, clip.end_time - clip.start_time);
   const onTimeUpdate = useCallback(() => {
     const el = videoRef.current;
-    if (el) setVideoCurrentTime(el.currentTime);
-  }, []);
+    if (!el) return;
+    // Reaching the recording's end pauses the element; resume after wrapping
+    // so the spotlight keeps looping, while ordinary seeks keep a user pause.
+    const ended = el.ended;
+    if (clipDuration > 0 && (ended || el.currentTime < clipOffset || el.currentTime >= clipOffset + clipDuration - 0.03)) {
+      el.currentTime = clipOffset;
+      if (ended) void el.play()?.catch(() => undefined);
+    }
+    setVideoCurrentTime(el.currentTime);
+  }, [clipOffset, clipDuration]);
+  useEffect(() => {
+    const el = videoRef.current;
+    if (!el?.requestVideoFrameCallback) return;
+    let handle = 0;
+    const onFrame = () => {
+      onTimeUpdate();
+      handle = el.requestVideoFrameCallback(onFrame);
+    };
+    handle = el.requestVideoFrameCallback(onFrame);
+    return () => el.cancelVideoFrameCallback(handle);
+  }, [onTimeUpdate]);
 
   const trackletCount = payload.tracklets.length;
   const eventCount = payload.events.length;
@@ -313,7 +362,7 @@ function SpotlightPlayer({
 
   return (
     <div data-testid="cv-spotlight-player">
-      <div className="relative flex min-h-64 items-center justify-center overflow-hidden rounded-lg bg-black">
+      <div className="relative flex min-h-64 items-center justify-center overflow-hidden rounded-md border border-border-soft bg-black">
         {playbackUrl ? (
           <>
             <video
@@ -321,21 +370,32 @@ function SpotlightPlayer({
               src={playbackUrl}
               autoPlay
               muted
-              loop
+              loop={playbackUsesClipAsset}
               controls
               playsInline
               onTimeUpdate={onTimeUpdate}
               onSeeked={onTimeUpdate}
+              onEnded={onTimeUpdate}
+              onError={onPlaybackError}
+              onLoadedMetadata={() => {
+                const el = videoRef.current;
+                if (!el) return;
+                if (el.videoWidth > 0 && el.videoHeight > 0) setIntrinsicSize({ width: el.videoWidth, height: el.videoHeight });
+                el.currentTime = clipOffset;
+                setVideoCurrentTime(clipOffset);
+              }}
               aria-label={`Tracked play ${clip.play_number ?? clip.id} video`}
-              className="block max-h-96 w-full"
+              className="block max-h-[440px] w-full object-contain"
             />
             <OverlayCanvas
               tracklets={payload.tracklets}
               events={payload.events}
-              currentTimeSeconds={clipLocalTime}
+              currentTimeSeconds={trackingTimeSeconds(payload, clipLocalTime, clip.start_time)}
+              eventCurrentTimeSeconds={clipLocalTime}
+              sourceStartTimeSeconds={payload.source_start_time_seconds ?? clip.start_time}
               fps={fps}
-              videoWidth={video.width ?? null}
-              videoHeight={video.height ?? null}
+              videoWidth={video.width ?? intrinsicSize?.width ?? null}
+              videoHeight={video.height ?? intrinsicSize?.height ?? null}
               activeLayers={SPOTLIGHT_LAYERS}
             />
           </>
@@ -349,6 +409,7 @@ function SpotlightPlayer({
           </div>
         )}
       </div>
+      {playback.error ? <p role="alert" className="mt-2 rounded-md border border-status-danger/30 bg-status-danger/5 px-3 py-2 text-xs text-status-danger">{playback.error}</p> : null}
       <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
         {hasOverlays ? (
           <StatusBadge tone="ok" dot data-testid="cv-spotlight-live">

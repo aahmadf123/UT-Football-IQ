@@ -15,13 +15,18 @@ Cloudflare Worker ──── R2 (raw-video, clips, overlays, artifacts)
                   ──── Hyperdrive ──► Postgres   (Worker-side queries only)
    │ proxy /api/v1/*
    ▼
-Cloudflare Container (FastAPI) ─────► Postgres   (direct — see §4)
-   ▲ claim / heartbeat / writeback
-GPU worker (any machine — a cloud GPU box or your own PC; see [local-worker.md](local-worker.md))
+Cloudflare Container ───────────────► Postgres   (direct — see §4)
+   ├─ FastAPI (one process, /opt/api)
+   └─ CPU pipeline worker (/opt/worker, private service-account login)
+      claim / heartbeat / writeback over loopback; media/artifacts in R2
 ```
 
-Note that **nothing processes film until a GPU worker is running** — pressing
-Process Film only queues the job. Setting one up takes minutes:
+The same existing container can now process film on its CPU. There is no separate
+GPU provider, processing server, or staff laptop requirement for hosted jobs.
+Enable its private worker account in §5. Authorized staff use **Process Film** in
+the browser; the shared database queue admits one job at a time on this worker.
+Cloudflare bills the container while processing; this does not promise real-time
+throughput or football-specific accuracy. Local CPU workers remain supported:
 [local-worker.md](local-worker.md).
 
 ## Prerequisites
@@ -29,7 +34,8 @@ Process Film only queues the job. Setting one up takes minutes:
 - A Cloudflare account on the **Workers Paid** plan. Containers are not
   available on the free plan.
 - Docker running locally. `wrangler deploy` builds `backend/Dockerfile` on your
-  machine and pushes the image.
+  machine and pushes the image. Its build context is the repository root; for
+  a manual build use `docker build -f backend/Dockerfile .` from that root.
 - A Postgres 16 database with `pgvector`, **reachable from the public internet**
   (see §4 for why).
 - `npm install` inside `workers/api-edge`.
@@ -92,9 +98,11 @@ psql "$DATABASE_SYNC_URL" -c 'CREATE EXTENSION IF NOT EXISTS vector;'
 cd backend && alembic upgrade head
 ```
 
-`alembic upgrade head` runs from your machine, not from the container. There is
-no automatic migration step on deploy, deliberately: a schema change should be a
-decision, not a side effect of shipping code.
+The hosted supervisor runs `alembic upgrade head` before starting either API or
+worker, with a two-minute timeout. A migration failure prevents the new image
+from serving against an incompatible schema and logs a safe failure event.
+Use the manual command above to prepare or diagnose the schema before deployment.
+The direct sync database role needs permission to apply the repository's migrations.
 
 ---
 
@@ -176,6 +184,75 @@ Generate `SECRET_KEY` and `SCHEDULER_TOKEN` with real entropy:
 ```bash
 python3 -c "import secrets; print(secrets.token_urlsafe(48))"
 ```
+
+### Hosted CPU processing
+
+Set a dedicated service account using the existing worker bootstrap secrets:
+
+```bash
+npx wrangler secret put SEED_WORKER_EMAIL
+npx wrangler secret put SEED_WORKER_PASSWORD
+```
+
+Use a valid routable email domain. The supervisor idempotently creates this
+analyst account, without changing existing passwords or creating an admin.
+Create the first admin before enabling processing (or configure the optional
+admin bootstrap below). An empty team database stays open for first-admin signup;
+the worker cannot become its first account. Existing viewer/inactive accounts
+are rejected, and existing staff roles/passwords are preserved.
+The default `HOSTED_PROCESSING_ENABLED=auto` starts the worker when both secrets
+exist; set it to `"0"` in Worker vars to disable hosted processing. Credentials
+stay in the container and never reach frontend assets. An existing account must
+have staff permissions and its configured password must match. Operators retain
+control over role changes through Settings.
+
+The image downloads the existing generic YOLOv8n baseline from the published
+Ultralytics v8.3.0 asset and verifies SHA256
+`f59b3d833e2ff32e194b5bb8e08d211dc7c5bdf144b90d2c8412c47ccfc83b36`.
+Weights stay out of Git. Review its [license](../../LICENSES.md#ultralytics-yolov8--yolov11)
+before distribution. API and pipeline dependencies use separate virtualenvs;
+only the pipeline process imports inference packages. Startup runs a real CPU
+inference smoke check. A failed detector check leaves a model-free Review worker
+available and does not advertise Quick processing or standalone inference jobs.
+
+The CPU worker is bounded to one inference thread and processes the durable
+Postgres queue serially. It claims full pipeline jobs only, so every hosted job
+passes the media limits below. Source media and results are in R2; container disk is
+scratch space, so a cold restart may recompute work whose local checkpoints were
+lost. A succeeded job's local checkpoints are removed once its results are
+published; paused, failed and running jobs keep theirs for resume. The shared `standard-1` instance has an 8 GB disk, so hosted processing
+accepts recordings up to **512 MiB, 5 minutes and 1080p**, with at least 4 GiB
+of free temporary space before downloading. The source byte limit is checked
+against the recording's server-verified object size (jobs pointing at any other
+object are rejected) and enforced again while streaming; actual duration and dimensions are probed
+from the bounded downloaded source before stage copies/rendering. Larger uploads
+still belong in the shared library; upload a short processing copy or use the
+existing local worker for them. A rejected job explains the limit and leaves the
+original film available. Idempotent API writes and fenced queue leases prevent duplicate output or
+stale writes. Shutdown gives the worker time to pause before stopping the API.
+On startup, only jobs tagged as interrupted by this hosted worker are resumed;
+explicit staff pauses and another laptop's shutdown jobs stay paused.
+Container expiry checks authenticated live leases, allowing long jobs to finish
+after a browser closes while still sleeping when idle. Keep `SCHEDULER_TOKEN`
+configured for this activity check and the nightly tick.
+
+This baseline detects people and tracks them within a recording. Dedicated ball
+weights, readable identities and reliable field calibration remain separate
+prerequisites. Optional models are skipped when unavailable. Human corrections
+persist immediately; training candidates require real reviewed labels, disjoint
+sessions, held-out evaluation and admin promotion. Automatic detector self-training
+and zero-shot football semantics are not established by installing this model.
+
+### College Football Data
+
+`CFBD_API_KEY` is a Worker secret forwarded only to the backend container:
+
+```bash
+npx wrangler secret put CFBD_API_KEY
+```
+
+Optional vars `CFBD_BASE_URL` and `CFBD_CACHE_STALE_AFTER_HOURS` are forwarded as
+server configuration. Never use `NEXT_PUBLIC_*` for this key.
 
 ### Optional bootstrap admin
 
@@ -263,4 +340,5 @@ correction → training flywheel stops turning, silently.
 
 **Container cold starts are real.** The first request after 20 minutes idle
 waits for a boot. That is the tradeoff for not paying for an idle API all week;
-lengthen `sleepAfter` in `src/container.ts` if coaches notice it.
+lengthen `sleepAfter` in `src/container.ts` if coaches notice it. Active hosted
+processing leases renew this timeout even after all browsers close.

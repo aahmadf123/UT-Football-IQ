@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { Plus, Upload, ArrowRight, Link2, RefreshCw } from "lucide-react";
+import { Plus, Upload, ArrowRight, Link2, RefreshCw, Search, FolderOpen, Camera, ChevronLeft, CalendarDays } from "lucide-react";
 import { useAppState } from "@/lib/app-state";
 import { addSessionRecording, createSession, fetchClipsForVideo, fetchSession, fetchSessions, matchSessionPlays } from "@/lib/api";
 import type { ApiClip, ApiSession, SessionKind } from "@/lib/types";
@@ -15,6 +15,7 @@ import { Label } from "@/components/ui/label";
 import { NativeSelect } from "@/components/ui/native-select";
 import { StatusBadge, toneForVideoStatus } from "@/components/composite/status-badge";
 import { SessionTransfer } from "@/components/film-room/session-transfer";
+import { useWorkspaceContext } from "@/lib/workspace-context";
 
 export function SessionWorkspace({ initialSessionId = "", onSelect }: { initialSessionId?: string; onSelect: (id: string) => void }) {
   const { authToken, data, refreshData, currentRole } = useAppState();
@@ -32,6 +33,11 @@ export function SessionWorkspace({ initialSessionId = "", onSelect }: { initialS
   const [libraryRole, setLibraryRole] = useState<"toledo" | "opponent">("toledo");
   const [attachId, setAttachId] = useState("");
   const [camera, setCamera] = useState("");
+  const [sessionQuery, setSessionQuery] = useState("");
+  const [showAllSessions, setShowAllSessions] = useState(false);
+  const workspace = useWorkspaceContext();
+  const matchedSessions = sessions.filter((item) => `${item.title} ${item.opponent_team ?? ""} ${item.session_kind ?? ""} ${item.recorded_at ?? ""}`.toLowerCase().includes(sessionQuery.trim().toLowerCase()));
+  const visibleSessions = showAllSessions || sessionQuery.trim() ? matchedSessions : matchedSessions.slice(0, 6);
   const canEdit = currentRole === "admin" || currentRole === "analyst" || currentRole === "coach";
   const { widget, openFilePicker } = useUploadWidget({
     metadata: session ? { practice_session_id: session.id, session_kind: session.session_kind, library_role: session.library_role, opponent_team: session.opponent_team, recorded_at: session.recorded_at } : undefined,
@@ -101,15 +107,15 @@ export function SessionWorkspace({ initialSessionId = "", onSelect }: { initialS
   return (
     <div className="flex flex-col gap-5">
       {widget}
-      <Card>
+      <Card className="gap-4 py-5">
         <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3">
-          <div><h2 className="text-base font-semibold">Session workspace</h2><p className="mt-1 text-sm text-muted-foreground">Keep practice or game recordings together, with a name for each camera angle.</p></div>
+          <div><p className="section-eyebrow mb-2">{workspace.libraryLabel}</p><h2 className="text-base font-semibold">Session workspace</h2><p className="mt-1 text-xs text-muted-foreground">Practice and game film, organized by session and camera angle.</p></div>
           <div className="flex flex-wrap gap-2"><Button variant="ghost" size="sm" onClick={() => void loadSessions()} disabled={loading}><RefreshCw className="size-4" /> Refresh</Button>{canEdit ? <><SessionTransfer sessionId={selectedId || undefined} onImported={async (id) => { await loadSessions(); select(id); }} /><Button variant="outline" size="sm" onClick={() => setCreating((value) => !value)}><Plus className="size-4" /> New session</Button></> : null}</div>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
-          <div className="max-w-xl"><Label htmlFor="film-session">Session</Label><NativeSelect id="film-session" className="mt-2" value={selectedId} onChange={(event) => select(event.target.value)} disabled={loading}>
+          <div className="flex flex-wrap items-end gap-3"><div className="min-w-56 flex-1"><Label htmlFor="film-session" className="text-xs text-muted-foreground">Session</Label><NativeSelect id="film-session" className="mt-2" value={selectedId} onChange={(event) => select(event.target.value)} disabled={loading}>
             <option value="">All recordings</option>{sessions.map((item) => <option key={item.id} value={item.id}>{item.title}{item.recorded_at ? ` · ${item.recorded_at.slice(0, 10)}` : ""}</option>)}
-          </NativeSelect></div>
+          </NativeSelect></div>{!selectedId && sessions.length > 0 ? <div className="min-w-56 flex-1"><Label htmlFor="session-search" className="text-xs text-muted-foreground">Find a session</Label><div className="relative mt-2"><Search className="pointer-events-none absolute left-3 top-3 size-3.5 text-muted-foreground" aria-hidden /><Input id="session-search" className="pl-9" value={sessionQuery} onChange={(event) => setSessionQuery(event.target.value)} placeholder="Search name, opponent, or date…" /></div></div> : null}{selectedId ? <Button variant="ghost" size="sm" onClick={() => select("")}><ChevronLeft className="size-4" /> All sessions</Button> : null}</div>
           {loading ? <p role="status" className="text-sm text-muted-foreground">Loading sessions…</p> : null}
           {error ? <p role="alert" className="text-sm text-status-danger">{error}</p> : null}
           {creating ? <form onSubmit={saveSession} className="grid gap-4 rounded-lg border border-border-soft p-4 sm:grid-cols-2">
@@ -123,15 +129,17 @@ export function SessionWorkspace({ initialSessionId = "", onSelect }: { initialS
         </CardContent>
       </Card>
 
+      {!selectedId && sessions.length > 0 ? <section aria-label="Saved sessions"><div className="mb-3 flex items-center justify-between"><h2 className="section-eyebrow">Saved sessions <span className="ml-2 text-foreground">{matchedSessions.length}</span></h2>{matchedSessions.length > 6 && !sessionQuery.trim() ? <Button size="sm" variant="ghost" onClick={() => setShowAllSessions((value) => !value)}>{showAllSessions ? "Show recent sessions" : "Show all sessions"}</Button> : null}</div>{visibleSessions.length ? <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{visibleSessions.map((item) => <button key={item.id} type="button" onClick={() => select(item.id)} className="workspace-surface group flex flex-col rounded-lg border border-border-soft p-4 text-left transition-colors hover:border-primary/40"><div className="mb-4 flex w-full items-center justify-between gap-3"><FolderOpen className="size-5 text-primary/80" aria-hidden /><span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{item.session_kind ?? "Session"}</span></div><h3 className="text-sm font-semibold group-hover:text-primary">{item.title}</h3><p className="mt-1 text-xs text-muted-foreground">{item.opponent_team ? `vs. ${item.opponent_team}` : item.library_role === "opponent" ? "Opponent scouting" : "Toledo film"}</p><div className="mt-4 flex w-full flex-wrap items-center gap-x-4 gap-y-2 border-t border-border-soft pt-3 text-[11px] text-muted-foreground"><span className="flex items-center gap-1.5"><CalendarDays className="size-3" aria-hidden />{(item.recorded_at ?? item.created_at).slice(0, 10)}</span><span className="flex items-center gap-1.5"><Camera className="size-3" aria-hidden />{item.recordings.length} recording{item.recordings.length === 1 ? "" : "s"}</span><ArrowRight className="ml-auto size-3.5 text-primary/70" aria-hidden /></div></button>)}</div> : <div className="rounded-lg border border-dashed border-border-soft p-6 text-center"><p className="text-sm text-muted-foreground">No sessions match “{sessionQuery}”.</p><Button variant="link" size="sm" onClick={() => setSessionQuery("")}>Clear search</Button></div>}</section> : null}
+
       {!selectedId ? <LibraryView savedSessions={sessions} /> : session ? <>
         <Card>
           <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-3">
-            <div><h2 className="text-lg font-semibold">{session.title}</h2><p className="mt-1 text-sm text-muted-foreground">{session.session_kind ?? "Session"} · {session.library_role === "opponent" ? "Opponent film" : "Toledo film"}{session.opponent_team ? ` · vs. ${session.opponent_team}` : ""} · {session.recordings.length} recording{session.recordings.length === 1 ? "" : "s"}</p></div>
+            <div><p className="section-eyebrow mb-2">Session recordings</p><h2 className="text-lg font-semibold">{session.title}</h2><p className="mt-1 text-sm text-muted-foreground">{session.session_kind ?? "Session"} · {session.library_role === "opponent" ? "Opponent film" : "Toledo film"}{session.opponent_team ? ` · vs. ${session.opponent_team}` : ""} · {session.recordings.length} recording{session.recordings.length === 1 ? "" : "s"}</p></div>
             {canEdit ? <Button onClick={openFilePicker}><Upload className="size-4" /> Add recordings</Button> : null}
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
             {session.recordings.length === 0 ? <p className="text-sm text-muted-foreground">Add a recording from any camera to start this session.</p> : session.recordings.map((recording) => <div key={recording.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border-soft p-4">
-              <div className="min-w-0"><p className="break-words font-medium">{recording.filename}</p><p className="mt-1 text-sm text-muted-foreground">{recording.camera_label || "Camera angle not named"}{recording.recorded_at ? ` · ${recording.recorded_at.slice(0, 10)}` : ""}</p></div>
+              <div className="flex min-w-0 items-center gap-3"><span className="flex size-11 shrink-0 items-center justify-center rounded-md border border-border-soft bg-secondary/40"><Camera className="size-4 text-primary/70" aria-hidden /></span><div className="min-w-0"><p className="break-words text-sm font-medium">{recording.filename}</p><p className="mt-1 text-xs text-muted-foreground">{recording.camera_label || "Camera angle not named"}{recording.recorded_at ? ` · ${recording.recorded_at.slice(0, 10)}` : ""}</p></div></div>
               <div className="flex flex-wrap items-center gap-3"><StatusBadge tone={toneForVideoStatus(recording.status)} dot>{recording.status}</StatusBadge><Button asChild variant="outline" size="sm"><Link href={`/clip-review/?videoId=${recording.id}&sessionId=${session.id}`}>Watch recording</Link></Button><Button asChild variant="outline" size="sm"><Link href={`/film-room/?tab=review&sessionId=${session.id}&videoId=${recording.id}`}>Review plays <ArrowRight className="size-4" /></Link></Button></div>
             </div>)}
             {canEdit ? <details className="rounded-lg border border-border-soft p-4"><summary className="cursor-pointer text-sm font-medium">Group a recording already in your library</summary><form onSubmit={attachRecording} className="mt-4 flex flex-wrap items-end gap-3">
