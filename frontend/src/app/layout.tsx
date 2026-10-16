@@ -34,6 +34,9 @@ export const metadata: Metadata = {
     shortcut: "/brand/Secondary_Logo_for_Light_Background.png",
     apple: "/brand/Secondary_Logo_for_Light_Background.png",
   },
+  // Read by the deploy smoke check and compared with the API's
+  // /api/v1/system/version, so a half-finished deploy is caught.
+  other: { "build-sha": process.env.NEXT_PUBLIC_GIT_SHA ?? "dev" },
 };
 
 export default function RootLayout({

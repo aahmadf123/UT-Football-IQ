@@ -200,7 +200,9 @@ def test_fetch_failure_for_one_day_does_not_abort() -> None:
             stage_workload_rollup.backend, "fetch_daily_cv_loads", side_effect=_flaky_fetch
         ),
         patch.object(
-            stage_workload_rollup.backend, "upsert_workload_daily", side_effect=lambda rows: len(rows)
+            stage_workload_rollup.backend,
+            "upsert_workload_daily",
+            side_effect=lambda rows: len(rows),
         ),
         patch.object(stage_workload_rollup.backend, "create_alerts", side_effect=lambda p: len(p)),
     ):
@@ -208,3 +210,37 @@ def test_fetch_failure_for_one_day_does_not_abort() -> None:
 
     assert len(calls_seen) == 28
     assert result["players"] == 1
+
+
+def test_dispatch_replays_every_coalesced_rollup_date() -> None:
+    # The backend folds days missed while no worker was attached into one job's
+    # ``dates``; the worker must run each of them, oldest first.
+    import importlib.util
+
+    root = os.path.join(os.path.dirname(__file__), "..")
+    spec = importlib.util.spec_from_file_location(
+        "gpu_worker_main", os.path.join(root, "__main__.py")
+    )
+    assert spec is not None and spec.loader is not None
+    worker_main = importlib.util.module_from_spec(spec)
+    sys.modules.setdefault("gpu_worker_main", worker_main)
+    spec.loader.exec_module(worker_main)
+
+    seen: list[str] = []
+
+    def _fake_run(day: str, job_id: str, *, priority: int = 0) -> dict[str, Any]:
+        seen.append(day)
+        return {"date": day}
+
+    with patch.object(stage_workload_rollup, "run", _fake_run):
+        result = worker_main._dispatch(
+            "workload_rollup",
+            "",
+            "",
+            "",
+            {"date": "2026-01-03", "dates": ["2026-01-03", "2026-01-01", "2026-01-02"]},
+            "job-1",
+        )
+
+    assert seen == ["2026-01-01", "2026-01-02", "2026-01-03"]
+    assert result["dates"] == seen

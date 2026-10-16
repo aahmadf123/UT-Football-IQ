@@ -94,7 +94,7 @@ classifies the worker pool as `healthy`, `degraded`, or `saturated`.
 Thresholds are environment-driven (see
 [`.env.example`](../.env.example)):
 
-* `WORKLOAD_QUEUE_THRESHOLD` (default `50`)
+* `WORKLOAD_QUEUE_THRESHOLD` (default `500`, counting only queued `pipeline` jobs)
 * `WORKLOAD_RUNNING_THRESHOLD` (default `20`)
 * `WORKLOAD_GATING_DISABLED` (default `false`) — emergency bypass.
 

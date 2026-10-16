@@ -35,7 +35,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import structlog
-from sqlalchemy import func, select, text, update
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
@@ -72,47 +72,63 @@ async def _already_ran_today(db: AsyncSession, job_type: JobType, now: datetime)
     return bool(count)
 
 
-_UNFINISHED_STATUSES = (JobStatus.queued, JobStatus.running, JobStatus.paused)
+def _rollup_dates(job: ProcessingJob) -> set[str]:
+    artifacts = job.input_artifacts or {}
+    dates = {str(d)[:10] for d in artifacts.get("dates") or []}
+    if artifacts.get("date"):
+        dates.add(str(artifacts["date"])[:10])
+    return dates
 
-#: Queued rollups older than this are superseded by the next one: each rollup
-#: recomputes a trailing window, so a backlog of stale days adds nothing.
-_STALE_ROLLUP_AGE = timedelta(days=2)
 
+async def _enqueue_rollup(db: AsyncSession, rollup_date: str) -> tuple[ProcessingJob, int]:
+    """Keep at most one queued rollup, carrying every day still owed.
 
-async def _has_unfinished(db: AsyncSession, job_type: JobType) -> bool:
-    count = (
-        await db.execute(
-            select(func.count())
-            .select_from(ProcessingJob)
-            .where(
-                ProcessingJob.job_type == job_type,
-                ProcessingJob.status.in_(_UNFINISHED_STATUSES),
+    A rollup is only claimed by a full (non-hosted) worker, and the staff
+    laptop can be offline for days. The old behaviour added one queued job per
+    day forever (60 accumulated in production). Instead, coalesce: fold every
+    queued rollup's dates into the newest one and cancel the rest, so no day is
+    dropped and the queue stays bounded. Returns the pending job and how many
+    duplicates were merged away.
+    """
+    queued = list(
+        (
+            await db.execute(
+                select(ProcessingJob)
+                .where(
+                    ProcessingJob.job_type == JobType.workload_rollup,
+                    ProcessingJob.status == JobStatus.queued,
+                )
+                .order_by(ProcessingJob.created_at.desc())
+                .with_for_update()
             )
         )
-    ).scalar_one()
-    return bool(count)
-
-
-async def _cancel_stale_rollups(db: AsyncSession, now: datetime) -> int:
-    """Cancel queued rollups nobody claimed, so they never pile up.
-
-    A rollup is only claimed by a full (non-hosted) worker. When none is
-    attached for days, the old behaviour added one queued job per day forever.
-    """
-    result = await db.execute(
-        update(ProcessingJob)
-        .where(
-            ProcessingJob.job_type == JobType.workload_rollup,
-            ProcessingJob.status == JobStatus.queued,
-            ProcessingJob.created_at < now - _STALE_ROLLUP_AGE,
-        )
-        .values(
-            status=JobStatus.cancelled,
-            error_message="Superseded by a newer nightly rollup",
-            finished_at=now,
-        )
+        .scalars()
+        .all()
     )
-    return int(getattr(result, "rowcount", 0) or 0)
+    dates = {rollup_date}
+    for job in queued:
+        dates |= _rollup_dates(job)
+    if queued:
+        keeper, extras = queued[0], queued[1:]
+    else:
+        keeper = ProcessingJob(
+            id=uuid.uuid4(),
+            job_type=JobType.workload_rollup,
+            status=JobStatus.queued,
+            priority=0,
+            pipeline_mode=PipelineMode.nightly,
+        )
+        db.add(keeper)
+        extras = []
+    ordered = sorted(dates)
+    # Reassign (not mutate) so SQLAlchemy sees the JSONB change.
+    keeper.input_artifacts = {"date": ordered[-1], "dates": ordered, "trigger": "scheduler"}
+    now = datetime.now(UTC)
+    for job in extras:
+        job.status = JobStatus.cancelled
+        job.error_message = f"Merged into nightly rollup {keeper.id}"
+        job.finished_at = now
+    return keeper, len(extras)
 
 
 async def _new_human_labels_since_last_train(db: AsyncSession) -> int:
@@ -186,23 +202,14 @@ async def run_nightly_tick(db: AsyncSession) -> dict[str, object]:
         summary["train_job_id"] = None
         summary["training_enabled"] = get_settings().auto_train_enabled
 
-    summary["cancelled_stale_rollups"] = await _cancel_stale_rollups(db, now)
-    if not await _already_ran_today(db, JobType.workload_rollup, now) and not await _has_unfinished(
-        db, JobType.workload_rollup
-    ):
-        rollup_date = (now.date() - timedelta(days=1)).isoformat()
-        rollup_job = ProcessingJob(
-            id=uuid.uuid4(),
-            job_type=JobType.workload_rollup,
-            status=JobStatus.queued,
-            priority=0,
-            pipeline_mode=PipelineMode.nightly,
-            input_artifacts={"date": rollup_date, "trigger": "scheduler"},
-        )
-        db.add(rollup_job)
-        summary["workload_rollup_job_id"] = str(rollup_job.id)
-    else:
+    if await _already_ran_today(db, JobType.workload_rollup, now):
         summary["workload_rollup_job_id"] = None
+        summary["merged_rollups"] = 0
+    else:
+        rollup_date = (now.date() - timedelta(days=1)).isoformat()
+        rollup_job, merged = await _enqueue_rollup(db, rollup_date)
+        summary["workload_rollup_job_id"] = str(rollup_job.id)
+        summary["merged_rollups"] = merged
 
     await db.flush()
     return summary
