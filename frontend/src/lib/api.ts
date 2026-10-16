@@ -36,6 +36,7 @@ import type {
   WorkloadGatedDetail,
 } from "./types";
 import { apiBase } from "./endpoints";
+import { ApiError, apiErrorFromResponse, offlineError } from "./api-error";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -50,11 +51,13 @@ function getHeaders(token?: string): Record<string, string> {
 }
 
 async function getJSON<T>(url: string, token?: string): Promise<T> {
-  const res = await fetch(url, { headers: getHeaders(token) });
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`GET ${url} failed (${res.status}): ${body}`);
+  let res: Response;
+  try {
+    res = await fetch(url, { headers: getHeaders(token) });
+  } catch (cause) {
+    throw offlineError("load the latest data", cause);
   }
+  if (!res.ok) throw await apiErrorFromResponse(res, "load the latest data");
   return res.json() as Promise<T>;
 }
 
@@ -76,8 +79,7 @@ async function _requestUploadUrlFrom(
     body: JSON.stringify({ filename }),
   });
   if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`Failed to get upload URL (${res.status}): ${body}`);
+    throw await apiErrorFromResponse(res, "start the upload");
   }
   return res.json() as Promise<UploadUrlResponse>;
 }
@@ -121,8 +123,7 @@ export async function uploadToObjectStore(
     signal,
   });
   if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`Upload failed (${res.status}): ${body}`);
+    throw await apiErrorFromResponse(res, "upload the film");
   }
   return res.json() as Promise<ObjectUploadResult>;
 }
@@ -153,15 +154,15 @@ function uploadWithXhr(
         try {
           resolve(JSON.parse(xhr.responseText) as ObjectUploadResult);
         } catch {
-          reject(new Error("Invalid JSON response from upload"));
+          reject(new ApiError({ status: 500, action: "upload the film", technical: "Invalid JSON response from upload" }));
         }
       } else {
-        reject(new Error(`Upload failed (${xhr.status}): ${xhr.responseText}`));
+        reject(new ApiError({ status: xhr.status, action: "upload the film", body: xhr.responseText }));
       }
     });
 
-    xhr.addEventListener("error", () => reject(new Error("Upload network error")));
-    xhr.addEventListener("abort", () => reject(new Error("Upload aborted")));
+    xhr.addEventListener("error", () => reject(offlineError("upload the film")));
+    xhr.addEventListener("abort", () => reject(new Error("Upload was cancelled.")));
     xhr.send(file);
   });
 }
@@ -194,7 +195,7 @@ export interface SessionCreate {
 
 async function mutateJSON<T>(path: string, method: "POST" | "PATCH", body: unknown, token?: string): Promise<T> {
   const response = await fetch(`${apiBase()}${path}`, { method, headers: authHeaders(token), body: JSON.stringify(body) });
-  if (!response.ok) throw new Error(`Could not save (${response.status}): ${await response.text()}`);
+  if (!response.ok) throw await apiErrorFromResponse(response, "save your changes");
   return response.json() as Promise<T>;
 }
 
@@ -241,7 +242,7 @@ export async function importSessionArchive(file: File, dryRun = true, token?: st
   body.append("file", file);
   body.append("dry_run", String(dryRun));
   const response = await fetch(`${apiBase()}/api/v1/library/import`, { method: "POST", headers: getHeaders(token), body });
-  if (!response.ok) throw new Error(`Session import failed (${response.status}): ${await response.text()}`);
+  if (!response.ok) throw await apiErrorFromResponse(response, "import the session");
   return response.json() as Promise<SessionImportPreview>;
 }
 export function repairSystem(action: "restart-worker" | "restart-api" | "install-detector" | "clear-cache", token?: string): Promise<{ id: string; action: string; state: "queued" }> {
@@ -304,8 +305,7 @@ export async function registerVideo(
     body: JSON.stringify(data),
   });
   if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`Video registration failed (${res.status}): ${body}`);
+    throw await apiErrorFromResponse(res, "add the film to the library");
   }
   return res.json() as Promise<VideoRegistrationResult>;
 }
@@ -346,8 +346,7 @@ export async function fetchInboxStatus(
   const url = `${base}/api/v1/inbox/status${qs ? `?${qs}` : ""}`;
   const res = await fetch(url, { headers: authHeaders(token) });
   if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`Inbox status failed (${res.status}): ${body}`);
+    throw await apiErrorFromResponse(res, "check processing status");
   }
   return res.json() as Promise<VideoInboxItem[]>;
 }
@@ -736,7 +735,7 @@ export async function updateClip(clipId: string, patch: ClipUpdate, token?: stri
   const res = await fetch(`${apiBase()}/api/v1/clips/${encodeURIComponent(clipId)}`, {
     method: "PATCH", headers: authHeaders(token), body: JSON.stringify(patch),
   });
-  if (!res.ok) throw new Error(`Could not save play (${res.status}): ${await res.text()}`);
+  if (!res.ok) throw await apiErrorFromResponse(res, "save the play");
   return res.json() as Promise<ApiClip>;
 }
 
@@ -766,8 +765,7 @@ export async function createCorrection(
     body: JSON.stringify(body),
   });
   if (!res.ok) {
-    const errorBody = await res.text();
-    throw new Error(`Correction request failed (${res.status}): ${errorBody}`);
+    throw await apiErrorFromResponse(res, "save the correction");
   }
   return res.json() as Promise<CorrectionResponse>;
 }
@@ -781,8 +779,7 @@ export async function retryJob(jobId: string, token?: string): Promise<unknown> 
     headers: authHeaders(token),
   });
   if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`Job retry failed (${res.status}): ${body}`);
+    throw await apiErrorFromResponse(res, "retry processing");
   }
   return res.json();
 }
@@ -856,8 +853,7 @@ export async function requestVideoProcessing(
     );
   }
   if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`Process film request failed (${res.status}): ${body}`);
+    throw await apiErrorFromResponse(res, "start processing");
   }
   const job = (await res.json()) as { id: string; status: string };
   return { jobId: job.id, status: job.status };
@@ -923,8 +919,7 @@ export async function actionAlert(alertId: string, token?: string): Promise<ApiA
     headers: authHeaders(token),
   });
   if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`Action alert failed (${res.status}): ${body}`);
+    throw await apiErrorFromResponse(res, "update the alert");
   }
   return res.json() as Promise<ApiAlert>;
 }
@@ -1000,8 +995,7 @@ export async function generateTendencyBreak(
     { method: "POST", headers: authHeaders(token) },
   );
   if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`Generate tendency-break failed (${res.status}): ${body}`);
+    throw await apiErrorFromResponse(res, "check for tendency breaks");
   }
   return res.json() as Promise<TendencyBreakRunResponse>;
 }
@@ -1150,7 +1144,7 @@ export function subscribeAlerts(
         signal: controller.signal,
       });
       if (!res.ok || !res.body) {
-        throw new Error(`SSE connect failed (${res.status})`);
+        throw new ApiError({ status: res.status, action: "connect to live alerts" });
       }
       const reader = res.body.getReader();
       const decoder = new TextDecoder("utf-8");
@@ -1221,8 +1215,7 @@ export async function updateSystemSettings(
     body: JSON.stringify(patch),
   });
   if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`Settings update failed (${res.status}): ${body}`);
+    throw await apiErrorFromResponse(res, "save settings");
   }
   return res.json() as Promise<SystemSettingsResponse>;
 }
@@ -1245,8 +1238,7 @@ export async function updateUserPreferences(
     body: JSON.stringify(patch),
   });
   if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`Preferences update failed (${res.status}): ${body}`);
+    throw await apiErrorFromResponse(res, "save your preferences");
   }
   return res.json() as Promise<UserPreferences>;
 }
@@ -1269,8 +1261,7 @@ export async function createReport(
     body: JSON.stringify(body),
   });
   if (!res.ok) {
-    const errorBody = await res.text();
-    throw new Error(`Report request failed (${res.status}): ${errorBody}`);
+    throw await apiErrorFromResponse(res, "create the report");
   }
   return res.json() as Promise<ReportJob>;
 }

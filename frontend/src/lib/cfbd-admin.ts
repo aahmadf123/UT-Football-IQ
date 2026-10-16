@@ -1,4 +1,5 @@
 import { apiBase } from "./endpoints";
+import { apiErrorFromResponse } from "./api-error";
 import type { CfbdCacheMeta } from "./types";
 
 export interface CfbdConnectionStatus { configured: boolean; source: string }
@@ -38,9 +39,7 @@ async function request<T>(path: string, token?: string, body?: unknown): Promise
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
   if (!response.ok) {
-    const value: unknown = await response.json().catch(() => null);
-    const detail = value && typeof value === "object" && "detail" in value ? value.detail : null;
-    throw new Error(typeof detail === "string" ? detail : `College data request failed (${response.status}).`);
+    throw await apiErrorFromResponse(response, body === undefined ? "load college data" : "refresh college data");
   }
   return response.json() as Promise<T>;
 }

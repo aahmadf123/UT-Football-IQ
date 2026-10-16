@@ -27,6 +27,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { friendlyMessage } from "@/lib/api-error";
 
 type SearchState =
   | { kind: "idle" }
@@ -71,7 +72,7 @@ export function ConceptSearch() {
       const response = await searchConcepts(q, { k: 20 }, authToken);
       setState({ kind: "done", response });
     } catch (err) {
-      setState({ kind: "error", message: err instanceof Error ? err.message : "Search failed" });
+      setState({ kind: "error", message: friendlyMessage(err) });
     }
   }
 

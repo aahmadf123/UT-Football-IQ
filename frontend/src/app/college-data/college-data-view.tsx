@@ -27,6 +27,7 @@ import {
   fetchCfbdConnection, fetchCfbdGamePlays, refreshCfbdScope,
   type CfbdConnectionStatus, type CfbdGamePlays, type CfbdSyncScope,
 } from "@/lib/cfbd-admin";
+import { friendlyMessage } from "@/lib/api-error";
 
 const SOURCE_LABEL = "CollegeFootballData.com";
 
@@ -65,7 +66,7 @@ export function CollegeDataView() {
         const data = await fn();
         if (generation === loadGeneration.current) set({ kind: "ready", data });
       } catch (err) {
-        if (generation === loadGeneration.current) set({ kind: "error", message: err instanceof Error ? err.message : String(err) });
+        if (generation === loadGeneration.current) set({ kind: "error", message: friendlyMessage(err) });
       }
     };
 
@@ -91,7 +92,7 @@ export function CollegeDataView() {
     fetchCfbdGamePlays(selectedGame.id, authToken).then((data) => {
       if (!cancelled) setPlays({ kind: "ready", data });
     }).catch((error: unknown) => {
-      if (!cancelled) setPlays({ kind: "error", message: error instanceof Error ? error.message : "Unable to load plays." });
+      if (!cancelled) setPlays({ kind: "error", message: friendlyMessage(error) });
     });
     return () => { cancelled = true; };
   }, [selectedGame, authToken, syncNotice]);
@@ -108,7 +109,7 @@ export function CollegeDataView() {
       }
       setSyncNotice(`Updated ${count} cached records for ${season}.`);
     } catch (error) {
-      setSyncError(error instanceof Error ? error.message : "Unable to refresh college data.");
+      setSyncError(friendlyMessage(error));
     } finally {
       setSyncing(null);
       await load();

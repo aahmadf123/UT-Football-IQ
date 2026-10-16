@@ -23,6 +23,7 @@ import { NativeSelect } from "@/components/ui/native-select";
 import { ActiveFilterChip } from "@/components/composite/active-filter-chip";
 import { FilterBar } from "@/components/composite/filter-bar";
 import { StatusBadge } from "@/components/composite/status-badge";
+import { friendlyMessage } from "@/lib/api-error";
 
 type ScoutDataState = FetchState<SelfScoutResponse>;
 
@@ -64,7 +65,7 @@ export function SelfScoutView() {
       .catch((err: unknown) => {
         if (cancelled) return;
         setVideos([]);
-        setVideosError(err instanceof Error ? err.message : String(err));
+        setVideosError(friendlyMessage(err));
       });
     return () => {
       cancelled = true;
@@ -93,7 +94,7 @@ export function SelfScoutView() {
     } catch (err) {
       setState({
         kind: "error",
-        message: err instanceof Error ? err.message : String(err),
+        message: friendlyMessage(err),
       });
     }
   }, [selectedVideoId, authToken, selectedDate, sessionType]);
@@ -115,7 +116,7 @@ export function SelfScoutView() {
     } catch (err) {
       setBreakState({
         kind: "error",
-        message: err instanceof Error ? err.message : String(err),
+        message: friendlyMessage(err),
       });
     }
   }, [authToken]);
@@ -133,7 +134,7 @@ export function SelfScoutView() {
     } catch (err) {
       setBreakState({
         kind: "error",
-        message: err instanceof Error ? err.message : String(err),
+        message: friendlyMessage(err),
       });
     } finally {
       setGenerating(false);

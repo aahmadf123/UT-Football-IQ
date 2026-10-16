@@ -31,6 +31,7 @@ import { NativeSelect } from "@/components/ui/native-select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/composite/empty-state";
 import { StatusBadge } from "@/components/composite/status-badge";
+import { friendlyMessage } from "@/lib/api-error";
 
 // Default playback frame rate when the parent video has no ``fps`` recorded
 // (mirrors clip-review; the CV pipeline targets 30fps).
@@ -94,7 +95,7 @@ export function CvSpotlight() {
         if (cancelled) return;
         setClipsState({
           kind: "error",
-          message: err instanceof Error ? err.message : String(err),
+          message: friendlyMessage(err),
         });
       });
     return () => {
@@ -138,7 +139,7 @@ export function CvSpotlight() {
         if (cancelled) return;
         setPlayback({
           kind: "error",
-          message: err instanceof Error ? err.message : String(err),
+          message: friendlyMessage(err),
         });
       }
     })();

@@ -23,6 +23,7 @@ import { Label } from "@/components/ui/label";
 import { NativeSelect } from "@/components/ui/native-select";
 import type { ProcessingProfile } from "@/lib/types";
 import { useWorkspaceContext } from "@/lib/workspace-context";
+import { friendlyMessage } from "@/lib/api-error";
 
 // Per-video local request state, layered on top of the backend inbox status so
 // the coach gets immediate "Queued" feedback before the backend reflects it.
@@ -116,7 +117,7 @@ export function UploadProcessFilm({ onUploadClick }: { onUploadClick: () => void
             ...cur,
             [videoId]: {
               kind: "error",
-              message: err instanceof Error ? err.message : String(err),
+              message: friendlyMessage(err),
             },
           }));
         }
@@ -244,7 +245,7 @@ function PipelineJobsCard() {
       if (action === "retry") await retryJob(id, authToken);
       else await controlJob(id, action, authToken);
       await refreshData();
-    } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
+    } catch (cause) { setError(friendlyMessage(cause)); }
     finally { setPending(null); }
   };
 

@@ -23,6 +23,7 @@ import React, {
 } from "react";
 
 import { apiBase, configureApiUrl } from "./endpoints";
+import { ApiError } from "./api-error";
 import { useMocks } from "./mock-flag";
 
 const STORAGE_KEY = "football-iq-auth-v1";
@@ -107,7 +108,7 @@ async function postJson<T>(path: string, body: unknown, origin = apiBase()): Pro
     );
   }
   if (!res.ok) {
-    let detail = `Request failed (${res.status})`;
+    let detail = new ApiError({ status: res.status, action: "sign in" }).message;
     try {
       const data = (await res.json()) as { detail?: unknown };
       if (typeof data.detail === "string") {

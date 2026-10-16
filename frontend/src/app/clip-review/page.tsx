@@ -40,6 +40,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/composite/empty-state";
 import { StatLine } from "@/components/composite/stat-chip";
 import { cn } from "@/lib/utils";
+import { friendlyMessage } from "@/lib/api-error";
 
 const LAYER_TOGGLES: ReadonlyArray<{ key: OverlayLayerKey; label: string }> = [
   { key: "raw", label: "Original film" },
@@ -166,7 +167,7 @@ function ClipReviewView({ clipId }: { clipId: string }) {
         if (cancelled) return;
         setState({
           kind: "error",
-          message: err instanceof Error ? err.message : String(err),
+          message: friendlyMessage(err),
         });
       }
     })();
@@ -193,7 +194,7 @@ function ClipReviewView({ clipId }: { clipId: string }) {
         if (cancelled) return;
         setOverlayState({
           kind: "error",
-          message: err instanceof Error ? err.message : String(err),
+          message: friendlyMessage(err),
         });
       }
     };

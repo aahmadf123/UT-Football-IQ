@@ -23,6 +23,7 @@ import {
   toneForSeverity,
   type StatusTone,
 } from "@/components/composite/status-badge";
+import { friendlyMessage } from "@/lib/api-error";
 
 type AlertsState =
   | { kind: "loading" }
@@ -59,7 +60,7 @@ function AlertsView() {
     } catch (err) {
       setState({
         kind: "error",
-        message: err instanceof Error ? err.message : String(err),
+        message: friendlyMessage(err),
       });
     }
   }, [authToken]);

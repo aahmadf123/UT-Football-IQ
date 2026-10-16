@@ -11,6 +11,7 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useWorkspaceContext } from "@/lib/workspace-context";
+import { friendlyMessage } from "@/lib/api-error";
 
 const REPAIRS = [
   { action: "restart-worker", label: "Restart processing" },
@@ -32,7 +33,7 @@ export function LocalSystemPanel() {
 
   const load = useCallback(async () => {
     try { setStatus(await fetchSystemStatus(authToken)); setError(null); }
-    catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
+    catch (cause) { setError(friendlyMessage(cause)); }
     finally { setLoading(false); }
   }, [authToken]);
 
@@ -45,14 +46,14 @@ export function LocalSystemPanel() {
       setNotice("The local launcher has queued this action. Status updates automatically as services reconnect.");
       await load();
       await refreshData();
-    } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
+    } catch (cause) { setError(friendlyMessage(cause)); }
     finally { setPending(null); }
   }
 
   function switchLibrary(event: React.FormEvent) {
     event.preventDefault();
     try { configureApiUrl(origin.trim()); window.location.assign("/login/"); }
-    catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
+    catch (cause) { setError(friendlyMessage(cause)); }
   }
 
   return <Card>

@@ -95,7 +95,7 @@ describe("fetchPlayers", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const { fetchPlayers } = await freshImport();
-    await expect(fetchPlayers()).rejects.toThrow(/500/);
+    await expect(fetchPlayers()).rejects.toMatchObject({ name: "ApiError", status: 500 });
   });
 });
 
@@ -130,7 +130,7 @@ describe("fetchPlayer", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const { fetchPlayer } = await freshImport();
-    await expect(fetchPlayer("missing")).rejects.toThrow(/404/);
+    await expect(fetchPlayer("missing")).rejects.toMatchObject({ name: "ApiError", status: 404 });
   });
 });
 

@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { LearningWorkflow } from "@/components/learning-workflow";
+import { friendlyMessage } from "@/lib/api-error";
 
 export function LearningPanel() {
   const { authToken, currentRole } = useAppState();
@@ -29,7 +30,7 @@ export function LearningPanel() {
     try {
       const [snapshots, versions, holdouts] = await Promise.all([listTrainingDatasets(authToken), listModelVersions(authToken), listLearningBenchmarks(authToken)]);
       setDatasets(snapshots); setModels(versions); setBenchmarks(holdouts); setError(null);
-    } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
+    } catch (cause) { setError(friendlyMessage(cause)); }
     finally { setLoading(false); }
   }, [authToken, permitted]);
 
@@ -41,7 +42,7 @@ export function LearningPanel() {
       const result = await exportCorrections(scope.trim() || "general", authToken);
       await load();
       setNotice(result.training_dataset_id ? `Created a saved snapshot with ${result.exported_count} human labels. It is available below.` : "No new eligible corrections to export. Save corrections while reviewing film, then try again.");
-    } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
+    } catch (cause) { setError(friendlyMessage(cause)); }
     finally { setBusy(null); }
   }
 
@@ -50,14 +51,14 @@ export function LearningPanel() {
     try {
       const { download_url } = await getTrainingDatasetDownloadUrl(snapshot.id, authToken);
       const link = document.createElement("a"); link.href = download_url; link.download = `learning-snapshot-${snapshot.id}.jsonl`; link.target = "_blank"; link.rel = "noopener noreferrer"; document.body.appendChild(link); link.click(); link.remove();
-    } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
+    } catch (cause) { setError(friendlyMessage(cause)); }
     finally { setBusy(null); }
   }
 
   async function promote(model: ModelVersion) {
     setBusy(model.id); setNotice(null); setError(null);
     try { await promoteModelVersion(model.id, "production", authToken); await load(); setNotice(`${model.model_name} ${model.version} is now the registered production version.`); }
-    catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
+    catch (cause) { setError(friendlyMessage(cause)); }
     finally { setBusy(null); }
   }
 

@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { friendlyMessage } from "@/lib/api-error";
 
 export function SessionTransfer({ sessionId, onImported }: { sessionId?: string; onImported: (id: string) => Promise<void> | void }) {
   const { authToken, refreshData, currentRole } = useAppState();
@@ -25,7 +26,7 @@ export function SessionTransfer({ sessionId, onImported }: { sessionId?: string;
       const result = await exportSessionArchive(sessionId, authToken);
       const link = document.createElement("a"); link.href = result.download_url; link.download = `session-${sessionId}.zip`; link.target = "_blank"; link.rel = "noopener noreferrer"; document.body.appendChild(link); link.click(); link.remove();
       setNotice(`Session archive ready (${(result.size_bytes / 1024 ** 2).toFixed(1)} MB). Your browser handles the download.`);
-    } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
+    } catch (cause) { setError(friendlyMessage(cause)); }
     finally { setBusy(null); }
   }
 
@@ -36,7 +37,7 @@ export function SessionTransfer({ sessionId, onImported }: { sessionId?: string;
       const result = await importSessionArchive(file, !apply, authToken);
       setPreview(result);
       if (apply) { await refreshData(); await onImported(result.session_id); setOpen(false); setFile(null); setPreview(null); setNotice(`Imported ${result.title} into this local library.`); }
-    } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
+    } catch (cause) { setError(friendlyMessage(cause)); }
     finally { setBusy(null); }
   }
 

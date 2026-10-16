@@ -13,6 +13,7 @@ import { LocalSystemPanel } from "@/components/local-system-panel";
 import { LearningPanel } from "@/components/learning-panel";
 import { useWorkspaceContext } from "@/lib/workspace-context";
 import { TeamAccessPanel } from "@/components/team-access-panel";
+import { friendlyMessage } from "@/lib/api-error";
 
 export function SettingsView() {
   const { authToken, currentRole } = useAppState();
@@ -35,7 +36,7 @@ export function SettingsView() {
       setName(response.system_config.team_name);
       setAutomatic(response.system_config.auto_process_on_upload);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      setError(friendlyMessage(cause));
     } finally {
       setLoading(false);
     }
@@ -55,7 +56,7 @@ export function SettingsView() {
       setAutomatic(response.system_config.auto_process_on_upload);
       setSaved(true);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      setError(friendlyMessage(cause));
     } finally {
       setSaving(false);
     }

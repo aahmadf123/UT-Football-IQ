@@ -48,7 +48,7 @@ describe("requestUploadUrl", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const { requestUploadUrl } = await freshImport();
-    await expect(requestUploadUrl("test.mp4")).rejects.toThrow(/400/);
+    await expect(requestUploadUrl("test.mp4")).rejects.toMatchObject({ name: "ApiError", status: 400 });
   });
 
   test("uses the local origin when no API override is configured", async () => {
@@ -94,7 +94,7 @@ describe("uploadToObjectStore", () => {
 
     const { uploadToObjectStore } = await freshImport();
     const file = new File(["test content"], "test.mp4", { type: "video/mp4" });
-    await expect(uploadToObjectStore("https://api.test/upload", file)).rejects.toThrow(/500/);
+    await expect(uploadToObjectStore("https://api.test/upload", file)).rejects.toMatchObject({ name: "ApiError", status: 500 });
   });
 });
 

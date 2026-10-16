@@ -24,6 +24,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { NativeSelect } from "@/components/ui/native-select";
+import { friendlyMessage } from "@/lib/api-error";
 
 type CorrectionKind =
   | "player_identity"
@@ -244,7 +245,7 @@ export function CorrectionsPanel({ clipId, tracklets, selection, annotationRevis
       onSaved?.();
       void refreshData();
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = friendlyMessage(err);
       setStatus({ kind: "error", message });
       toast.error("Correction failed", { description: message });
     } finally {

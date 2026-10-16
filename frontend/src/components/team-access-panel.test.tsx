@@ -63,7 +63,7 @@ describe("team access", () => {
   test("recovers from a list request error without presenting sample accounts", async () => {
     clients.list.mockRejectedValueOnce(new Error("Access denied (403)"));
     render(<TeamAccessPanel />);
-    expect(await screen.findByRole("alert")).toHaveProperty("textContent", expect.stringContaining("Access denied (403)"));
+    expect(await screen.findByRole("alert")).toHaveProperty("textContent", expect.stringContaining("doesn't have access"));
     expect(screen.queryByRole("combobox")).toBeNull();
     clients.list.mockResolvedValueOnce([]);
     fireEvent.click(within(screen.getByRole("alert")).getByRole("button", { name: "Try again" }));

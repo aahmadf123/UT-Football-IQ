@@ -1,5 +1,6 @@
 "use client";
 
+import { ApiError, friendlyMessage } from "@/lib/api-error";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -85,8 +86,8 @@ export function PlayerProfileClient({ id }: { id: string }) {
         setLoadState("ready");
       } catch (err) {
         if (cancelled) return;
-        const message = err instanceof Error ? err.message : String(err);
-        if (/404/.test(message)) {
+        const message = friendlyMessage(err, "load this player");
+        if (err instanceof ApiError && err.status === 404) {
           setLoadState("missing");
         } else {
           setErrorMessage(message);

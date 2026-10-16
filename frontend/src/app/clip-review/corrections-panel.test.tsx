@@ -272,7 +272,7 @@ describe("CorrectionsPanel", () => {
     await waitFor(() => {
       expect(screen.getByTestId("correction-error")).toBeTruthy();
     });
-    expect(screen.getByTestId("correction-error").textContent).toContain("500");
+    expect(screen.getByTestId("correction-error").textContent).toContain("Something went wrong on our side");
     expect(screen.queryByTestId("correction-success")).toBeNull();
   });
 

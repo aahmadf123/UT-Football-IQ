@@ -28,6 +28,7 @@ import type {
   SourceType,
   OurPossession,
 } from "./types";
+import { ApiError, friendlyMessage } from "@/lib/api-error";
 
 export type SessionType = "all" | "practice" | "game" | "scrimmage";
 export type ApiStatus = "idle" | "loading" | "live" | "offline" | "error" | "mock";
@@ -69,6 +70,7 @@ const GROUP_BY_POSITION: Record<string, string> = {
 };
 
 function looksNetworkFailure(error: unknown): boolean {
+  if (error instanceof ApiError) return error.kind === "offline";
   if (!(error instanceof Error)) return false;
   const msg = error.message.toLowerCase();
   // Browser fetch/network failures (including CORS-blocked requests) surface
@@ -416,8 +418,7 @@ export function AppStateProvider({
           updateUpload(clip.id, { progress: pct });
         }, controller.signal);
       } catch (err) {
-        const msg = err instanceof Error ? err.message.toLowerCase() : String(err).toLowerCase();
-        const tokenExpired = msg.includes("401") && (msg.includes("expired token") || msg.includes("invalid token"));
+        const tokenExpired = err instanceof ApiError && err.status === 401;
         if (!tokenExpired) throw err;
 
         const retriedToken = await resolveToken();
@@ -462,7 +463,7 @@ export function AppStateProvider({
           : "Saved in your library. Follow processing status in Film Room.",
       });
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = friendlyMessage(err);
       updateUpload(clip.id, { phase: "error", error: message });
       if (!controller.signal.aborted) toast.error(`Upload failed: ${file.name}`, { description: message });
     } finally {
