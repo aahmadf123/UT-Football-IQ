@@ -224,3 +224,56 @@ def test_current_season_rolls_over_in_march() -> None:
     assert current_season(datetime(2026, 10, 16, tzinfo=UTC)) == 2026
     assert current_season(datetime(2027, 1, 5, tzinfo=UTC)) == 2026
     assert current_season(datetime(2027, 3, 1, tzinfo=UTC)) == 2027
+
+
+async def test_locked_jersey_is_reserved_regardless_of_row_order(session: AsyncSession) -> None:
+    async with _client(_ROSTER) as client:
+        await sync_roster(session, client, season=2026)
+    players = await _players(session)
+    # A coach locks Late Addition at #7/DB and moves Smith's slot aside.
+    smith, late = players["Armorion Smith"], players["Late Addition"]
+    smith.jersey_number = None
+    await session.flush()
+    late.jersey_number = 7
+    late.metadata_ = {**(late.metadata_ or {}), "staff_locked_fields": ["jersey_number"]}
+    await session.commit()
+
+    # Smith appears before the locked player in the vendor rows.
+    async with _client(_ROSTER) as client:
+        result = await sync_roster(session, client, season=2026)
+    assert result.status == m.CFBDSyncStatus.succeeded
+    players = await _players(session)
+    assert players["Late Addition"].jersey_number == 7
+    assert players["Armorion Smith"].jersey_number is None
+
+
+async def test_departing_jersey_is_released_for_incoming_player(session: AsyncSession) -> None:
+    async with _client(_ROSTER) as client:
+        await sync_roster(session, client, season=2025)
+    incoming = [
+        *[e for e in _ROSTER if e["id"] != 101],
+        {"id": 201, "firstName": "New", "lastName": "Starter", "jersey": 7, "position": "QB"},
+    ]
+    async with _client(incoming) as client:
+        await sync_roster(session, client, season=2026)
+    players = await _players(session)
+    assert players["Khamoni Robinson"].is_active is False
+    assert players["New Starter"].jersey_number == 7
+
+
+async def test_locked_active_status_is_preserved(session: AsyncSession) -> None:
+    async with _client(_ROSTER) as client:
+        await sync_roster(session, client, season=2025)
+    players = await _players(session)
+    wr, qb = players["Anthony Simpson"], players["Khamoni Robinson"]
+    wr.is_active = False
+    wr.metadata_ = {**(wr.metadata_ or {}), "staff_locked_fields": ["is_active"]}
+    qb.metadata_ = {**(qb.metadata_ or {}), "staff_locked_fields": ["is_active"]}
+    await session.commit()
+
+    # Next season Robinson is gone from CFBD; Simpson is still listed.
+    async with _client([e for e in _ROSTER if e["id"] != 101]) as client:
+        await sync_roster(session, client, season=2026)
+    players = await _players(session)
+    assert players["Anthony Simpson"].is_active is False
+    assert players["Khamoni Robinson"].is_active is True

@@ -14,7 +14,8 @@
   * Registers the "FootballIQ Worker" scheduled task: runs at logon, hidden,
     on battery too, restarted every minute if it exits.
 
-  Re-run at any time to change settings; it replaces the task in place.
+  Re-run at any time to change settings; it replaces the task in place and
+  restarts a running worker so the new settings take effect.
 
 .EXAMPLE
   powershell -ExecutionPolicy Bypass -File gpu-worker\scripts\install-windows-worker.ps1 `
@@ -41,8 +42,26 @@ $DataDir = Join-Path $env:LOCALAPPDATA "FootballIQ\worker"
 $ConfigPath = Join-Path $DataDir "config.json"
 $Runner = Join-Path $PSScriptRoot "run-windows-worker.ps1"
 
-if ($Uninstall) {
+function Stop-Worker {
+    # Stopping the task ends the runner but can orphan its python child, and
+    # "-MultipleInstances IgnoreNew" would keep a still-running runner on its
+    # old config. End the runner and its whole process tree first.
+    $all = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue)
+    $tree = @($all | Where-Object { $_.CommandLine -like "*run-windows-worker.ps1*" -and $_.ProcessId -ne $PID })
+    $frontier = $tree
+    while ($frontier.Count -gt 0) {
+        $parents = $frontier | ForEach-Object { $_.ProcessId }
+        $frontier = @($all | Where-Object { $parents -contains $_.ParentProcessId -and $tree.ProcessId -notcontains $_.ProcessId })
+        $tree += $frontier
+    }
     Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+    foreach ($proc in $tree) {
+        Stop-Process -Id $proc.ProcessId -Force -ErrorAction SilentlyContinue
+    }
+}
+
+if ($Uninstall) {
+    Stop-Worker
     Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction SilentlyContinue
     Write-Host "Removed scheduled task '$TaskName'."
     return
@@ -115,6 +134,9 @@ $trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
 $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
     -StartWhenAvailable -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) `
     -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew
+# The runner reads config.json once: restart it so new settings take effect.
+# An interrupted job's lease expires and the server requeues it.
+Stop-Worker
 Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Settings $settings `
     -Description "Processes Football-IQ film on this computer's GPU." -Force | Out-Null
 Start-ScheduledTask -TaskName $TaskName

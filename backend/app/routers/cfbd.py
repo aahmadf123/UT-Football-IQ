@@ -141,7 +141,7 @@ async def refresh_cfbd_cache(
 ) -> CfbdSyncResponse:
     """Refresh one bounded scope, preserving cached data on vendor failure."""
     from app.cfbd.client import CFBDClient
-    from app.cfbd.roster_sync import sync_roster_and_stats
+    from app.cfbd.roster_sync import current_season, sync_player_seasons, sync_roster_and_stats
     from app.cfbd.sync import (
         sync_drives,
         sync_games,
@@ -166,7 +166,12 @@ async def refresh_cfbd_cache(
             weeks = [body.week] if body.week is not None else []
             result = await sync_plays(db, client, weeks=weeks, **options)
         elif body.scope == "roster":
-            result = await sync_roster_and_stats(db, client, season=body.season)
+            if body.season == current_season(datetime.now(UTC)):
+                result = await sync_roster_and_stats(db, client, season=body.season)
+            else:
+                # The active roster always follows the current season; other
+                # seasons only refresh the per-player season-stat cache.
+                result = await sync_player_seasons(db, client, season=body.season)
         else:
             result = await sync_drives(db, client, **options)
     succeeded = result.status.value == "succeeded"

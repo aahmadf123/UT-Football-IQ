@@ -35,7 +35,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import structlog
-from sqlalchemy import func, select, text
+from sqlalchemy import func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
@@ -78,6 +78,30 @@ def _rollup_dates(job: ProcessingJob) -> set[str]:
     if artifacts.get("date"):
         dates.add(str(artifacts["date"])[:10])
     return dates
+
+
+async def _rollup_scheduled(db: AsyncSession, rollup_date: str) -> bool:
+    """Whether a rollup job (queued, running or finished) already covers the date.
+
+    Checked by scheduled date, not job creation time: coalescing folds the
+    date into an older keeper, which may be claimed before the next tick.
+    Cancelled jobs were merged into a keeper that carries their dates.
+    """
+    count = (
+        await db.execute(
+            select(func.count())
+            .select_from(ProcessingJob)
+            .where(
+                ProcessingJob.job_type == JobType.workload_rollup,
+                ProcessingJob.status != JobStatus.cancelled,
+                or_(
+                    ProcessingJob.input_artifacts["dates"].contains([rollup_date]),
+                    ProcessingJob.input_artifacts["date"].astext == rollup_date,
+                ),
+            )
+        )
+    ).scalar_one()
+    return bool(count)
 
 
 async def _enqueue_rollup(db: AsyncSession, rollup_date: str) -> tuple[ProcessingJob, int]:
@@ -202,11 +226,11 @@ async def run_nightly_tick(db: AsyncSession) -> dict[str, object]:
         summary["train_job_id"] = None
         summary["training_enabled"] = get_settings().auto_train_enabled
 
-    if await _already_ran_today(db, JobType.workload_rollup, now):
+    rollup_date = (now.date() - timedelta(days=1)).isoformat()
+    if await _rollup_scheduled(db, rollup_date):
         summary["workload_rollup_job_id"] = None
         summary["merged_rollups"] = 0
     else:
-        rollup_date = (now.date() - timedelta(days=1)).isoformat()
         rollup_job, merged = await _enqueue_rollup(db, rollup_date)
         summary["workload_rollup_job_id"] = str(rollup_job.id)
         summary["merged_rollups"] = merged
@@ -263,7 +287,15 @@ async def _tick_if_due() -> None:
         # run on a possibly-different pooled connection after commit and leak
         # the lock). A failure propagates to scheduler_loop, which logs it and
         # keeps looping; run_locked_tick has already logged the detail.
-        await run_locked_tick(db)
+        summary = await run_locked_tick(db)
+    if summary is None:
+        return
+    # Weekly CFBD roster/stats refresh in its own session, outside the tick's
+    # advisory-locked transaction (same post-commit step as the external route).
+    from app.cfbd.roster_sync import refresh_roster_best_effort
+
+    async with AsyncSessionLocal() as db:
+        await refresh_roster_best_effort(db)
 
 
 async def scheduler_loop() -> None:

@@ -68,6 +68,9 @@ _CLASS_YEARS = {1: "Fr.", 2: "So.", 3: "Jr.", 4: "Sr.", 5: "Gr.", 6: "Gr."}
 
 #: Player fields a coach can edit; a locked one is never overwritten by sync.
 SYNCED_FIELDS = ("first_name", "last_name", "jersey_number", "position", "position_group")
+#: Everything a coach's roster edit locks. ``is_active`` is never copied from
+#: CFBD; a locked one is left alone by both activation and deactivation.
+STAFF_LOCKABLE_FIELDS = (*SYNCED_FIELDS, "is_active")
 
 
 def position_group(position: str | None) -> str | None:
@@ -176,18 +179,26 @@ async def _apply_roster(
         )
         planned.append((fields, existing))
 
+    # Athletes who left the program: a previous CFBD season's player not on
+    # this season's roster. Coach-created players (no athlete id) are kept, as
+    # is anyone whose active status a coach set. Deactivated first so their
+    # jersey slots are free for incoming players in this same sync.
+    current = {fields["metadata"]["cfbd_athlete_id"] for fields, _ in planned}
+    for athlete, player in by_athlete.items():
+        meta = player.metadata_ or {}
+        if (
+            athlete not in current
+            and player.is_active
+            and "is_active" not in _locked(player)
+            and str(meta.get("roster_season")) < str(season)
+        ):
+            player.is_active = False
+            stats["deactivated"] += 1
+
     # The partial unique index on active (jersey, position group) is checked
     # row by row, so clear the numbers that are about to move first: two
     # players swapping numbers must not collide halfway through the sync.
     synced = {id(p) for _, p in planned if p is not None}
-    taken: set[tuple[int, str]] = {
-        (p.jersey_number, p.position_group)
-        for p in players
-        if id(p) not in synced
-        and p.is_active
-        and p.jersey_number is not None
-        and p.position_group is not None
-    }
     original_jersey: dict[int, int | None] = {}
     for _fields, existing in planned:
         if existing is not None and "jersey_number" not in _locked(existing):
@@ -195,28 +206,66 @@ async def _apply_roster(
             existing.jersey_number = None
     await session.flush()
 
+    # [fields, existing, target, activate] per roster row.
+    plans: list[list[Any]] = []
     for fields, existing in planned:
         locked = _locked(existing) if existing is not None else set()
         target = {k: fields[k] for k in SYNCED_FIELDS if k not in locked}
-        if existing is not None and "jersey_number" in locked:
-            jersey, group = (
-                existing.jersey_number,
-                target.get("position_group", existing.position_group),
-            )
-        else:
-            jersey, group = (
-                target.get("jersey_number"),
-                target.get("position_group", existing.position_group if existing else None),
-            )
-        if jersey is not None and group is not None:
-            if (jersey, group) in taken:
+        activate = existing is None or "is_active" not in locked or existing.is_active
+        plans.append([fields, existing, target, activate])
+
+    # Reserve the slots this sync never renumbers before allocating CFBD
+    # numbers, so the outcome does not depend on vendor row order: other
+    # active players, and coach-locked jerseys. A slot released by a player
+    # moving group is not reused in the same sync (the unique index is
+    # checked row by row and flush order is not the roster order).
+    owners: dict[tuple[int, str], int] = {}
+    for p in players:
+        if (
+            p.is_active
+            and p.jersey_number is not None
+            and p.position_group is not None
+            and (id(p) not in synced or "jersey_number" in _locked(p))
+        ):
+            owners.setdefault((p.jersey_number, p.position_group), id(p))
+    for plan in plans:
+        _fields, existing, target, activate = plan
+        if (
+            existing is None
+            or "jersey_number" not in _locked(existing)
+            or existing.jersey_number is None
+            or not activate
+        ):
+            continue
+        group = target.get("position_group", existing.position_group)
+        if group is None:
+            continue
+        slot = (existing.jersey_number, group)
+        if existing.is_active and group == existing.position_group:
+            continue
+        if owners.get(slot, id(existing)) == id(existing):
+            owners[slot] = id(existing)
+            continue
+        # The locked number cannot be cleared: keep the player's current
+        # group (and inactive status) rather than collide.
+        stats["jersey_conflicts"] += 1
+        target.pop("position", None)
+        target.pop("position_group", None)
+        if not existing.is_active:
+            plan[3] = False
+
+    for fields, existing, target, activate in plans:
+        owner = id(existing) if existing is not None else id(fields)
+        jersey = target.get("jersey_number")
+        group = target.get("position_group", existing.position_group if existing else None)
+        if activate and "jersey_number" in target and jersey is not None and group is not None:
+            if owners.get((jersey, group), owner) != owner:
                 # Two athletes share a number within a group (or a coach
                 # assigned it): keep the player, leave the number blank.
                 stats["jersey_conflicts"] += 1
-                if "jersey_number" in target:
-                    target["jersey_number"] = None
+                target["jersey_number"] = None
             else:
-                taken.add((jersey, group))
+                owners[(jersey, group)] = owner
 
         if existing is None:
             session.add(
@@ -247,23 +296,11 @@ async def _apply_roster(
         if metadata != existing.metadata_:
             existing.metadata_ = metadata
             changed = True
-        if not existing.is_active:
+        if activate and not existing.is_active:
             existing.is_active = True
             changed = True
         stats["updated" if changed else "unchanged"] += 1
 
-    # Athletes who left the program: a previous CFBD season's player not on
-    # this season's roster. Coach-created players (no athlete id) are kept.
-    current = {fields["metadata"]["cfbd_athlete_id"] for fields, _ in planned}
-    for athlete, player in by_athlete.items():
-        meta = player.metadata_ or {}
-        if (
-            athlete not in current
-            and player.is_active
-            and str(meta.get("roster_season")) < str(season)
-        ):
-            player.is_active = False
-            stats["deactivated"] += 1
     await session.flush()
     return stats
 
@@ -380,31 +417,55 @@ def current_season(now: datetime) -> int:
     return now.year if now.month >= 3 else now.year - 1
 
 
+async def _fresh(session: AsyncSession, endpoint: str, season: int, now: datetime) -> bool:
+    last = (
+        await session.execute(
+            select(func.max(CFBDSyncRun.finished_at)).where(
+                CFBDSyncRun.endpoint == endpoint,
+                CFBDSyncRun.season == season,
+                CFBDSyncRun.status == CFBDSyncStatus.succeeded,
+            )
+        )
+    ).scalar_one()
+    return last is not None and now - last < WEEKLY_REFRESH
+
+
 async def refresh_roster_if_due(
     session: AsyncSession, now: datetime | None = None
 ) -> dict[str, Any] | None:
     """Weekly roster + player-stats refresh, called after the nightly tick.
 
-    No-op without a CFBD key or when a successful roster sync ran in the last
-    week. Runs in its own session (sync steps commit as they go), never
-    inside the tick's advisory-locked transaction.
+    No-op without a CFBD key or when the roster and both seasons' player stats
+    all synced successfully in the last week. Runs in its own session (sync
+    steps commit as they go), never inside the tick's advisory-locked
+    transaction.
     """
     from app.config import get_settings
 
     if not get_settings().cfbd_api_key.strip():
         return None
     now = now or datetime.now(UTC)
-    last = (
-        await session.execute(
-            select(func.max(CFBDSyncRun.finished_at)).where(
-                CFBDSyncRun.endpoint == "/roster",
-                CFBDSyncRun.status == CFBDSyncStatus.succeeded,
-            )
-        )
-    ).scalar_one()
-    if last is not None and now - last < WEEKLY_REFRESH:
-        return None
     season = current_season(now)
+    runs = (
+        ("/roster", season),
+        ("/stats/player/season", season),
+        ("/stats/player/season", season - 1),
+    )
+    fresh = [await _fresh(session, endpoint, year, now) for endpoint, year in runs]
+    if all(fresh):
+        return None
     async with CFBDClient.from_settings(timeout=20.0, max_retries=2) as client:
         result = await sync_roster_and_stats(session, client, season=season)
     return {"season": season, "status": result.status.value, "rows_written": result.rows_written}
+
+
+async def refresh_roster_best_effort(session: AsyncSession) -> dict[str, Any] | None:
+    """``refresh_roster_if_due`` for both scheduler entry points, after the
+    tick commits. A vendor outage must never fail the nightly tick, and cached
+    roster data stays in place."""
+    try:
+        return await refresh_roster_if_due(session)
+    except Exception as exc:  # noqa: BLE001 - reported, never raised
+        await session.rollback()
+        log.warning("cfbd.roster.refresh_failed", error_type=type(exc).__name__)
+        return {"status": "failed", "error": type(exc).__name__}

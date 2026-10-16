@@ -286,7 +286,7 @@ export function PlayerProfileClient({ id }: { id: string }) {
         </Card>
       </div>
 
-      {!mockMode && process.env.NEXT_PUBLIC_API_URL ? (
+      {!mockMode ? (
         <CollegeStatsCard playerId={player.id} token={authToken ?? undefined} />
       ) : null}
 

@@ -310,6 +310,22 @@ async def test_roster_import_replays_and_edits_keep_tracklet_identity(workspace_
         edited = await update_player(player_id, PlayerUpdate(jersey_number=97), db, user)
         assert edited["id"] == str(player_id)
         assert tracklet.player_id == player_id
+        # The editor submits every field; only the changed ones are locked.
+        await update_player(
+            player_id,
+            PlayerUpdate(
+                first_name="Alpha",
+                last_name=f"RosterTest{suffix}",
+                jersey_number=97,
+                position="QB",
+                position_group="QB",
+                is_active=True,
+            ),
+            db,
+            user,
+        )
+        locked = (await db.get(Player, player_id)).metadata_["staff_locked_fields"]
+        assert locked == ["jersey_number"]
         from app.routers.tracklets import TrackletUpdate, update_tracklet
 
         confirmed = await update_tracklet(
