@@ -3,7 +3,7 @@ import { apiErrorFromResponse } from "./api-error";
 import type { CfbdCacheMeta } from "./types";
 
 export interface CfbdConnectionStatus { configured: boolean; source: string }
-export type CfbdSyncScope = "teams" | "schedule" | "benchmark" | "plays" | "drives";
+export type CfbdSyncScope = "teams" | "schedule" | "benchmark" | "plays" | "drives" | "roster";
 export interface CfbdSyncResult {
   scope: CfbdSyncScope;
   season: number;
@@ -57,4 +57,24 @@ export function refreshCfbdScope(
 
 export function fetchCfbdGamePlays(gameId: number, token?: string): Promise<CfbdGamePlays> {
   return request(`/games/${gameId}/plays?limit=500`, token);
+}
+
+/** One CFBD season for a rostered player (box-score stats, usage, PPA). */
+export interface CfbdPlayerSeason {
+  season: number;
+  team: string | null;
+  position: string | null;
+  /** `{category: {statType: value}}`, e.g. `{rushing: {YDS: "512"}}`. */
+  stats: Record<string, Record<string, string | number | null>> | null;
+  usage: Record<string, number | null> | null;
+  ppa: { average?: Record<string, number | null> | null; total?: Record<string, number | null> | null } | null;
+}
+export interface CfbdPlayerSeasons {
+  player_id: string;
+  cfbd_athlete_id: string | null;
+  seasons: CfbdPlayerSeason[];
+}
+
+export function fetchPlayerCollegeSeasons(playerId: string, token?: string): Promise<CfbdPlayerSeasons> {
+  return request(`/players/${encodeURIComponent(playerId)}/seasons`, token);
 }

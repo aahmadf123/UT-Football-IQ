@@ -259,3 +259,29 @@ class CFBDSyncRun(Base):
     rows_written: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     error_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = _created_at()
+
+
+class CFBDPlayerSeason(Base):
+    """One player's CFBD season: box-score stats, usage and PPA, keyed by athlete.
+
+    ``stats`` is ``{category: {statType: value}}`` (e.g. ``{"rushing": {"YDS":
+    "512"}}``) exactly as CFBD reports it; ``usage`` and ``ppa`` keep CFBD's own
+    nested shapes. Linked to ``players`` through ``metadata.cfbd_athlete_id``.
+    """
+
+    __tablename__ = "cfbd_player_seasons"
+    __table_args__ = (
+        UniqueConstraint("season", "athlete_id", name="uq_cfbd_player_seasons_season_athlete"),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    season: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    athlete_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    team: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    position: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    stats: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    usage: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    ppa: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    created_at: Mapped[datetime] = _created_at()
+    updated_at: Mapped[datetime] = _updated_at()
