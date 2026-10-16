@@ -306,7 +306,7 @@ def test_mac_benchmark_aggregates() -> None:
 def test_mac_benchmark_workload_gated() -> None:
     db = _make_db(
         rows_by_table={"cfbd_team_game_stats": []},
-        workload_counts=[60, 0],  # queued >= default threshold 50 -> saturated
+        workload_counts=[510, 0],  # queued >= default threshold 500 -> saturated
     )
     with _client(db) as c:
         resp = c.get("/api/cfbd/mac/benchmark")

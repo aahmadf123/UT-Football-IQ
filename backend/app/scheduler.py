@@ -35,7 +35,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import structlog
-from sqlalchemy import func, select, text
+from sqlalchemy import func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
@@ -70,6 +70,49 @@ async def _already_ran_today(db: AsyncSession, job_type: JobType, now: datetime)
         )
     ).scalar_one()
     return bool(count)
+
+
+_UNFINISHED_STATUSES = (JobStatus.queued, JobStatus.running, JobStatus.paused)
+
+#: Queued rollups older than this are superseded by the next one: each rollup
+#: recomputes a trailing window, so a backlog of stale days adds nothing.
+_STALE_ROLLUP_AGE = timedelta(days=2)
+
+
+async def _has_unfinished(db: AsyncSession, job_type: JobType) -> bool:
+    count = (
+        await db.execute(
+            select(func.count())
+            .select_from(ProcessingJob)
+            .where(
+                ProcessingJob.job_type == job_type,
+                ProcessingJob.status.in_(_UNFINISHED_STATUSES),
+            )
+        )
+    ).scalar_one()
+    return bool(count)
+
+
+async def _cancel_stale_rollups(db: AsyncSession, now: datetime) -> int:
+    """Cancel queued rollups nobody claimed, so they never pile up.
+
+    A rollup is only claimed by a full (non-hosted) worker. When none is
+    attached for days, the old behaviour added one queued job per day forever.
+    """
+    result = await db.execute(
+        update(ProcessingJob)
+        .where(
+            ProcessingJob.job_type == JobType.workload_rollup,
+            ProcessingJob.status == JobStatus.queued,
+            ProcessingJob.created_at < now - _STALE_ROLLUP_AGE,
+        )
+        .values(
+            status=JobStatus.cancelled,
+            error_message="Superseded by a newer nightly rollup",
+            finished_at=now,
+        )
+    )
+    return int(getattr(result, "rowcount", 0) or 0)
 
 
 async def _new_human_labels_since_last_train(db: AsyncSession) -> int:
@@ -143,7 +186,10 @@ async def run_nightly_tick(db: AsyncSession) -> dict[str, object]:
         summary["train_job_id"] = None
         summary["training_enabled"] = get_settings().auto_train_enabled
 
-    if not await _already_ran_today(db, JobType.workload_rollup, now):
+    summary["cancelled_stale_rollups"] = await _cancel_stale_rollups(db, now)
+    if not await _already_ran_today(db, JobType.workload_rollup, now) and not await _has_unfinished(
+        db, JobType.workload_rollup
+    ):
         rollup_date = (now.date() - timedelta(days=1)).isoformat()
         rollup_job = ProcessingJob(
             id=uuid.uuid4(),

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import AsyncGenerator
+from datetime import UTC, datetime, timedelta
 
 import pytest
 import pytest_asyncio
@@ -141,6 +142,38 @@ async def test_tick_enqueues_rollup_once_per_day(
     rollups = await _jobs_of_type(db, JobType.workload_rollup)
     assert len(rollups) == 1
     assert rollups[0].status == JobStatus.queued
+
+
+async def test_unclaimed_rollups_never_pile_up(
+    db: async_sessionmaker[AsyncSession],
+) -> None:
+    # Regression: with no full worker attached, every nightly tick used to add
+    # another queued rollup (60 accumulated in production).
+    stale_created = datetime.now(UTC) - timedelta(days=5)
+    fresh_created = datetime.now(UTC) - timedelta(days=1)
+    async with db() as session:
+        for created in (stale_created, stale_created, fresh_created):
+            session.add(
+                ProcessingJob(
+                    id=uuid.uuid4(),
+                    job_type=JobType.workload_rollup,
+                    status=JobStatus.queued,
+                    priority=0,
+                    created_at=created,
+                )
+            )
+        await session.commit()
+    async with db() as session:
+        summary = await run_nightly_tick(session)
+        await session.commit()
+
+    assert summary["cancelled_stale_rollups"] == 2
+    # The day-old rollup is still outstanding, so no new one is added.
+    assert summary["workload_rollup_job_id"] is None
+    rollups = await _jobs_of_type(db, JobType.workload_rollup)
+    assert sorted(r.status for r in rollups) == sorted(
+        [JobStatus.cancelled, JobStatus.cancelled, JobStatus.queued]
+    )
 
 
 async def test_tick_below_threshold_does_not_train(

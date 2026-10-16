@@ -85,6 +85,9 @@ export function buildContainerEnv(env: Env): Record<string, string> {
     WORKER_EMAIL: env.SEED_WORKER_EMAIL,
     WORKER_PASSWORD: env.SEED_WORKER_PASSWORD,
 
+    // Build identity, compared against the frontend's by the deploy smoke check.
+    GIT_SHA: env.GIT_SHA,
+
     // Only the backend talks to College Football Data.
     CFBD_API_KEY: env.CFBD_API_KEY,
     CFBD_BASE_URL: env.CFBD_BASE_URL,

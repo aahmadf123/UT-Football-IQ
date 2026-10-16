@@ -86,7 +86,11 @@
     "R2_BUCKET_CLIPS": "footiq-clips",
     "R2_BUCKET_OVERLAYS": "footiq-overlays",
     "R2_BUCKET_ARTIFACTS": "footiq-artifacts",
-    "SEED_USERS_ON_STARTUP": "false"
+    "SEED_USERS_ON_STARTUP": "false",
+    // Film is processed by the staff GPU laptop (docs/setup/local-worker.md).
+    // The half-vCPU container worker is far too slow for real practices and
+    // would compete with the laptop for the same queue.
+    "HOSTED_PROCESSING_ENABLED": "0"
   }
 
   // ── Secrets (never in this file) ───────────────────────────────────────────

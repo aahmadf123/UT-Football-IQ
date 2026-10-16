@@ -38,7 +38,7 @@ from app.config import get_settings
 from app.database import get_db
 from app.deps import get_current_user
 from app.governance import audit_event
-from app.models import JobStatus, ProcessingJob, User
+from app.models import JobStatus, JobType, ProcessingJob, User
 
 log = structlog.get_logger("app.workload")
 
@@ -48,7 +48,7 @@ log = structlog.get_logger("app.workload")
 
 #: Mirrors the ``Settings`` defaults; kept as module constants because the test
 #: suite and the docs refer to them by name.
-DEFAULT_QUEUE_THRESHOLD = 50  # queued jobs before we start gating
+DEFAULT_QUEUE_THRESHOLD = 500  # queued pipeline jobs before we start gating
 DEFAULT_RUNNING_THRESHOLD = 20  # concurrently-running jobs before gating
 
 
@@ -124,12 +124,18 @@ async def assess_workload(db: AsyncSession) -> WorkloadSnapshot:
     queued_stmt = (
         select(func.count())
         .select_from(ProcessingJob)
-        .where(ProcessingJob.status == JobStatus.queued)
+        .where(
+            ProcessingJob.status == JobStatus.queued,
+            ProcessingJob.job_type == JobType.pipeline,
+        )
     )
     running_stmt = (
         select(func.count())
         .select_from(ProcessingJob)
-        .where(ProcessingJob.status == JobStatus.running)
+        .where(
+            ProcessingJob.status == JobStatus.running,
+            ProcessingJob.job_type == JobType.pipeline,
+        )
     )
     queued_total = (await db.execute(queued_stmt)).scalar_one() or 0
     running_total = (await db.execute(running_stmt)).scalar_one() or 0

@@ -85,6 +85,13 @@ def _supervisor_status() -> dict[str, Any] | None:
         return None
 
 
+@router.get("/version")
+async def system_version() -> dict[str, str]:
+    """Deployed backend build, unauthenticated so a smoke check can compare it
+    against the frontend's build SHA and flag a half-finished deploy."""
+    return {"git_sha": os.environ.get("GIT_SHA", "unknown")}
+
+
 @router.get("/status")
 async def system_status(
     db: Annotated[AsyncSession, Depends(get_db)], _user: Annotated[User, Depends(get_current_user)]
