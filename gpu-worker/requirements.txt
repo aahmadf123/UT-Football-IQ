@@ -3,6 +3,8 @@
 
 # Stable YOLO runtime and optional SAM adapter; model weights are separate.
 ultralytics==8.3.237
+# Reads the stadium scoreboard cards in edited game film (pipeline.game_film).
+easyocr==1.7.2
 opencv-python-headless==4.10.0.84
 boto3==1.35.76
 psycopg2-binary==2.9.10
