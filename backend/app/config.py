@@ -10,10 +10,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 def rename_query_param(url: str, old: str, new: str) -> str:
     """Rename one query parameter of a database URL, leaving the rest intact.
 
-    Only the part after the last ``?`` is touched, so a password containing
-    ``ssl=`` can never be rewritten.
+    Only the query string is touched, so credentials containing ``ssl=`` are
+    never rewritten. The query starts at the first ``?``: a literal ``?`` is
+    not allowed before it in a valid URL, but may appear inside a query value.
     """
-    base, sep, query = url.rpartition("?")
+    base, sep, query = url.partition("?")
     if not sep:
         return url
     parts = [
