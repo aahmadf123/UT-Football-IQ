@@ -41,3 +41,10 @@ def test_only_the_query_string_is_rewritten() -> None:
     assert (
         rename_query_param("postgresql://db/footiq", "ssl", "sslmode") == "postgresql://db/footiq"
     )
+
+
+def test_question_mark_inside_a_query_value() -> None:
+    url = "postgresql://u:p@db/footiq?ssl=require&application_name=coach?mode=hosted"
+    assert rename_query_param(url, "ssl", "sslmode") == (
+        "postgresql://u:p@db/footiq?sslmode=require&application_name=coach?mode=hosted"
+    )
