@@ -169,6 +169,14 @@ describe("CvSpotlight", () => {
     player.currentTime = 17;
     fireEvent.timeUpdate(player);
     expect(player.currentTime).toBe(10);
+    // The recording ending before a boundary callback still resumes the loop.
+    const play = vi.fn().mockResolvedValue(undefined);
+    player.play = play;
+    Object.defineProperty(player, "ended", { configurable: true, value: true });
+    player.currentTime = 16.9;
+    fireEvent.ended(player);
+    expect(player.currentTime).toBe(10);
+    expect(play).toHaveBeenCalledOnce();
   });
 
   test("unsupported original film falls back to its clean clip and reports a second playback failure", async () => {

@@ -73,4 +73,14 @@ describe("playback boundaries", () => {
     unmount();
     expect(element.cancelVideoFrameCallback).toHaveBeenCalled();
   });
+
+  test("Space on the shortcut summary opens help instead of toggling playback", () => {
+    const element = document.createElement("video");
+    element.play = vi.fn().mockResolvedValue(undefined);
+    render(<VideoTransport videoRef={{ current: element }} fps={30} clipOffset={0} duration={3} currentLocalTime={0} eventTimes={[]} />);
+    const summary = screen.getByLabelText("Playback keyboard shortcuts");
+    const notCancelled = fireEvent.keyDown(summary, { key: " " });
+    expect(notCancelled).toBe(true);
+    expect(element.play).not.toHaveBeenCalled();
+  });
 });

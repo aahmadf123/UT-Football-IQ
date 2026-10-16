@@ -70,7 +70,7 @@ function isTypingTarget(target: EventTarget | null): boolean {
  */
 function isActivationTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
-  return target.closest('button, a, select, [role="button"]') != null;
+  return target.closest('button, a, select, summary, [role="button"]') != null;
 }
 
 export function VideoTransport({

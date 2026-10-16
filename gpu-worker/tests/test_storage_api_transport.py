@@ -136,3 +136,33 @@ def test_interrupted_download_does_not_leave_partial_temp_files(
     with job_context(control=lambda: control["action"]), pytest.raises(PipelineInterrupted):
         storage.download_to_temp("s3://raw-video/film.mp4")
     assert list(tmp_path.iterdir()) == []
+
+
+def test_hosted_download_stops_at_byte_cap_and_removes_partial_file(
+    api_storage: None,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from pipeline import hosted_limits
+
+    monkeypatch.setenv("PIPELINE_HOSTED", "1")
+    monkeypatch.setattr(hosted_limits, "MAX_SOURCE_BYTES", 8)
+    monkeypatch.setattr(storage.tempfile, "tempdir", str(tmp_path))
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "POST":
+            return httpx.Response(200, json={"download_url": "https://objects.test/signed-film"})
+        return httpx.Response(200, content=b"more-than-eight-bytes")
+
+    original_client = httpx.Client
+    monkeypatch.setattr(
+        httpx,
+        "Client",
+        lambda **kwargs: original_client(
+            transport=httpx.MockTransport(handler),
+            **kwargs,
+        ),
+    )
+    with pytest.raises(hosted_limits.HostedCapacityError, match="512 MiB"):
+        storage.download_to_temp("api://raw-video/raw/other.mp4")
+    assert list(tmp_path.iterdir()) == []

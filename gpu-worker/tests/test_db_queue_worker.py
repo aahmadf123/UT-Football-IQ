@@ -95,15 +95,73 @@ def test_hosted_size_guard_rejects_before_pipeline_download(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("PIPELINE_HOSTED", "1")
+    video = {"size_bytes": 2**30, "storage_uri": "api://raw-video/raw/a.mp4"}
     with (
-        patch.object(worker_main, "_fetch_video", return_value={"size_bytes": 2**30}),
+        patch.object(worker_main, "_fetch_video", return_value=video),
         patch.object(worker_main, "_update_job_status") as update,
         patch.object(worker_main, "process_pipeline_job") as pipeline,
     ):
-        worker_main.process_job({"jobId": "j1", "jobType": "pipeline", "videoId": "v1"})
+        worker_main.process_job(
+            {
+                "jobId": "j1",
+                "jobType": "pipeline",
+                "videoId": "v1",
+                "inputUri": "api://raw-video/raw/a.mp4",
+            }
+        )
     pipeline.assert_not_called()
     assert update.call_args.args == ("j1", "failed")
     assert "512 MiB" in update.call_args.kwargs["error_message"]
+
+
+def test_hosted_guard_rejects_input_other_than_verified_recording(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PIPELINE_HOSTED", "1")
+    video = {"size_bytes": 1024, "storage_uri": "api://raw-video/raw/small.mp4"}
+    with (
+        patch.object(worker_main, "_fetch_video", return_value=video),
+        patch.object(worker_main, "_update_job_status") as update,
+        patch.object(worker_main, "process_pipeline_job") as pipeline,
+    ):
+        worker_main.process_job(
+            {
+                "jobId": "j1",
+                "jobType": "pipeline",
+                "videoId": "v1",
+                "inputUri": "api://raw-video/raw/huge.mp4",
+            }
+        )
+    pipeline.assert_not_called()
+    assert update.call_args.args == ("j1", "failed")
+    assert "verified object" in update.call_args.kwargs["error_message"]
+
+
+def test_hosted_worker_rejects_standalone_stage_jobs(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PIPELINE_HOSTED", "1")
+    with (
+        patch.object(worker_main, "_fetch_video") as fetch,
+        patch.object(worker_main, "_update_job_status") as update,
+        patch.object(worker_main, "_process_single_stage_job") as stage,
+    ):
+        worker_main.process_job({"jobId": "j1", "jobType": "detect", "videoId": "v1"})
+    stage.assert_not_called()
+    fetch.assert_not_called()
+    assert update.call_args.args == ("j1", "failed")
+    assert "full pipeline" in update.call_args.kwargs["error_message"]
+
+
+def test_hosted_and_review_only_workers_claim_pipeline_jobs_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("PIPELINE_HOSTED", raising=False)
+    monkeypatch.setenv("WORKER_PROFILES", "review,quick,detailed")
+    assert "detect" in worker_main.worker_capabilities()["job_types"]
+    monkeypatch.setenv("WORKER_PROFILES", "review")
+    assert worker_main._claim_payload()["job_types"] == ["pipeline"]
+    monkeypatch.setenv("WORKER_PROFILES", "review,quick")
+    monkeypatch.setenv("PIPELINE_HOSTED", "1")
+    assert worker_main.worker_capabilities()["job_types"] == ["pipeline"]
 
 
 def test_only_hosted_worker_advertises_shared_processing_limits(

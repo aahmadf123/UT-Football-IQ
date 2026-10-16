@@ -335,8 +335,12 @@ function SpotlightPlayer({
   const onTimeUpdate = useCallback(() => {
     const el = videoRef.current;
     if (!el) return;
-    if (clipDuration > 0 && (el.currentTime < clipOffset || el.currentTime >= clipOffset + clipDuration - 0.03)) {
+    // Reaching the recording's end pauses the element; resume after wrapping
+    // so the spotlight keeps looping, while ordinary seeks keep a user pause.
+    const ended = el.ended;
+    if (clipDuration > 0 && (ended || el.currentTime < clipOffset || el.currentTime >= clipOffset + clipDuration - 0.03)) {
       el.currentTime = clipOffset;
+      if (ended) void el.play()?.catch(() => undefined);
     }
     setVideoCurrentTime(el.currentTime);
   }, [clipOffset, clipDuration]);
@@ -371,6 +375,7 @@ function SpotlightPlayer({
               playsInline
               onTimeUpdate={onTimeUpdate}
               onSeeked={onTimeUpdate}
+              onEnded={onTimeUpdate}
               onError={onPlaybackError}
               onLoadedMetadata={() => {
                 const el = videoRef.current;

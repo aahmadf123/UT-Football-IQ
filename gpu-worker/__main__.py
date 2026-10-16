@@ -220,44 +220,55 @@ def worker_capabilities() -> dict[str, Any]:
         path = Path(configured).expanduser() if configured else None
         ready = bool(path and path.is_file() and importlib.util.find_spec(package))
         models[name] = {"ready": ready, "path": str(path) if path else None}
+    profiles = [
+        profile
+        for profile in os.environ.get("WORKER_PROFILES", "review,quick,detailed").split(",")
+        if profile in {"review", "quick", "detailed"}
+    ]
+    job_types = (
+        # Hosted media limits are enforced on the full pipeline path, and a
+        # model-free Review worker cannot run standalone inference stages.
+        ["pipeline"]
+        if os.environ.get("PIPELINE_HOSTED") == "1" or profiles == ["review"]
+        else list(_ALL_JOB_TYPES)
+    )
     return {
         "worker_id": _worker_id(),
         "device": device,
-        "profiles": [
-            profile
-            for profile in os.environ.get("WORKER_PROFILES", "review,quick,detailed").split(",")
-            if profile in {"review", "quick", "detailed"}
-        ],
+        "profiles": profiles,
         "models": models,
-        "job_types": [
-            "pipeline",
-            "ingest",
-            "segment",
-            "calibrate",
-            "detect",
-            "track",
-            "reid",
-            "events",
-            "pose",
-            "labels",
-            "metrics",
-            "routes",
-            "coverage",
-            "oline",
-            "pressure",
-            "render",
-            "render_hls",
-            "self_scout",
-            "embeddings",
-            "workload_rollup",
-            "train",
-        ],
+        "job_types": job_types,
         "metadata": {
             **hosted_metadata,
             "storage_transport": os.environ.get("PIPELINE_STORAGE_TRANSPORT", "direct"),
             "checkpoint_root": os.environ.get("PIPELINE_CHECKPOINT_ROOT", "data/checkpoints"),
         },
     }
+
+
+_ALL_JOB_TYPES: tuple[str, ...] = (
+    "pipeline",
+    "ingest",
+    "segment",
+    "calibrate",
+    "detect",
+    "track",
+    "reid",
+    "events",
+    "pose",
+    "labels",
+    "metrics",
+    "routes",
+    "coverage",
+    "oline",
+    "pressure",
+    "render",
+    "render_hls",
+    "self_scout",
+    "embeddings",
+    "workload_rollup",
+    "train",
+)
 
 
 def register_worker(client: httpx.Client) -> None:
@@ -348,7 +359,7 @@ def process_pipeline_job(job: dict[str, Any]) -> None:
     from pathlib import Path
 
     from pipeline import backend as backend_client
-    from pipeline.hosted_limits import HostedCapacityError
+    from pipeline.hosted_limits import HostedCapacityError, release_completed_checkpoints
     from pipeline.orchestrator import DirArtifactSink, run_pipeline
     from pipeline.runtime import PipelineInterrupted, job_context
     from worker.observability import record_job_failed, record_job_started, record_job_succeeded
@@ -516,6 +527,7 @@ def process_pipeline_job(job: dict[str, Any]) -> None:
             accepted = _update_job_status(job_id, "succeeded", output_artifacts=result)
             if accepted is False:
                 return
+            release_completed_checkpoints(sink.root)
             backend_client.patch_video_status(
                 video_id, "ready" if result.get("playback_ready", True) else "uploaded"
             )
@@ -667,12 +679,24 @@ def process_job(job: dict[str, Any]) -> None:
 
 def _reject_hosted_capacity(job: dict[str, Any]) -> bool:
     """Check verified object size before downloading to the shared API disk."""
-    if os.environ.get("PIPELINE_HOSTED") != "1" or not job.get("videoId"):
+    if os.environ.get("PIPELINE_HOSTED") != "1":
         return False
     from pipeline.hosted_limits import check_source
 
-    video = _fetch_video(str(job["videoId"])) or {}
-    reason = check_source(video.get("size_bytes"))
+    reason: str | None
+    if job.get("jobType") != "pipeline":
+        # Standalone stages bypass the pipeline's duration/resolution probe.
+        reason = "Hosted CPU processing runs full pipeline jobs only."
+    elif not job.get("videoId"):
+        reason = "Hosted CPU processing requires a registered recording."
+    else:
+        video = _fetch_video(str(job["videoId"])) or {}
+        storage_uri = str(video.get("storage_uri") or "")
+        if not storage_uri or job.get("inputUri") != storage_uri:
+            # The verified size belongs to the recording's own object only.
+            reason = "Hosted CPU processing only reads the registered recording's verified object."
+        else:
+            reason = check_source(video.get("size_bytes"))
     if reason is None:
         return False
     job_id = str(job.get("jobId", ""))

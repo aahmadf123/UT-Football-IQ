@@ -41,3 +41,17 @@ def test_local_workers_keep_their_existing_media_limits(
 ) -> None:
     monkeypatch.delenv("PIPELINE_HOSTED", raising=False)
     hosted_limits.validate_master(tmp_path / "not-downloaded.mp4")
+
+
+def test_hosted_worker_releases_completed_checkpoints_only_when_hosted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ledger = tmp_path / "video-key"
+    ledger.mkdir()
+    (ledger / "detect.json").write_text("{}")
+    monkeypatch.delenv("PIPELINE_HOSTED", raising=False)
+    hosted_limits.release_completed_checkpoints(ledger)
+    assert ledger.is_dir()
+    monkeypatch.setenv("PIPELINE_HOSTED", "1")
+    hosted_limits.release_completed_checkpoints(ledger)
+    assert not ledger.exists()

@@ -50,6 +50,17 @@ def check_source(size: Any) -> str | None:
     return source_limit_reason(size, shutil.disk_usage(tempfile.gettempdir()).free)
 
 
+def release_completed_checkpoints(root: Path) -> None:
+    """Reclaim a succeeded recording's resume ledger on the shared hosted disk.
+
+    Only called once the job's results are published; paused, failed and
+    running jobs keep their ledgers so a retry can resume from them.
+    """
+    if os.environ.get("PIPELINE_HOSTED") != "1":
+        return
+    shutil.rmtree(root, ignore_errors=True)
+
+
 def validate_master(path: Path) -> None:
     """Probe actual media after its bounded download, before stage copies/render."""
     if os.environ.get("PIPELINE_HOSTED") != "1":

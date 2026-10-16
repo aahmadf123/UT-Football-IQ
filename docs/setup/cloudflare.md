@@ -213,15 +213,18 @@ Weights stay out of Git. Review its [license](../../LICENSES.md#ultralytics-yolo
 before distribution. API and pipeline dependencies use separate virtualenvs;
 only the pipeline process imports inference packages. Startup runs a real CPU
 inference smoke check. A failed detector check leaves a model-free Review worker
-available and does not advertise Quick processing.
+available and does not advertise Quick processing or standalone inference jobs.
 
 The CPU worker is bounded to one inference thread and processes the durable
-Postgres queue serially. Source media and results are in R2; container disk is
+Postgres queue serially. It claims full pipeline jobs only, so every hosted job
+passes the media limits below. Source media and results are in R2; container disk is
 scratch space, so a cold restart may recompute work whose local checkpoints were
-lost. The shared `standard-1` instance has an 8 GB disk, so hosted processing
+lost. A succeeded job's local checkpoints are removed once its results are
+published; paused, failed and running jobs keep theirs for resume. The shared `standard-1` instance has an 8 GB disk, so hosted processing
 accepts recordings up to **512 MiB, 5 minutes and 1080p**, with at least 4 GiB
 of free temporary space before downloading. The source byte limit is checked
-against server-verified object size; actual duration and dimensions are probed
+against the recording's server-verified object size (jobs pointing at any other
+object are rejected) and enforced again while streaming; actual duration and dimensions are probed
 from the bounded downloaded source before stage copies/rendering. Larger uploads
 still belong in the shared library; upload a short processing copy or use the
 existing local worker for them. A rejected job explains the limit and leaves the

@@ -14,6 +14,7 @@ from collections.abc import AsyncGenerator
 import httpx
 import pytest_asyncio
 from app.cfbd import models as m
+from app.cfbd import sync as sync_module
 from app.cfbd.client import CFBDClient
 from app.cfbd.models import CFBDSyncStatus
 from app.cfbd.sync import sync_season
@@ -286,3 +287,31 @@ async def test_cached_data_readable_without_cfbd(cfbd_session: AsyncSession) -> 
         )
     ).all()
     assert ("Toledo", "Ball State") in [(g[0], g[1]) for g in games]
+
+
+async def test_upsert_batches_rows_below_driver_parameter_limit(
+    cfbd_session: AsyncSession,
+) -> None:
+    # 3,300 rows x 10 columns = 33,000 parameters, above asyncpg's 32,767 cap.
+    rows = [
+        {
+            "cfbd_team_id": team_id,
+            "school": f"School {team_id}",
+            "mascot": None,
+            "abbreviation": None,
+            "conference": "Mid-American",
+            "division": None,
+            "classification": "fbs",
+            "color": None,
+            "alt_color": None,
+            "logos": [],
+        }
+        for team_id in range(1, 3301)
+    ]
+    written = await sync_module._upsert(
+        cfbd_session, m.CFBDTeam, rows, conflict_cols=["cfbd_team_id"]
+    )
+    await cfbd_session.commit()
+
+    assert written == len(rows)
+    assert await _count(cfbd_session, m.CFBDTeam) == len(rows)
