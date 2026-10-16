@@ -116,40 +116,46 @@ class GameFilmStructure:
 def _ffmpeg_frames(video_path: Path, fps: float, size: tuple[int, int]) -> Any:
     """Yield BGR frames at ``fps`` resampled to ``size`` via an ffmpeg pipe.
 
-    Uses NVDEC when available (``-hwaccel auto``); a 90-minute 720p60 game
-    decodes in a few minutes either way at these sizes.
+    Decodes on the NVIDIA GPU (NVDEC) when it can: a 90-minute 720p60 game
+    then takes ~5 minutes per pass instead of ~25 in software
+    (``-hwaccel auto`` does not pick NVDEC on Windows). Falls back to
+    software decoding if the GPU path produces nothing.
     """
     w, h = size
-    cmd = [
-        "ffmpeg",
-        "-v",
-        "error",
-        "-hwaccel",
-        "auto",
-        "-i",
-        str(video_path),
-        "-vf",
-        f"fps={fps},scale={w}:{h}",
-        "-an",
-        "-f",
-        "rawvideo",
-        "-pix_fmt",
-        "bgr24",
-        "-",
-    ]
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)  # noqa: S603
-    assert proc.stdout is not None
     frame_bytes = w * h * 3
-    try:
-        while True:
-            buf = proc.stdout.read(frame_bytes)
-            if len(buf) < frame_bytes:
-                break
-            yield np.frombuffer(buf, np.uint8).reshape(h, w, 3)
-    finally:
-        proc.stdout.close()
-        proc.kill()
-        proc.wait()
+    for hwaccel in (["-hwaccel", "cuda"], []):
+        cmd = [
+            "ffmpeg",
+            "-v",
+            "error",
+            *hwaccel,
+            "-i",
+            str(video_path),
+            "-vf",
+            f"fps={fps},scale={w}:{h}",
+            "-an",
+            "-f",
+            "rawvideo",
+            "-pix_fmt",
+            "bgr24",
+            "-",
+        ]
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)  # noqa: S603
+        assert proc.stdout is not None
+        produced = 0
+        try:
+            while True:
+                buf = proc.stdout.read(frame_bytes)
+                if len(buf) < frame_bytes:
+                    break
+                produced += 1
+                yield np.frombuffer(buf, np.uint8).reshape(h, w, 3)
+        finally:
+            proc.stdout.close()
+            proc.kill()
+            proc.wait()
+        if produced:
+            return
 
 
 def _green_fraction(hsv: np.ndarray) -> float:
