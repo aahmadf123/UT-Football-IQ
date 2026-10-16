@@ -97,10 +97,13 @@ def migrate(environment: dict[str, str]) -> bool:
         ok = result.returncode == 0
         fields: dict[str, object] = {"ready": ok, "exit_code": result.returncode}
         if not ok:
-            # Without this the container exits with no trace of why (a bad
-            # database URL looked identical to a broken migration).
-            tail = (result.stderr or result.stdout or b"").decode(errors="replace")[-1500:]
-            fields["error"] = re.sub(r"://[^@\s]*@", "://***@", tail)
+            # Name the failure without its message: alembic output can echo
+            # the connection string, so only exception class names are logged
+            # (enough to tell a bad URL from a broken migration).
+            output = result.stderr or result.stdout
+            text = output.decode(errors="replace") if isinstance(output, bytes) else ""
+            names = re.findall(r"([A-Z][A-Za-z]*(?:Error|Exception))", text)
+            fields["error_types"] = sorted(set(names))[:5]
         event("hosted_schema_migration", **fields)
         return ok
     except (OSError, subprocess.TimeoutExpired):

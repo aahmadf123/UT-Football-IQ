@@ -2,6 +2,7 @@
 
 from unittest.mock import MagicMock, patch
 
+import pytest
 from scripts.hosted_runtime import main, migrate, processing_enabled, seed_worker, terminate
 
 
@@ -45,6 +46,19 @@ def test_schema_migration_is_bounded_and_does_not_log_private_output() -> None:
     assert run.call_args.args[0] == ["/opt/api/bin/alembic", "upgrade", "head"]
     assert run.call_args.kwargs["capture_output"] is True
     assert run.call_args.kwargs["timeout"] == 120
+
+
+def test_failed_migration_logs_only_exception_names(capsys: pytest.CaptureFixture[str]) -> None:
+    with patch("scripts.hosted_runtime.subprocess.run") as run:
+        run.return_value.returncode = 1
+        run.return_value.stderr = (
+            b"Traceback ...\npsycopg2.ProgrammingError: invalid dsn: "
+            b"postgresql://user:hunter2@db/footiq?ssl=require\n"
+        )
+        assert not migrate({"DATABASE_URL": "private-fixture"})
+    logged = capsys.readouterr().out
+    assert "ProgrammingError" in logged
+    assert "hunter2" not in logged and "invalid dsn" not in logged
 
 
 def test_failed_migration_refuses_to_start_api_or_worker() -> None:
