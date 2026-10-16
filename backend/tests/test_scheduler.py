@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import AsyncGenerator
+from datetime import UTC, datetime, timedelta
 
 import pytest
 import pytest_asyncio
@@ -141,6 +142,40 @@ async def test_tick_enqueues_rollup_once_per_day(
     rollups = await _jobs_of_type(db, JobType.workload_rollup)
     assert len(rollups) == 1
     assert rollups[0].status == JobStatus.queued
+
+
+async def test_unclaimed_rollups_coalesce_without_losing_days(
+    db: async_sessionmaker[AsyncSession],
+) -> None:
+    # Regression: with no full worker attached, every nightly tick used to add
+    # another queued rollup (60 accumulated in production). They must now fold
+    # into one pending job that still owes every missed day.
+    async with db() as session:
+        for days_ago, date in ((5, "2026-01-01"), (4, "2026-01-02"), (3, "2026-01-03")):
+            session.add(
+                ProcessingJob(
+                    id=uuid.uuid4(),
+                    job_type=JobType.workload_rollup,
+                    status=JobStatus.queued,
+                    priority=0,
+                    created_at=datetime.now(UTC) - timedelta(days=days_ago),
+                    input_artifacts={"date": date, "trigger": "scheduler"},
+                )
+            )
+        await session.commit()
+    async with db() as session:
+        summary = await run_nightly_tick(session)
+        await session.commit()
+
+    assert summary["merged_rollups"] == 2
+    rollups = await _jobs_of_type(db, JobType.workload_rollup)
+    pending = [r for r in rollups if r.status == JobStatus.queued]
+    assert len(pending) == 1
+    assert str(pending[0].id) == summary["workload_rollup_job_id"]
+    dates = pending[0].input_artifacts["dates"]
+    assert dates[:3] == ["2026-01-01", "2026-01-02", "2026-01-03"]
+    assert len(dates) == 4  # plus yesterday
+    assert sum(r.status == JobStatus.cancelled for r in rollups) == 2
 
 
 async def test_tick_below_threshold_does_not_train(

@@ -54,6 +54,8 @@ export interface Env {
   CFBD_CACHE_STALE_AFTER_HOURS?: string;
   /** auto (default) enables the CPU worker when service-account secrets exist. */
   HOSTED_PROCESSING_ENABLED?: string;
+  /** Git commit the deploy was built from (wrangler deploy --var GIT_SHA:...). */
+  GIT_SHA?: string;
 
   // ── Vars ────────────────────────────────────────────────────────────────
   /** Comma-separated exact origins allowed to call the API from a browser. */

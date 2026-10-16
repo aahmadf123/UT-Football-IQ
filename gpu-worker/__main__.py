@@ -1024,11 +1024,19 @@ def _dispatch(
 
         from pipeline import stage_workload_rollup
 
-        rollup_date = (
-            input_artifacts.get("date")
-            or (datetime.now(UTC).date() - timedelta(days=1)).isoformat()
-        )
-        return stage_workload_rollup.run(rollup_date, job_id, priority=priority)
+        # The scheduler coalesces days missed while no worker was attached
+        # into one job's ``dates`` list; replay them oldest first so each
+        # day's trailing window sees the rows written for the days before it.
+        rollup_dates = sorted(
+            {str(d)[:10] for d in input_artifacts.get("dates") or []}
+            | ({str(input_artifacts["date"])[:10]} if input_artifacts.get("date") else set())
+        ) or [(datetime.now(UTC).date() - timedelta(days=1)).isoformat()]
+        results = [
+            stage_workload_rollup.run(day, job_id, priority=priority) for day in rollup_dates
+        ]
+        if len(results) == 1:
+            return results[0]
+        return {"dates": rollup_dates, "results": results}
 
     elif job_type == "routes":
         tracklets = input_artifacts.get("tracklets", [])

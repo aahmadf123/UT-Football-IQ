@@ -72,6 +72,65 @@ async def _already_ran_today(db: AsyncSession, job_type: JobType, now: datetime)
     return bool(count)
 
 
+def _rollup_dates(job: ProcessingJob) -> set[str]:
+    artifacts = job.input_artifacts or {}
+    dates = {str(d)[:10] for d in artifacts.get("dates") or []}
+    if artifacts.get("date"):
+        dates.add(str(artifacts["date"])[:10])
+    return dates
+
+
+async def _enqueue_rollup(db: AsyncSession, rollup_date: str) -> tuple[ProcessingJob, int]:
+    """Keep at most one queued rollup, carrying every day still owed.
+
+    A rollup is only claimed by a full (non-hosted) worker, and the staff
+    laptop can be offline for days. The old behaviour added one queued job per
+    day forever (60 accumulated in production). Instead, coalesce: fold every
+    queued rollup's dates into the newest one and cancel the rest, so no day is
+    dropped and the queue stays bounded. Returns the pending job and how many
+    duplicates were merged away.
+    """
+    queued = list(
+        (
+            await db.execute(
+                select(ProcessingJob)
+                .where(
+                    ProcessingJob.job_type == JobType.workload_rollup,
+                    ProcessingJob.status == JobStatus.queued,
+                )
+                .order_by(ProcessingJob.created_at.desc())
+                .with_for_update()
+            )
+        )
+        .scalars()
+        .all()
+    )
+    dates = {rollup_date}
+    for job in queued:
+        dates |= _rollup_dates(job)
+    if queued:
+        keeper, extras = queued[0], queued[1:]
+    else:
+        keeper = ProcessingJob(
+            id=uuid.uuid4(),
+            job_type=JobType.workload_rollup,
+            status=JobStatus.queued,
+            priority=0,
+            pipeline_mode=PipelineMode.nightly,
+        )
+        db.add(keeper)
+        extras = []
+    ordered = sorted(dates)
+    # Reassign (not mutate) so SQLAlchemy sees the JSONB change.
+    keeper.input_artifacts = {"date": ordered[-1], "dates": ordered, "trigger": "scheduler"}
+    now = datetime.now(UTC)
+    for job in extras:
+        job.status = JobStatus.cancelled
+        job.error_message = f"Merged into nightly rollup {keeper.id}"
+        job.finished_at = now
+    return keeper, len(extras)
+
+
 async def _new_human_labels_since_last_train(db: AsyncSession) -> int:
     last_train_at = (
         await db.execute(
@@ -143,20 +202,14 @@ async def run_nightly_tick(db: AsyncSession) -> dict[str, object]:
         summary["train_job_id"] = None
         summary["training_enabled"] = get_settings().auto_train_enabled
 
-    if not await _already_ran_today(db, JobType.workload_rollup, now):
-        rollup_date = (now.date() - timedelta(days=1)).isoformat()
-        rollup_job = ProcessingJob(
-            id=uuid.uuid4(),
-            job_type=JobType.workload_rollup,
-            status=JobStatus.queued,
-            priority=0,
-            pipeline_mode=PipelineMode.nightly,
-            input_artifacts={"date": rollup_date, "trigger": "scheduler"},
-        )
-        db.add(rollup_job)
-        summary["workload_rollup_job_id"] = str(rollup_job.id)
-    else:
+    if await _already_ran_today(db, JobType.workload_rollup, now):
         summary["workload_rollup_job_id"] = None
+        summary["merged_rollups"] = 0
+    else:
+        rollup_date = (now.date() - timedelta(days=1)).isoformat()
+        rollup_job, merged = await _enqueue_rollup(db, rollup_date)
+        summary["workload_rollup_job_id"] = str(rollup_job.id)
+        summary["merged_rollups"] = merged
 
     await db.flush()
     return summary

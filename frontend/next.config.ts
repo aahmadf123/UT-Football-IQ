@@ -18,6 +18,8 @@ const nextConfig: NextConfig = {
     // Embedded at build time. Set this to the deployed backend's origin when
     // building for a real environment; empty means same-origin/relative.
     NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL ?? "",
+    // Vercel sets this per build; the smoke check compares it with the API's.
+    NEXT_PUBLIC_GIT_SHA: process.env.VERCEL_GIT_COMMIT_SHA ?? "dev",
   },
   ...(process.env.NODE_ENV === "development" ? {
     async rewrites() {

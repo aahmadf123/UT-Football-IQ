@@ -193,7 +193,9 @@ class Settings(BaseSettings):
     # Backpressure on job creation. Above these depths, POST /jobs and the retry
     # endpoint return 503 with Retry-After rather than growing the queue.
     workload_gating_disabled: bool = False
-    workload_queue_threshold: int = 50
+    # A single practice is often 30-60 per-play clips, so the queue must hold
+    # several sessions of film; only ``pipeline`` jobs count toward it.
+    workload_queue_threshold: int = 500
     workload_running_threshold: int = 20
 
     # ── Development conveniences ──────────────────────────────────────────
