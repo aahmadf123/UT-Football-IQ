@@ -115,7 +115,9 @@ test("correction failure shows the error inline", async ({ page }) => {
   await page.locator("#correction-formation").fill("trips right");
   await page.getByTestId("correction-submit").click();
 
-  await expect(page.getByTestId("correction-error")).toContainText("403");
+  await expect(page.getByTestId("correction-error")).toContainText(
+    "Role 'viewer' is not permitted for this action",
+  );
   // The review shell is still alive.
   await expect(page.getByTestId("overlay-toggles")).toBeVisible();
 });
