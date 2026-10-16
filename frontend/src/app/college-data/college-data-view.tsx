@@ -27,6 +27,7 @@ import {
   fetchCfbdConnection, fetchCfbdGamePlays, refreshCfbdScope,
   type CfbdConnectionStatus, type CfbdGamePlays, type CfbdSyncScope,
 } from "@/lib/cfbd-admin";
+import { friendlyMessage } from "@/lib/api-error";
 
 const SOURCE_LABEL = "CollegeFootballData.com";
 
@@ -65,7 +66,7 @@ export function CollegeDataView() {
         const data = await fn();
         if (generation === loadGeneration.current) set({ kind: "ready", data });
       } catch (err) {
-        if (generation === loadGeneration.current) set({ kind: "error", message: err instanceof Error ? err.message : String(err) });
+        if (generation === loadGeneration.current) set({ kind: "error", message: friendlyMessage(err) });
       }
     };
 
@@ -91,7 +92,7 @@ export function CollegeDataView() {
     fetchCfbdGamePlays(selectedGame.id, authToken).then((data) => {
       if (!cancelled) setPlays({ kind: "ready", data });
     }).catch((error: unknown) => {
-      if (!cancelled) setPlays({ kind: "error", message: error instanceof Error ? error.message : "Unable to load plays." });
+      if (!cancelled) setPlays({ kind: "error", message: friendlyMessage(error) });
     });
     return () => { cancelled = true; };
   }, [selectedGame, authToken, syncNotice]);
@@ -101,14 +102,14 @@ export function CollegeDataView() {
     let count = 0;
     try {
       for (const scope of scopes) {
-        setSyncing(scope === "plays" ? `week ${week} play-by-play` : scope);
+        setSyncing(scope === "plays" ? `week ${week} play-by-play` : scope === "roster" ? "roster and player stats" : scope);
         const result = await refreshCfbdScope({ season, season_type: seasonType, scope, ...(scope === "plays" ? { week } : {}) }, authToken);
         count += result.rows_written;
         if (result.status !== "succeeded") throw new Error(result.message);
       }
       setSyncNotice(`Updated ${count} cached records for ${season}.`);
     } catch (error) {
-      setSyncError(error instanceof Error ? error.message : "Unable to refresh college data.");
+      setSyncError(friendlyMessage(error));
     } finally {
       setSyncing(null);
       await load();
@@ -177,6 +178,7 @@ export function CollegeDataView() {
             <Button disabled={!connection?.configured || syncing !== null} onClick={() => void sync(["teams", "schedule", "benchmark"])}><RefreshCw className={cn("size-4", syncing && "animate-spin")} />{syncing ? `Refreshing ${syncing}…` : "Refresh season data"}</Button>
             <div><Label htmlFor="cfbd-week">Week</Label><Input id="cfbd-week" type="number" min={1} max={20} className="mt-2 w-20" value={week} disabled={syncing !== null} onChange={(event) => setWeek(Math.min(20, Math.max(1, Number(event.target.value))))} /></div>
             <Button variant="outline" disabled={!connection?.configured || syncing !== null} onClick={() => void sync(["plays"])}>Refresh week’s plays</Button>
+            <Button variant="outline" disabled={!connection?.configured || syncing !== null} onClick={() => void sync(["roster"])}>Sync roster &amp; player stats</Button>
           </> : <p className="pb-2 text-xs text-muted-foreground">An administrator can refresh the shared CFBD cache.</p>}
         </div>
         {syncNotice ? <p role="status" className="mt-3 text-sm text-status-ok">{syncNotice}</p> : null}

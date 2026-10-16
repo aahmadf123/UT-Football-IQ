@@ -208,6 +208,13 @@ class CFBDClient:
             raise CFBDClientError(f"CFBD {path} returned a non-list payload", status_code=200)
         return [model.model_validate(item) for item in payload]
 
+    async def _get_raw_list(self, path: str, params: dict[str, Any]) -> list[dict[str, Any]]:
+        """For player endpoints whose rows are stored as-is (JSONB): no schema."""
+        payload = await self._request(path, params)
+        if not isinstance(payload, list):
+            raise CFBDClientError(f"CFBD {path} returned a non-list payload", status_code=200)
+        return [item for item in payload if isinstance(item, dict)]
+
     # ── Endpoint families (Issue #161) ──────────────────────────────────────
 
     async def get_teams(self, *, conference: str | None = None) -> list[CFBDTeam]:
@@ -305,3 +312,25 @@ class CFBDClient:
     async def get_win_probability(self, *, game_id: int) -> list[CFBDWinProbability]:
         """``GET /metrics/wp`` — per-play win probability for one game."""
         return await self._get_list("/metrics/wp", {"gameId": game_id}, CFBDWinProbability)
+
+    # ── Player endpoints (roster + per-player season data) ─────────────────
+
+    async def get_roster(self, *, team: str, year: int) -> list[dict[str, Any]]:
+        """``GET /roster`` — id, names, jersey, position, height, weight, class, hometown."""
+        return await self._get_raw_list("/roster", {"team": team, "year": year})
+
+    async def get_player_season_stats(
+        self, *, team: str, year: int, season_type: str | None = None
+    ) -> list[dict[str, Any]]:
+        """``GET /stats/player/season`` — one row per (player, category, statType)."""
+        return await self._get_raw_list(
+            "/stats/player/season", {"team": team, "year": year, "seasonType": season_type}
+        )
+
+    async def get_player_usage(self, *, team: str, year: int) -> list[dict[str, Any]]:
+        """``GET /player/usage`` — share of team plays by down/situation."""
+        return await self._get_raw_list("/player/usage", {"team": team, "year": year})
+
+    async def get_player_ppa(self, *, team: str, year: int) -> list[dict[str, Any]]:
+        """``GET /ppa/players/season`` — average/total predicted points added."""
+        return await self._get_raw_list("/ppa/players/season", {"team": team, "year": year})

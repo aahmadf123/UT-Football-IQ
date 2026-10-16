@@ -38,6 +38,7 @@ import {
 } from "@/lib/upload-metadata";
 import type { OurPossession, SessionKind, SourceType } from "@/lib/types";
 import type { UploadMetadata } from "@/lib/app-state";
+import { friendlyMessage } from "@/lib/api-error";
 
 const VIDEO_EXTENSIONS = /\.(mp4|mov|m4v|avi|mkv|mts|m2ts|webm)$/i;
 
@@ -158,7 +159,7 @@ export function UploadDialog({
       reset();
       onOpenChange(false);
     } catch (cause) {
-      setSubmitError(cause instanceof Error ? cause.message : String(cause));
+      setSubmitError(friendlyMessage(cause));
     } finally {
       setSubmitting(false);
     }

@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Switch } from "@/components/ui/switch";
+import { friendlyMessage } from "@/lib/api-error";
 
 const GROUPS = ["QB", "Skill", "OL", "DL", "LB", "DB", "ST"] as const;
 
@@ -32,7 +33,7 @@ export function RosterEditor({ playerId, onClose }: { playerId: string | null; o
     fetchPlayer(playerId, authToken).then((player) => {
       if (cancelled) return;
       setFirstName(player.first_name); setLastName(player.last_name); setJersey(player.jersey_number === null ? "" : String(player.jersey_number)); setPosition(player.position ?? ""); setGroup(player.position_group ?? ""); setActive(player.is_active);
-    }).catch((cause) => { if (!cancelled) setError(cause instanceof Error ? cause.message : String(cause)); })
+    }).catch((cause) => { if (!cancelled) setError(friendlyMessage(cause)); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [playerId, authToken]);
@@ -47,7 +48,7 @@ export function RosterEditor({ playerId, onClose }: { playerId: string | null; o
       if (playerId) await updatePlayer(playerId, body, authToken); else await createPlayer(body, authToken);
       await refreshData();
       onClose();
-    } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
+    } catch (cause) { setError(friendlyMessage(cause)); }
     finally { setSaving(false); }
   }
 
@@ -85,7 +86,7 @@ export function RosterImport({ open, onClose }: { open: boolean; onClose: () => 
       const result = await importPlayers(csv, !apply, authToken);
       setPreview(result);
       if (apply) { setFinished(true); await refreshData(); }
-    } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
+    } catch (cause) { setError(friendlyMessage(cause)); }
     finally { setBusy(false); }
   }
 

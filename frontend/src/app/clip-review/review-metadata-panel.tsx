@@ -1,5 +1,6 @@
 "use client";
 
+import { ApiError, friendlyMessage } from "@/lib/api-error";
 import { useState } from "react";
 import type { ApiClip, OurPossession } from "@/lib/types";
 import { updateClip } from "@/lib/api";
@@ -52,8 +53,11 @@ export function ReviewMetadataPanel({ clip, onSaved, onNext }: {
       void refreshData();
       if (next) onNext?.();
     } catch (cause) {
-      const detail = cause instanceof Error ? cause.message : String(cause);
-      setError(detail.includes("409") ? "This play changed since you opened it. Reload its latest tags before saving again." : detail);
+      setError(
+        cause instanceof ApiError && cause.status === 409
+          ? "This play changed since you opened it. Reload its latest tags before saving again."
+          : friendlyMessage(cause, "save the play"),
+      );
     } finally {
       setSaving(false);
     }

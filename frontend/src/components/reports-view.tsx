@@ -25,6 +25,7 @@ import { Label } from "@/components/ui/label";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Switch } from "@/components/ui/switch";
 import { StatusBadge, toneForJobStatus } from "@/components/composite/status-badge";
+import { friendlyMessage } from "@/lib/api-error";
 
 const REPORT_SECTIONS: readonly string[] = [
   "Self-scout exposure",
@@ -63,7 +64,7 @@ export function ReportsView() {
       setReports(items);
       setListStatus("idle");
     } catch (err) {
-      setListError(err instanceof Error ? err.message : String(err));
+      setListError(friendlyMessage(err));
       setListStatus("error");
     }
   }, [authToken]);
@@ -132,7 +133,7 @@ export function ReportsView() {
       setReports((cur) => [job, ...cur]);
       pollReport(job.id);
     } catch (err) {
-      setGenerateError(err instanceof Error ? err.message : String(err));
+      setGenerateError(friendlyMessage(err));
     } finally {
       setGenerating(false);
     }
@@ -152,7 +153,7 @@ export function ReportsView() {
       link.click();
       link.remove();
     } catch (err) {
-      setGenerateError(err instanceof Error ? err.message : String(err));
+      setGenerateError(friendlyMessage(err));
     } finally {
       setDownloadingId(null);
     }

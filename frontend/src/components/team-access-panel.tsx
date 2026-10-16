@@ -11,6 +11,7 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { NativeSelect } from "@/components/ui/native-select";
+import { friendlyMessage } from "@/lib/api-error";
 
 const ROLE_INFO: Record<UserRole, { label: string; description: string }> = {
   admin: { label: "Administrator", description: "Manage team access and all staff tools." },
@@ -36,7 +37,7 @@ function AdminTeamAccess({ token }: { token?: string }) {
     setLoading(true);
     setError(null);
     try { setAccounts(await fetchTeamAccounts(token)); }
-    catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
+    catch (cause) { setError(friendlyMessage(cause)); }
     finally { setLoading(false); }
   }, [token]);
 
@@ -78,7 +79,7 @@ function TeamAccountRow({ account, token, isYou, onSaved }: { account: TeamAccou
       setRole(updated.role);
       await onSaved(updated);
       setNotice("Access saved.");
-    } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
+    } catch (cause) { setError(friendlyMessage(cause)); }
     finally { setPending(false); }
   }
 

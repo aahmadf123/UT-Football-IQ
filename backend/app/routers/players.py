@@ -32,6 +32,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.cfbd.roster_sync import STAFF_LOCKABLE_FIELDS
 from app.database import get_db
 from app.deps import require_coach_or_above
 from app.governance import (
@@ -383,8 +384,22 @@ async def update_player(
     if await _roster_conflict(db, validated, player_id):
         raise HTTPException(409, "Another active player has that jersey and position group")
     effective = validated.model_dump(exclude={"id"})
+    # A coach's roster edit (practice jersey, moved position, active status)
+    # must survive the weekly CFBD roster sync, which skips locked fields.
+    # The editor submits every field, so lock only values that changed.
+    edited = sorted(
+        name
+        for name in changes
+        if name in STAFF_LOCKABLE_FIELDS and effective[name] != getattr(player, name)
+    )
     for name in changes:
         setattr(player, name, effective[name])
+    if edited:
+        metadata = dict(player.metadata_ or {})
+        metadata["staff_locked_fields"] = sorted(
+            set(metadata.get("staff_locked_fields") or []) | set(edited)
+        )
+        player.metadata_ = metadata
     try:
         async with db.begin_nested():
             await db.flush()

@@ -20,6 +20,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useMocks } from "./mock-flag";
 import { useOptionalAuth } from "./auth";
+import { friendlyMessage } from "@/lib/api-error";
 
 export type FetchState<T> =
   | { kind: "loading" }
@@ -68,7 +69,7 @@ export function useFetchState<T>(
       if (run !== runRef.current) return;
       setState({
         kind: "error",
-        message: err instanceof Error ? err.message : String(err),
+        message: friendlyMessage(err),
       });
     }
   }, [fetcher, mockMode, canFetch]);

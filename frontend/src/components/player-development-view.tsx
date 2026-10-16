@@ -21,6 +21,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { EmptyState } from "@/components/composite/empty-state";
 import { StatLine } from "@/components/composite/stat-chip";
+import { friendlyMessage } from "@/lib/api-error";
 
 export function PlayerDevelopmentView() {
   const { data, selectedPlayer, setSelectedPlayerId, authToken } = useAppState();
@@ -53,7 +54,7 @@ export function PlayerDevelopmentView() {
       .catch((err: unknown) => {
         if (cancelled) return;
         setDevelopmentMetrics([]);
-        setMetricsError(err instanceof Error ? err.message : String(err));
+        setMetricsError(friendlyMessage(err));
         setMetricsState("error");
       });
     return () => {

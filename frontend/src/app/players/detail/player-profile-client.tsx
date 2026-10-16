@@ -1,5 +1,6 @@
 "use client";
 
+import { ApiError, friendlyMessage } from "@/lib/api-error";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -12,6 +13,7 @@ import { apiPlayerToSummary, mergePlayerMetrics, useAppState } from "@/lib/app-s
 import { fetchPlayer, fetchPlayerMetricsDetail } from "@/lib/api";
 import type { PlayerSummary } from "@/lib/types";
 import { ConfidenceBadge } from "@/components/composite/confidence-badge";
+import { CollegeStatsCard } from "@/components/college-stats-card";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { NativeSelect } from "@/components/ui/native-select";
@@ -29,6 +31,24 @@ import {
 
 type LoadState = "idle" | "loading" | "ready" | "missing" | "error";
 
+interface Bio {
+  classYear?: string;
+  height?: string;
+  weight?: string;
+  hometown?: string;
+}
+
+function bioFrom(metadata: Record<string, unknown> | null | undefined): Bio {
+  const m = metadata ?? {};
+  const inches = typeof m.height_in === "number" ? m.height_in : null;
+  return {
+    classYear: typeof m.class_year === "string" ? m.class_year : undefined,
+    height: inches ? `${Math.floor(inches / 12)}'${inches % 12}"` : undefined,
+    weight: typeof m.weight_lb === "number" ? `${m.weight_lb} lb` : undefined,
+    hometown: typeof m.hometown === "string" ? m.hometown : undefined,
+  };
+}
+
 export function PlayerProfileClient({ id }: { id: string }) {
   const router = useRouter();
   const { data, getPlayerById, setSelectedPlayerId, mockMode, authToken } = useAppState();
@@ -37,6 +57,7 @@ export function PlayerProfileClient({ id }: { id: string }) {
   const [player, setPlayer] = useState<PlayerSummary | undefined>(cached);
   const [loadState, setLoadState] = useState<LoadState>(cached ? "ready" : "idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [bio, setBio] = useState<Bio>({});
 
   // Pull live identity from /api/v1/players/{id} when not in mock mode. The
   // cached entry from the roster fetch is shown immediately as a fast path;
@@ -70,6 +91,7 @@ export function PlayerProfileClient({ id }: { id: string }) {
           fetchPlayerMetricsDetail(id, authToken).catch(() => null),
         ]);
         if (cancelled) return;
+        setBio(bioFrom(apiPlayer.metadata));
         let summary = apiPlayerToSummary(apiPlayer);
         // Only merge when the player actually has tracked film — merging an
         // all-zero summary would fabricate "Needs review" + zeros instead of
@@ -85,8 +107,8 @@ export function PlayerProfileClient({ id }: { id: string }) {
         setLoadState("ready");
       } catch (err) {
         if (cancelled) return;
-        const message = err instanceof Error ? err.message : String(err);
-        if (/404/.test(message)) {
+        const message = friendlyMessage(err, "load this player");
+        if (err instanceof ApiError && err.status === 404) {
           setLoadState("missing");
         } else {
           setErrorMessage(message);
@@ -146,7 +168,7 @@ export function PlayerProfileClient({ id }: { id: string }) {
     );
   }
 
-  const others = data.players.filter((p) => p.id !== player.id);
+  const others = data.players.filter((p) => p.id !== player.id && p.group === player.group);
   const metricsAvailable =
     player.maxSpeed != null || player.distance != null || player.trackedClips != null;
   const trendAvailable = player.trend && player.trend.length > 0;
@@ -220,6 +242,10 @@ export function PlayerProfileClient({ id }: { id: string }) {
               <StatLine label="Name" value={player.name} />
               <StatLine label="Position" value={player.position} />
               <StatLine label="Group" value={player.group} />
+              {bio.classYear ? <StatLine label="Class" value={bio.classYear} /> : null}
+              {bio.height ? <StatLine label="Height" value={bio.height} /> : null}
+              {bio.weight ? <StatLine label="Weight" value={bio.weight} /> : null}
+              {bio.hometown ? <StatLine label="Hometown" value={bio.hometown} /> : null}
               <div className="flex items-center justify-between gap-2 text-xs">
                 <span className="text-muted-foreground">Identity Confidence</span>
                 <ConfidenceBadge bucket={player.identityBucket} confidence={player.confidence} />
@@ -260,15 +286,19 @@ export function PlayerProfileClient({ id }: { id: string }) {
         </Card>
       </div>
 
+      {!mockMode ? (
+        <CollegeStatsCard playerId={player.id} token={authToken ?? undefined} />
+      ) : null}
+
       <Card className="mt-4">
         <CardHeader>
           <h2 className="font-display text-base font-semibold uppercase tracking-wide">
-            Position Group · Quick Switch
+            {player.group} · Quick Switch
           </h2>
         </CardHeader>
         <CardContent>
           {others.length === 0 ? (
-            <p className="text-xs text-muted-foreground">No other players on the roster yet.</p>
+            <p className="text-xs text-muted-foreground">No other players in this position group yet.</p>
           ) : (
             <Table>
               <TableHeader>

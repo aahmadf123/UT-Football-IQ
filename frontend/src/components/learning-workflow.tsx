@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { NativeSelect } from "@/components/ui/native-select";
 import { StatusBadge, toneForJobStatus } from "@/components/composite/status-badge";
+import { friendlyMessage } from "@/lib/api-error";
 
 type Split = LearningSessionSplit["split"];
 type Evaluation = { passed: boolean; accuracy: number; macro_f1: number; sample_count: number };
@@ -37,7 +38,7 @@ export function LearningWorkflow({ onUpdated }: { onUpdated: () => Promise<void>
   const load = useCallback(async () => {
     setLoading(true);
     try { const [film, saved] = await Promise.all([fetchSessions(authToken), listFeatureManifests(authToken)]); setSessions(film); setHistory(saved); setError(null); }
-    catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
+    catch (cause) { setError(friendlyMessage(cause)); }
     finally { setLoading(false); }
   }, [authToken]);
 
@@ -48,7 +49,7 @@ export function LearningWorkflow({ onUpdated }: { onUpdated: () => Promise<void>
     let cancelled = false;
     const refresh = async () => {
       try { const models = await listLearningCandidates(manifest.id, authToken); if (!cancelled) setCandidates(models); }
-      catch (cause) { if (!cancelled) setError(cause instanceof Error ? cause.message : String(cause)); }
+      catch (cause) { if (!cancelled) setError(friendlyMessage(cause)); }
     };
     void refresh();
     const interval = setInterval(refresh, 5000);
@@ -76,7 +77,7 @@ export function LearningWorkflow({ onUpdated }: { onUpdated: () => Promise<void>
   async function inspect() {
     setBusy("preview"); setError(null); setNotice(null);
     try { setPreview(await previewFeatureManifest({ name: name.trim(), sessions: selected }, authToken)); }
-    catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
+    catch (cause) { setError(friendlyMessage(cause)); }
     finally { setBusy(null); }
   }
 
@@ -87,7 +88,7 @@ export function LearningWorkflow({ onUpdated }: { onUpdated: () => Promise<void>
       const created = await createFeatureManifest({ name: name.trim(), sessions: selected }, authToken);
       setManifest(created); setNotice("Feature set saved with separate training, calibration, and holdout footage.");
       await load(); await onUpdated();
-    } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
+    } catch (cause) { setError(friendlyMessage(cause)); }
     finally { setBusy(null); }
   }
 
@@ -97,7 +98,7 @@ export function LearningWorkflow({ onUpdated }: { onUpdated: () => Promise<void>
     try {
       const job = await queueCoverageTraining({ training_dataset_id: manifest.training_dataset_id, features_uri: manifest.features_uri }, authToken);
       setTrainingId(job.job_id); setRequestedTrainingStatus(job.status); setNotice(`CPU coverage training job is ${job.status}. Progress stays in the connected library.`);
-    } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
+    } catch (cause) { setError(friendlyMessage(cause)); }
     finally { setBusy(null); }
   }
 
@@ -109,7 +110,7 @@ export function LearningWorkflow({ onUpdated }: { onUpdated: () => Promise<void>
       setEvaluations((current) => ({ ...current, [model.id]: result }));
       setCandidates(await listLearningCandidates(manifest.id, authToken));
       await onUpdated();
-    } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
+    } catch (cause) { setError(friendlyMessage(cause)); }
     finally { setBusy(null); }
   }
 

@@ -18,6 +18,7 @@ import { Card, CardHeader } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { NativeSelect } from "@/components/ui/native-select";
 import { StatusBadge } from "@/components/composite/status-badge";
+import { friendlyMessage } from "@/lib/api-error";
 
 type OpponentListState = FetchState<OpponentSummary[]>;
 
@@ -50,7 +51,7 @@ export function OpponentScoutView() {
     } catch (err) {
       setOpponentList({
         kind: "error",
-        message: err instanceof Error ? err.message : String(err),
+        message: friendlyMessage(err),
       });
     }
   }, [authToken]);
@@ -94,7 +95,7 @@ export function OpponentScoutView() {
     } catch (err) {
       setTendencyState({
         kind: "error",
-        message: err instanceof Error ? err.message : String(err),
+        message: friendlyMessage(err),
       });
     }
   }, [selectedVideo, authToken]);

@@ -16,6 +16,7 @@ import { NativeSelect } from "@/components/ui/native-select";
 import { StatusBadge, toneForVideoStatus } from "@/components/composite/status-badge";
 import { SessionTransfer } from "@/components/film-room/session-transfer";
 import { useWorkspaceContext } from "@/lib/workspace-context";
+import { friendlyMessage } from "@/lib/api-error";
 
 export function SessionWorkspace({ initialSessionId = "", onSelect }: { initialSessionId?: string; onSelect: (id: string) => void }) {
   const { authToken, data, refreshData, currentRole } = useAppState();
@@ -50,7 +51,7 @@ export function SessionWorkspace({ initialSessionId = "", onSelect }: { initialS
       setSessions(await fetchSessions(authToken));
       setError(null);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      setError(friendlyMessage(cause));
     } finally {
       setLoading(false);
     }
@@ -66,7 +67,7 @@ export function SessionWorkspace({ initialSessionId = "", onSelect }: { initialS
         const value = await fetchSession(selectedId, authToken);
         if (!cancelled) { setSession(value); setError(null); }
       } catch (cause) {
-        if (!cancelled) { setSession(null); setError(cause instanceof Error ? cause.message : String(cause)); }
+        if (!cancelled) { setSession(null); setError(friendlyMessage(cause)); }
       }
     };
     void load();
@@ -87,7 +88,7 @@ export function SessionWorkspace({ initialSessionId = "", onSelect }: { initialS
       setSession(created);
       setCreating(false);
       setTitle("");
-    } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
+    } catch (cause) { setError(friendlyMessage(cause)); }
     finally { setBusy(false); }
   }
 
@@ -100,7 +101,7 @@ export function SessionWorkspace({ initialSessionId = "", onSelect }: { initialS
       setSession(await addSessionRecording(session.id, { video_id: attachId, ...(camera.trim() ? { camera_label: camera.trim() } : {}) }, authToken));
       setAttachId(""); setCamera("");
       await refreshData();
-    } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
+    } catch (cause) { setError(friendlyMessage(cause)); }
     finally { setBusy(false); }
   }
 
@@ -171,7 +172,7 @@ function SessionPlays({ session, onUpdate, canEdit }: { session: ApiSession; onU
     setClips([]);
     const load = () => Promise.all(recordingIds.split(",").filter(Boolean).map((id) => fetchClipsForVideo(id, authToken)))
       .then((items) => { if (!cancelled) { setClips(items.flat()); setError(null); } })
-      .catch((cause) => { if (!cancelled) setError(cause instanceof Error ? cause.message : String(cause)); });
+      .catch((cause) => { if (!cancelled) setError(friendlyMessage(cause)); });
     void load();
     const interval = setInterval(load, 5000);
     return () => { cancelled = true; clearInterval(interval); };
@@ -185,7 +186,7 @@ function SessionPlays({ session, onUpdate, canEdit }: { session: ApiSession; onU
     try {
       onUpdate(await matchSessionPlays(session.id, { clip_ids: selected, ...(playTitle.trim() ? { title: playTitle.trim() } : {}), ...(existingPlayId ? { play_id: existingPlayId } : {}) }, authToken));
       setSelected([]); setPlayTitle("");
-    } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
+    } catch (cause) { setError(friendlyMessage(cause)); }
     finally { setSaving(false); }
   }
 

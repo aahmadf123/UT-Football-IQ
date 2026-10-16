@@ -26,6 +26,7 @@ Endpoints (prefix ``/api/cfbd``):
 
 from __future__ import annotations
 
+import uuid
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any, Literal
@@ -35,6 +36,7 @@ from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import desc, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.cfbd.models import CFBDPlayerSeason
 from app.config import get_settings
 from app.database import get_db
 from app.deps import require_admin
@@ -48,6 +50,7 @@ from app.models import (
     CfbdTeamGameStat,
     CfbdTeamRow,
     CfbdWinProbability,
+    Player,
     User,
 )
 from app.workload import require_workload_capacity
@@ -75,7 +78,7 @@ _require_cfbd_read = require_policy(Resource.CFBD_ANALYTICS, Action.READ)
 # continue to use the cache, including when the vendor is unavailable.
 class CfbdSyncRequest(BaseModel):
     season: int = Field(ge=2000, le=2100)
-    scope: Literal["teams", "schedule", "benchmark", "plays", "drives"]
+    scope: Literal["teams", "schedule", "benchmark", "plays", "drives", "roster"]
     season_type: Literal["regular", "postseason"] = "regular"
     week: int | None = Field(default=None, ge=1, le=20)
 
@@ -138,6 +141,7 @@ async def refresh_cfbd_cache(
 ) -> CfbdSyncResponse:
     """Refresh one bounded scope, preserving cached data on vendor failure."""
     from app.cfbd.client import CFBDClient
+    from app.cfbd.roster_sync import current_season, sync_player_seasons, sync_roster_and_stats
     from app.cfbd.sync import (
         sync_drives,
         sync_games,
@@ -161,6 +165,13 @@ async def refresh_cfbd_cache(
         elif body.scope == "plays":
             weeks = [body.week] if body.week is not None else []
             result = await sync_plays(db, client, weeks=weeks, **options)
+        elif body.scope == "roster":
+            if body.season == current_season(datetime.now(UTC)):
+                result = await sync_roster_and_stats(db, client, season=body.season)
+            else:
+                # The active roster always follows the current season; other
+                # seasons only refresh the per-player season-stat cache.
+                result = await sync_player_seasons(db, client, season=body.season)
         else:
             result = await sync_drives(db, client, **options)
     succeeded = result.status.value == "succeeded"
@@ -608,3 +619,61 @@ def _opponent_points(
 
 def _round(value: float | None) -> float | None:
     return None if value is None else round(value, 2)
+
+
+# ── Player season data (profile "College stats" tab) ─────────────────────────
+
+
+class CfbdPlayerSeasonOut(BaseModel):
+    season: int
+    team: str | None
+    position: str | None
+    stats: dict[str, dict[str, Any]] | None
+    usage: dict[str, Any] | None
+    ppa: dict[str, Any] | None
+
+
+class CfbdPlayerSeasonsResponse(BaseModel):
+    player_id: str
+    cfbd_athlete_id: str | None
+    seasons: list[CfbdPlayerSeasonOut]
+
+
+@router.get("/players/{player_id}/seasons", response_model=CfbdPlayerSeasonsResponse)
+async def get_player_seasons(
+    player_id: uuid.UUID,
+    _user: Annotated[User, Depends(_require_cfbd_read)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> CfbdPlayerSeasonsResponse:
+    """A rostered player's CFBD seasons, newest first. Empty when the player
+    isn't linked to CFBD (e.g. a walk-on added by a coach)."""
+    player = (await db.execute(select(Player).where(Player.id == player_id))).scalar_one_or_none()
+    if player is None:
+        raise HTTPException(404, "Player not found")
+    athlete = (player.metadata_ or {}).get("cfbd_athlete_id")
+    rows: list[CFBDPlayerSeason] = []
+    if athlete:
+        rows = list(
+            (
+                await db.execute(
+                    select(CFBDPlayerSeason)
+                    .where(CFBDPlayerSeason.athlete_id == int(athlete))
+                    .order_by(desc(CFBDPlayerSeason.season))
+                )
+            ).scalars()
+        )
+    return CfbdPlayerSeasonsResponse(
+        player_id=str(player.id),
+        cfbd_athlete_id=str(athlete) if athlete else None,
+        seasons=[
+            CfbdPlayerSeasonOut(
+                season=row.season,
+                team=row.team,
+                position=row.position,
+                stats=row.stats,
+                usage=row.usage,
+                ppa=row.ppa,
+            )
+            for row in rows
+        ],
+    )

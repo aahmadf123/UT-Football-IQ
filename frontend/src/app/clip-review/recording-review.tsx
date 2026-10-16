@@ -12,6 +12,7 @@ import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { OverlayCanvas } from "./overlay-canvas";
 import { VideoTransport } from "./video-transport";
+import { friendlyMessage } from "@/lib/api-error";
 
 const RECORDING_LAYERS = new Set<OverlayLayerKey>(["tracks", "labels", "events"]);
 
@@ -44,7 +45,7 @@ export function RecordingReview({ videoId }: { videoId: string }) {
         const playback = await fetchVideoDownloadUrl(storage.bucket, storage.key, authToken);
         if (!playback) throw new Error("Could not open the saved recording. Check storage and try again.");
         if (!cancelled) { setRecording(video); setUrl(playback); setDuration(video.duration_seconds ?? 0); }
-      } catch (cause) { if (!cancelled) setError(cause instanceof Error ? cause.message : String(cause)); }
+      } catch (cause) { if (!cancelled) setError(friendlyMessage(cause)); }
       finally { if (!cancelled) setLoading(false); }
     })();
     return () => { cancelled = true; };

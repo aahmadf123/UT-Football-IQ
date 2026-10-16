@@ -1471,6 +1471,7 @@ def _run_db_loop() -> None:
     """Claim jobs from the backend's processing_jobs table and run them."""
     import random
 
+    from worker.keep_awake import keep_awake
     from worker.observability import record_heartbeat, record_queue_poll
 
     if not BACKEND_API_URL:
@@ -1495,7 +1496,8 @@ def _run_db_loop() -> None:
             if claimed is not None:
                 job = _db_row_to_job(claimed)
                 try:
-                    process_job(job)
+                    with keep_awake():
+                        process_job(job)
                 except Exception as exc:
                     # process_job handles its own failures; this is a belt-and-
                     # braces guard so one bad job never kills the loop.

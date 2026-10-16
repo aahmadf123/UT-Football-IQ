@@ -336,6 +336,8 @@ class Player(Base):
                 "is_active AND jersey_number IS NOT NULL AND position_group IS NOT NULL"
             ),
         ),
+        # CFBD roster sync matches players by athlete id (migration 0006).
+        Index("ix_players_cfbd_athlete_id", text("(metadata ->> 'cfbd_athlete_id')")),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -2046,6 +2048,7 @@ from app.cfbd.models import (  # noqa: E402,F401
     CFBDDrive,
     CFBDGame,
     CFBDPlay,
+    CFBDPlayerSeason,
     CFBDSyncRun,
     CFBDSyncStatus,
     CFBDTeam,

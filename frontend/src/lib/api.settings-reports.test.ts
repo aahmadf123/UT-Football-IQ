@@ -93,7 +93,7 @@ describe("settings api helpers", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const { updateSystemSettings } = await freshImport();
-    await expect(updateSystemSettings({ system_config: {} }, "tok")).rejects.toThrow(/403/);
+    await expect(updateSystemSettings({ system_config: {} }, "tok")).rejects.toMatchObject({ name: "ApiError", status: 403 });
   });
 
   test("getUserPreferences hits /api/v1/settings/me", async () => {

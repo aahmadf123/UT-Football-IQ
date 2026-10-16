@@ -50,7 +50,7 @@ export default defineConfig({
   webServer: {
     // Use the locally-installed next binary directly; `npx` can prompt to
     // install or fail in network-restricted containers.
-    command: `node node_modules/next/dist/bin/next dev -p ${PORT}`,
+    command: `node node_modules/next/dist/bin/next dev --webpack -p ${PORT}`,
     url: BASE_URL,
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,

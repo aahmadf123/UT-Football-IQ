@@ -31,6 +31,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { FilterBar } from "@/components/composite/filter-bar";
 import { StatusBadge, toneForVideoStatus } from "@/components/composite/status-badge";
 import { useWorkspaceContext } from "@/lib/workspace-context";
+import { friendlyMessage } from "@/lib/api-error";
 
 interface LibraryData {
   sessions: ApiPracticeSessionGroup[];
@@ -122,7 +123,7 @@ export function LibraryView({ savedSessions }: { savedSessions?: ReadonlyArray<P
       if (version !== requestVersion.current) return;
       setState({
         kind: "error",
-        message: err instanceof Error ? err.message : String(err),
+        message: friendlyMessage(err),
       });
     }
   }, [buildFilters, authToken]);
@@ -142,7 +143,7 @@ export function LibraryView({ savedSessions }: { savedSessions?: ReadonlyArray<P
       if (version !== requestVersion.current) return;
       setHasMore(videos.length === 200);
       setState((current) => current.kind === "ready" ? { kind: "ready", data: { ...current.data, videos: [...new Map([...current.data.videos, ...videos].map((video) => [video.id, video])).values()] } } : current);
-    } catch (cause) { if (version === requestVersion.current) setPagingError(cause instanceof Error ? cause.message : String(cause)); }
+    } catch (cause) { if (version === requestVersion.current) setPagingError(friendlyMessage(cause)); }
     finally { if (version === requestVersion.current) setLoadingMore(false); }
   }
 
@@ -436,7 +437,7 @@ function VideoRow({ video }: { video: ApiVideo }) {
       })
       .catch((err: unknown) => {
         if (!cancelled) {
-          setClipsError(err instanceof Error ? err.message : String(err));
+          setClipsError(friendlyMessage(err));
         }
       })
       .finally(() => {

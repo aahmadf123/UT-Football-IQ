@@ -178,6 +178,40 @@ async def test_unclaimed_rollups_coalesce_without_losing_days(
     assert sum(r.status == JobStatus.cancelled for r in rollups) == 2
 
 
+async def test_repeat_tick_after_old_keeper_claimed_does_not_duplicate_rollup(
+    db: async_sessionmaker[AsyncSession],
+) -> None:
+    # Regression: yesterday is folded into an older keeper (created days ago).
+    # Once a worker claims it, a repeat tick must still see yesterday covered.
+    async with db() as session:
+        session.add(
+            ProcessingJob(
+                id=uuid.uuid4(),
+                job_type=JobType.workload_rollup,
+                status=JobStatus.queued,
+                priority=0,
+                created_at=datetime.now(UTC) - timedelta(days=3),
+                input_artifacts={"date": "2026-01-01", "trigger": "scheduler"},
+            )
+        )
+        await session.commit()
+    async with db() as session:
+        first = await run_nightly_tick(session)
+        await session.commit()
+    async with db() as session:
+        keeper = await session.get(ProcessingJob, uuid.UUID(str(first["workload_rollup_job_id"])))
+        assert keeper is not None
+        keeper.status = JobStatus.running
+        await session.commit()
+    async with db() as session:
+        second = await run_nightly_tick(session)
+        await session.commit()
+
+    assert second["workload_rollup_job_id"] is None
+    rollups = await _jobs_of_type(db, JobType.workload_rollup)
+    assert len(rollups) == 1
+
+
 async def test_tick_below_threshold_does_not_train(
     db: async_sessionmaker[AsyncSession],
     monkeypatch: pytest.MonkeyPatch,

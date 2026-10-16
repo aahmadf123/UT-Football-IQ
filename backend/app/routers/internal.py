@@ -107,4 +107,8 @@ async def scheduler_tick(db: Annotated[AsyncSession, Depends(get_db)]) -> dict[s
     summary = await run_locked_tick(db)
     if summary is None:
         return {"status": "skipped", "reason": "another tick holds the lock"}
+    # Weekly CFBD roster/stats refresh, after the tick has committed.
+    from app.cfbd.roster_sync import refresh_roster_best_effort
+
+    summary["cfbd_roster"] = await refresh_roster_best_effort(db)
     return {"status": "ok", **summary}

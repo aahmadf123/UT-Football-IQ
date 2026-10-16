@@ -1,4 +1,5 @@
 import { apiBase } from "./endpoints";
+import { apiErrorFromResponse } from "./api-error";
 import type { UserRole } from "./roles";
 
 export interface TeamAccount {
@@ -24,9 +25,7 @@ async function request<T>(path: string, token?: string, role?: UserRole): Promis
     throw new Error("Could not reach the library. Check your connection and try again.", { cause });
   }
   if (!response.ok) {
-    const value: unknown = await response.json().catch(() => null);
-    const detail = value && typeof value === "object" && "detail" in value ? value.detail : null;
-    throw new Error(typeof detail === "string" ? detail : `Could not ${role === undefined ? "load team accounts" : "update team access"} (${response.status}).`);
+    throw await apiErrorFromResponse(response, role === undefined ? "load team accounts" : "update team access");
   }
   return response.json() as Promise<T>;
 }

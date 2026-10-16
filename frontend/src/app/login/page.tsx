@@ -19,6 +19,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { friendlyMessage } from "@/lib/api-error";
 
 function LoginForm() {
   const router = useRouter();
@@ -46,7 +47,7 @@ function LoginForm() {
       }
       router.replace("/");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Sign-in failed");
+      setError(friendlyMessage(err));
     } finally {
       setBusy(false);
     }

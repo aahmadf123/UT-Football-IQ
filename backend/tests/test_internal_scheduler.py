@@ -48,7 +48,8 @@ def test_tick_runs_with_a_valid_token(monkeypatch: Any) -> None:
                     "/internal/scheduler/tick", headers={"Authorization": f"Bearer {TOKEN}"}
                 )
         assert resp.status_code == 200
-        assert resp.json() == {"status": "ok", "a": 1}
+        # No CFBD key in tests, so the weekly roster refresh reports nothing to do.
+        assert resp.json() == {"status": "ok", "a": 1, "cfbd_roster": None}
     finally:
         app.dependency_overrides.clear()
         _clear(monkeypatch)

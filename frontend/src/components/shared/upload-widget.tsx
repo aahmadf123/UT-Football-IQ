@@ -22,6 +22,7 @@ import { useAppState, type UploadMetadata } from "@/lib/app-state";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { UploadDialog } from "@/components/shared/upload-dialog";
 import { draftToMetadata, type UploadMetadataDraft } from "@/lib/upload-metadata";
+import { friendlyMessage } from "@/lib/api-error";
 
 export function useUploadWidget(options?: {
   successMessage?: (count: number) => string;
@@ -61,7 +62,7 @@ export function useUploadWidget(options?: {
         setTimeout(() => setUploadStatus(null), 5000);
       } catch (err) {
         setUploadStatus({
-          text: `Upload failed: ${err instanceof Error ? err.message : String(err)}`,
+          text: friendlyMessage(err, "upload the film"),
           failed: true,
         });
         throw err;

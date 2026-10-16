@@ -1,5 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
+import { ApiError } from "@/lib/api-error";
 import type { ApiClip } from "@/lib/types";
 
 const { save, refresh } = vi.hoisted(() => ({ save: vi.fn(), refresh: vi.fn() }));
@@ -26,7 +27,7 @@ describe("play review", () => {
   });
 
   test("a revision conflict preserves entered tags and does not advance", async () => {
-    save.mockRejectedValue(new Error("Could not save play (409): stale annotation"));
+    save.mockRejectedValue(new ApiError({ status: 409, action: "save the play", body: '{"detail":"stale annotation"}' }));
     const next = vi.fn();
     render(<ReviewMetadataPanel clip={clip} onSaved={() => {}} onNext={next} />);
     fireEvent.change(screen.getByLabelText("Personnel"), { target: { value: "12" } });

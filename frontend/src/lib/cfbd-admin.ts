@@ -1,8 +1,9 @@
 import { apiBase } from "./endpoints";
+import { apiErrorFromResponse } from "./api-error";
 import type { CfbdCacheMeta } from "./types";
 
 export interface CfbdConnectionStatus { configured: boolean; source: string }
-export type CfbdSyncScope = "teams" | "schedule" | "benchmark" | "plays" | "drives";
+export type CfbdSyncScope = "teams" | "schedule" | "benchmark" | "plays" | "drives" | "roster";
 export interface CfbdSyncResult {
   scope: CfbdSyncScope;
   season: number;
@@ -38,9 +39,7 @@ async function request<T>(path: string, token?: string, body?: unknown): Promise
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
   if (!response.ok) {
-    const value: unknown = await response.json().catch(() => null);
-    const detail = value && typeof value === "object" && "detail" in value ? value.detail : null;
-    throw new Error(typeof detail === "string" ? detail : `College data request failed (${response.status}).`);
+    throw await apiErrorFromResponse(response, body === undefined ? "load college data" : "refresh college data");
   }
   return response.json() as Promise<T>;
 }
@@ -58,4 +57,24 @@ export function refreshCfbdScope(
 
 export function fetchCfbdGamePlays(gameId: number, token?: string): Promise<CfbdGamePlays> {
   return request(`/games/${gameId}/plays?limit=500`, token);
+}
+
+/** One CFBD season for a rostered player (box-score stats, usage, PPA). */
+export interface CfbdPlayerSeason {
+  season: number;
+  team: string | null;
+  position: string | null;
+  /** `{category: {statType: value}}`, e.g. `{rushing: {YDS: "512"}}`. */
+  stats: Record<string, Record<string, string | number | null>> | null;
+  usage: Record<string, number | null> | null;
+  ppa: { average?: Record<string, number | null> | null; total?: Record<string, number | null> | null } | null;
+}
+export interface CfbdPlayerSeasons {
+  player_id: string;
+  cfbd_athlete_id: string | null;
+  seasons: CfbdPlayerSeason[];
+}
+
+export function fetchPlayerCollegeSeasons(playerId: string, token?: string): Promise<CfbdPlayerSeasons> {
+  return request(`/players/${encodeURIComponent(playerId)}/seasons`, token);
 }
