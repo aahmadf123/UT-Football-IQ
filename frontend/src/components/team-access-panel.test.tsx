@@ -27,10 +27,13 @@ describe("team access", () => {
     clients.update.mockReturnValueOnce(new Promise<TeamAccount>((resolve) => { complete = resolve; }));
     render(<TeamAccessPanel />);
     const role = await screen.findByLabelText(`Role for ${teammate.email}`);
+    // On a slow runner the rows can render a beat before loading settles;
+    // interacting then is reset by the load completing.
+    await waitFor(() => expect(screen.queryByText("Loading team accounts…")).toBeNull());
     const save = screen.getByRole("button", { name: `Save access for ${teammate.email}` }) as HTMLButtonElement;
     expect(save.disabled).toBe(true);
     fireEvent.change(role, { target: { value: "coach" } });
-    expect(save.disabled).toBe(false);
+    await waitFor(() => expect(save.disabled).toBe(false));
     fireEvent.click(save);
     await waitFor(() => expect(clients.update).toHaveBeenCalledWith(teammate.id, "coach", "admin-token"));
     expect(save.disabled).toBe(true);

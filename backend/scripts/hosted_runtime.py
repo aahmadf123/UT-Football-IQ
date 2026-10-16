@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import signal
 import subprocess
 import threading
@@ -93,8 +94,15 @@ def migrate(environment: dict[str, str]) -> bool:
             timeout=120,
             check=False,
         )
-        event("hosted_schema_migration", ready=result.returncode == 0, exit_code=result.returncode)
-        return result.returncode == 0
+        ok = result.returncode == 0
+        fields: dict[str, object] = {"ready": ok, "exit_code": result.returncode}
+        if not ok:
+            # Without this the container exits with no trace of why (a bad
+            # database URL looked identical to a broken migration).
+            tail = (result.stderr or result.stdout or b"").decode(errors="replace")[-1500:]
+            fields["error"] = re.sub(r"://[^@\s]*@", "://***@", tail)
+        event("hosted_schema_migration", **fields)
+        return ok
     except (OSError, subprocess.TimeoutExpired):
         event("hosted_schema_migration", ready=False, reason="Migration failed or timed out")
         return False

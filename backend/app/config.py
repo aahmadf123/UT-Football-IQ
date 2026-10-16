@@ -7,6 +7,22 @@ from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+def rename_query_param(url: str, old: str, new: str) -> str:
+    """Rename one query parameter of a database URL, leaving the rest intact.
+
+    Only the part after the last ``?`` is touched, so a password containing
+    ``ssl=`` can never be rewritten.
+    """
+    base, sep, query = url.rpartition("?")
+    if not sep:
+        return url
+    parts = [
+        f"{new}={p.split('=', 1)[1]}" if p.split("=", 1)[0] == old and "=" in p else p
+        for p in query.split("&")
+    ]
+    return f"{base}?{'&'.join(parts)}"
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -234,16 +250,24 @@ class Settings(BaseSettings):
     def floor_min_new_labels(cls, v: int) -> int:
         return max(1, v)
 
+    @field_validator("database_url")
+    @classmethod
+    def asyncpg_ssl_param(cls, v: str) -> str:
+        # asyncpg rejects libpq's ``sslmode=``; it spells the same thing ``ssl=``.
+        return rename_query_param(v, "sslmode", "ssl") if "+asyncpg" in v else v
+
     @field_validator("database_sync_url", mode="before")
     @classmethod
     def derive_sync_url(cls, v: str, info: Any) -> str:
-        if v:
-            return v
-        # Derive from async URL by stripping driver suffix
-        async_url: str = ""
-        if hasattr(info, "data"):
-            async_url = str(info.data.get("database_url", ""))
-        return async_url.replace("+asyncpg", "")
+        if not v:
+            # Derive from async URL by stripping driver suffix
+            v = ""
+            if hasattr(info, "data"):
+                v = str(info.data.get("database_url", "")).replace("+asyncpg", "")
+        # psycopg2/libpq rejects asyncpg's ``ssl=`` ("invalid URI query
+        # parameter"), which made every hosted boot fail at the migration step
+        # when the shared URL was written for the app's async driver.
+        return rename_query_param(v, "ssl", "sslmode")
 
     @property
     def cors_origins_list(self) -> list[str]:
