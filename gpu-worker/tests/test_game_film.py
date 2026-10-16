@@ -128,3 +128,43 @@ def test_segmenter_falls_back_when_film_is_not_edited(tmp_path) -> None:  # type
     ]
     assert segmenter.clip_specs == []
     assert segmenter.source == "optical_flow"
+
+
+def test_parse_scoreboard_tolerates_stylized_font_misreads() -> None:
+    # Real EasyOCR output from the 2026 Michigan State game film.
+    cases = [
+        (["1ST QUARTER", "PND & 5", "1443", "BALL ON 30"], (2, 5, "14:43", 30, 1)),
+        (["1ST QUARTER", "ATH & 2", "12.13", "BALL ON 45"], (4, 2, "12:13", 45, 1)),
+        (["1ST QUARTER", "BRD & 7", "202", "BALL ON 25"], (3, 7, "2:02", 25, 1)),
+        (["1ST QUARTER", "3R1 & 7", "2.41", "BALL ON 25"], (3, 7, "2:41", 25, 1)),
+        (["ZND QUARTER", "END & 2", "852", "BALL ON 12"], (2, 2, "8:52", 12, 2)),
+    ]
+    for texts, (down, distance, clock, ball_on, quarter) in cases:
+        parsed = parse_scoreboard(texts)
+        assert parsed is not None, texts
+        assert (parsed["down"], parsed["distance"]) == (down, distance), texts
+        assert parsed["clock"] == clock, texts
+        assert parsed["ball_on"] == ball_on and parsed["quarter"] == quarter, texts
+
+
+def test_blank_card_has_no_down() -> None:
+    # Kickoffs and extra points show "&" with nothing around it.
+    parsed = parse_scoreboard(["1ST QUARTER", "&", "15.00", "BALL ON"])
+    assert parsed is not None and "down" not in parsed
+    assert parsed["quarter"] == 1 and parsed["clock"] == "15:00"
+
+
+def test_undecided_angles_follow_film_order() -> None:
+    plays = group_plays(
+        [
+            ViewSegment(0, 3, "card", 0.9),
+            ViewSegment(3, 16, "unknown", 0.3),
+            ViewSegment(16, 28, "unknown", 0.3),
+            ViewSegment(28, 31, "card", 0.9),
+            ViewSegment(31, 44, "sideline", 0.8),
+            ViewSegment(44, 57, "unknown", 0.3),
+        ]
+    )
+    assert [v.view for v in plays[0].views] == ["sideline", "endzone"]
+    assert [v.view for v in plays[1].views] == ["sideline", "endzone"]
+    assert all(v.confidence <= 0.4 for v in plays[0].views)

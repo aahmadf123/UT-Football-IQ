@@ -306,6 +306,25 @@ def classify_views(video_path: Path, shots: list[Shot]) -> list[ViewSegment]:
 # ── Stage 3: plays ───────────────────────────────────────────────────────────
 
 
+def _resolve_unknown_views(views: list[ViewSegment]) -> None:
+    """Fill undecided angles from the film's fixed order.
+
+    Coaches' film shows the sideline angle first, then the end zone. An
+    undecided first angle is sideline; one after a sideline angle is the end
+    zone. Kept at low confidence so the UI can flag it.
+    """
+    for index, view in enumerate(views):
+        if view.view != "unknown":
+            continue
+        if index == 0:
+            view.view = "sideline"
+        elif views[index - 1].view == "sideline":
+            view.view = "endzone"
+        else:
+            continue
+        view.confidence = min(view.confidence, 0.4)
+
+
 def group_plays(segments: list[ViewSegment]) -> list[GamePlay]:
     """A play is the run of field views between two scoreboard cards."""
     plays: list[GamePlay] = []
@@ -314,6 +333,7 @@ def group_plays(segments: list[ViewSegment]) -> list[GamePlay]:
     for seg in segments:
         if seg.view == "card":
             if current:
+                _resolve_unknown_views(current)
                 plays.append(GamePlay(len(plays) + 1, current, card_time=card_time))
                 current = []
             card_time = (seg.start + seg.end) / 2
@@ -321,6 +341,7 @@ def group_plays(segments: list[ViewSegment]) -> list[GamePlay]:
         if seg.duration >= MIN_VIEW_SECONDS:
             current.append(seg)
     if current:
+        _resolve_unknown_views(current)
         plays.append(GamePlay(len(plays) + 1, current, card_time=card_time))
     return plays
 
@@ -328,10 +349,31 @@ def group_plays(segments: list[ViewSegment]) -> list[GamePlay]:
 # ── Stage 4: scoreboard ──────────────────────────────────────────────────────
 
 _ORD = {"1ST": 1, "2ND": 2, "3RD": 3, "4TH": 4, "1": 1, "2": 2, "3": 3, "4": 4}
-_DOWN_RE = re.compile(r"\b(1ST|2ND|3RD|4TH)\s*(?:&|AND|8)\s*(GOAL|GL|G|\d{1,2})\b")
-_QTR_RE = re.compile(r"\b(1ST|2ND|3RD|4TH|OT)\s*(?:QUARTER|QTR|QT|Q)\b|\bQ([1-4])\b")
-_CLOCK_RE = re.compile(r"\b([0-1]?\d)[:.](\d{2})\b")
-_BALL_RE = re.compile(r"BALL\s*ON\s*(?:[A-Z]{1,4}\s*)?(\d{1,2})")
+# Down token is anything ordinal-shaped before "&": stylized scoreboard fonts
+# make OCR read 2ND as "PND"/"END", 3RD as "BRD"/"3R1", 4TH as "ATH".
+_DOWN_RE = re.compile(r"\b([0-9A-Z]{1,3})\s*(?:&|AND)\s*(GOAL|GL|G|\d{1,2})\b")
+_QTR_RE = re.compile(r"\b([0-9A-Z]{2,3})\s*(?:QUARTER|QTR)\b|\bQ([1-4])\b")
+_CLOCK_RE = re.compile(r"^([0-1]?\d)[:.](\d{2})$")
+# Colon dropped by OCR: "1443" -> 14:43, "852" -> 8:52.
+_BARE_CLOCK_RE = re.compile(r"^([0-1]?\d)(\d{2})$")
+_BALL_RE = re.compile(r"BALL\s*ON\s*[A-Z]{0,4}\s*(\d{1,2})")
+
+
+def _down_from_token(token: str) -> int | None:
+    """Ordinal down from a (possibly misread) token like "PND" or "3R1"."""
+    if token in _ORD:
+        return _ORD[token]
+    if token[0] in "1234":
+        return int(token[0])
+    if token.endswith("ND") or token.startswith(("P", "E", "Z")):
+        return 2
+    if "TH" in token or token.startswith("A"):
+        return 4
+    if "R" in token or token.startswith("B"):
+        return 3
+    if "ST" in token or token.startswith(("I", "L")):
+        return 1
+    return None
 
 
 def parse_scoreboard(texts: list[str]) -> dict[str, Any] | None:
@@ -339,26 +381,43 @@ def parse_scoreboard(texts: list[str]) -> dict[str, Any] | None:
 
     Scoreboards differ by stadium, so this matches the common phrasings
     ("1ST & 10", "3RD & GOAL", "2ND QUARTER", "Q3", "12:41", "BALL ON 25")
-    anywhere in the recognised text. Returns ``None`` if nothing football
-    shaped was found.
+    anywhere in the recognised text, tolerating the misreads stylized
+    scoreboard fonts produce. Returns ``None`` if nothing football shaped
+    was found.
     """
-    blob = " ".join(
-        t.upper().replace("O", "0") if re.fullmatch(r"[\dO:.]+", t) else t.upper() for t in texts
-    )
+    tokens = [
+        t.strip().upper().replace("O", "0")
+        if re.fullmatch(r"[\dO:.]+", t.strip())
+        else t.strip().upper()
+        for t in texts
+    ]
+    blob = " ".join(tokens)
     result: dict[str, Any] = {}
-    if m := _DOWN_RE.search(blob):
-        result["down"] = _ORD[m.group(1)]
+    for m in _DOWN_RE.finditer(blob):
+        down = _down_from_token(m.group(1))
+        if down is None:
+            continue
         dist = m.group(2)
-        result["distance"] = None if not dist.isdigit() else int(dist)
+        if dist.isdigit() and not 1 <= int(dist) <= 99:
+            continue
+        result["down"] = down
+        result["distance"] = int(dist) if dist.isdigit() else None
         result["goal_to_go"] = not dist.isdigit()
+        break
     if m := _QTR_RE.search(blob):
         token = m.group(1) or m.group(2)
-        result["quarter"] = 5 if token == "OT" else _ORD.get(token)
-    clocks = [(int(a), int(b)) for a, b in _CLOCK_RE.findall(blob) if int(a) <= 15 and int(b) < 60]
-    if clocks:
-        mins, secs = clocks[0]
-        result["clock"] = f"{mins}:{secs:02d}"
-        result["clock_seconds"] = mins * 60 + secs
+        quarter = 5 if token == "OT" else _down_from_token(token.replace("Z", "2"))
+        if quarter is not None:
+            result["quarter"] = quarter
+    for token in tokens:
+        m = _CLOCK_RE.match(token) or _BARE_CLOCK_RE.match(token)
+        if m and int(m.group(1)) <= 15 and int(m.group(2)) < 60:
+            mins, secs = int(m.group(1)), int(m.group(2))
+            if mins == 15 and secs:
+                continue
+            result["clock"] = f"{mins}:{secs:02d}"
+            result["clock_seconds"] = mins * 60 + secs
+            break
     if m := _BALL_RE.search(blob):
         yard = int(m.group(1))
         if 1 <= yard <= 50:
