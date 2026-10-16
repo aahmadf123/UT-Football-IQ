@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import signal
 import subprocess
 import threading
@@ -93,8 +94,18 @@ def migrate(environment: dict[str, str]) -> bool:
             timeout=120,
             check=False,
         )
-        event("hosted_schema_migration", ready=result.returncode == 0, exit_code=result.returncode)
-        return result.returncode == 0
+        ok = result.returncode == 0
+        fields: dict[str, object] = {"ready": ok, "exit_code": result.returncode}
+        if not ok:
+            # Name the failure without its message: alembic output can echo
+            # the connection string, so only exception class names are logged
+            # (enough to tell a bad URL from a broken migration).
+            output = result.stderr or result.stdout
+            text = output.decode(errors="replace") if isinstance(output, bytes) else ""
+            names = re.findall(r"([A-Z][A-Za-z]*(?:Error|Exception))", text)
+            fields["error_types"] = sorted(set(names))[:5]
+        event("hosted_schema_migration", **fields)
+        return ok
     except (OSError, subprocess.TimeoutExpired):
         event("hosted_schema_migration", ready=False, reason="Migration failed or timed out")
         return False
