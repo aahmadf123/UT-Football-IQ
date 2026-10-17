@@ -249,13 +249,45 @@ def test_drone_lite_variant_skips_kalman(_stub_detection):
 
 
 def test_no_frames_marks_unsafe(_stub_detection, monkeypatch):
-    monkeypatch.setattr(stage_calibrate, "_sample_frames", lambda p, n: [])
+    monkeypatch.setattr(stage_calibrate, "_sample_frames", lambda p, n, **kwargs: [])
     out = stage_calibrate._calibrate(
         "vid-4", __import__("pathlib").Path("/nope.mp4"), "job-4",
         regime="drone_follow", variant=stage_calibrate.VARIANT_KALMAN,
     )
     assert out["analytics_safe"] is False
     assert "no_frames" in out["reason_codes"]
+
+
+def test_endzone_calibration_uses_only_the_clip_window(monkeypatch):
+    sampled = {}
+    monkeypatch.setattr(
+        stage_calibrate,
+        "_sample_frames",
+        lambda path, n, **kwargs: sampled.update(path=path, n=n, **kwargs) or [np.zeros((2, 2, 3))],
+    )
+    monkeypatch.setattr(
+        stage_calibrate,
+        "_calibrate_fixed_sideline",
+        lambda video_id, job_id, frames, regime, **kwargs: {
+            "capture_regime": regime,
+            "is_game_anchor": kwargs["is_game_anchor"],
+        },
+    )
+
+    result = stage_calibrate._calibrate(
+        "vid-angle",
+        __import__("pathlib").Path("/game.mp4"),
+        "job-angle",
+        regime="fixed_endzone",
+        variant=stage_calibrate.VARIANT_LITE,
+        start_time=24.5,
+        end_time=37.0,
+    )
+
+    assert result["capture_regime"] == "fixed_endzone"
+    assert result["is_game_anchor"] is False
+    assert sampled["start_time"] == 24.5 and sampled["end_time"] == 37.0
+    assert sampled["n"] == stage_calibrate.N_SAMPLE_FRAMES_FIXED
 
 
 # ── Orientation-agnostic family assignment ────────────────────────────────────

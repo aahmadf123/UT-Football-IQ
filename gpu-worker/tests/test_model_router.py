@@ -105,6 +105,11 @@ def test_select_model_returns_match_from_default_routing_table() -> None:
         assert select_model(stage, NIGHTLY_PRIORITY) == variants["nightly"]
 
 
+def test_segment_route_uses_priority_tiers() -> None:
+    assert select_model("segment", SAME_SESSION_PRIORITY) == "optical-flow-fast"
+    assert select_model("segment", NIGHTLY_PRIORITY) == "auto"
+
+
 # ── Unknown-stage fallback ────────────────────────────────────────────────────
 
 

@@ -6,8 +6,8 @@ read the homography and its confidence. This document is the contract that
 downstream stages (#128/#129/#132/#133/#135/#139/#140/#150) can rely on.
 
 Calibration is **pixel-only** (no GPS/IMU/SRT — Toledo film is MP4-only) and
-**single-camera**. It branches on the capture regime detected once at ingest
-(see [capture-protocol-v1.md §Capture-Regime Detection](capture-protocol-v1.md)).
+fits one camera view per calibration window. Edited game film supplies an
+independent source window and capture regime for each generated angle.
 
 ## Coordinate system
 
@@ -23,11 +23,12 @@ These NCAA-standard constants live in
 dataclass. They are **not** Toledo-specific — a venue with non-standard
 markings can supply an override without touching call sites.
 
-## Two regimes (Issue #126)
+## Capture regimes (Issue #126)
 
 | Regime           | Film     | Calibration strategy |
 | ---------------- | -------- | -------------------- |
-| `fixed_sideline` | game     | Elevated, bolted-down camera. One homography fit on the cleanest frame, flagged `is_game_anchor=True`, reused across plays. Same-session jobs can reuse the cached anchor (zero compute). |
+| `fixed_sideline` | game     | Elevated, bolted-down camera. A full-recording homography may be flagged `is_game_anchor=True` and reused; edited game-film clips are calibrated independently per angle window. |
+| `fixed_endzone`  | game     | Static end-zone camera. Fit a separate homography inside each generated angle window; never reuse the sideline transform. |
 | `drone_follow`   | practice | Operator pans/zooms. Calibrated **per window**; the nightly variant Kalman-smooths the homography series and uses chained-ECC drift as the temporal-stability signal. |
 | `unknown`        | fallback | Treated as `drone_follow` (the safer per-window path). |
 
@@ -72,7 +73,7 @@ disqualifying reason code is present.
 | `line_count`        | field lines detected on the calibration frame |
 | `parallel_variance` | angular variance of detected yard lines |
 | `temporal_drift`    | mean inter-window re-projection drift in pixels (0.0 for a fixed anchor) |
-| `is_game_anchor`    | the once-per-game `fixed_sideline` homography reused across plays |
+| `is_game_anchor`    | the full-recording `fixed_sideline` homography reused across plays; angle-window calibrations are not anchors |
 
 The existing `homography`, `confidence`, `confidence_threshold`,
 `analytics_safe`, `reason_codes`, and `calibration_points` columns are

@@ -22,6 +22,7 @@ from pipeline.orchestrator import (
     DirArtifactSink,
     NullArtifactSink,
     PipelineContext,
+    _run_clip_stage,
     _run_video_stage,
     run_pipeline,
 )
@@ -55,14 +56,14 @@ def offline_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Force offline + local storage + deterministic stub adapters."""
     from pipeline import model_router
 
-    select_model = model_router.select_model
+    select_model = model_router.select_device_model
 
     def routed_variant(stage: str, priority: int) -> str:
         return "stub" if stage == "segment" else select_model(stage, priority)
 
     monkeypatch.setattr(
         model_router,
-        "select_model",
+        "select_device_model",
         routed_variant,
     )
     monkeypatch.setenv("STORAGE_BACKEND", "local")
@@ -81,6 +82,54 @@ def _stub_detectors() -> Any:
 
 
 STAGES = ["ingest", "segment", "calibrate", "detect", "track", "events", "labels", "metrics"]
+
+
+def test_angle_calibration_and_tracking_use_clip_specific_regimes(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    from pipeline import stage_calibrate, stage_track
+
+    ctx = PipelineContext(video_id="vid-angles", input_uri="file:///game.mp4", job_id="job")
+    ctx.video_path = Path("/game.mp4")
+    ctx.clips = [
+        {
+            "id": "side",
+            "view": "sideline",
+            "capture_regime": "fixed_sideline",
+            "start_time": 3.0,
+            "end_time": 14.0,
+        },
+        {
+            "id": "end",
+            "view": "endzone",
+            "capture_regime": "fixed_endzone",
+            "start_time": 14.0,
+            "end_time": 27.0,
+        },
+    ]
+    calls: list[tuple[str, float, float]] = []
+
+    def calibrate(video_id, video_path, job_id, regime, variant, **kwargs):  # type: ignore[no-untyped-def]
+        calls.append((regime, kwargs["start_time"], kwargs["end_time"]))
+        return {
+            "analytics_safe": True,
+            "capture_regime": regime,
+            "homography": [float(len(calls))] * 9,
+        }
+
+    monkeypatch.setattr(stage_calibrate, "_calibrate", calibrate)
+    artifacts = _run_video_stage("calibrate", ctx)
+    assert calls == [
+        ("fixed_sideline", 3.0, 14.0),
+        ("fixed_endzone", 14.0, 27.0),
+    ]
+
+    tracked = {}
+    monkeypatch.setattr(stage_track, "run", lambda *args, **kwargs: tracked.update(kwargs) or {})
+    _run_clip_stage("track", ctx, ctx.clips[1])
+
+    assert artifacts["capture_regime"] == "multi_view"
+    assert tracked["homography"] == [2.0] * 9
+    assert tracked["capture_regime"] == "fixed_endzone"
+    assert tracked["analytics_safe"] is True
 
 
 def test_edited_multi_angle_film_disables_shared_spatial_calibration(

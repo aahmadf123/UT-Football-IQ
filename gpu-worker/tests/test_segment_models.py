@@ -418,7 +418,7 @@ def test_stage_segment_selects_variant_from_router_and_records_execution(
 
     monkeypatch.setattr(
         model_router,
-        "select_model",
+        "select_device_model",
         routed_variant,
     )
     monkeypatch.setattr(stage_segment, "get_segmenter", fake_factory)
