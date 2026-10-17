@@ -1,12 +1,14 @@
 """Persisted session workspaces with independent recordings and manual play matching."""
 
 import uuid
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, select, update
+from sqlalchemy.engine import Row
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -141,7 +143,7 @@ async def ensure_recording_plays(db: AsyncSession, video: Video) -> None:
     await db.flush()
 
 
-def _allows_same_recording_angles(clips: list[tuple[Clip, Video]]) -> bool:
+def _allows_same_recording_angles(clips: Sequence[Row[tuple[Clip, Video]]]) -> bool:
     by_video: dict[uuid.UUID, list[Clip]] = {}
     for clip, video in clips:
         by_video.setdefault(video.id, []).append(clip)
