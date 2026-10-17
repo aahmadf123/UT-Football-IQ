@@ -38,7 +38,12 @@ pytestmark = pytest.mark.integration
 # Route detection to the deterministic StubDetector: real YOLO (correctly)
 # finds no people in a synthetic shapes clip, and this test asserts the
 # tracklet writeback chain, not model quality.
-_STUB_ROUTING = '{"detect": {"same_session": "stub", "nightly": "stub"}}'
+_STUB_ROUTING = json.dumps(
+    {
+        "segment": {"same_session": "stub", "nightly": "stub"},
+        "detect": {"same_session": "stub", "nightly": "stub"},
+    }
+)
 
 _ROOT = Path(__file__).resolve().parents[2]
 _REPO = _ROOT.parent
@@ -140,7 +145,6 @@ def backend(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
         # cross-service wiring, not model quality (the optical-flow segmenter
         # has no stable behaviour on tiny synthetic clips, and real YOLO finds
         # no people in one — real-footage acceptance covers both).
-        os.environ["SEGMENTER_VARIANT"] = "stub"
         os.environ["PIPELINE_LOCAL_DETECT_VARIANT"] = "stub"
         os.environ["PIPELINE_DEVICE"] = "cpu"
         os.environ["PIPELINE_CHECKPOINT_ROOT"] = str(storage_root / "checkpoints")

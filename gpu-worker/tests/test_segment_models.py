@@ -400,17 +400,27 @@ def test_stage_segment_drops_too_short_segments(
     assert fake.calls[0]["end_time"] == pytest.approx(60.0)
 
 
-def test_stage_segment_env_var_selects_variant(
+def test_stage_segment_selects_variant_from_router_and_records_execution(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """SEGMENTER_VARIANT env var routes to the right adapter via the factory."""
+    """The router selects the adapter, while artifacts retain fallback execution."""
     captured: dict[str, Any] = {}
 
     def fake_factory(variant: str) -> SegmenterBase:
         captured["variant"] = variant
         return StubSegmenter(no_boundaries=True)
 
-    monkeypatch.setenv("SEGMENTER_VARIANT", LEARNED_PLAY)
+    from pipeline import model_router
+
+    def routed_variant(stage: str, priority: int) -> str:
+        captured.update(stage=stage, priority=priority)
+        return LEARNED_PLAY
+
+    monkeypatch.setattr(
+        model_router,
+        "select_model",
+        routed_variant,
+    )
     monkeypatch.setattr(stage_segment, "get_segmenter", fake_factory)
     monkeypatch.setattr(stage_segment.backend, "create_clip", lambda *_a, **k: {"id": "x", **k})
     monkeypatch.setattr(stage_segment, "_video_duration", lambda _p: 60.0)
@@ -418,5 +428,8 @@ def test_stage_segment_env_var_selects_variant(
         stage_segment.object_store, "download_to_temp", lambda _k: Path("/tmp/__seg_env.mp4")
     )
 
-    stage_segment.run("vid-env", "s3://b/k/x.mp4", "job-env")
+    result = stage_segment.run("vid-env", "s3://b/k/x.mp4", "job-env", priority=4)
     assert captured["variant"] == LEARNED_PLAY
+    assert captured["stage"] == "segment" and captured["priority"] == 4
+    assert result["model_routing"] == {"segment": LEARNED_PLAY}
+    assert result["model_execution"] == {"segment": SOURCE_STUB}

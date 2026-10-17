@@ -93,6 +93,12 @@ def test_detect_same_session_and_nightly_variants_differ() -> None:
     assert nightly == DEFAULT_ROUTING["detect"]["nightly"]
 
 
+def test_segment_uses_fast_same_session_and_game_film_nightly() -> None:
+    assert select_model("segment", SAME_SESSION_PRIORITY) == "optical-flow-fast"
+    assert select_model("segment", NIGHTLY_PRIORITY) == "auto"
+    assert build_routing_artifact("segment", NIGHTLY_PRIORITY) == {"segment": "auto"}
+
+
 def test_select_model_returns_match_from_default_routing_table() -> None:
     for stage, variants in DEFAULT_ROUTING.items():
         assert select_model(stage, SAME_SESSION_PRIORITY) == variants["same_session"]

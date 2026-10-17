@@ -1,16 +1,15 @@
 """Stage 2 — Play Segmentation.
 
 Thin orchestrator on top of the play-boundary segmenter adapters in
-``pipeline.segment_models`` (Issue #75). The adapter is selected via
-the ``SEGMENTER_VARIANT`` environment variable; default stays
-``optical_flow`` for a CPU heuristic baseline. Runtime depends on the actual
-recording and computer, rather than a fixed same-session latency guarantee.
+``pipeline.segment_models`` (Issue #75). The adapter is selected through the
+central model router. Runtime depends on the actual recording and computer,
+rather than a fixed same-session latency guarantee.
 
 Variants:
-  - ``auto`` (default): edited coaches' game film (scoreboard card, sideline
+  - ``auto`` (nightly default): edited coaches' game film (scoreboard card, sideline
     angle, end-zone angle per play) becomes one clip per angle per play with
     the scoreboard's down & distance; anything else uses ``optical_flow``.
-  - ``optical_flow``: the historical mean-flow-magnitude heuristic;
+  - ``optical-flow-fast``: the same-session mean-flow-magnitude heuristic;
     proposals require review.
   - ``learned_play``: rules + ML hybrid with a play-duration prior.
     Opt-in candidate from the Phase 2.5 spike.
@@ -29,7 +28,6 @@ Output: ``clips`` rows for each proposed play segment.
 from __future__ import annotations
 
 import math
-import os
 from pathlib import Path
 from typing import Any
 
@@ -40,7 +38,6 @@ from pipeline import backend, object_store
 from pipeline.lightweight_config import processing_profile as select_processing_profile
 from pipeline.runtime import check_control
 from pipeline.segment_models import (
-    AUTO,
     SegmenterBase,
     get_segmenter,
 )
@@ -63,7 +60,9 @@ def run(video_id: str, input_uri: str, job_id: str, *, priority: int = 0,
     produce ``preliminary`` clips (a first pass awaiting the nightly upgrade);
     nightly jobs produce ``final`` clips.
     """
-    variant = os.environ.get("SEGMENTER_VARIANT", AUTO)
+    from pipeline import model_router
+
+    variant = model_router.select_model("segment", priority)
     segmenter = get_segmenter(variant)
     if timeline is not None:
         segmenter.timeline = timeline
@@ -78,8 +77,13 @@ def run(video_id: str, input_uri: str, job_id: str, *, priority: int = 0,
     object_key = _uri_to_object_key(input_uri)
     video_path = object_store.download_to_temp(object_key)
     try:
-        return _segment(video_id, video_path, job_id, segmenter, priority,
-                        review_fallback=select_processing_profile(processing_profile) == "review")
+        artifacts = _segment(
+            video_id, video_path, job_id, segmenter, priority,
+            review_fallback=select_processing_profile(processing_profile) == "review",
+        )
+        artifacts["model_routing"] = {"segment": variant}
+        artifacts["model_execution"] = {"segment": segmenter.source}
+        return artifacts
     finally:
         video_path.unlink(missing_ok=True)
 
@@ -148,6 +152,7 @@ def _segment(
                 "end_time": c.get("end_time"),
                 "play_number": c.get("play_number"),
                 "result_state": c.get("result_state"),
+                "capture_regime": c.get("capture_regime"),
                 "view": (c.get("label_data") or {}).get("view"),
             }
             for c in clips
@@ -285,5 +290,6 @@ def _write_spec_clips(
         )
         clip.setdefault("boundary_model", "game_film")
         clip.setdefault("label_data", label_data)
+        clip.setdefault("capture_regime", _VIEW_REGIMES.get(view))
         clips.append(clip)
     return clips

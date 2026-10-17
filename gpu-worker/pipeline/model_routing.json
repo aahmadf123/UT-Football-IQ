@@ -1,5 +1,5 @@
 {
-  "segment":    {"same_session": "optical-flow-fast", "nightly": "optical-flow-fast"},
+  "segment":    {"same_session": "optical-flow-fast", "nightly": "auto"},
   "calibrate":  {"same_session": "calib-hough-dlt",   "nightly": "calib-hough-dlt-kalman"},
   "detect":     {"same_session": "yolov8n",           "nightly": "yolov8m"},
   "ball":       {"same_session": "yolov8n-ball",      "nightly": "yolov8n-ball"},

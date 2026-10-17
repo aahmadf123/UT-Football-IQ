@@ -28,10 +28,14 @@ const ORDINALS = ["", "1st", "2nd", "3rd", "4th"];
 export function situationLabel(clip: Pick<ApiClip, "down" | "distance" | "label_data">): string | null {
   const board = (clip.label_data?.scoreboard ?? null) as Record<string, unknown> | null;
   const parts: string[] = [];
-  const down = clip.down ?? (typeof board?.down === "number" ? board.down : null);
+  const down = clip.down !== undefined
+    ? clip.down
+    : typeof board?.down === "number" ? board.down : null;
   if (down != null && down >= 1 && down <= 4) {
-    const goal = board?.goal_to_go === true;
-    const distance = clip.distance ?? (typeof board?.distance === "number" ? board.distance : null);
+    const distance = clip.distance !== undefined
+      ? clip.distance
+      : typeof board?.distance === "number" ? board.distance : null;
+    const goal = typeof distance !== "number" && board?.goal_to_go === true;
     parts.push(`${ORDINALS[down]} & ${goal ? "Goal" : distance ?? "?"}`);
   }
   if (typeof board?.quarter === "number") {

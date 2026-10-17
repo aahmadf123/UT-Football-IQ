@@ -31,31 +31,26 @@ The deliverable is:
 
 ## How the benchmark is run
 
-The adapter is selected via the `SEGMENTER_VARIANT` environment
-variable on the worker:
+The adapter is selected through the central model router by job priority:
 
-| `SEGMENTER_VARIANT` | Adapter                 | Production status |
-| ------------------- | ----------------------- | ----------------- |
-| _(unset)_           | `OpticalFlowSegmenter`  | **default**       |
-| `optical_flow`      | `OpticalFlowSegmenter`  | default           |
-| `learned_play`      | `LearnedPlaySegmenter`  | candidate (opt-in)|
-| `sportsbd`          | `SportsBDSegmenter`     | benchmark only    |
-| `stub`              | `StubSegmenter`         | tests / CI        |
+| Router variant       | Adapter                | Production status |
+| -------------------- | ---------------------- | ----------------- |
+| `optical-flow-fast`  | `OpticalFlowSegmenter` | same-session default |
+| `auto`               | `GameFilmSegmenter`    | nightly default; optical-flow fallback |
+| `optical_flow`       | `OpticalFlowSegmenter` | optional override |
+| `learned_play`       | `LearnedPlaySegmenter` | candidate (opt-in) |
+| `sportsbd`           | `SportsBDSegmenter`    | benchmark only |
+| `stub`               | `StubSegmenter`        | tests / CI |
 
-Re-run on a new clip set with:
+Use `MODEL_ROUTING_CONFIG` to override the segment variants centrally, for
+example:
 
 ```bash
-# Same-session baseline
-SEGMENTER_VARIANT=optical_flow python -m worker run-segment <video-uri>
-
-# Learned candidate
-SEGMENTER_VARIANT=learned_play python -m worker run-segment <video-uri>
-
-# Experimental SportsBD (only if `sportsbd` is installed in the image;
-# we intentionally do NOT pin it in requirements.txt — see "Why SportsBD
-# is not adopted" below).
-SEGMENTER_VARIANT=sportsbd python -m worker run-segment <video-uri>
+MODEL_ROUTING_CONFIG=/path/to/routing.json python -m worker run-segment <video-uri>
 ```
+
+The JSON `{"segment": {"same_session": "learned_play", "nightly": "learned_play"}}`
+selects the candidate in both priority buckets.
 
 ## Metrics
 
@@ -123,8 +118,8 @@ conservative because the model is out-of-domain.
 > boundary model
 > (e.g. fine-tuned on coach corrections) will plug in once we have
 > enough labelled boundaries to train one. Until then, `learned_play`
-> stays opt-in via `SEGMENTER_VARIANT` and the same-session default
-> remains `optical_flow`.
+> stays opt-in through the model router. Same-session processing stays on
+> `optical-flow-fast`; full game-film decoding is nightly-only.
 
 ## Latency vs Issue #16
 

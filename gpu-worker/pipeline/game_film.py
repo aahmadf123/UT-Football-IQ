@@ -39,6 +39,8 @@ import cv2
 import numpy as np
 import structlog
 
+from pipeline.runtime import check_control, inference_device
+
 log = structlog.get_logger(__name__)
 
 # ── Tunables (validated on Toledo 2026 game film, 720p60) ────────────────────
@@ -145,6 +147,7 @@ def _ffmpeg_frames(video_path: Path, fps: float, size: tuple[int, int]) -> Any:
         produced = 0
         try:
             while True:
+                check_control()
                 buf = proc.stdout.read(frame_bytes)
                 if len(buf) < frame_bytes:
                     break
@@ -434,13 +437,7 @@ class ScoreboardReader:
     def __init__(self) -> None:
         import easyocr  # type: ignore[import-not-found]
 
-        try:
-            import torch
-
-            gpu = bool(torch.cuda.is_available())
-        except ImportError:
-            gpu = False
-        self._reader = easyocr.Reader(["en"], gpu=gpu, verbose=False)
+        self._reader = easyocr.Reader(["en"], gpu=inference_device(), verbose=False)
 
     def read(self, frame: np.ndarray) -> dict[str, Any] | None:
         texts = [str(t) for t in self._reader.readtext(frame, detail=0)]

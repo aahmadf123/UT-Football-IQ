@@ -21,6 +21,8 @@ from pipeline.detector_models import StubDetector
 from pipeline.orchestrator import (
     DirArtifactSink,
     NullArtifactSink,
+    PipelineContext,
+    _run_video_stage,
     run_pipeline,
 )
 
@@ -51,7 +53,18 @@ def synthetic_video(tmp_path: Path) -> Path:
 @pytest.fixture()
 def offline_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Force offline + local storage + deterministic stub adapters."""
-    monkeypatch.setenv("SEGMENTER_VARIANT", "stub")
+    from pipeline import model_router
+
+    select_model = model_router.select_model
+
+    def routed_variant(stage: str, priority: int) -> str:
+        return "stub" if stage == "segment" else select_model(stage, priority)
+
+    monkeypatch.setattr(
+        model_router,
+        "select_model",
+        routed_variant,
+    )
     monkeypatch.setenv("STORAGE_BACKEND", "local")
     monkeypatch.setenv("LOCAL_STORAGE_ROOT", str(tmp_path / "storage"))
     monkeypatch.setattr("pipeline.storage.LOCAL_STORAGE_ROOT", str(tmp_path / "storage"))
@@ -68,6 +81,51 @@ def _stub_detectors() -> Any:
 
 
 STAGES = ["ingest", "segment", "calibrate", "detect", "track", "events", "labels", "metrics"]
+
+
+def test_edited_multi_angle_film_disables_shared_spatial_calibration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ctx = PipelineContext(video_id="video", input_uri="film.mp4")
+    monkeypatch.setattr(
+        "pipeline.stage_segment.run",
+        lambda *_a, **_k: {
+            "clips": [{"id": "sideline"}, {"id": "endzone"}],
+            "game_film": {"edited": True, "sideline_views": 1, "endzone_views": 1},
+        },
+    )
+    _run_video_stage("segment", ctx)
+
+    assert ctx.spatial_analytics_disabled
+    calibration = _run_video_stage("calibrate", ctx)
+    assert calibration["skipped"] is True
+    assert calibration["analytics_safe"] is False
+    assert ctx.homography is None and not ctx.calibration_series
+
+    manual = PipelineContext(
+        video_id="manual-video",
+        input_uri="film.mp4",
+        capture_regime="fixed_sideline",
+        lineage={
+            "existing_clips": [
+                {
+                    "id": "sideline",
+                    "boundary_source": "manual",
+                    "capture_regime": "fixed_sideline",
+                    "label_data": {"view": "sideline"},
+                },
+                {
+                    "id": "endzone",
+                    "boundary_source": "manual",
+                    "capture_regime": "fixed_endzone",
+                    "label_data": {"view": "endzone"},
+                },
+            ]
+        },
+    )
+    _run_video_stage("segment", manual)
+    assert manual.spatial_analytics_disabled
+    assert _run_video_stage("calibrate", manual)["skipped"] is True
 
 
 # ── Tests ─────────────────────────────────────────────────────────────────────

@@ -71,25 +71,66 @@ async def _get_session(db: AsyncSession, session_id: uuid.UUID) -> FootballSessi
 
 
 async def ensure_recording_plays(db: AsyncSession, video: Video) -> None:
-    """Assign independent canonical plays to ungrouped legacy/new clip views."""
+    """Group generated angle clips by play call; leave other views independent."""
     if video.practice_session_id is None:
         return
     clips = (await db.execute(select(Clip).where(Clip.video_id == video.id))).scalars().all()
-    mapped = (
-        set(
-            (
-                await db.execute(
-                    select(PlayView.clip_id).where(PlayView.clip_id.in_([c.id for c in clips]))
-                )
-            )
-            .scalars()
-            .all()
-        )
-        if clips
-        else set()
+    if not clips:
+        return
+    views = (
+        (await db.execute(select(PlayView).where(PlayView.clip_id.in_([c.id for c in clips]))))
+        .scalars()
+        .all()
     )
+    by_clip = {view.clip_id: view for view in views}
+    groups: dict[str, list[Clip]] = {}
     for clip in clips:
-        if clip.id in mapped:
+        if clip.play_call_id:
+            groups.setdefault(clip.play_call_id, []).append(clip)
+    grouped_ids: set[uuid.UUID] = set()
+    for group in groups.values():
+        if len(group) < 2:
+            continue
+        group_views = [by_clip[clip.id] for clip in group if clip.id in by_clip]
+        if any(view.match_source != "independent" for view in group_views):
+            continue
+        existing_play_ids = list(dict.fromkeys(view.play_id for view in group_views))
+        if existing_play_ids:
+            play_id = existing_play_ids[0]
+        else:
+            play = Play(id=uuid.uuid4(), session_id=video.practice_session_id)
+            db.add(play)
+            await db.flush()
+            play_id = play.id
+        for clip in group:
+            view = by_clip.get(clip.id)
+            if view is None:
+                db.add(
+                    PlayView(
+                        id=uuid.uuid4(),
+                        play_id=play_id,
+                        clip_id=clip.id,
+                        match_source="independent",
+                    )
+                )
+            else:
+                view.play_id = play_id
+            grouped_ids.add(clip.id)
+        await db.flush()
+        for old_play_id in existing_play_ids[1:]:
+            count = (
+                await db.execute(
+                    select(func.count()).select_from(PlayView).where(
+                        PlayView.play_id == old_play_id
+                    )
+                )
+            ).scalar_one()
+            if not count:
+                old_play = await db.get(Play, old_play_id)
+                if old_play is not None:
+                    await db.delete(old_play)
+    for clip in clips:
+        if clip.id in grouped_ids or clip.id in by_clip:
             continue
         play = Play(id=uuid.uuid4(), session_id=video.practice_session_id)
         db.add(play)
@@ -98,6 +139,25 @@ async def ensure_recording_plays(db: AsyncSession, video: Video) -> None:
             PlayView(id=uuid.uuid4(), play_id=play.id, clip_id=clip.id, match_source="independent")
         )
     await db.flush()
+
+
+def _allows_same_recording_angles(clips: list[tuple[Clip, Video]]) -> bool:
+    by_video: dict[uuid.UUID, list[Clip]] = {}
+    for clip, video in clips:
+        by_video.setdefault(video.id, []).append(clip)
+    for group in by_video.values():
+        if len(group) < 2:
+            continue
+        play_call_ids = {clip.play_call_id for clip in group}
+        angles = [(clip.label_data or {}).get("view") for clip in group]
+        if (
+            len(play_call_ids) != 1
+            or not next(iter(play_call_ids))
+            or any(not angle for angle in angles)
+            or len(set(angles)) != len(angles)
+        ):
+            return False
+    return True
 
 
 async def session_response(db: AsyncSession, session: FootballSession) -> dict[str, Any]:
@@ -296,8 +356,8 @@ async def match_play(
         raise HTTPException(404, "One or more clips were not found")
     if any(video.practice_session_id != session_id for _, video in clips):
         raise HTTPException(409, "All recordings must belong to this session")
-    if len({video.id for _, video in clips}) != len(clips):
-        raise HTTPException(409, "A matched play can contain only one view per recording")
+    if not _allows_same_recording_angles(clips):
+        raise HTTPException(409, "Same-recording views must be distinct angles of one play")
     play = (
         (
             await db.execute(
@@ -318,19 +378,19 @@ async def match_play(
     current = (await db.execute(select(PlayView).where(PlayView.clip_id.in_(ids)))).scalars().all()
     by_clip = {v.clip_id: v for v in current}
     old_play_ids = {v.play_id for v in current if v.play_id != play.id}
-    existing_video_ids = set(
+    existing_clips = (
         (
             await db.execute(
-                select(Clip.video_id)
+                select(Clip, Video)
                 .join(PlayView, PlayView.clip_id == Clip.id)
+                .join(Video, Video.id == Clip.video_id)
                 .where(PlayView.play_id == play.id, ~Clip.id.in_(ids))
             )
         )
-        .scalars()
         .all()
     )
-    if existing_video_ids & {v.id for _, v in clips}:
-        raise HTTPException(409, "This play already has a view from that recording")
+    if not _allows_same_recording_angles([*clips, *existing_clips]):
+        raise HTTPException(409, "This play already has a conflicting view from that recording")
     for clip_id in ids:
         if clip_id in by_clip:
             by_clip[clip_id].play_id = play.id

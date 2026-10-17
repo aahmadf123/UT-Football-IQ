@@ -2,9 +2,13 @@
 
 import os
 import sys
+import types
+
+import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
+from pipeline import game_film
 from pipeline.game_film import (
     GameFilmStructure,
     Shot,
@@ -168,3 +172,65 @@ def test_undecided_angles_follow_film_order() -> None:
     assert [v.view for v in plays[0].views] == ["sideline", "endzone"]
     assert [v.view for v in plays[1].views] == ["sideline", "endzone"]
     assert all(v.confidence <= 0.4 for v in plays[0].views)
+
+
+def test_full_recording_decode_polls_control_and_kills_ffmpeg(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from pathlib import Path
+
+    from pipeline.runtime import PipelineInterrupted
+
+    class Stdout:
+        closed = False
+
+        def read(self, _size: int) -> bytes:
+            return b"\0\0\0"
+
+        def close(self) -> None:
+            self.closed = True
+
+    class Process:
+        def __init__(self) -> None:
+            self.stdout = Stdout()
+            self.killed = False
+            self.waited = False
+
+        def kill(self) -> None:
+            self.killed = True
+
+        def wait(self) -> None:
+            self.waited = True
+
+    process = Process()
+    control_calls = 0
+
+    def check() -> None:
+        nonlocal control_calls
+        control_calls += 1
+        if control_calls == 2:
+            raise PipelineInterrupted("pause")
+
+    monkeypatch.setattr(game_film.subprocess, "Popen", lambda *_a, **_k: process)
+    monkeypatch.setattr(game_film, "check_control", check)
+    frames = game_film._ffmpeg_frames(Path("film.mp4"), 1.0, (1, 1))
+    assert next(frames).shape == (1, 1, 3)
+    with pytest.raises(PipelineInterrupted, match="pause"):
+        next(frames)
+    assert process.stdout.closed and process.killed and process.waited
+
+
+def test_scoreboard_reader_uses_resolved_pipeline_device(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    class Reader:
+        def __init__(self, languages: list[str], **kwargs: object) -> None:
+            captured["languages"] = languages
+            captured.update(kwargs)
+
+    monkeypatch.setitem(sys.modules, "easyocr", types.SimpleNamespace(Reader=Reader))
+    monkeypatch.setattr(game_film, "inference_device", lambda: "cpu")
+    game_film.ScoreboardReader()
+    assert captured == {"languages": ["en"], "gpu": "cpu", "verbose": False}

@@ -40,4 +40,20 @@ describe("clip view helpers", () => {
     expect(situationLabel(goal)).toBe("1st & Goal · OT");
     expect(situationLabel(clip("n", 1, null, 0))).toBeNull();
   });
+
+  test("preserves coach-cleared fields and prefers corrected distance to OCR goal", () => {
+    const cleared = clip("cleared", 1, "sideline", 0, {
+      down: null,
+      distance: null,
+      label_data: { view: "sideline", scoreboard: { down: 3, distance: 7 } },
+    });
+    expect(situationLabel(cleared)).toBeNull();
+
+    const corrected = clip("corrected", 1, "sideline", 0, {
+      down: 3,
+      distance: 5,
+      label_data: { view: "sideline", scoreboard: { down: 1, goal_to_go: true } },
+    });
+    expect(situationLabel(corrected)).toBe("3rd & 5");
+  });
 });

@@ -13,7 +13,7 @@ Routing lives in `gpu-worker/pipeline/model_router.py`. Stages call
 
 | Stage        | Same-session (priority ≥ 10) | Nightly (priority < 10) |
 | ------------ | ---------------------------- | ----------------------- |
-| `segment`    | `optical-flow-fast`          | `optical-flow-fast`     |
+| `segment`    | `optical-flow-fast`          | `auto`                  |
 | `calibrate`  | `calib-hough-dlt`            | `calib-hough-dlt-kalman`|
 | `detect`     | `yolov8n`                    | `yolov8m`               |
 | `ball`       | `yolov8n-ball`               | `yolov8n-ball`          |
