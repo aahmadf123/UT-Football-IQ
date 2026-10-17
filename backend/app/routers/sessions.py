@@ -120,9 +120,9 @@ async def ensure_recording_plays(db: AsyncSession, video: Video) -> None:
         for old_play_id in existing_play_ids[1:]:
             count = (
                 await db.execute(
-                    select(func.count()).select_from(PlayView).where(
-                        PlayView.play_id == old_play_id
-                    )
+                    select(func.count())
+                    .select_from(PlayView)
+                    .where(PlayView.play_id == old_play_id)
                 )
             ).scalar_one()
             if not count:
@@ -379,16 +379,13 @@ async def match_play(
     by_clip = {v.clip_id: v for v in current}
     old_play_ids = {v.play_id for v in current if v.play_id != play.id}
     existing_clips = (
-        (
-            await db.execute(
-                select(Clip, Video)
-                .join(PlayView, PlayView.clip_id == Clip.id)
-                .join(Video, Video.id == Clip.video_id)
-                .where(PlayView.play_id == play.id, ~Clip.id.in_(ids))
-            )
+        await db.execute(
+            select(Clip, Video)
+            .join(PlayView, PlayView.clip_id == Clip.id)
+            .join(Video, Video.id == Clip.video_id)
+            .where(PlayView.play_id == play.id, ~Clip.id.in_(ids))
         )
-        .all()
-    )
+    ).all()
     if not _allows_same_recording_angles([*clips, *existing_clips]):
         raise HTTPException(409, "This play already has a conflicting view from that recording")
     for clip_id in ids:

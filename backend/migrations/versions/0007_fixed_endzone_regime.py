@@ -18,8 +18,9 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     # Postgres cannot drop an enum value; move rows back to the generic regime.
-    for table in ("videos", "clips"):
-        op.execute(
-            f"UPDATE {table} SET capture_regime = 'unconstrained' "
-            "WHERE capture_regime = 'fixed_endzone'"
-        )
+    op.execute(
+        "UPDATE videos SET capture_regime = 'unconstrained' WHERE capture_regime = 'fixed_endzone'"
+    )
+    op.execute(
+        "UPDATE clips SET capture_regime = 'unconstrained' WHERE capture_regime = 'fixed_endzone'"
+    )
