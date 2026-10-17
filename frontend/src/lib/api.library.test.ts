@@ -87,9 +87,32 @@ describe("fetchVideos / fetchClipsForVideo / fetchClip / fetchVideo", () => {
 
     const urls = fetchMock.mock.calls.map((c) => String((c as unknown[])[0]));
     expect(urls[0]).toBe("https://api.test/api/v1/videos?session_kind=game&opponent_team=NIU");
-    expect(urls[1]).toBe("https://api.test/api/v1/videos/video-1/clips");
+    expect(urls[1]).toBe("https://api.test/api/v1/videos/video-1/clips?limit=500&offset=0");
     expect(urls[2]).toBe("https://api.test/api/v1/clips/clip-1");
     expect(urls[3]).toBe("https://api.test/api/v1/videos/video-1");
+  });
+
+  test("fetches all pages of a video clip list", async () => {
+    let calls = 0;
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => {
+        calls += 1;
+        return calls === 1
+          ? Array.from({ length: 500 }, (_, i) => ({ id: String(i) }))
+          : [{ id: "500" }];
+      },
+      text: async () => "[]",
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { fetchClipsForVideo } = await freshImport();
+    const clips = await fetchClipsForVideo("video-1");
+
+    expect(clips).toHaveLength(501);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(String((fetchMock.mock.calls[1] as unknown as [string])[0])).toContain("offset=500");
   });
 });
 

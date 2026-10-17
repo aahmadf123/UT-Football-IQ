@@ -27,6 +27,7 @@ detect) run once; clip-scoped stages run per clip proposed by segment.
 from __future__ import annotations
 
 import json
+import math
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -217,6 +218,7 @@ class PipelineContext:
     capture_regime: str | None = None
     regime_confidence: float = 0.0
     analytics_safe: bool = False
+    spatial_analytics_disabled: bool = False
     calibration: dict[str, Any] = field(default_factory=dict)
     #: Flat 9-element row-major homography from the calibrate stage, mapping
     #: pixels to field yards. Kept as a plain list so it survives the artifact
@@ -235,6 +237,7 @@ class PipelineContext:
     stage_artifacts: dict[str, dict[str, Any]] = field(default_factory=dict)
     clip_artifacts: dict[str, dict[str, dict[str, Any]]] = field(default_factory=dict)
     model_routing: dict[str, str] = field(default_factory=dict)
+    model_execution: dict[str, str] = field(default_factory=dict)
     model_provenance: dict[str, Any] = field(default_factory=dict)
     calibration_series: list[dict[str, Any]] = field(default_factory=list)
     effective_annotations: dict[str, dict[str, Any]] = field(default_factory=dict)
@@ -326,12 +329,19 @@ def _run_video_stage(stage: str, ctx: PipelineContext) -> dict[str, Any]:
         # analytics, but must not replace the reviewed play layout.
         existing = ctx.lineage.get("existing_clips") or []
         if existing and any(clip.get("boundary_source") == "manual" for clip in existing):
-            return {
+            ctx.clips = [clip for clip in existing if clip.get("id")]
+            ctx.spatial_analytics_disabled = _requires_angle_specific_calibration(
+                existing, ctx.capture_regime
+            )
+            artifacts = {
                 "clips": existing,
                 "clip_count": len(existing),
                 "boundary_model": "coach-reviewed-layout",
                 "data_source": "manual",
             }
+            if ctx.spatial_analytics_disabled:
+                artifacts["spatial_analytics_disabled"] = True
+            return artifacts
         from pipeline import stage_segment
 
         artifacts = stage_segment.run(
@@ -339,12 +349,87 @@ def _run_video_stage(stage: str, ctx: PipelineContext) -> dict[str, Any]:
             processing_profile=ctx.processing_profile,
         )
         ctx.clips = [c for c in artifacts.get("clips", []) if c.get("id")]
+        ctx.spatial_analytics_disabled = _requires_angle_specific_calibration(
+            artifacts.get("game_film"), ctx.capture_regime
+        )
+        if ctx.spatial_analytics_disabled:
+            artifacts["spatial_analytics_disabled"] = True
         return artifacts
 
     if stage == "calibrate":
+        angle_clips = []
+        for clip in ctx.clips:
+            label_data = clip.get("label_data") or {}
+            view = clip.get("view") or label_data.get("view")
+            if view:
+                angle_clips.append({**clip, "view": view})
+        angle_windows_available = bool(angle_clips) and ctx.video_path is not None
+        for clip in angle_clips:
+            try:
+                start_time = float(clip.get("start_time"))
+                end_time = float(clip.get("end_time"))
+            except (TypeError, ValueError):
+                angle_windows_available = False
+                break
+            if (
+                clip.get("capture_regime") not in {"fixed_sideline", "fixed_endzone"}
+                or not math.isfinite(start_time)
+                or not math.isfinite(end_time)
+                or start_time < 0
+                or end_time <= start_time
+            ):
+                angle_windows_available = False
+                break
+        if ctx.spatial_analytics_disabled and not angle_windows_available:
+            ctx.analytics_safe = False
+            ctx.homography = None
+            ctx.calibration_series = []
+            return {
+                "skipped": True,
+                "reason": "angle_specific_calibration_unavailable",
+                "analytics_safe": False,
+                "spatial_analytics_disabled": True,
+            }
         from pipeline import stage_calibrate
-
         variant = local_model_variant("calibrate", ctx.priority, ctx.processing_profile)
+        variant = local_model_variant("calibrate", ctx.priority, ctx.processing_profile)
+        if angle_clips:
+            per_clip: dict[str, dict[str, Any]] = {}
+            for clip in angle_clips:
+                clip_id = str(clip["id"])
+                regime = clip.get("capture_regime")
+                if regime not in stage_calibrate.FIXED_REGIMES or ctx.video_path is None:
+                    per_clip[clip_id] = {
+                        "analytics_safe": False,
+                        "capture_regime": regime,
+                        "reason_codes": ["angle_calibration_unavailable"],
+                    }
+                    continue
+                per_clip[clip_id] = stage_calibrate._calibrate(
+                    ctx.video_id,
+                    ctx.video_path,
+                    ctx.job_id,
+                    regime,
+                    variant,
+                    timeline=ctx.timeline,
+                    start_time=float(clip.get("start_time") or 0.0),
+                    end_time=float(clip.get("end_time") or 0.0),
+                )
+            artifacts = {
+                "analytics_safe": all(c.get("analytics_safe", False) for c in per_clip.values()),
+                "capture_regime": "multi_view",
+                "calibration_series": [],
+                "homography": None,
+                "per_clip_calibration": per_clip,
+                "spatial_analytics_disabled": False,
+            }
+            ctx.spatial_analytics_disabled = False
+            ctx.analytics_safe = False
+            ctx.calibration = artifacts
+            ctx.homography = None
+            ctx.field_boundary = None
+            ctx.calibration_series = []
+            return artifacts
         artifacts = stage_calibrate.run(
             ctx.video_id,
             local_uri,
@@ -462,8 +547,14 @@ def _run_clip_stage(stage: str, ctx: PipelineContext, clip: dict[str, Any]) -> d
     metrics_list: list[dict[str, Any]] = per_clip.get("metrics", {}).get("metrics", [])
     pose_metrics: dict[str, Any] = per_clip.get("pose", {}).get("pose_metrics", {})
     start_frame, end_frame = _clip_frame_window(clip, ctx.fps, ctx.timeline)
-    analytics_safe = ctx.analytics_safe
-    if ctx.calibration_series and tracklets:
+    calibration = (ctx.calibration.get("per_clip_calibration") or {}).get(clip_id)
+    if calibration is None:
+        calibration = ctx.calibration
+    clip_homography = calibration.get("homography")
+    clip_calibration_series = calibration.get("calibration_series") or []
+    clip_regime = clip.get("capture_regime") or calibration.get("capture_regime") or ctx.capture_regime
+    analytics_safe = bool(calibration.get("analytics_safe", ctx.analytics_safe))
+    if clip_calibration_series and tracklets:
         points = [point for track in tracklets for point in track.get("track_points", [])]
         analytics_safe = bool(points) and all(
             isinstance(point.get("field_x"), (int, float))
@@ -485,10 +576,10 @@ def _run_clip_stage(stage: str, ctx: PipelineContext, clip: dict[str, Any]) -> d
             # Field coordinates are attached here, at the one place that sees
             # both the tracks and the calibration. Every downstream spatial
             # metric reads them off the track points.
-            homography=ctx.homography,
+            homography=clip_homography,
             analytics_safe=analytics_safe,
-            calibration_series=ctx.calibration_series or None,
-            capture_regime=ctx.capture_regime,
+            calibration_series=clip_calibration_series or None,
+            capture_regime=clip_regime,
             detector_provenance=ctx.model_provenance.get("detect"),
         )
 
@@ -554,7 +645,7 @@ def _run_clip_stage(stage: str, ctx: PipelineContext, clip: dict[str, Any]) -> d
             ctx.job_id,
             tracklets=tracklets or None,
             ball_detections=_ball_only(clip_dets),
-            homography=ctx.homography,
+            homography=clip_homography,
             timeline=ctx.timeline,
         )
 
@@ -872,6 +963,7 @@ def run_pipeline(
             if stage in {"reid", "labels"} and isinstance(enriched, list):
                 per_clip.setdefault("track", {})["tracklets"] = enriched
             _merge_routing(ctx, artifacts)
+            _merge_execution(ctx, artifacts)
 
     def stage_status(artifacts: dict[str, Any]) -> str:
         return (
@@ -983,6 +1075,7 @@ def run_pipeline(
             "capture_regime": ctx.capture_regime,
             "regime_confidence": ctx.regime_confidence,
             "analytics_safe": ctx.analytics_safe and source == "real",
+            "spatial_analytics_disabled": ctx.spatial_analytics_disabled,
             "fps": ctx.fps,
             "clip_count": len(ctx.clips),
             "playback_ready": any(
@@ -1023,6 +1116,7 @@ def run_pipeline(
                 for clip in ctx.clips
             ],
             "model_routing": ctx.model_routing,
+            "model_execution": ctx.model_execution,
             "model_provenance": ctx.model_provenance,
             "stage_states": stage_states,
             "stage_timings": stage_timings,
@@ -1192,6 +1286,7 @@ def _fold_cached_video_stage(stage: str, ctx: PipelineContext, cached: dict[str,
     """Rehydrate context fields from a resumed stage's ledger snapshot."""
     ctx.stage_artifacts[stage] = cached
     _merge_routing(ctx, cached)
+    _merge_execution(ctx, cached)
     if stage == "ingest":
         ctx.capture_regime = cached.get("capture_regime") or ctx.capture_regime
         ctx.regime_confidence = float(cached.get("regime_confidence") or 0.0)
@@ -1200,23 +1295,69 @@ def _fold_cached_video_stage(stage: str, ctx: PipelineContext, cached: dict[str,
             ctx.fps = float(probe["fps"])
     elif stage == "segment":
         ctx.clips = [c for c in cached.get("clips", []) if c.get("id")]
+        ctx.spatial_analytics_disabled = bool(
+            cached.get("spatial_analytics_disabled")
+            or _requires_angle_specific_calibration(
+                cached.get("game_film"), ctx.capture_regime
+            )
+        )
     elif stage == "calibrate":
-        ctx.analytics_safe = bool(cached.get("analytics_safe", False))
+        ctx.spatial_analytics_disabled = bool(
+            cached.get("spatial_analytics_disabled", ctx.spatial_analytics_disabled)
+        )
+        ctx.analytics_safe = bool(cached.get("analytics_safe", False)) and not ctx.spatial_analytics_disabled
         ctx.calibration = cached
         # Mirror of the live branch above. Miss this and a resumed run loses the
         # homography, so every spatial metric silently degrades on exactly the
         # jobs that were interrupted and retried.
-        ctx.homography = cached.get("homography")
+        ctx.homography = None if ctx.spatial_analytics_disabled else cached.get("homography")
         ctx.field_boundary = cached.get("field_boundary")
-        ctx.calibration_series = cached.get("calibration_series") or []
+        ctx.calibration_series = (
+            [] if ctx.spatial_analytics_disabled else cached.get("calibration_series") or []
+        )
         if ctx.capture_regime not in {"fixed_sideline", "fixed_endzone"}:
             ctx.homography = None
             if not ctx.calibration_series:
                 ctx.analytics_safe = False
+
     elif stage == "detect":
         ctx.detections = cached.get("detections", {})
         if cached.get("fps"):
             ctx.fps = float(cached["fps"])
+
+
+def _requires_angle_specific_calibration(source: Any, capture_regime: str | None) -> bool:
+    if isinstance(source, dict):
+        if not source.get("edited"):
+            return False
+        views = {
+            view
+            for view, count in (
+                ("sideline", source.get("sideline_views")),
+                ("endzone", source.get("endzone_views")),
+            )
+            if count
+        }
+    elif isinstance(source, list):
+        views = {
+            view
+            for clip in source
+            if isinstance(clip, dict)
+            if (view := (clip.get("label_data") or {}).get("view"))
+            in {"sideline", "endzone"}
+        }
+        views.update(
+            regime.removeprefix("fixed_")
+            for clip in source
+            if isinstance(clip, dict)
+            if (regime := clip.get("capture_regime"))
+            in {"fixed_sideline", "fixed_endzone"}
+        )
+    else:
+        return False
+    if len(views) > 1:
+        return True
+    return any(f"fixed_{view}" != capture_regime for view in views)
 
 
 def _merge_routing(ctx: PipelineContext, artifacts: dict[str, Any]) -> None:
@@ -1227,6 +1368,12 @@ def _merge_routing(ctx: PipelineContext, artifacts: dict[str, Any]) -> None:
     provenance = artifacts.get("model_provenance")
     if isinstance(provenance, dict):
         ctx.model_provenance.update(provenance)
+
+
+def _merge_execution(ctx: PipelineContext, artifacts: dict[str, Any]) -> None:
+    execution = artifacts.get("model_execution")
+    if isinstance(execution, dict):
+        ctx.model_execution.update({str(k): str(v) for k, v in execution.items()})
 
 
 def _stage_headline(stage: str, artifacts: dict[str, Any]) -> dict[str, Any]:

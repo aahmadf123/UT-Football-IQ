@@ -13,7 +13,7 @@ Routing lives in `gpu-worker/pipeline/model_router.py`. Stages call
 
 | Stage        | Same-session (priority ≥ 10) | Nightly (priority < 10) |
 | ------------ | ---------------------------- | ----------------------- |
-| `segment`    | `optical-flow-fast`          | `optical-flow-fast`     |
+| `segment`    | `optical-flow-fast`          | `auto`                  |
 | `calibrate`  | `calib-hough-dlt`            | `calib-hough-dlt-kalman`|
 | `detect`     | `yolov8n`                    | `yolov8m`               |
 | `ball`       | `yolov8n-ball`               | `yolov8n-ball`          |
@@ -34,8 +34,9 @@ period-break window on the production GPU. Today that means:
 
 - Detection: YOLOv8n is the cap. Anything larger goes to nightly.
 - Pose: RTMPose-tiny only. Heavier RTMPose / ViTPose variants are nightly.
-- Segment / track / reid / render: current defaults are already fast
-  enough that the same variant runs for both buckets.
+- Same-session segmentation stays on the fast optical-flow route. Nightly
+  segmentation uses `auto` to detect edited game film and falls back to
+  optical flow for other footage.
 - Experimental models (e.g. anything queued for issues #74–#76) must
   default to nightly until benchmarked.
 
@@ -102,10 +103,12 @@ OpenCV/NumPy paths, so neither is on the `NIGHTLY_ONLY_VARIANTS` guardrail:
   `drone_follow` clips, and chained-ECC drift (Issue #138) as the
   temporal-stability signal.
 
-For `fixed_sideline` (game) film the camera is effectively bolted down, so a
-single homography is fit once on the cleanest frame and flagged
-`is_game_anchor`; same-session jobs can reuse that cached anchor instead of
-recomputing. The deep-keypoint upgrade (PnLCalib / No-Bells-Just-Whistles)
+For single-camera `fixed_sideline` (game) film the camera is effectively
+bolted down, so a full-recording homography can be fit once on the cleanest
+frame and flagged `is_game_anchor`; same-session jobs can reuse that cached
+anchor instead of recomputing. Edited multi-angle game film instead fits one
+homography per generated angle window, with its own `fixed_sideline` or
+`fixed_endzone` regime. The deep-keypoint upgrade (PnLCalib / No-Bells-Just-Whistles)
 referenced in Issue #127 is a future nightly-only variant and is **not** yet
 bundled. See [`docs/calibration-contract.md`](calibration-contract.md) for the
 full calibration contract.

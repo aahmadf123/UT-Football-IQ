@@ -176,7 +176,7 @@ _DRONE_DISTILL_NIGHTLY_ENV = "ENABLE_DRONE_DISTILL_NIGHTLY"
 # Same-session variants must comfortably fit the 5–10 minute period-break
 # window on a GTX 1660 Ti class GPU. Nightly variants can be heavier.
 DEFAULT_ROUTING: dict[str, dict[str, str]] = {
-    "segment":    {_SAME_SESSION_KEY: "optical-flow-fast", _NIGHTLY_KEY: "optical-flow-fast"},
+    "segment":    {_SAME_SESSION_KEY: "optical-flow-fast", _NIGHTLY_KEY: "auto"},
     "calibrate":  {_SAME_SESSION_KEY: CALIB_HOUGH_DLT,     _NIGHTLY_KEY: CALIB_HOUGH_DLT_KALMAN},
     "detect":     {_SAME_SESSION_KEY: "yolov8n",           _NIGHTLY_KEY: "yolov8m"},
     "ball":       {_SAME_SESSION_KEY: YOLO_BALL,           _NIGHTLY_KEY: YOLO_BALL},

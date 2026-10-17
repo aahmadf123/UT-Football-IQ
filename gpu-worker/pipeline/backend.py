@@ -184,8 +184,13 @@ def create_clip(
     job_id: str | None = None,
     result_state: str | None = None,
     provenance: dict[str, Any] | None = None,
+    extra: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """POST /api/v1/videos/{video_id}/clips and return the created clip dict.
+
+    ``extra`` carries optional clip columns the caller knows (``label_data``,
+    ``down``, ``distance``, ``play_call_id``, ``capture_regime``), e.g. the
+    camera angle and scoreboard of a game-film play.
 
     ``result_state`` (Issue #147) marks the clip's quality tier — ``preliminary``
     for same-session first-pass clips, ``final`` for nightly. Omitted (NULL) when
@@ -212,6 +217,8 @@ def create_clip(
         payload["job_id"] = job_id
     if result_state is not None:
         payload["result_state"] = result_state
+    if extra:
+        payload.update({k: v for k, v in extra.items() if v is not None})
     if _offline():
         return _offline_record({"video_id": video_id, **payload})
     with _client() as c:

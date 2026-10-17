@@ -1,14 +1,16 @@
 """Stage 2 — Play Segmentation.
 
 Thin orchestrator on top of the play-boundary segmenter adapters in
-``pipeline.segment_models`` (Issue #75). The adapter is selected via
-the ``SEGMENTER_VARIANT`` environment variable; default stays
-``optical_flow`` for a CPU heuristic baseline. Runtime depends on the actual
-recording and computer, rather than a fixed same-session latency guarantee.
+``pipeline.segment_models`` (Issue #75). The adapter is selected via the
+central model router, with ``SEGMENTER_VARIANT`` as an explicit override.
+Runtime depends on the actual recording and computer.
 
 Variants:
-  - ``optical_flow`` (default): the historical mean-flow-magnitude
-    heuristic; proposals require review.
+  - ``auto``: edited coaches' game film (scoreboard card, sideline
+    angle, end-zone angle per play) becomes one clip per angle per play with
+    the scoreboard's down & distance; anything else uses ``optical_flow``.
+  - ``optical_flow``: the historical mean-flow-magnitude heuristic;
+    proposals require review.
   - ``learned_play``: rules + ML hybrid with a play-duration prior.
     Opt-in candidate from the Phase 2.5 spike.
   - ``sportsbd``: experimental adapter; benchmark only. See
@@ -37,7 +39,6 @@ from pipeline import backend, object_store
 from pipeline.lightweight_config import processing_profile as select_processing_profile
 from pipeline.runtime import check_control
 from pipeline.segment_models import (
-    OPTICAL_FLOW,
     SegmenterBase,
     get_segmenter,
 )
@@ -60,7 +61,11 @@ def run(video_id: str, input_uri: str, job_id: str, *, priority: int = 0,
     produce ``preliminary`` clips (a first pass awaiting the nightly upgrade);
     nightly jobs produce ``final`` clips.
     """
-    variant = os.environ.get("SEGMENTER_VARIANT", OPTICAL_FLOW)
+    from pipeline import model_router
+
+    variant = os.environ.get("SEGMENTER_VARIANT")
+    if variant is None:
+        variant = model_router.select_device_model("segment", priority)
     segmenter = get_segmenter(variant)
     if timeline is not None:
         segmenter.timeline = timeline
@@ -75,8 +80,17 @@ def run(video_id: str, input_uri: str, job_id: str, *, priority: int = 0,
     object_key = _uri_to_object_key(input_uri)
     video_path = object_store.download_to_temp(object_key)
     try:
-        return _segment(video_id, video_path, job_id, segmenter, priority,
-                        review_fallback=select_processing_profile(processing_profile) == "review")
+        artifacts = _segment(
+            video_id,
+            video_path,
+            job_id,
+            segmenter,
+            priority,
+            review_fallback=select_processing_profile(processing_profile) == "review",
+        )
+        artifacts["model_routing"] = {"segment": variant}
+        artifacts["model_execution"] = {"segment": segmenter.source}
+        return artifacts
     finally:
         video_path.unlink(missing_ok=True)
 
@@ -117,10 +131,14 @@ def _segment(
         duration = timeline.duration
     # Same-session clips are a first pass (preliminary); nightly clips are final.
     result_state = "preliminary" if is_same_session(priority) else "final"
-    clips = _write_clips(
-        video_id, boundaries, duration, job_id, segmenter.source, result_state,
-        review_fallback=review_fallback,
-    )
+    specs = getattr(segmenter, "clip_specs", None)
+    if specs:
+        clips = _write_spec_clips(video_id, specs, duration, job_id, result_state)
+    else:
+        clips = _write_clips(
+            video_id, boundaries, duration, job_id, segmenter.source, result_state,
+            review_fallback=review_fallback,
+        )
 
     log.info(
         "stage_segment_done",
@@ -141,10 +159,14 @@ def _segment(
                 "end_time": c.get("end_time"),
                 "play_number": c.get("play_number"),
                 "result_state": c.get("result_state"),
+                "view": (c.get("label_data") or {}).get("view"),
+                "capture_regime": c.get("capture_regime"),
+                "label_data": c.get("label_data"),
             }
             for c in clips
         ],
         "boundary_model": segmenter.source,
+        "game_film": getattr(segmenter, "structure", None),
         "data_source": "synthetic_test" if segmenter.source == "stub" else "heuristic",
     }
 
@@ -221,4 +243,61 @@ def _write_clips(
         clip["review_window"] = True
         clips.append(clip)
 
+    return clips
+
+
+#: Camera angle -> the clip's capture regime.
+_VIEW_REGIMES = {"sideline": "fixed_sideline", "endzone": "fixed_endzone"}
+
+
+def _write_spec_clips(
+    video_id: str,
+    specs: list[dict[str, Any]],
+    duration: float,
+    job_id: str,
+    result_state: str | None,
+) -> list[dict[str, Any]]:
+    """Write one clip per (play, camera angle) from game-film structure.
+
+    Both angles of a play share ``play_number`` and a ``play_call_id`` so the
+    review studio can switch angles; the scoreboard's down & distance go on
+    the clip columns and the full reading into ``label_data``.
+    """
+    clips: list[dict[str, Any]] = []
+    for spec in specs:
+        check_control()
+        start = max(0.0, float(spec["start_time"]))
+        end = min(duration, float(spec["end_time"]))
+        if end - start < 1.0:
+            continue
+        board = spec.get("scoreboard") or {}
+        view = spec.get("view") or "unknown"
+        label_data: dict[str, Any] = {
+            "view": view,
+            "view_confidence": spec.get("view_confidence"),
+            "view_index": spec.get("view_index"),
+        }
+        if board:
+            label_data["scoreboard"] = board
+        clip = backend.create_clip(
+            video_id,
+            start_time=start,
+            end_time=end,
+            boundary_source="heuristic",
+            boundary_confidence=spec.get("view_confidence"),
+            play_number=int(spec["play_number"]),
+            job_id=job_id,
+            result_state=result_state,
+            extra={
+                "play_call_id": f"{video_id[:8]}-p{int(spec['play_number']):03d}",
+                "label_data": label_data,
+                "capture_regime": _VIEW_REGIMES.get(view),
+                "down": board.get("down"),
+                "distance": board.get("distance"),
+            },
+        )
+        clip.setdefault("capture_regime", _VIEW_REGIMES.get(view))
+        clip.setdefault("boundary_model", "game_film")
+        clip.setdefault("label_data", label_data)
+        clips.append(clip)
     return clips

@@ -63,6 +63,9 @@ SOURCE_LEARNED = "learned_play"
 SOURCE_STUB = "stub"
 
 # Variant identifiers used by the factory + stage_segment env knob.
+AUTO = "auto"
+GAME_FILM = "game_film"
+SOURCE_GAME_FILM = "game_film"
 OPTICAL_FLOW = "optical_flow"
 OPTICAL_FLOW_FAST = "optical-flow-fast"
 SPORTSBD = "sportsbd"
@@ -376,11 +379,45 @@ class StubSegmenter(SegmenterBase):
 # ── Factory ───────────────────────────────────────────────────────────────────
 
 
+class GameFilmSegmenter(SegmenterBase):
+    """Edited coaches' game film: one clip per camera angle per play.
+
+    Recovers the [scoreboard][sideline][end zone] structure with
+    :mod:`pipeline.game_film`. When the footage isn't edited game film
+    (practice clips, a raw single camera), delegates to ``fallback``.
+    After :meth:`segment`, ``clip_specs`` holds the per-angle clips (empty
+    when the fallback was used) and ``structure`` the analysis summary.
+    """
+
+    source = SOURCE_GAME_FILM
+
+    def __init__(self, fallback: SegmenterBase | None = None) -> None:
+        self.fallback = fallback or OpticalFlowSegmenter()
+        self.clip_specs: list[dict[str, Any]] = []
+        self.structure: dict[str, Any] | None = None
+        self.timeline: VideoTimeline | None = None
+
+    def segment(self, video_path: Path) -> list[dict[str, Any]]:
+        from pipeline import game_film
+
+        structure = game_film.analyze(video_path)
+        self.structure = structure.summary()
+        if structure.edited and structure.plays:
+            self.clip_specs = game_film.play_clip_specs(structure)
+            return []
+        self.clip_specs = []
+        self.source = self.fallback.source
+        self.fallback.timeline = self.timeline  # type: ignore[attr-defined]
+        return self.fallback.segment(video_path)
+
+
 def get_segmenter(variant: str | None) -> SegmenterBase:
     """Return a segmenter adapter for the given variant.
 
     Logic:
-      - ``optical_flow`` (default) → OpticalFlowSegmenter
+      - ``auto`` / ``game_film`` (default) → GameFilmSegmenter: per-angle
+        play clips for edited game film, else OpticalFlowSegmenter
+      - ``optical_flow``           → OpticalFlowSegmenter
       - ``sportsbd``               → SportsBDSegmenter, falls back to
         StubSegmenter when ``sportsbd`` is not installed.
       - ``learned_play``           → LearnedPlaySegmenter
@@ -391,7 +428,10 @@ def get_segmenter(variant: str | None) -> SegmenterBase:
     """
     v = (variant or "").lower().strip()
 
-    if v in ("", OPTICAL_FLOW, OPTICAL_FLOW_FAST):
+    if v in ("", AUTO, GAME_FILM):
+        return GameFilmSegmenter(fallback=OpticalFlowSegmenter())
+
+    if v in (OPTICAL_FLOW, OPTICAL_FLOW_FAST):
         return OpticalFlowSegmenter()
 
     if v == SPORTSBD:

@@ -67,6 +67,8 @@ VARIANT_LITE = "calib-hough-dlt"  # same-session: Hough + DLT, no Kalman
 VARIANT_KALMAN = "calib-hough-dlt-kalman"  # nightly: + Kalman temporal smoothing
 
 FIXED_SIDELINE = "fixed_sideline"
+FIXED_ENDZONE = "fixed_endzone"
+FIXED_REGIMES = {FIXED_SIDELINE, FIXED_ENDZONE}
 DRONE_FOLLOW = "drone_follow"
 UNKNOWN = "unknown"
 
@@ -79,6 +81,8 @@ def run(
     variant: str = VARIANT_KALMAN,
     capture_regime: str | None = None,
     timeline: VideoTimeline | None = None,
+    start_time: float = 0.0,
+    end_time: float | None = None,
 ) -> dict[str, Any]:
     """Run Stage 3 for the given clip and return output artifacts.
 
@@ -101,7 +105,16 @@ def run(
     object_key = _uri_to_object_key(input_uri)
     video_path = object_store.download_to_temp(object_key)
     try:
-        return _calibrate(video_id, video_path, job_id, regime, variant, timeline=timeline)
+        return _calibrate(
+            video_id,
+            video_path,
+            job_id,
+            regime,
+            variant,
+            timeline=timeline,
+            start_time=start_time,
+            end_time=end_time,
+        )
     finally:
         video_path.unlink(missing_ok=True)
 
@@ -119,9 +132,11 @@ def _calibrate(
     variant: str,
     *,
     timeline: VideoTimeline | None = None,
+    start_time: float = 0.0,
+    end_time: float | None = None,
 ) -> dict[str, Any]:
-    n_frames = N_SAMPLE_FRAMES_FIXED if regime == FIXED_SIDELINE else N_SAMPLE_FRAMES_DRONE
-    frames = _sample_frames(video_path, n_frames)
+    n_frames = N_SAMPLE_FRAMES_FIXED if regime in FIXED_REGIMES else N_SAMPLE_FRAMES_DRONE
+    frames = _sample_frames(video_path, n_frames, start_time=start_time, end_time=end_time)
     if not frames:
         return _persist_and_return(
             video_id,
@@ -138,8 +153,14 @@ def _calibrate(
             reason_codes=["no_frames"],
         )
 
-    if regime == FIXED_SIDELINE:
-        return _calibrate_fixed_sideline(video_id, job_id, frames, regime)
+    if regime in FIXED_REGIMES:
+        return _calibrate_fixed_sideline(
+            video_id,
+            job_id,
+            frames,
+            regime,
+            is_game_anchor=regime == FIXED_SIDELINE and start_time == 0.0 and end_time is None,
+        )
     return _calibrate_drone(video_id, job_id, frames, regime, variant, video_path=video_path,
                             timeline=timeline)
 
@@ -148,9 +169,14 @@ def _calibrate(
 
 
 def _calibrate_fixed_sideline(
-    video_id: str, job_id: str, frames: list[np.ndarray], regime: str
+    video_id: str,
+    job_id: str,
+    frames: list[np.ndarray],
+    regime: str,
+    *,
+    is_game_anchor: bool = True,
 ) -> dict[str, Any]:
-    """Fit a single homography on the cleanest frame and flag it as the anchor."""
+    """Fit one static-camera homography for a full recording or angle window."""
     best = _best_frame_fit(frames)
     if best is None:
         return _persist_and_return(
@@ -189,7 +215,7 @@ def _calibrate_fixed_sideline(
         field_boundary=_field_boundary_diagnostics(frames),
         temporal_drift=0.0,
         kalman_state=None,
-        is_game_anchor=True,
+        is_game_anchor=is_game_anchor,
         reason_codes=reason_codes,
     )
 
@@ -517,8 +543,14 @@ def _sample_window_frames(
         cap.release()
 
 
-def _sample_frames(video_path: Path, n: int) -> list[np.ndarray]:
-    """Extract up to ``n`` evenly spaced BGR frames; empty list on failure."""
+def _sample_frames(
+    video_path: Path,
+    n: int,
+    *,
+    start_time: float = 0.0,
+    end_time: float | None = None,
+) -> list[np.ndarray]:
+    """Extract up to ``n`` evenly spaced BGR frames from a source-time window."""
     try:
         import cv2
     except Exception:
@@ -532,7 +564,17 @@ def _sample_frames(video_path: Path, n: int) -> list[np.ndarray]:
         duration = total / fps if fps > 0 else 0.0
         if total <= 0 or duration <= 0:
             return []
-        times = np.linspace(0.05 * duration, 0.95 * duration, num=max(1, n), endpoint=True)
+        start = max(0.0, min(start_time, duration))
+        end = duration if end_time is None else max(0.0, min(end_time, duration))
+        if end <= start:
+            return []
+        span = end - start
+        times = np.linspace(
+            start + 0.05 * span,
+            end - 0.05 * span,
+            num=max(1, n),
+            endpoint=True,
+        )
         frames: list[np.ndarray] = []
         for t in times:
             check_control()
@@ -585,13 +627,13 @@ def _persist_and_return(
     has_blocking = any(rc in blocking for rc in reason_codes)
     analytics_safe = (confidence >= CONFIDENCE_THRESHOLD) and not has_blocking
     series: list[dict[str, Any]] = []
-    if regime != FIXED_SIDELINE and video_path is not None and homography is not None:
+    if regime not in FIXED_REGIMES and video_path is not None and homography is not None:
         from pipeline.homography.timeline import calibration_timeline
 
         series = calibration_timeline(video_path, _best_frame_fit, threshold=CONFIDENCE_THRESHOLD,
                                        timeline=timeline)
         analytics_safe = bool(series) and all(p["analytics_safe"] for p in series)
-    elif regime != FIXED_SIDELINE and video_path is not None:
+    elif regime not in FIXED_REGIMES and video_path is not None:
         analytics_safe = False
 
     homography_list = (
@@ -602,7 +644,7 @@ def _persist_and_return(
     calibration_points: dict[str, Any] = {
         "capture_regime": regime,
         "confidence_components": components,
-        "calibration_mode": "static" if regime == FIXED_SIDELINE else "time_indexed",
+        "calibration_mode": "static" if regime in FIXED_REGIMES else "time_indexed",
         "calibration_series": series,
     }
     if extra_diagnostics:
@@ -643,7 +685,7 @@ def _persist_and_return(
     )
     return {
         "analytics_safe": analytics_safe,
-        "calibration_mode": "static" if regime == FIXED_SIDELINE else "time_indexed",
+        "calibration_mode": "static" if regime in FIXED_REGIMES else "time_indexed",
         "calibration_series": series,
         "confidence": float(confidence),
         "capture_regime": regime,

@@ -35,6 +35,17 @@ or automatic synchronized 3D reconstruction.
 
 ---
 
+## EasyOCR (scoreboard cards in game film)
+
+| Field | Detail |
+|---|---|
+| **Package** | `easyocr==1.7.2` (JaidedAI) |
+| **Code license** | [Apache-2.0](https://github.com/JaidedAI/EasyOCR/blob/master/LICENSE) |
+| **Models** | Text detection (CRAFT, MIT per [clovaai/CRAFT-pytorch](https://github.com/clovaai/CRAFT-pytorch)) and English recognition weights, downloaded by the package on first use into the worker user's `~/.EasyOCR`; not committed or redistributed. |
+| **Football-IQ usage** | `gpu-worker/pipeline/game_film.py` reads the stadium scoreboard card shown before each play in edited game film (quarter, clock, down & distance, ball-on). Optional: without it, plays are still segmented and only the scoreboard context is missing. |
+| **Runtime category** | Staff GPU laptop worker only; never in the browser or the hosted API image. |
+| **Data** | Reads Toledo's own film frames locally; nothing is sent to a third party. |
+
 ## Meta SAM 3 / SAM 3.1
 
 | Field | Detail |

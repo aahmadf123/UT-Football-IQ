@@ -433,7 +433,16 @@ export async function fetchClipsForVideo(
   token?: string,
 ): Promise<ApiClip[]> {
   const base = apiBase();
-  return getJSON<ApiClip[]>(`${base}/api/v1/videos/${videoId}/clips`, token);
+  const clips: ApiClip[] = [];
+  const limit = 500;
+  for (let offset = 0; ; offset += limit) {
+    const page = await getJSON<ApiClip[]>(
+      `${base}/api/v1/videos/${videoId}/clips?limit=${limit}&offset=${offset}`,
+      token,
+    );
+    clips.push(...page);
+    if (page.length < limit) return clips;
+  }
 }
 
 export async function fetchClip(clipId: string, token?: string): Promise<ApiClip> {

@@ -1,5 +1,6 @@
 "use client";
 
+import { clipView, sameplayAngles, situationLabel, viewLabel } from "@/lib/clip-view";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -448,7 +449,11 @@ function ClipReviewReady({
                   isPreliminary={clip.is_preliminary}
                   reviewState={clip.review_state}
                 />
+                <AngleSwitch clip={clip} siblings={siblingClips} />
               </div>
+              {situationLabel(clip) ? (
+                <p className="mt-1 font-mono text-xs font-semibold text-foreground">{situationLabel(clip)}</p>
+              ) : null}
               <p className="mt-1 text-xs text-muted-foreground">
                 {sessionKindLabel}
                 {video.opponent_team ? ` · vs. ${video.opponent_team}` : ""}
@@ -663,13 +668,30 @@ function ClipReviewReady({
   );
 }
 
+/** Sideline | End zone toggle between the camera angles of one play. */
+function AngleSwitch({ clip, siblings }: { clip: ApiClip; siblings: ApiClip[] }) {
+  const angles = sameplayAngles(clip, siblings);
+  const current = clipView(clip);
+  if (!current) return null;
+  if (angles.length < 2) {
+    return <span className="rounded-md border border-border-soft px-2 py-0.5 text-[0.65rem] font-medium text-muted-foreground">{viewLabel(current)}</span>;
+  }
+  return <div role="group" aria-label="Camera angle" className="inline-flex overflow-hidden rounded-md border border-border-soft text-[0.65rem] font-medium">
+    {angles.map((angle) => {
+      const view = clipView(angle)!;
+      const active = angle.id === clip.id;
+      return <Link key={angle.id} href={`/clip-review/?clipId=${encodeURIComponent(angle.id)}`} aria-current={active ? "true" : undefined} className={cn("px-2.5 py-1 transition-colors", active ? "bg-primary text-primary-foreground" : "hover:bg-accent/50")}>{viewLabel(view)}</Link>;
+    })}
+  </div>;
+}
+
 function PlayQueue({ clips, currentClipId }: { clips: ApiClip[]; currentClipId: string }) {
   if (clips.length < 2) return null;
   return <nav aria-label="Plays in this recording" className="border-t border-border-soft bg-secondary/20 p-4">
     <div className="mb-3 flex items-center justify-between gap-2"><h3 className="flex items-center gap-2 text-xs font-semibold"><Film className="size-3.5 text-primary" /> Play sequence</h3><span className="text-[0.65rem] text-muted-foreground">{clips.length} plays · [ / ] to navigate</span></div>
     <div className="flex gap-2 overflow-x-auto pb-1">{clips.map((item) => <Link key={item.id} href={`/clip-review/?clipId=${encodeURIComponent(item.id)}`} aria-current={item.id === currentClipId ? "page" : undefined} className={cn("min-w-28 shrink-0 rounded-lg border px-3 py-2.5 transition-colors", item.id === currentClipId ? "border-primary/60 bg-primary/10" : "border-border-soft bg-background/40 hover:border-border hover:bg-accent/40")}>
-      <div className="flex items-center justify-between gap-3"><span className={cn("text-xs font-semibold", item.id === currentClipId && "text-primary")}>Play {item.play_number ?? clips.indexOf(item) + 1}</span>{item.is_reviewed ? <Check aria-label="Reviewed" className="size-3 text-status-ok" /> : <span className="size-1.5 rounded-full bg-muted-foreground/40" />}</div>
-      <p className="mt-2 font-mono text-[0.65rem] text-muted-foreground">{item.start_time.toFixed(1)}–{item.end_time.toFixed(1)}s</p>
+      <div className="flex items-center justify-between gap-3"><span className={cn("text-xs font-semibold", item.id === currentClipId && "text-primary")}>Play {item.play_number ?? clips.indexOf(item) + 1}{clipView(item) ? <span className="ml-1 font-normal text-muted-foreground">· {viewLabel(clipView(item)!)}</span> : null}</span>{item.is_reviewed ? <Check aria-label="Reviewed" className="size-3 text-status-ok" /> : <span className="size-1.5 rounded-full bg-muted-foreground/40" />}</div>
+      <p className="mt-2 font-mono text-[0.65rem] text-muted-foreground">{situationLabel(item) ?? `${item.start_time.toFixed(1)}–${item.end_time.toFixed(1)}s`}</p>
     </Link>)}</div>
   </nav>;
 }

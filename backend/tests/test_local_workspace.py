@@ -16,6 +16,7 @@ from app.models import (
     JobStatus,
     JobType,
     Player,
+    PlayView,
     ProcessingJob,
     ReportFormat,
     ReportJob,
@@ -141,6 +142,50 @@ async def test_matching_independent_views_counts_one_football_play(workspace_db)
         assert report.totals["clips"] == 1
         assert report.totals["reviewed_clips"] == 1
         assert report.totals["videos"] == 2
+        await db.commit()
+
+
+async def test_game_film_angles_share_and_match_one_canonical_play(workspace_db):
+    maker, user, session = workspace_db
+    suffix = user.email.split("@")[0].removeprefix("workspace-")
+    async with maker() as db:
+        video, sideline = await _recording(db, session, suffix, "game-film")
+        sideline.play_call_id = "recording-play-1"
+        sideline.label_data = {"view": "sideline"}
+        endzone = Clip(
+            id=uuid.uuid4(),
+            video_id=video.id,
+            start_time=5,
+            end_time=10,
+            play_number=1,
+            play_call_id="recording-play-1",
+            label_data={"view": "endzone"},
+        )
+        db.add(endzone)
+        await db.flush()
+
+        await ensure_recording_plays(db, video)
+        views = (
+            (
+                await db.execute(
+                    select(PlayView).where(PlayView.clip_id.in_([sideline.id, endzone.id]))
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert len(views) == 2
+        assert len({view.play_id for view in views}) == 1
+
+        result = await match_play(
+            session.id,
+            PlayMatch(clip_ids=[sideline.id, endzone.id], title="Edited game-film play"),
+            db,
+            user,
+        )
+        assert result["play_count"] == 1
+        assert len(result["plays"][0]["views"]) == 2
+        assert {view["video_id"] for view in result["plays"][0]["views"]} == {str(video.id)}
         await db.commit()
 
 
