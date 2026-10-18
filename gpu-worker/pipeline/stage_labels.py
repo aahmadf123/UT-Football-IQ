@@ -603,7 +603,12 @@ def _classify_motion_type(
         for t in tracklets:
             pts = t.get("track_points", [])
             motion_pts = [
-                p for p in pts if abs(p.get("frame_number", 0) - frame) < fps * 0.5
+                p
+                for p in pts
+                if p.get("field_x") is not None
+                and p.get("field_y") is not None
+                and p.get("frame_number") is not None
+                and abs(p["frame_number"] - frame) < fps * 0.5
             ]
             if len(motion_pts) < 2:
                 continue
@@ -649,7 +654,12 @@ def _detect_shift(
     for t in tracklets:
         pts = t.get("track_points", [])
         window_pts = [
-            p for p in pts if window_start <= p.get("frame_number", 0) <= window_end
+            p
+            for p in pts
+            if p.get("field_x") is not None
+            and p.get("field_y") is not None
+            and p.get("frame_number") is not None
+            and window_start <= p["frame_number"] <= window_end
         ]
         if len(window_pts) < 2:
             continue
@@ -708,9 +718,16 @@ def _detect_blitz(
         pts = {pt["frame_number"]: pt for pt in t.get("track_points", [])}
         snap_pt = pts.get(snap_frame)
         post_pt = pts.get(post_snap_frame)
-        if snap_pt and post_pt:
-            sx = snap_pt.get("field_x") or 0
-            px = post_pt.get("field_x") or 0
+        if (
+            snap_pt
+            and post_pt
+            and snap_pt.get("field_x") is not None
+            and snap_pt.get("field_y") is not None
+            and post_pt.get("field_x") is not None
+            and post_pt.get("field_y") is not None
+        ):
+            sx = snap_pt["field_x"]
+            px = post_pt["field_x"]
             if abs(sx - los) < 6 and abs(px - los) < 2:
                 crossings += 1
 

@@ -12,7 +12,14 @@ from pipeline.detector_models import StubDetector, build_player_detector
 from pipeline.homography.timeline import calibration_timeline
 from pipeline.pose_estimator import get_estimator
 from pipeline.runtime import ModelUnavailableError, adapter_provenance, inference_device
-from pipeline.stage_metrics import _distance_traveled, _frame_speeds
+from pipeline.stage_metrics import (
+    _count_broken_tackles,
+    _detect_cutback_timing,
+    _distance_traveled,
+    _frame_speeds,
+    _point_at_frame,
+    _vision_decisiveness,
+)
 from pipeline.stage_metrics import run as run_metrics
 from pipeline.stage_pose import run as run_pose
 from pipeline.stage_track import _project_tracks
@@ -230,10 +237,36 @@ def test_missing_coordinates_cannot_become_origin_speed_or_distance():
               {"frame_number": 6, "field_x": 12., "field_y": 20.}]
     assert _frame_speeds(points, 30) == []
     assert _distance_traveled(points) == 0
+    assert _point_at_frame(points, 3) is None
     with patch("pipeline.stage_metrics.backend") as backend:
         result = run_metrics("c", [{"id": "t", "track_points": points}], [], True, 30, "j")
     assert result["metrics"] == []
     backend.create_metric.assert_not_called()
+
+
+def test_partial_calibration_does_not_create_motion_from_missing_coordinates():
+    from pipeline.stage_labels import _classify_motion_type
+
+    track = {
+        "track_points": [
+            {"frame_number": 0, "field_y": 10.0},
+            {"frame_number": 6},
+        ]
+    }
+    assert _classify_motion_type([{"frame_number": 3}], [track], 3, 30) == "motion"
+
+
+def test_partial_calibration_gaps_do_not_create_phase_two_motion():
+    points = [
+        {"frame_number": 0, "field_x": 10.0, "field_y": 20.0},
+        {"frame_number": 3},
+        {"frame_number": 6, "field_x": 11.0, "field_y": 19.0},
+        {"frame_number": 9, "field_x": 12.0, "field_y": 18.0},
+        {"frame_number": 12, "field_x": 13.0, "field_y": 17.0},
+    ]
+    assert _count_broken_tackles(points, 0, 12) == 0
+    assert _detect_cutback_timing(points, 0, 30) is None
+    assert _vision_decisiveness(points, 0, 30) is None
 
 
 def test_throw_without_snap_is_not_time_to_throw():
