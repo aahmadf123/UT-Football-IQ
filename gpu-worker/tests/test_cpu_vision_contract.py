@@ -12,7 +12,14 @@ from pipeline.detector_models import StubDetector, build_player_detector
 from pipeline.homography.timeline import calibration_timeline
 from pipeline.pose_estimator import get_estimator
 from pipeline.runtime import ModelUnavailableError, adapter_provenance, inference_device
-from pipeline.stage_metrics import _distance_traveled, _frame_speeds
+from pipeline.stage_metrics import (
+    _count_broken_tackles,
+    _detect_cutback_timing,
+    _distance_traveled,
+    _frame_speeds,
+    _point_at_frame,
+    _vision_decisiveness,
+)
 from pipeline.stage_metrics import run as run_metrics
 from pipeline.stage_pose import run as run_pose
 from pipeline.stage_track import _project_tracks
@@ -95,11 +102,12 @@ def test_pose_is_cropped_attributed_and_remapped_for_each_player(monkeypatch):
 
 
 class Capture:
-    def __init__(self):
+    def __init__(self, fps=30):
         self.index = 0
+        self.fps = fps
 
-    def get(self, _property):
-        return 30
+    def get(self, property):
+        return self.fps
 
     def isOpened(self):
         return True
@@ -147,6 +155,20 @@ def test_camera_alignment_failure_does_not_reuse_old_field_map(tmp_path, monkeyp
     assert _project_tracks([SimpleNamespace(points=[point])], np.eye(3).flatten().tolist(),
                            True, capture_regime="drone_follow") == 0
     assert "field_x" not in point
+
+
+@pytest.mark.parametrize(("fps", "expected_frames"), [(30, list(range(7))), (60, [0, 2, 4, 6])])
+def test_calibration_timeline_uses_gpu_detection_cadence(
+    tmp_path, monkeypatch, fps, expected_frames
+):
+    monkeypatch.delenv("DETECT_FRAME_STEP", raising=False)
+    monkeypatch.setattr("pipeline.runtime.inference_device", lambda: "cuda")
+    with patch("cv2.VideoCapture", return_value=Capture(fps)), patch(
+        "pipeline.homography.timeline.ecc.estimate_warp",
+        return_value=(np.eye(2, 3), True),
+    ):
+        timeline = calibration_timeline(tmp_path / "video.mp4", _fit)
+    assert [point["frame_number"] for point in timeline] == expected_frames
 
 
 def test_unsafe_recording_cannot_project_even_with_partial_series():
@@ -215,10 +237,36 @@ def test_missing_coordinates_cannot_become_origin_speed_or_distance():
               {"frame_number": 6, "field_x": 12., "field_y": 20.}]
     assert _frame_speeds(points, 30) == []
     assert _distance_traveled(points) == 0
+    assert _point_at_frame(points, 3) is None
     with patch("pipeline.stage_metrics.backend") as backend:
         result = run_metrics("c", [{"id": "t", "track_points": points}], [], True, 30, "j")
     assert result["metrics"] == []
     backend.create_metric.assert_not_called()
+
+
+def test_partial_calibration_does_not_create_motion_from_missing_coordinates():
+    from pipeline.stage_labels import _classify_motion_type
+
+    track = {
+        "track_points": [
+            {"frame_number": 0, "field_y": 10.0},
+            {"frame_number": 6},
+        ]
+    }
+    assert _classify_motion_type([{"frame_number": 3}], [track], 3, 30) == "motion"
+
+
+def test_partial_calibration_gaps_do_not_create_phase_two_motion():
+    points = [
+        {"frame_number": 0, "field_x": 10.0, "field_y": 20.0},
+        {"frame_number": 3},
+        {"frame_number": 6, "field_x": 11.0, "field_y": 19.0},
+        {"frame_number": 9, "field_x": 12.0, "field_y": 18.0},
+        {"frame_number": 12, "field_x": 13.0, "field_y": 17.0},
+    ]
+    assert _count_broken_tackles(points, 0, 12) == 0
+    assert _detect_cutback_timing(points, 0, 30) is None
+    assert _vision_decisiveness(points, 0, 30) is None
 
 
 def test_throw_without_snap_is_not_time_to_throw():

@@ -6,6 +6,8 @@ import os
 import sys
 from typing import Any
 
+import pytest
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from pipeline.events.snap_detector import (
@@ -26,8 +28,14 @@ def _static_then_move(tid: str, fx0: float, fy0: float) -> dict[str, Any]:
     for f in range(0, 25):
         # Static through SNAP-1, then drift forward each frame.
         fx = fx0 + (0.0 if f < SNAP else 0.4 * (f - SNAP + 1))
-        pts.append({"frame_number": f, "field_x": fx, "field_y": fy0,
-                    "bbox": [fx0 * 10, fy0 * 10, fx0 * 10 + 5, fy0 * 10 + 5]})
+        pts.append(
+            {
+                "frame_number": f,
+                "field_x": fx,
+                "field_y": fy0,
+                "bbox": [fx0 * 10, fy0 * 10, fx0 * 10 + 5, fy0 * 10 + 5],
+            }
+        )
     return {"id": tid, "track_points": pts}
 
 
@@ -108,9 +116,12 @@ def test_single_weak_signal_no_false_snap() -> None:
     # stays quiet and no snap should be asserted.
     tracks = [_static_then_move("p0", 50.0, 0.0)]
     tracks += [
-        {"id": f"p{i}", "track_points": [
-            {"frame_number": f, "field_x": 50.0, "field_y": float(i)} for f in range(25)
-        ]}
+        {
+            "id": f"p{i}",
+            "track_points": [
+                {"frame_number": f, "field_x": 50.0, "field_y": float(i)} for f in range(25)
+            ],
+        }
         for i in range(1, 11)
     ]
     result = BayesianSnapDetector().detect(SnapInputs(tracklets=tracks, fps=FPS))
@@ -126,3 +137,95 @@ def test_no_signals_returns_none() -> None:
 
 def test_base_rate_is_low() -> None:
     assert 0.0 < BASE_RATE < 0.1
+
+
+def _set_then_go(
+    tid: str, x0: float, y0: float, go: int, *, drift: float = 0.0, angle: float = 0.0
+) -> dict[str, Any]:
+    """Pixel-only track (no calibration): set, then moving from frame ``go``
+    in direction ``angle`` (radians). ``drift`` adds a following camera's pan
+    to every frame. Players scatter in different directions at a real snap.
+    """
+    import math
+
+    pts = []
+    for f in range(0, 75):
+        # ~2 yd (40 px) boxes: reaches ~4 yd/s within a third of a second.
+        run = 0.0 if f < go else 1.5 * (f - go + 1) ** 1.3
+        x = x0 + run * math.cos(angle) + drift * f
+        y = y0 + run * math.sin(angle)
+        pts.append({"frame_number": f, "bbox": [x - 10, y - 40, x + 10, y]})
+    return {"id": tid, "track_points": pts}
+
+
+def test_collective_onset_finds_snap_on_uncalibrated_panning_film() -> None:
+    from pipeline.events.snap_detector import player_onsets
+
+    snap = 30
+    # 12 set players go at the snap; a following camera pans 1.5 px/frame.
+    tracks = [
+        _set_then_go(f"p{i}", 100.0 + 40 * i, 300.0, snap, drift=1.5, angle=i * 0.52)
+        for i in range(12)
+    ]
+    # Sideline staff never set: walking the whole time.
+    tracks.append(
+        {
+            "id": "coach",
+            "track_points": [
+                {"frame_number": f, "bbox": [10 + 3 * f, 260, 30 + 3 * f, 300]} for f in range(75)
+            ],
+        }
+    )
+    onsets = player_onsets(tracks, FPS)
+    assert len(onsets) >= 10
+    result = BayesianSnapDetector().detect(SnapInputs(tracklets=tracks, fps=FPS))
+    assert result.snap_frame is not None
+    assert abs(result.snap_frame - snap) <= 4
+    assert "collective_onset" in result.signals_present
+
+
+def test_one_motion_man_is_not_a_snap() -> None:
+    tracks = [_set_then_go("motion", 100.0, 300.0, 20)]
+    tracks += [_set_then_go(f"p{i}", 200.0 + 40 * i, 300.0, 10_000) for i in range(11)]
+    result = BayesianSnapDetector().detect(SnapInputs(tracklets=tracks, fps=FPS))
+    assert result.snap_frame is None
+
+
+@pytest.mark.parametrize(("fps", "stride"), [(30.0, 3), (60.0, 2)])
+def test_collective_onset_uses_source_frame_time_for_sparse_tracks(fps, stride) -> None:
+    from pipeline.events.snap_detector import player_onsets
+
+    snap = 30
+    tracks = []
+    for i in range(12):
+        track = _set_then_go(f"p{i}", 100.0 + 40 * i, 300.0, snap, angle=i * 0.52)
+        track["track_points"] = [
+            point for point in track["track_points"] if point["frame_number"] % stride == 0
+        ]
+        tracks.append(track)
+    onsets = player_onsets(tracks, fps)
+    assert len(onsets) >= 10
+    assert all(abs(onset - snap) <= stride * 2 for onset in onsets)
+    result = BayesianSnapDetector().detect(SnapInputs(tracklets=tracks, fps=fps))
+    assert result.snap_frame is not None
+    assert abs(result.snap_frame - snap) <= stride * 2
+
+
+def test_intermittent_calibration_and_unequal_boxes_do_not_create_pan_onsets() -> None:
+    from pipeline.events.snap_detector import player_onsets
+
+    tracks = []
+    for i, height in enumerate((20, 30, 40, 24, 36, 28, 44, 32)):
+        points = []
+        for frame in range(75):
+            left = 100.0 + i * 50 + 1.5 * frame
+            point = {
+                "frame_number": frame,
+                "bbox": [left, 300.0 - height, left + height / 2, 300.0],
+            }
+            if frame % 2 == 0:
+                point.update(field_x=1000.0 + frame, field_y=-1000.0 - frame)
+            points.append(point)
+        tracks.append({"id": f"p{i}", "track_points": points})
+
+    assert player_onsets(tracks, FPS) == []

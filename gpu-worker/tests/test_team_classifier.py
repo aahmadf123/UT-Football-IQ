@@ -14,6 +14,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from pipeline.stage_labels import run as run_labels
 from pipeline.team_classification.kmeans_team_classifier import (
+    DEFAULT_STRIPE_THRESHOLD,
     TEAM_DEFENSE,
     TEAM_OFFENSE,
     TEAM_OFFICIAL,
@@ -63,14 +64,9 @@ def _paint_player(
         torso_top = y1 + int(0.28 * (y2 - y1))
         torso_bottom = y1 + int(0.72 * (y2 - y1))
         cv2.rectangle(frame, (x1, torso_top), (x2, torso_bottom), (245, 245, 245), -1)
-        for offset in range(-40, 80, 10):
-            cv2.line(
-                frame,
-                (x1 + offset, torso_bottom),
-                (x1 + offset + 45, torso_top),
-                (10, 10, 10),
-                thickness=4,
-            )
+        # Officials wear vertical black-and-white stripes.
+        for x in range(x1 + 2, x2, 8):
+            cv2.line(frame, (x, torso_top), (x, torso_bottom), (10, 10, 10), thickness=4)
 
 
 def _frame(
@@ -197,7 +193,7 @@ def test_stripe_detector_scores_official_pattern_above_plain_jersey() -> None:
     striped_crop = striped_frame[58:102, 180:220]
 
     assert detect_stripe_score(striped_crop) > detect_stripe_score(plain)
-    assert detect_stripe_score(striped_crop) >= 0.18
+    assert detect_stripe_score(striped_crop) >= DEFAULT_STRIPE_THRESHOLD
 
 
 def test_stage_labels_writes_team_labels_and_patches_tracklets() -> None:
@@ -235,9 +231,7 @@ def test_stage_labels_writes_team_labels_and_patches_tracklets() -> None:
         return {"id": tracklet_id}
 
     with (
-        patch(
-            "pipeline.stage_labels.backend.create_label", side_effect=fake_create_label
-        ),
+        patch("pipeline.stage_labels.backend.create_label", side_effect=fake_create_label),
         patch(
             "pipeline.stage_labels.backend.patch_tracklet_team_label",
             side_effect=fake_patch_tracklet_team_label,
@@ -252,9 +246,7 @@ def test_stage_labels_writes_team_labels_and_patches_tracklets() -> None:
         )
 
     team_labels = [
-        label
-        for label in created_labels
-        if label["label_type"] == "team_classification"
+        label for label in created_labels if label["label_type"] == "team_classification"
     ]
     assert len(team_labels) == 3
     assert ("official", TEAM_OFFICIAL) in patched
@@ -274,3 +266,36 @@ def test_grass_estimate_uses_green_pixels() -> None:
 
     assert grass_lab.shape == (3,)
     assert float(grass_lab[0]) > 0.0
+
+
+def test_stripe_detector_ignores_numbers_and_tiny_crops() -> None:
+    solid = np.full((44, 26, 3), (40, 40, 140), dtype=np.uint8)
+    eleven = solid.copy()
+    eleven[8:36, 5:8] = 255
+    eleven[8:36, 15:18] = 255
+    assert detect_stripe_score(eleven) == 0.0
+    assert detect_stripe_score(solid) == 0.0
+    # Players seen from a drone are ~20 px tall: abstain, never "official".
+    tiny = np.zeros((20, 12, 3), dtype=np.uint8)
+    tiny[:, ::3] = 255
+    assert detect_stripe_score(tiny) == 0.0
+
+
+def test_no_striped_cluster_means_no_officials() -> None:
+    # Practice: two teams plus a third small colour group, no referees.
+    frame = np.full((180, 320, 3), GRASS, dtype=np.uint8)
+    boxes = {
+        "w1": ([10, 30, 50, 130], (240, 240, 240)),
+        "w2": ([60, 30, 100, 130], (238, 238, 238)),
+        "n1": ([120, 30, 160, 130], (90, 40, 20)),
+        "n2": ([170, 30, 210, 130], (92, 42, 22)),
+        "qb": ([250, 30, 290, 130], (30, 220, 240)),
+    }
+    for bbox, color in boxes.values():
+        _paint_player(frame, bbox, color)
+    tracklets = [_tracklet(name, bbox, range(0, 1)) for name, (bbox, _) in boxes.items()]
+    results = classify_tracklet_frames({0: frame}, tracklets, initial_frame=0)
+    labels = {r.tracklet_id: r.label for fr in results for r in fr.results}
+    assert TEAM_OFFICIAL not in labels.values()
+    assert labels["w1"] == labels["w2"] and labels["n1"] == labels["n2"]
+    assert labels["w1"] != labels["n1"]

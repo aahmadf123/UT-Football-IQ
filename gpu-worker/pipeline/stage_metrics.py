@@ -186,7 +186,7 @@ def run(
         )
         for t in tracklets if snap_frame is not None
     ]
-    snap_positions = [p for p in snap_positions if p and p.get("field_x") is not None]
+    snap_positions = [p for p in snap_positions if p and _field_position(p) is not None]
     if len(snap_positions) >= 4 and analytics_safe:
         cushions = _observed_cushions(tracklets, snap_frame)
         for cushion in cushions:
@@ -334,11 +334,8 @@ def _point_at_frame(
     pts: list[dict[str, Any]], frame: int
 ) -> dict[str, Any] | None:
     for pt in pts:
-        if pt.get("frame_number") == frame:
+        if pt.get("frame_number") == frame and _field_position(pt) is not None:
             return pt
-    # Return closest frame
-    if pts:
-        return min(pts, key=lambda p: abs(p.get("frame_number", 0) - frame))
     return None
 
 
@@ -378,7 +375,10 @@ def _ball_carrier_analytics(
     best_progress = 0.0
 
     for t in tracklets:
-        pts = sorted(t.get("track_points", []), key=lambda p: p.get("frame_number", 0))
+        pts = sorted(
+            (p for p in t.get("track_points", []) if _field_position(p) is not None),
+            key=lambda p: p.get("frame_number", 0),
+        )
         snap_pt = _point_at_frame(pts, snap_frame)
         contact_pt = _point_at_frame(pts, contact_frame)
         if snap_pt and contact_pt:
@@ -516,7 +516,12 @@ def _count_broken_tackles(
     broken = 0
     moving_forward = False
     for i in range(1, len(post_pts)):
-        dx = (post_pts[i].get("field_x") or 0) - (post_pts[i - 1].get("field_x") or 0)
+        current = _field_position(post_pts[i])
+        prior = _field_position(post_pts[i - 1])
+        if current is None or prior is None:
+            moving_forward = False
+            continue
+        dx = current[0] - prior[0]
         if abs(dx) > 0.5:
             if not moving_forward:
                 moving_forward = True
@@ -536,17 +541,27 @@ def _detect_cutback_timing(
     if len(post_pts) < 3:
         return None
 
-    initial_y = post_pts[0].get("field_y") or 0
+    initial_y: float | None = None
+    previous_y: float | None = None
     for i in range(2, len(post_pts)):
-        curr_y = post_pts[i].get("field_y") or 0
-        prev_y = post_pts[i - 1].get("field_y") or 0
+        position = _field_position(post_pts[i])
+        previous = _field_position(post_pts[i - 1])
+        if position is None or previous is None:
+            initial_y = None
+            previous_y = None
+            continue
+        curr_y, prev_y = position[1], previous[1]
+        if initial_y is None or previous_y is None:
+            initial_y, previous_y = prev_y, prev_y
+            continue
         # Detect direction reversal
         if abs(curr_y - initial_y) > 2.0:
-            dy1 = prev_y - initial_y
+            dy1 = previous_y - initial_y
             dy2 = curr_y - prev_y
             if dy1 * dy2 < 0 and abs(dy2) > 1.0:
                 frame_diff = post_pts[i].get("frame_number", 0) - handoff_frame
                 return frame_diff / max(fps, 1)
+        previous_y = curr_y
     return None
 
 
@@ -562,7 +577,12 @@ def _vision_decisiveness(
 
     consecutive_forward = 0
     for i in range(1, len(post_pts)):
-        dx = abs((post_pts[i].get("field_x") or 0) - (post_pts[i - 1].get("field_x") or 0))
+        current = _field_position(post_pts[i])
+        prior = _field_position(post_pts[i - 1])
+        if current is None or prior is None:
+            consecutive_forward = 0
+            continue
+        dx = abs(current[0] - prior[0])
         if dx > 0.3:
             consecutive_forward += 1
             if consecutive_forward >= 3:
@@ -754,10 +774,10 @@ def _effort_metrics(
                 p for p in pts
                 if snap_frame + int(fps * 1.0) <= p.get("frame_number", 0) <= snap_frame + int(fps * 3.0)
             ]
-            if len(late_pts) < 2:
+            if len(late_pts) < 2 or any(_field_position(p) is None for p in late_pts):
                 continue
-            x_start = late_pts[0].get("field_x") or 0
-            x_end = late_pts[-1].get("field_x") or 0
+            x_start = late_pts[0]["field_x"]
+            x_end = late_pts[-1]["field_x"]
             forward = abs(float(x_end) - float(x_start))
             if forward > 5.0:
                 blocking_count += 1
