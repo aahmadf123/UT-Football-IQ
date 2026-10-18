@@ -18,6 +18,9 @@ $env:WORKER_EMAIL = $config.worker_email
 $env:WORKER_PASSWORD = $password
 $env:WORKER_ID = "laptop-$($env:COMPUTERNAME.ToLower())"
 $env:PIPELINE_DEVICE = "cuda"
+# GPU laptop: BoT-SORT (Kalman + camera-motion compensation) for full-quality
+# jobs. On Toledo drone film it halved track fragmentation vs the IoU tracker.
+$env:ENABLE_BOTSORT_NIGHTLY = "1"
 $env:PROCESSING_PROFILE = $config.profile
 $env:WORKER_PROFILES = "review,quick,detailed"
 $env:MODEL_DETECT_PATH = $config.detector_path

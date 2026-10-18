@@ -68,7 +68,29 @@ log = structlog.get_logger(__name__)
 
 MODEL_PATH = os.environ.get("MODEL_DETECT_PATH", "yolov8n.pt")
 DETECTION_CONF = float(os.environ.get("DETECTION_CONF", "0.35"))
-FRAME_STEP = int(os.environ.get("DETECT_FRAME_STEP", "3"))  # run every N frames
+FRAME_STEP = int(os.environ.get("DETECT_FRAME_STEP", "3"))  # CPU default: every 3rd frame
+#: Detections per second to aim for on a GPU. Tracking quality depends on how
+#: far players move between looks: every 3rd frame fragmented a drone clip's
+#: ~22 players into 94 tracks; every frame (30 fps) roughly tripled track
+#: length. 60 fps game film is detected every other frame.
+GPU_TARGET_DETECT_FPS = 30.0
+
+
+def detection_frame_step(fps: float, device: str | None = None) -> int:
+    """Run the detector every N source frames.
+
+    ``DETECT_FRAME_STEP`` always wins; otherwise a GPU detects at about
+    ``GPU_TARGET_DETECT_FPS`` and the CPU keeps the cheaper default.
+    """
+    configured = os.environ.get("DETECT_FRAME_STEP")
+    if configured:
+        return max(1, int(configured))
+    from pipeline.runtime import inference_device
+
+    if (device or inference_device()).startswith(("cuda", "mps")):
+        return max(1, round((fps or 30.0) / GPU_TARGET_DETECT_FPS))
+    return max(1, FRAME_STEP)
+
 
 # Ball detection runs alongside players unless explicitly disabled.
 DETECT_BALL_ENABLED = os.environ.get("DETECT_BALL_ENABLED", "1").strip().lower() in {
@@ -187,10 +209,15 @@ def run(
     video_path = object_store.download_to_temp(object_key)
     try:
         result = _detect(
-            video_path, player, ball, suppressor,
+            video_path,
+            player,
+            ball,
+            suppressor,
             # A pixel-space polygon from one frame moves during a pan/zoom.
             # Applying it to a moving recording rejects real on-field players.
-            boundary_from_diagnostics(field_boundary) if capture_regime == "fixed_sideline" else None,
+            boundary_from_diagnostics(field_boundary)
+            if capture_regime == "fixed_sideline"
+            else None,
             timeline=timeline,
         )
     finally:
@@ -211,7 +238,9 @@ def run(
         "player": player_detection_strategy(capture_regime),
         "ball": ball_strategy(capture_regime) if ball is not None else "disabled",
         "official_suppression": suppressor.enabled,
-        "boundary_filter": "static" if capture_regime == "fixed_sideline" and field_boundary else "disabled",
+        "boundary_filter": "static"
+        if capture_regime == "fixed_sideline" and field_boundary
+        else "disabled",
     }
     return result
 
@@ -265,11 +294,14 @@ def _detect(
     cap = nvdec_video_capture(video_path)
     fps: float = cap.get(cv2.CAP_PROP_FPS) or 30.0
     timeline = timeline or VideoTimeline.from_path(
-        video_path, fps_fallback=fps,
+        video_path,
+        fps_fallback=fps,
         frame_count_fallback=int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0),
     )
 
     detections: dict[str, list[dict[str, Any]]] = {}
+    frame_step = detection_frame_step(fps)
+    log.info("detect_frame_step", frame_step=frame_step, source_fps=round(fps, 2))
     frame_idx = 0
     masked_frame_count = 0
     official_count = 0
@@ -283,7 +315,7 @@ def _detect(
             if not ret:
                 break
 
-            if frame_idx % FRAME_STEP == 0:
+            if frame_idx % frame_step == 0:
                 player_dets = player.detect(frame)
                 player_dets = suppressor.suppress(frame, player_dets)
                 player_dets, dropped = _off_field(player_dets, boundary)
