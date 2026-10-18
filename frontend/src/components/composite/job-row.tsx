@@ -10,7 +10,7 @@ import type { ApiJob, JobStageProgress } from "@/lib/types";
 import { StatusBadge, toneForJobStatus } from "@/components/composite/status-badge";
 import { cn } from "@/lib/utils";
 
-export function JobRow({ job }: { job: ApiJob }) {
+export function JobRow({ job, label }: { job: ApiJob; label?: string }) {
   const stages = summarizeProgress(job.progress);
   const lease = leaseSummary(job);
   return (
@@ -19,7 +19,7 @@ export function JobRow({ job }: { job: ApiJob }) {
       data-testid={`job-row-${job.id}`}
     >
       <div className="flex items-center gap-2">
-        <span className="min-w-0 flex-1 truncate font-medium text-foreground">{job.job_type}</span>
+        <span className="min-w-0 flex-1 truncate font-medium text-foreground">{label ?? job.job_type}</span>
         <StatusBadge tone={toneForJobStatus(job.status)} dot className="capitalize">
           {job.status}
         </StatusBadge>
