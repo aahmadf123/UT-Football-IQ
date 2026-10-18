@@ -134,7 +134,14 @@ $secret = if ($WorkerPassword) {
 # ── 5. Scheduled task ────────────────────────────────────────────────────────
 $action = New-ScheduledTaskAction -Execute "powershell.exe" `
     -Argument "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$Runner`""
-$trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
+$atLogon = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
+# Watchdog: Windows ends the hidden runner with STATUS_CONTROL_C_EXIT on some
+# session/power events, which "restart on failure" does not cover, leaving
+# film queued until the next logon. Re-launch every 5 minutes; IgnoreNew
+# makes this a no-op while the worker is already running.
+$watchdog = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) `
+    -RepetitionInterval (New-TimeSpan -Minutes 5)
+$trigger = @($atLogon, $watchdog)
 $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
     -StartWhenAvailable -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) `
     -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew
