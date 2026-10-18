@@ -46,9 +46,11 @@ import math
 import os
 from typing import Any
 
+import numpy as np
 import structlog
 
 from pipeline import backend
+from pipeline.metrics import kinematics
 from pipeline.metrics.effort_zscore import evaluate_effort_candidate
 from pipeline.metrics.workload_fusion import evaluate_workload_candidate
 from pipeline.runtime import PipelineInterrupted, check_control
@@ -99,16 +101,27 @@ def run(
         first, last = snap_event.get("timestamp_seconds"), throw_event.get("timestamp_seconds")
         if timeline is not None:
             first, last = timeline.timestamp(snap_frame), timeline.timestamp(throw_frame)
-        ttt = float(last) - float(first) if first is not None and last is not None else (throw_frame - snap_frame) / fps
-        metrics.append({
-            "metric_name": "time_to_throw",
-            "metric_value": {"seconds": round(ttt, 3), "source": "real",
-                             "measurement": "observed_events",
-                             "review_required": any(e.get("source") != "human" for e in (snap_event, throw_event))},
-            "unit": "s",
-            "is_suppressed": False,
-            "suppression_reason": None,
-        })
+        ttt = (
+            float(last) - float(first)
+            if first is not None and last is not None
+            else (throw_frame - snap_frame) / fps
+        )
+        metrics.append(
+            {
+                "metric_name": "time_to_throw",
+                "metric_value": {
+                    "seconds": round(ttt, 3),
+                    "source": "real",
+                    "measurement": "observed_events",
+                    "review_required": any(
+                        e.get("source") != "human" for e in (snap_event, throw_event)
+                    ),
+                },
+                "unit": "s",
+                "is_suppressed": False,
+                "suppression_reason": None,
+            }
+        )
 
     # ── Per-tracklet metrics (require field coords → analytics_safe) ──────
     for t in tracklets:
@@ -119,84 +132,94 @@ def run(
         # Partial trajectories cannot stand in for a full rep's distance/speed.
         if not analytics_safe or any(_field_position(p) is None for p in pts):
             continue
-        if any(point_interval(pts[i - 1], pts[i], fps) > .5
-               for i in range(1, len(pts))):
+        if any(point_interval(pts[i - 1], pts[i], fps) > 0.5 for i in range(1, len(pts))):
             continue
         track_id = t.get("id", "unknown")
 
         # Distance traveled
-        dist = _distance_traveled(pts)
-        metrics.append({
-            # Top-level tracklet_id populates the metrics.tracklet_id FK the
-            # per-player aggregation joins on; the copy inside metric_value
-            # predates it and stays for render callouts.
-            "tracklet_id": t.get("id"),
-            "metric_name": "distance_traveled",
-            "metric_value": {"yards": round(dist, 2), "track_id": track_id, "confidence": 0.7},
-            "unit": "yd",
-            "is_suppressed": suppressed,
-            "suppression_reason": reason,
-        })
+        dist = _distance_traveled(pts, fps)
+        metrics.append(
+            {
+                # Top-level tracklet_id populates the metrics.tracklet_id FK the
+                # per-player aggregation joins on; the copy inside metric_value
+                # predates it and stays for render callouts.
+                "tracklet_id": t.get("id"),
+                "metric_name": "distance_traveled",
+                "metric_value": {"yards": round(dist, 2), "track_id": track_id, "confidence": 0.7},
+                "unit": "yd",
+                "is_suppressed": suppressed,
+                "suppression_reason": reason,
+            }
+        )
 
         # Max speed
         speeds = _frame_speeds(pts, fps)
         if speeds:
-            max_spd = max(speeds)
-            metrics.append({
-                "tracklet_id": t.get("id"),
-                "metric_name": "max_speed",
-                "metric_value": {
-                    "yards_per_second": round(max_spd, 2),
-                    "track_id": track_id,
-                    "confidence": 0.65,
-                },
-                "unit": "yd/s",
-                "is_suppressed": suppressed,
-                "suppression_reason": reason,
-            })
+            max_spd = _peak_speed(speeds)
+            metrics.append(
+                {
+                    "tracklet_id": t.get("id"),
+                    "metric_name": "max_speed",
+                    "metric_value": {
+                        "yards_per_second": round(max_spd, 2),
+                        "track_id": track_id,
+                        "confidence": 0.65,
+                    },
+                    "unit": "yd/s",
+                    "is_suppressed": suppressed,
+                    "suppression_reason": reason,
+                }
+            )
 
         # Dropback depth (for backfield player moving away from LOS after snap)
         snap_pt = _point_at_frame(pts, snap_frame) if snap_frame is not None else None
-        if (throw_frame is not None and snap_pt and not suppressed
-                and t.get("position_group") == "QB" and t.get("side_of_ball") == "offense"):
+        if (
+            throw_frame is not None
+            and snap_pt
+            and not suppressed
+            and t.get("position_group") == "QB"
+            and t.get("side_of_ball") == "offense"
+        ):
             throw_pt = _point_at_frame(pts, throw_frame)
             if throw_pt:
-                depth = abs(
-                    (throw_pt.get("field_x") or 0) - (snap_pt.get("field_x") or 0)
-                )
+                depth = abs((throw_pt.get("field_x") or 0) - (snap_pt.get("field_x") or 0))
                 if depth > 1.0:
-                    metrics.append({
-                        "metric_name": "dropback_depth",
-                        "metric_value": {
-                            "yards": round(depth, 2),
-                            "track_id": track_id,
-                            "confidence": 0.65,
-                        },
-                        "unit": "yd",
-                        "is_suppressed": False,
-                        "suppression_reason": None,
-                    })
+                    metrics.append(
+                        {
+                            "metric_name": "dropback_depth",
+                            "metric_value": {
+                                "yards": round(depth, 2),
+                                "track_id": track_id,
+                                "confidence": 0.65,
+                            },
+                            "unit": "yd",
+                            "is_suppressed": False,
+                            "suppression_reason": None,
+                        }
+                    )
 
     # ── Cushion at snap ───────────────────────────────────────────────────
     snap_positions = [
         _point_at_frame(
-            sorted(t.get("track_points", []),
-                   key=lambda p: p.get("frame_number", 0)),
+            sorted(t.get("track_points", []), key=lambda p: p.get("frame_number", 0)),
             snap_frame,
         )
-        for t in tracklets if snap_frame is not None
+        for t in tracklets
+        if snap_frame is not None
     ]
     snap_positions = [p for p in snap_positions if p and _field_position(p) is not None]
     if len(snap_positions) >= 4 and analytics_safe:
         cushions = _observed_cushions(tracklets, snap_frame)
         for cushion in cushions:
-            metrics.append({
-                "metric_name": "cushion_at_snap",
-                "metric_value": {"yards": round(cushion, 2), "confidence": 0.6},
-                "unit": "yd",
-                "is_suppressed": not analytics_safe,
-                "suppression_reason": "calibration_not_safe" if not analytics_safe else None,
-            })
+            metrics.append(
+                {
+                    "metric_name": "cushion_at_snap",
+                    "metric_value": {"yards": round(cushion, 2), "confidence": 0.6},
+                    "unit": "yd",
+                    "is_suppressed": not analytics_safe,
+                    "suppression_reason": "calibration_not_safe" if not analytics_safe else None,
+                }
+            )
 
     # ══════════════════════════════════════════════════════════════════════
     # Phase 2 metrics
@@ -206,14 +229,22 @@ def run(
     experimental = os.environ.get("EXPERIMENTAL_FOOTBALL_METRICS", "0") == "1"
     if experimental and snap_frame is not None and contact_frame is not None and not suppressed:
         bc_metrics = _ball_carrier_analytics(
-            tracklets, snap_frame, contact_frame, handoff_frame, end_frame, fps,
+            tracklets,
+            snap_frame,
+            contact_frame,
+            handoff_frame,
+            end_frame,
+            fps,
         )
         metrics.extend(bc_metrics)
 
     # ── QB Decision Metrics ───────────────────────────────────────────────
     if experimental and snap_frame is not None and throw_frame is not None and not suppressed:
         qb_metrics = _qb_decision_metrics(
-            tracklets, snap_frame, throw_frame, fps,
+            tracklets,
+            snap_frame,
+            throw_frame,
+            fps,
         )
         metrics.extend(qb_metrics)
 
@@ -233,13 +264,19 @@ def run(
         check_control()
         if m["metric_name"] != "time_to_throw":
             m["experimental_flag"] = True
-            m["metric_value"].update(source="real", measurement="tracking_observation", review_required=True)
-        synthetic = any(p.get("source") == "synthetic_test"
-                        for t in tracklets for p in t.get("track_points", []))
+            m["metric_value"].update(
+                source="real", measurement="tracking_observation", review_required=True
+            )
+        synthetic = any(
+            p.get("source") == "synthetic_test"
+            for t in tracklets
+            for p in t.get("track_points", [])
+        )
         if synthetic:
             m["metric_value"]["source"] = "synthetic_test"
         m["metric_value"]["provenance"] = {
-            "source": m["metric_value"]["source"], "validated": False,
+            "source": m["metric_value"]["source"],
+            "validated": False,
         }
         try:
             payload: dict[str, Any] = {
@@ -277,32 +314,24 @@ def run(
 # ── Phase 1 Helpers ───────────────────────────────────────────────────────────
 
 
-def _distance_traveled(pts: list[dict[str, Any]]) -> float:
-    total = 0.0
-    for i in range(1, len(pts)):
-        a, b = _field_position(pts[i - 1]), _field_position(pts[i])
-        if a is None or b is None:
-            continue
-        x0, y0 = a
-        x1, y1 = b
-        total += math.sqrt((x1 - x0) ** 2 + (y1 - y0) ** 2)
-    return total
+def _distance_traveled(pts: list[dict[str, Any]], fps: float = 30.0) -> float:
+    """Smoothed path length (yd); see :mod:`pipeline.metrics.kinematics`."""
+    return kinematics.distance(pts, fps)
 
 
 def _frame_speeds(pts: list[dict[str, Any]], fps: float) -> list[float]:
-    speeds: list[float] = []
-    for i in range(1, len(pts)):
-        dt = point_interval(pts[i - 1], pts[i], fps)
-        if dt <= 0:
-            continue
-        a, b = _field_position(pts[i - 1]), _field_position(pts[i])
-        if a is None or b is None:
-            continue
-        x0, y0 = a
-        x1, y1 = b
-        dist = math.sqrt((x1 - x0) ** 2 + (y1 - y0) ** 2)
-        speeds.append(dist / dt)
-    return speeds
+    """Smoothed, physically plausible speeds (yd/s) over ~0.2 s spans.
+
+    Raw frame-to-frame differences reported 16 yd/s median "max speeds" on
+    Toledo film; see :mod:`pipeline.metrics.kinematics`.
+    """
+    return kinematics.speeds(pts, fps)
+
+
+def _peak_speed(speeds: list[float]) -> float:
+    """Top speed as the 95th percentile of a rep's smoothed speeds, so one
+    residual spike can't define a player's max."""
+    return float(np.percentile(speeds, 95)) if speeds else 0.0
 
 
 def _field_position(point: dict[str, Any]) -> tuple[float, float] | None:
@@ -324,15 +353,20 @@ def _observed_cushions(tracklets: list[dict[str, Any]], snap_frame: int) -> list
             continue
         if track.get("side_of_ball") == "defense":
             defenders.append(position)
-        elif track.get("side_of_ball") == "offense" and track.get("position_group") in {"WR", "TE", "SLOT"}:
+        elif track.get("side_of_ball") == "offense" and track.get("position_group") in {
+            "WR",
+            "TE",
+            "SLOT",
+        }:
             receivers.append(position)
-    return [min(math.dist(receiver, defender) for defender in defenders)
-            for receiver in receivers] if defenders else []
+    return (
+        [min(math.dist(receiver, defender) for defender in defenders) for receiver in receivers]
+        if defenders
+        else []
+    )
 
 
-def _point_at_frame(
-    pts: list[dict[str, Any]], frame: int
-) -> dict[str, Any] | None:
+def _point_at_frame(pts: list[dict[str, Any]], frame: int) -> dict[str, Any] | None:
     for pt in pts:
         if pt.get("frame_number") == frame and _field_position(pt) is not None:
             return pt
@@ -344,8 +378,7 @@ def _compute_cushions(
 ) -> list[float]:
     """Approximate cushion as min distance between adjacent players (sorted by y)."""
     ys = sorted(
-        (float(p.get("field_y") or 0), float(p.get("field_x") or 0))
-        for p in snap_positions
+        (float(p.get("field_y") or 0), float(p.get("field_x") or 0)) for p in snap_positions
     )
     cushions: list[float] = []
     for i in range(1, len(ys)):
@@ -400,98 +433,110 @@ def _ball_carrier_analytics(
     speeds = _frame_speeds(bc_pts, fps)
     contact_idx = _closest_index(bc_pts, contact_frame)
     if contact_idx is not None and contact_idx < len(speeds):
-        metrics.append({
-            "metric_name": "speed_at_contact",
-            "metric_value": {
-                "yards_per_second": round(speeds[min(contact_idx, len(speeds) - 1)], 2),
-                "track_id": track_id,
-                "confidence": 0.6,
-            },
-            "unit": "yd/s",
-            "is_suppressed": False,
-            "suppression_reason": None,
-        })
+        metrics.append(
+            {
+                "metric_name": "speed_at_contact",
+                "metric_value": {
+                    "yards_per_second": round(speeds[min(contact_idx, len(speeds) - 1)], 2),
+                    "track_id": track_id,
+                    "confidence": 0.6,
+                },
+                "unit": "yd/s",
+                "is_suppressed": False,
+                "suppression_reason": None,
+            }
+        )
 
     # Pre-contact yards
     snap_pt = _point_at_frame(bc_pts, snap_frame)
     contact_pt = _point_at_frame(bc_pts, contact_frame)
     if snap_pt and contact_pt:
         pre_contact = abs((contact_pt.get("field_x") or 0) - (snap_pt.get("field_x") or 0))
-        metrics.append({
-            "metric_name": "pre_contact_yards",
-            "metric_value": {
-                "yards": round(pre_contact, 2),
-                "track_id": track_id,
-                "confidence": 0.6,
-            },
-            "unit": "yd",
-            "is_suppressed": False,
-            "suppression_reason": None,
-        })
+        metrics.append(
+            {
+                "metric_name": "pre_contact_yards",
+                "metric_value": {
+                    "yards": round(pre_contact, 2),
+                    "track_id": track_id,
+                    "confidence": 0.6,
+                },
+                "unit": "yd",
+                "is_suppressed": False,
+                "suppression_reason": None,
+            }
+        )
 
     # Post-contact yards
     if end_frame is not None and contact_pt:
         end_pt = _point_at_frame(bc_pts, end_frame)
         if end_pt:
             post_contact = abs((end_pt.get("field_x") or 0) - (contact_pt.get("field_x") or 0))
-            metrics.append({
-                "metric_name": "post_contact_yards",
-                "metric_value": {
-                    "yards": round(post_contact, 2),
-                    "track_id": track_id,
-                    "confidence": 0.55,
-                },
-                "unit": "yd",
-                "is_suppressed": False,
-                "suppression_reason": None,
-            })
+            metrics.append(
+                {
+                    "metric_name": "post_contact_yards",
+                    "metric_value": {
+                        "yards": round(post_contact, 2),
+                        "track_id": track_id,
+                        "confidence": 0.55,
+                    },
+                    "unit": "yd",
+                    "is_suppressed": False,
+                    "suppression_reason": None,
+                }
+            )
 
     # Broken tackles: count forward movement segments after contact
     if end_frame is not None:
         broken = _count_broken_tackles(bc_pts, contact_frame, end_frame)
-        metrics.append({
-            "metric_name": "broken_tackles",
-            "metric_value": {
-                "count": broken,
-                "track_id": track_id,
-                "confidence": 0.45,
-            },
-            "unit": "count",
-            "is_suppressed": False,
-            "suppression_reason": None,
-        })
+        metrics.append(
+            {
+                "metric_name": "broken_tackles",
+                "metric_value": {
+                    "count": broken,
+                    "track_id": track_id,
+                    "confidence": 0.45,
+                },
+                "unit": "count",
+                "is_suppressed": False,
+                "suppression_reason": None,
+            }
+        )
 
     # Cutback timing (time from handoff to lateral direction change)
     if handoff_frame is not None:
         cutback = _detect_cutback_timing(bc_pts, handoff_frame, fps)
         if cutback is not None:
-            metrics.append({
-                "metric_name": "cutback_timing",
-                "metric_value": {
-                    "seconds": round(cutback, 3),
-                    "track_id": track_id,
-                    "confidence": 0.5,
-                },
-                "unit": "s",
-                "is_suppressed": False,
-                "suppression_reason": None,
-            })
+            metrics.append(
+                {
+                    "metric_name": "cutback_timing",
+                    "metric_value": {
+                        "seconds": round(cutback, 3),
+                        "track_id": track_id,
+                        "confidence": 0.5,
+                    },
+                    "unit": "s",
+                    "is_suppressed": False,
+                    "suppression_reason": None,
+                }
+            )
 
     # Vision decisiveness (time from handoff to gap commitment)
     if handoff_frame is not None:
         decisiveness = _vision_decisiveness(bc_pts, handoff_frame, fps)
         if decisiveness is not None:
-            metrics.append({
-                "metric_name": "vision_decisiveness",
-                "metric_value": {
-                    "seconds": round(decisiveness, 3),
-                    "track_id": track_id,
-                    "confidence": 0.5,
-                },
-                "unit": "s",
-                "is_suppressed": False,
-                "suppression_reason": None,
-            })
+            metrics.append(
+                {
+                    "metric_name": "vision_decisiveness",
+                    "metric_value": {
+                        "seconds": round(decisiveness, 3),
+                        "track_id": track_id,
+                        "confidence": 0.5,
+                    },
+                    "unit": "s",
+                    "is_suppressed": False,
+                    "suppression_reason": None,
+                }
+            )
 
     return metrics
 
@@ -502,14 +547,9 @@ def _closest_index(pts: list[dict[str, Any]], frame: int) -> int | None:
     return min(range(len(pts)), key=lambda i: abs(pts[i].get("frame_number", 0) - frame))
 
 
-def _count_broken_tackles(
-    pts: list[dict[str, Any]], contact_frame: int, end_frame: int
-) -> int:
+def _count_broken_tackles(pts: list[dict[str, Any]], contact_frame: int, end_frame: int) -> int:
     """Count segments of continued forward movement after contact."""
-    post_pts = [
-        p for p in pts
-        if contact_frame <= p.get("frame_number", 0) <= end_frame
-    ]
+    post_pts = [p for p in pts if contact_frame <= p.get("frame_number", 0) <= end_frame]
     if len(post_pts) < 3:
         return 0
 
@@ -535,9 +575,7 @@ def _detect_cutback_timing(
     pts: list[dict[str, Any]], handoff_frame: int, fps: float
 ) -> float | None:
     """Detect time from handoff to first significant lateral direction change."""
-    post_pts = [
-        p for p in pts if p.get("frame_number", 0) >= handoff_frame
-    ]
+    post_pts = [p for p in pts if p.get("frame_number", 0) >= handoff_frame]
     if len(post_pts) < 3:
         return None
 
@@ -565,13 +603,9 @@ def _detect_cutback_timing(
     return None
 
 
-def _vision_decisiveness(
-    pts: list[dict[str, Any]], handoff_frame: int, fps: float
-) -> float | None:
+def _vision_decisiveness(pts: list[dict[str, Any]], handoff_frame: int, fps: float) -> float | None:
     """Time from handoff to gap commitment (sustained forward movement)."""
-    post_pts = [
-        p for p in pts if p.get("frame_number", 0) >= handoff_frame
-    ]
+    post_pts = [p for p in pts if p.get("frame_number", 0) >= handoff_frame]
     if len(post_pts) < 3:
         return None
 
@@ -625,18 +659,20 @@ def _qb_decision_metrics(
         ttt_seconds = (throw_frame - snap_frame) / max(fps, 1)
 
         dropback_type = _classify_dropback(depth, lateral, ttt_seconds)
-        metrics.append({
-            "metric_name": "dropback_type",
-            "metric_value": {
-                "type": dropback_type,
-                "depth_yards": round(depth, 2),
-                "track_id": track_id,
-                "confidence": 0.55,
-            },
-            "unit": "category",
-            "is_suppressed": False,
-            "suppression_reason": None,
-        })
+        metrics.append(
+            {
+                "metric_name": "dropback_type",
+                "metric_value": {
+                    "type": dropback_type,
+                    "depth_yards": round(depth, 2),
+                    "track_id": track_id,
+                    "confidence": 0.55,
+                },
+                "unit": "category",
+                "is_suppressed": False,
+                "suppression_reason": None,
+            }
+        )
 
         # Release point hash
         release_y = throw_pt.get("field_y") or 0
@@ -647,25 +683,25 @@ def _qb_decision_metrics(
         else:
             hash_pos = "middle"
 
-        metrics.append({
-            "metric_name": "release_point_hash",
-            "metric_value": {
-                "hash": hash_pos,
-                "field_y": round(float(release_y), 1),
-                "track_id": track_id,
-                "confidence": 0.6,
-            },
-            "unit": "category",
-            "is_suppressed": False,
-            "suppression_reason": None,
-        })
+        metrics.append(
+            {
+                "metric_name": "release_point_hash",
+                "metric_value": {
+                    "hash": hash_pos,
+                    "field_y": round(float(release_y), 1),
+                    "track_id": track_id,
+                    "confidence": 0.6,
+                },
+                "unit": "category",
+                "is_suppressed": False,
+                "suppression_reason": None,
+            }
+        )
 
     return metrics
 
 
-def _find_qb_tracklet(
-    tracklets: list[dict[str, Any]], snap_frame: int
-) -> dict[str, Any] | None:
+def _find_qb_tracklet(tracklets: list[dict[str, Any]], snap_frame: int) -> dict[str, Any] | None:
     """Find the QB tracklet: backfield player closest to center at snap."""
     best: dict[str, Any] | None = None
     best_dist = float("inf")
@@ -741,7 +777,9 @@ def _effort_metrics(
     sprint_track_id = "unknown"
     for t in tracklets:
         pts = sorted(t.get("track_points", []), key=lambda p: p.get("frame_number", 0))
-        sprint_pts = [p for p in pts if snap_frame <= p.get("frame_number", 0) <= snap_frame + sprint_window]
+        sprint_pts = [
+            p for p in pts if snap_frame <= p.get("frame_number", 0) <= snap_frame + sprint_window
+        ]
         if len(sprint_pts) < 2:
             continue
         speeds = _frame_speeds(sprint_pts, fps)
@@ -750,17 +788,19 @@ def _effort_metrics(
             sprint_track_id = t.get("id", "unknown")
 
     if max_sprint > 0:
-        metrics.append({
-            "metric_name": "sprint_to_ball",
-            "metric_value": {
-                "max_speed_yps": round(max_sprint, 2),
-                "track_id": sprint_track_id,
-                "confidence": 0.6,
-            },
-            "unit": "yd/s",
-            "is_suppressed": suppressed,
-            "suppression_reason": reason,
-        })
+        metrics.append(
+            {
+                "metric_name": "sprint_to_ball",
+                "metric_value": {
+                    "max_speed_yps": round(max_sprint, 2),
+                    "track_id": sprint_track_id,
+                    "confidence": 0.6,
+                },
+                "unit": "yd/s",
+                "is_suppressed": suppressed,
+                "suppression_reason": reason,
+            }
+        )
 
     # Downfield blocking participation by skill players
     if end_frame is not None and not suppressed:
@@ -771,8 +811,11 @@ def _effort_metrics(
                 continue
             # Check for forward + lateral movement 1-3 seconds after snap
             late_pts = [
-                p for p in pts
-                if snap_frame + int(fps * 1.0) <= p.get("frame_number", 0) <= snap_frame + int(fps * 3.0)
+                p
+                for p in pts
+                if snap_frame + int(fps * 1.0)
+                <= p.get("frame_number", 0)
+                <= snap_frame + int(fps * 3.0)
             ]
             if len(late_pts) < 2 or any(_field_position(p) is None for p in late_pts):
                 continue
@@ -782,16 +825,18 @@ def _effort_metrics(
             if forward > 5.0:
                 blocking_count += 1
 
-        metrics.append({
-            "metric_name": "downfield_blocking",
-            "metric_value": {
-                "participants": blocking_count,
-                "confidence": 0.5,
-            },
-            "unit": "count",
-            "is_suppressed": False,
-            "suppression_reason": None,
-        })
+        metrics.append(
+            {
+                "metric_name": "downfield_blocking",
+                "metric_value": {
+                    "participants": blocking_count,
+                    "confidence": 0.5,
+                },
+                "unit": "count",
+                "is_suppressed": False,
+                "suppression_reason": None,
+            }
+        )
 
     for t in tracklets:
         candidate = evaluate_effort_candidate(
@@ -802,19 +847,21 @@ def _effort_metrics(
         )
         if candidate is None:
             continue
-        metrics.append({
-            "tracklet_id": t.get("id"),
-            "metric_name": "effort_review_candidate",
-            "metric_value": candidate,
-            "unit": "review",
-            "effort_zscore": candidate.get("effort_zscore"),
-            "loaf_flag": candidate.get("loaf_flag"),
-            "experimental_flag": True,
-            "analytics_safe": False,
-            "confidence": candidate.get("confidence"),
-            "is_suppressed": suppressed,
-            "suppression_reason": reason,
-        })
+        metrics.append(
+            {
+                "tracklet_id": t.get("id"),
+                "metric_name": "effort_review_candidate",
+                "metric_value": candidate,
+                "unit": "review",
+                "effort_zscore": candidate.get("effort_zscore"),
+                "loaf_flag": candidate.get("loaf_flag"),
+                "experimental_flag": True,
+                "analytics_safe": False,
+                "confidence": candidate.get("confidence"),
+                "is_suppressed": suppressed,
+                "suppression_reason": reason,
+            }
+        )
 
     return metrics
 
@@ -849,19 +896,21 @@ def _workload_metrics(
         )
         if candidate is None:
             continue
-        metrics.append({
-            "tracklet_id": t.get("id"),
-            "metric_name": "workload_fusion",
-            "metric_value": candidate,
-            "unit": "review",
-            "sprint_count": candidate.get("sprint_count"),
-            "asymmetry_index": candidate.get("asymmetry_index"),
-            "injury_risk_score": candidate.get("injury_risk_score"),
-            "experimental_flag": True,
-            "analytics_safe": False,
-            "confidence": candidate.get("confidence"),
-            "is_suppressed": suppressed,
-            "suppression_reason": reason,
-        })
+        metrics.append(
+            {
+                "tracklet_id": t.get("id"),
+                "metric_name": "workload_fusion",
+                "metric_value": candidate,
+                "unit": "review",
+                "sprint_count": candidate.get("sprint_count"),
+                "asymmetry_index": candidate.get("asymmetry_index"),
+                "injury_risk_score": candidate.get("injury_risk_score"),
+                "experimental_flag": True,
+                "analytics_safe": False,
+                "confidence": candidate.get("confidence"),
+                "is_suppressed": suppressed,
+                "suppression_reason": reason,
+            }
+        )
 
     return metrics
