@@ -51,19 +51,24 @@ LOG_ODDS: dict[str, float] = {
     "ol_stance_break": 3.0,
     "qb_hand_movement": 2.0,
     "center_ball_separation": 3.5,
+    # Most of the squad going from set to moving together, on smoothed
+    # tracks. The one signal allowed to decide alone, and only when nearly
+    # everyone moves at once (strength 1.0 -> P ~0.62 at the base rate); a
+    # partial onset still needs corroboration.
+    "collective_onset": 4.4,
 }
 
 # Decision threshold on the fused probability.
 DEFAULT_PROB_THRESHOLD: float = 0.5
 
 # Signal tuning.
-STATIC_SPEED_YD_S: float = 1.0       # below this a player is "static"
-MOTION_BURST_YD_S: float = 4.0       # snap-grade motion onset
-STABLE_SECONDS: float = 0.5          # formation-stability look-back
-STANCE_BREAK_DEG: float = 30.0       # OL torso-angle change
-STANCE_BREAK_MIN_OL: int = 4         # OL count that must break together
-STANCE_BREAK_WINDOW: int = 3         # frames over which the break is measured
-CENTER_BALL_SEP_YD_S: float = 10.0   # ball-off-centre separation speed
+STATIC_SPEED_YD_S: float = 1.0  # below this a player is "static"
+MOTION_BURST_YD_S: float = 4.0  # snap-grade motion onset
+STABLE_SECONDS: float = 0.5  # formation-stability look-back
+STANCE_BREAK_DEG: float = 30.0  # OL torso-angle change
+STANCE_BREAK_MIN_OL: int = 4  # OL count that must break together
+STANCE_BREAK_WINDOW: int = 3  # frames over which the break is measured
+CENTER_BALL_SEP_YD_S: float = 10.0  # ball-off-centre separation speed
 
 
 def _sigmoid(x: float) -> float:
@@ -149,6 +154,170 @@ def signal_formation_stability(
         stable_frac = sum(1 for g in look if speed.get(g, 0.0) < static_speed_yd_s) / len(look)
         burst = (speed.get(f, 0.0) - static_speed_yd_s) / max(motion_burst_yd_s, 1e-6)
         out[f] = float(np.clip(stable_frac * burst, 0.0, 1.0))
+    return out
+
+
+#: A player is ~2 yards tall: pixel displacement / box height * 2 ~ yards.
+PLAYER_HEIGHT_YD: float = 2.0
+ONSET_STATIC_YD_S: float = 1.0
+ONSET_START_YD_S: float = 1.5
+ONSET_MOVING_YD_S: float = 2.5
+ONSET_SET_S: float = 0.35
+ONSET_CONFIRM_S: float = 0.6
+ONSET_CLUSTER_S: float = 0.15
+ONSET_SMOOTH_S: float = 0.2
+
+
+def _positions_yd(tracklet: dict[str, Any]) -> dict[int, tuple[float, float]]:
+    """Per-frame position in yards: field coordinates when calibrated, else
+    the box's foot point scaled by the track's median box height (players are
+    ~2 yd tall), so the signal also works on uncalibrated film. A per-frame
+    height would turn box jitter into fake movement."""
+    points = tracklet.get("track_points") or []
+    out: dict[int, tuple[float, float]] = {}
+    heights = [
+        float(p["bbox"][3]) - float(p["bbox"][1])
+        for p in points
+        if p.get("bbox") and len(p["bbox"]) >= 4 and float(p["bbox"][3]) - float(p["bbox"][1]) > 1
+    ]
+    scale = PLAYER_HEIGHT_YD / float(np.median(heights)) if heights else None
+    for point in points:
+        frame = point.get("frame_number")
+        if frame is None:
+            continue
+        if point.get("field_x") is not None and point.get("field_y") is not None:
+            out[int(frame)] = (float(point["field_x"]), float(point["field_y"]))
+            continue
+        bbox = point.get("bbox")
+        if scale is None or not bbox or len(bbox) < 4:
+            continue
+        out[int(frame)] = (
+            (float(bbox[0]) + float(bbox[2])) / 2 * scale,
+            float(bbox[3]) * scale,
+        )
+    return out
+
+
+def _smoothed_speeds(positions: dict[int, tuple[float, float]], fps: float) -> dict[int, float]:
+    """Speed (yd/s) from a centred moving average, robust to box jitter."""
+    frames = sorted(positions)
+    if len(frames) < 3:
+        return {}
+    xs = np.array([positions[f][0] for f in frames])
+    ys = np.array([positions[f][1] for f in frames])
+    half = max(1, round(ONSET_SMOOTH_S * fps / 2))
+    kernel = np.ones(2 * half + 1) / (2 * half + 1)
+    if len(frames) > 2 * half + 1:
+        xs = np.convolve(np.pad(xs, half, mode="edge"), kernel, mode="valid")
+        ys = np.convolve(np.pad(ys, half, mode="edge"), kernel, mode="valid")
+    speeds: dict[int, float] = {}
+    for i in range(1, len(frames)):
+        dt = (frames[i] - frames[i - 1]) / fps if fps else 0.0
+        if dt > 0:
+            speeds[frames[i]] = float(np.hypot(xs[i] - xs[i - 1], ys[i] - ys[i - 1]) / dt)
+    return speeds
+
+
+def _camera_compensated(
+    positions: list[dict[int, tuple[float, float]]],
+) -> list[dict[int, tuple[float, float]]]:
+    """Remove a following camera's motion from pixel-derived positions.
+
+    A pan or drone drift shifts every player the same way; a snap moves them
+    in different directions. Subtract the per-frame median displacement of
+    all players (accumulated), which is ~zero for field coordinates and the
+    camera motion for pixel positions.
+    """
+    frames = sorted({f for pos in positions for f in pos})
+    offset = {frames[0]: (0.0, 0.0)} if frames else {}
+    for prev, f in zip(frames, frames[1:], strict=False):
+        deltas = [
+            (pos[f][0] - pos[prev][0], pos[f][1] - pos[prev][1])
+            for pos in positions
+            if f in pos and prev in pos
+        ]
+        dx = float(np.median([d[0] for d in deltas])) if len(deltas) >= 3 else 0.0
+        dy = float(np.median([d[1] for d in deltas])) if len(deltas) >= 3 else 0.0
+        offset[f] = (offset[prev][0] + dx, offset[prev][1] + dy)
+    return [
+        {f: (x - offset[f][0], y - offset[f][1]) for f, (x, y) in pos.items()} for pos in positions
+    ]
+
+
+def _player_positions(tracklets: list[dict[str, Any]]) -> list[dict[int, tuple[float, float]]]:
+    """Per-player positions in yards, camera-compensated when they come from
+    pixels (uncalibrated film) rather than field coordinates."""
+    positions = [_positions_yd(t) for t in tracklets]
+    calibrated = any(
+        p.get("field_x") is not None for t in tracklets for p in (t.get("track_points") or [])
+    )
+    return positions if calibrated else _camera_compensated(positions)
+
+
+def player_onsets(tracklets: list[dict[str, Any]], fps: float) -> list[int]:
+    """Frame each set player starts moving: the first crossing of 1.5 yd/s
+    after >= 0.35 s below 1.0 yd/s, confirmed by reaching 2.5 yd/s within
+    0.6 s. Sideline staff and fragments that were never set contribute none.
+    """
+    onsets: list[int] = []
+    set_frames = max(2, round(ONSET_SET_S * fps))
+    confirm = round(ONSET_CONFIRM_S * fps)
+    for positions in _player_positions(tracklets):
+        speeds = _smoothed_speeds(positions, fps)
+        frames = sorted(speeds)
+        still = 0
+        for i, f in enumerate(frames):
+            if speeds[f] < ONSET_STATIC_YD_S:
+                still += 1
+                continue
+            if still >= set_frames and speeds[f] >= ONSET_START_YD_S:
+                ahead = [speeds[g] for g in frames[i : i + confirm + 1] if g - f <= confirm]
+                if ahead and max(ahead) >= ONSET_MOVING_YD_S:
+                    onsets.append(f)
+                    break
+            if speeds[f] >= ONSET_START_YD_S:
+                still = 0
+    return onsets
+
+
+def signal_collective_onset(tracklets: list[dict[str, Any]], fps: float) -> dict[int, float]:
+    """Strength of "most set players start moving at the same moment".
+
+    Each set player's own movement start (:func:`player_onsets`) is found
+    first; the strength at frame ``f`` is how many of those starts fall
+    within +/-0.15 s of ``f``, relative to everyone who was set. A snap
+    clusters most of them; a motion man or a shift is one or a few. Rises
+    from 0 at 15% of set players to 1 at 45% (linemen setting in pass
+    protection barely move, so ~40% is a typical snap). Measuring individual starts
+    keeps the peak centred on the snap instead of smeared by windows.
+    """
+    if fps <= 0:
+        return {}
+    onsets = player_onsets(tracklets, fps)
+    if len(onsets) < 4:
+        return {}
+    speeds = [_smoothed_speeds(pos, fps) for pos in _player_positions(tracklets)]
+    set_window = max(2, round(ONSET_SET_S * fps))
+    half = max(1, round(ONSET_CLUSTER_S * fps))
+
+    def set_before(frame: int) -> int:
+        """Players tracked and still over the ``ONSET_SET_S`` before ``frame``."""
+        count = 0
+        for sp in speeds:
+            window = [v for g, v in sp.items() if frame - half - set_window <= g < frame - half]
+            if len(window) >= set_window // 2 and float(np.median(window)) < ONSET_STATIC_YD_S:
+                count += 1
+        return count
+
+    out: dict[int, float] = {}
+    for f in range(min(onsets) - half, max(onsets) + half + 1):
+        starting = sum(1 for o in onsets if abs(o - f) <= half)
+        if not starting:
+            continue
+        share = starting / max(set_before(f), starting, 6)
+        strength = float(np.clip((share - 0.15) / 0.30, 0.0, 1.0))
+        if strength > 0:
+            out[f] = strength
     return out
 
 
@@ -336,9 +505,8 @@ class BayesianSnapDetector:
     def detect(self, inputs: SnapInputs) -> SnapResult:
         signals: dict[str, dict[int, float]] = {}
 
-        signals["formation_break"] = signal_formation_stability(
-            inputs.tracklets, inputs.fps
-        )
+        signals["formation_break"] = signal_formation_stability(inputs.tracklets, inputs.fps)
+        signals["collective_onset"] = signal_collective_onset(inputs.tracklets, inputs.fps)
         if inputs.frames:
             signals["vti_burst"] = signal_vti_burst(
                 inputs.frames,
@@ -385,6 +553,16 @@ class BayesianSnapDetector:
                 snap_frame, confidence = f, p
         if snap_frame is None and probabilities:
             confidence = max(probabilities.values())
+        if snap_frame is not None and "collective_onset" in signals:
+            # Centre the snap on where the set players' own starts cluster
+            # (median of the starts near the decision frame).
+            near = [
+                o
+                for o in player_onsets(inputs.tracklets, inputs.fps)
+                if abs(o - snap_frame) <= round(0.5 * inputs.fps)
+            ]
+            if near:
+                snap_frame = int(np.median(near))
 
         log.info(
             "snap_detect",

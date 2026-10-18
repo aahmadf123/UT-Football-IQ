@@ -26,8 +26,14 @@ def _static_then_move(tid: str, fx0: float, fy0: float) -> dict[str, Any]:
     for f in range(0, 25):
         # Static through SNAP-1, then drift forward each frame.
         fx = fx0 + (0.0 if f < SNAP else 0.4 * (f - SNAP + 1))
-        pts.append({"frame_number": f, "field_x": fx, "field_y": fy0,
-                    "bbox": [fx0 * 10, fy0 * 10, fx0 * 10 + 5, fy0 * 10 + 5]})
+        pts.append(
+            {
+                "frame_number": f,
+                "field_x": fx,
+                "field_y": fy0,
+                "bbox": [fx0 * 10, fy0 * 10, fx0 * 10 + 5, fy0 * 10 + 5],
+            }
+        )
     return {"id": tid, "track_points": pts}
 
 
@@ -108,9 +114,12 @@ def test_single_weak_signal_no_false_snap() -> None:
     # stays quiet and no snap should be asserted.
     tracks = [_static_then_move("p0", 50.0, 0.0)]
     tracks += [
-        {"id": f"p{i}", "track_points": [
-            {"frame_number": f, "field_x": 50.0, "field_y": float(i)} for f in range(25)
-        ]}
+        {
+            "id": f"p{i}",
+            "track_points": [
+                {"frame_number": f, "field_x": 50.0, "field_y": float(i)} for f in range(25)
+            ],
+        }
         for i in range(1, 11)
     ]
     result = BayesianSnapDetector().detect(SnapInputs(tracklets=tracks, fps=FPS))
@@ -126,3 +135,55 @@ def test_no_signals_returns_none() -> None:
 
 def test_base_rate_is_low() -> None:
     assert 0.0 < BASE_RATE < 0.1
+
+
+def _set_then_go(
+    tid: str, x0: float, y0: float, go: int, *, drift: float = 0.0, angle: float = 0.0
+) -> dict[str, Any]:
+    """Pixel-only track (no calibration): set, then moving from frame ``go``
+    in direction ``angle`` (radians). ``drift`` adds a following camera's pan
+    to every frame. Players scatter in different directions at a real snap.
+    """
+    import math
+
+    pts = []
+    for f in range(0, 75):
+        # ~2 yd (40 px) boxes: reaches ~4 yd/s within a third of a second.
+        run = 0.0 if f < go else 1.5 * (f - go + 1) ** 1.3
+        x = x0 + run * math.cos(angle) + drift * f
+        y = y0 + run * math.sin(angle)
+        pts.append({"frame_number": f, "bbox": [x - 10, y - 40, x + 10, y]})
+    return {"id": tid, "track_points": pts}
+
+
+def test_collective_onset_finds_snap_on_uncalibrated_panning_film() -> None:
+    from pipeline.events.snap_detector import player_onsets
+
+    snap = 30
+    # 12 set players go at the snap; a following camera pans 1.5 px/frame.
+    tracks = [
+        _set_then_go(f"p{i}", 100.0 + 40 * i, 300.0, snap, drift=1.5, angle=i * 0.52)
+        for i in range(12)
+    ]
+    # Sideline staff never set: walking the whole time.
+    tracks.append(
+        {
+            "id": "coach",
+            "track_points": [
+                {"frame_number": f, "bbox": [10 + 3 * f, 260, 30 + 3 * f, 300]} for f in range(75)
+            ],
+        }
+    )
+    onsets = player_onsets(tracks, FPS)
+    assert len(onsets) >= 10
+    result = BayesianSnapDetector().detect(SnapInputs(tracklets=tracks, fps=FPS))
+    assert result.snap_frame is not None
+    assert abs(result.snap_frame - snap) <= 4
+    assert "collective_onset" in result.signals_present
+
+
+def test_one_motion_man_is_not_a_snap() -> None:
+    tracks = [_set_then_go("motion", 100.0, 300.0, 20)]
+    tracks += [_set_then_go(f"p{i}", 200.0 + 40 * i, 300.0, 10_000) for i in range(11)]
+    result = BayesianSnapDetector().detect(SnapInputs(tracklets=tracks, fps=FPS))
+    assert result.snap_frame is None
