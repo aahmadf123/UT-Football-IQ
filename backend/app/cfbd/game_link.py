@@ -235,6 +235,9 @@ async def link_video(db: AsyncSession, video_id: uuid.UUID) -> dict[str, Any]:
             "scoring": play.scoring,
             "match_score": round(score, 2),
         }
+        if play.offense:
+            # Possession is now known (see clips.create: pending until linked).
+            label_data.pop("possession_pending", None)
         clip.label_data = label_data
         if clip.down is None and play.down and play.play_type not in NO_DOWN_PLAYS:
             clip.down = play.down
