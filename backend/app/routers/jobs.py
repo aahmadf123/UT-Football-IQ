@@ -166,6 +166,7 @@ async def list_jobs(
     status_filter: JobStatus | None = Query(default=None, alias="status"),
     job_type: JobType | None = Query(default=None),
     video_id: uuid.UUID | None = Query(default=None),
+    has_video: bool | None = Query(default=None),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
 ) -> list[JobResponse]:
@@ -177,6 +178,8 @@ async def list_jobs(
         q = q.where(ProcessingJob.job_type == job_type)
     if video_id is not None:
         q = q.where(ProcessingJob.video_id == video_id)
+    if has_video:
+        q = q.where(ProcessingJob.video_id.is_not(None))
     result = await db.execute(q)
     return [JobResponse.from_orm_job(j) for j in result.scalars().all()]
 

@@ -29,6 +29,8 @@
 param(
     [string]$ApiUrl = "https://footiq-api-edge.firas-azfar.workers.dev",
     [string]$WorkerEmail,
+    # For unattended installs; otherwise the password is prompted for.
+    [SecureString]$WorkerPassword,
     [ValidateSet("quick", "detailed")]
     [string]$ProcessingProfile = "detailed",
     [switch]$SkipInstall,
@@ -111,7 +113,9 @@ if (-not (Test-Path $Detector)) {
 $existing = if (Test-Path $ConfigPath) { Get-Content $ConfigPath -Raw | ConvertFrom-Json } else { $null }
 if (-not $WorkerEmail -and $existing) { $WorkerEmail = $existing.worker_email }
 if (-not $WorkerEmail) { $WorkerEmail = Read-Host "Worker account email" }
-$secret = if ($existing -and -not $PSBoundParameters.ContainsKey("WorkerEmail")) {
+$secret = if ($WorkerPassword) {
+    $WorkerPassword | ConvertFrom-SecureString
+} elseif ($existing -and -not $PSBoundParameters.ContainsKey("WorkerEmail")) {
     $existing.worker_password_dpapi
 } else {
     Read-Host "Worker account password" -AsSecureString | ConvertFrom-SecureString

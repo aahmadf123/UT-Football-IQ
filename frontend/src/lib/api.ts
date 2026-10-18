@@ -415,7 +415,9 @@ export interface JobFilters {
   status?: string;
   job_type?: string;
   video_id?: string;
+  has_video?: boolean;
   limit?: number;
+  offset?: number;
 }
 
 export async function fetchJobs(filters: JobFilters = {}, token?: string): Promise<ApiJob[]> {
@@ -426,6 +428,16 @@ export async function fetchJobs(filters: JobFilters = {}, token?: string): Promi
   }
   const qs = params.toString();
   return getJSON<ApiJob[]>(`${base}/api/v1/jobs${qs ? `?${qs}` : ""}`, token);
+}
+
+export async function fetchAllJobs(filters: JobFilters = {}, token?: string): Promise<ApiJob[]> {
+  const jobs: ApiJob[] = [];
+  const limit = 200;
+  for (let offset = 0; ; offset += limit) {
+    const page = await fetchJobs({ ...filters, limit, offset }, token);
+    jobs.push(...page);
+    if (page.length < limit) return jobs;
+  }
 }
 
 export async function fetchClipsForVideo(

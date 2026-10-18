@@ -5,7 +5,9 @@ import { useCallback, useEffect, useState } from "react";
 import { PreliminaryBadge } from "@/components/clip-state-badge";
 import { UploadStatusList } from "@/components/shared/upload-status-list";
 import {
+  fetchAllJobs,
   fetchJobs,
+  fetchVideo,
   fetchSystemStatus,
   controlJob,
   requestVideoProcessing,
@@ -21,7 +23,7 @@ import { JobRow } from "@/components/composite/job-row";
 import { StatusBadge, type StatusTone } from "@/components/composite/status-badge";
 import { Label } from "@/components/ui/label";
 import { NativeSelect } from "@/components/ui/native-select";
-import type { ProcessingProfile } from "@/lib/types";
+import type { ApiJob, ProcessingProfile } from "@/lib/types";
 import { useWorkspaceContext } from "@/lib/workspace-context";
 import { friendlyMessage } from "@/lib/api-error";
 
@@ -229,53 +231,111 @@ export function UploadProcessFilm({ onUploadClick }: { onUploadClick: () => void
   );
 }
 
+/** Nightly bookkeeping the backend schedules itself; never a coach's concern. */
+const MAINTENANCE_JOB_TYPES = new Set(["workload_rollup", "train", "labels", "metrics", "embeddings"]);
+const ACTIVE_STATUSES = new Set(["queued", "running", "paused"]);
+
+/** Film jobs only: what is processing now, what failed, then history. */
+export function visibleJobs(jobs: ApiJob[]): { current: ApiJob[]; history: ApiJob[] } {
+  const film = jobs.filter((job) => job.video_id && !MAINTENANCE_JOB_TYPES.has(job.job_type));
+  return {
+    current: film.filter((job) => ACTIVE_STATUSES.has(job.status) || job.status === "failed"),
+    history: film.filter((job) => !ACTIVE_STATUSES.has(job.status) && job.status !== "failed"),
+  };
+}
+
 /**
- * The one home for pipeline job detail (per-stage progress, lease/attempt
- * bookkeeping) — consolidated here from the dashboard jobs card, the old
- * right-rail Model Pipeline panel, and the settings jobs list.
+ * The one home for processing-job detail (per-stage progress, lease/attempt
+ * bookkeeping), consolidated from the dashboard, model pipeline panel and
+ * settings lists. Shows film jobs only; scheduler maintenance stays hidden.
  */
 function PipelineJobsCard() {
   const { authToken, data, refreshData, apiError, mockMode } = useAppState();
   const [pending, setPending] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [jobs, setJobs] = useState<ApiJob[]>([]);
+  const [videoFilenames, setVideoFilenames] = useState<Record<string, string | null>>({});
+  const loadJobs = useCallback(async () => {
+    try {
+      setJobs(await fetchAllJobs({ has_video: true }, authToken));
+    } catch (cause) {
+      setError(friendlyMessage(cause));
+    }
+  }, [authToken]);
+  useEffect(() => {
+    void loadJobs();
+    const interval = window.setInterval(() => void loadJobs(), 5000);
+    return () => window.clearInterval(interval);
+  }, [loadJobs]);
+  useEffect(() => {
+    let cancelled = false;
+    const knownVideoIds = new Set(data.videos.map((video) => video.id));
+    const missingIds = [...new Set(jobs.flatMap((job) => job.video_id ? [job.video_id] : []))]
+      .filter((id) => !knownVideoIds.has(id) && videoFilenames[id] === undefined);
+    if (missingIds.length === 0) return;
+    void Promise.all(missingIds.map(async (id) => {
+      try {
+        return [id, (await fetchVideo(id, authToken)).filename] as const;
+      } catch {
+        return [id, null] as const;
+      }
+    })).then((filenames) => {
+      if (!cancelled) {
+        setVideoFilenames((current) => ({
+          ...current,
+          ...Object.fromEntries(filenames),
+        }));
+      }
+    });
+    return () => { cancelled = true; };
+  }, [authToken, data.videos, jobs, videoFilenames]);
   const act = async (id: string, action: "pause" | "resume" | "cancel" | "retry") => {
     setPending(id);
     setError(null);
     try {
       if (action === "retry") await retryJob(id, authToken);
       else await controlJob(id, action, authToken);
-      await refreshData();
+      await Promise.all([refreshData(), loadJobs()]);
     } catch (cause) { setError(friendlyMessage(cause)); }
     finally { setPending(null); }
   };
+  const filenames = new Map(data.videos.map((video) => [video.id, video.filename] as const));
+  const label = (job: ApiJob) => filenames.get(job.video_id ?? "") ?? videoFilenames[job.video_id ?? ""] ?? `Film · ${job.video_id?.slice(0, 8) ?? ""}`;
+  const { current, history } = visibleJobs(jobs);
+
+  const row = (job: ApiJob) => (
+    <div key={job.id}>
+      <JobRow job={job} label={label(job)} errorMessage={job.error_message ? friendlyMessage(job.error_message, "process this film") : undefined} />
+      {job.control_requested && <p role="status" className="mb-2 text-xs text-status-warn">{job.control_requested === "pause" ? "Pausing processing…" : "Cancelling processing…"}</p>}
+      {!mockMode && <div className="mb-3 flex flex-wrap gap-2">
+        {["queued", "running"].includes(job.status) && <Button size="sm" variant="outline" disabled={pending === job.id || Boolean(job.control_requested)} onClick={() => void act(job.id, "pause")}>Pause</Button>}
+        {job.status === "paused" && <Button size="sm" variant="outline" disabled={pending === job.id} onClick={() => void act(job.id, "resume")}>Resume</Button>}
+        {ACTIVE_STATUSES.has(job.status) && <Button size="sm" variant="outline" disabled={pending === job.id || job.control_requested === "cancel"} onClick={() => void act(job.id, "cancel")}>Cancel processing</Button>}
+        {job.status === "failed" && <Button size="sm" variant="outline" disabled={pending === job.id} onClick={() => void act(job.id, "retry")}>Retry</Button>}
+      </div>}
+    </div>
+  );
 
   return (
     <Card data-testid="pipeline-jobs">
       <CardHeader>
         <h2 className="font-display text-base font-semibold uppercase tracking-wide">
-          Pipeline jobs
+          Processing queue
         </h2>
         <p className="mt-0.5 text-xs text-muted-foreground">
-          Stage-level progress and retry bookkeeping for every processing job.
+          Film being processed on the team&apos;s processing computer, with stage-by-stage progress.
         </p>
       </CardHeader>
       <CardContent>
         {(error || apiError) && <p role="alert" className="text-xs text-status-danger">{error ?? apiError}</p>}
-        {data.jobs.length === 0 && <p className="text-sm text-muted-foreground">No processing jobs yet.</p>}
-            <div className="flex flex-col">
-              {data.jobs.slice(0, 20).map((job) => (
-                <div key={job.id}>
-                <JobRow key={job.id} job={job} />
-                {job.control_requested && <p role="status" className="mb-2 text-xs text-status-warn">{job.control_requested === "pause" ? "Pausing processing…" : "Cancelling processing…"}</p>}
-                {!mockMode && <div className="mb-3 flex flex-wrap gap-2">
-                  {["queued", "running"].includes(job.status) && <Button size="sm" variant="outline" disabled={pending === job.id || Boolean(job.control_requested)} onClick={() => void act(job.id, "pause")}>Pause</Button>}
-                  {job.status === "paused" && <Button size="sm" variant="outline" disabled={pending === job.id} onClick={() => void act(job.id, "resume")}>Resume</Button>}
-                  {["queued", "running", "paused"].includes(job.status) && <Button size="sm" variant="outline" disabled={pending === job.id || job.control_requested === "cancel"} onClick={() => void act(job.id, "cancel")}>Cancel processing</Button>}
-                  {["failed", "cancelled"].includes(job.status) && <Button size="sm" variant="outline" disabled={pending === job.id} onClick={() => void act(job.id, "retry")}>Retry</Button>}
-                </div>}
-                </div>
-              ))}
-            </div>
+        {current.length === 0 && <p className="text-sm text-muted-foreground">Nothing processing right now.</p>}
+        <div className="flex flex-col">{current.slice(0, 50).map(row)}</div>
+        {history.length > 0 && (
+          <details className="mt-3">
+            <summary className="cursor-pointer text-xs font-medium text-muted-foreground">History ({history.length})</summary>
+            <div className="mt-2 flex flex-col">{history.slice(0, 20).map((job) => <JobRow key={job.id} job={job} label={label(job)} />)}</div>
+          </details>
+        )}
       </CardContent>
     </Card>
   );

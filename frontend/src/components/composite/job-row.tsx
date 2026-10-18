@@ -10,7 +10,7 @@ import type { ApiJob, JobStageProgress } from "@/lib/types";
 import { StatusBadge, toneForJobStatus } from "@/components/composite/status-badge";
 import { cn } from "@/lib/utils";
 
-export function JobRow({ job }: { job: ApiJob }) {
+export function JobRow({ job, label, errorMessage = job.error_message }: { job: ApiJob; label?: string; errorMessage?: string | null }) {
   const stages = summarizeProgress(job.progress);
   const lease = leaseSummary(job);
   return (
@@ -19,7 +19,7 @@ export function JobRow({ job }: { job: ApiJob }) {
       data-testid={`job-row-${job.id}`}
     >
       <div className="flex items-center gap-2">
-        <span className="min-w-0 flex-1 truncate font-medium text-foreground">{job.job_type}</span>
+        <span className="min-w-0 flex-1 truncate font-medium text-foreground">{label ?? job.job_type}</span>
         <StatusBadge tone={toneForJobStatus(job.status)} dot className="capitalize">
           {job.status}
         </StatusBadge>
@@ -47,10 +47,10 @@ export function JobRow({ job }: { job: ApiJob }) {
           ))}
         </div>
       ) : null}
-      {job.status === "failed" && job.error_message ? (
+      {job.status === "failed" && errorMessage ? (
         <div className="mt-1 text-xs text-status-danger">
           {job.error_stage ? `${job.error_stage}: ` : ""}
-          {job.error_message}
+          {errorMessage}
         </div>
       ) : null}
     </div>
