@@ -22,7 +22,7 @@ TEAM_UNKNOWN = "unknown"
 
 DEFAULT_ALPHA = 0.95
 DEFAULT_HELMET_TIE_THRESHOLD = 10.0
-DEFAULT_STRIPE_THRESHOLD = 0.18
+DEFAULT_STRIPE_THRESHOLD = 0.5
 MIN_CLUSTER_SAMPLES = 3
 
 
@@ -92,9 +92,7 @@ class KMeansTeamClassifier:
         if len(usable) < MIN_CLUSTER_SAMPLES:
             return FrameClassification(
                 frame_number=_frame_number(samples),
-                results=[
-                    _unknown_result(s, "insufficient_initial_samples") for s in samples
-                ],
+                results=[_unknown_result(s, "insufficient_initial_samples") for s in samples],
             )
 
         features = np.vstack([s.jersey_lab for s in usable])
@@ -205,12 +203,9 @@ class KMeansTeamClassifier:
                 continue
             jersey_mean = np.mean([s.jersey_lab for s in cluster_samples], axis=0)
             self.centroids[cluster_index] = (
-                self.alpha * self.centroids[cluster_index]
-                + (1.0 - self.alpha) * jersey_mean
+                self.alpha * self.centroids[cluster_index] + (1.0 - self.alpha) * jersey_mean
             )
-            helmet_values = [
-                s.helmet_lab for s in cluster_samples if s.helmet_lab is not None
-            ]
+            helmet_values = [s.helmet_lab for s in cluster_samples if s.helmet_lab is not None]
             if helmet_values and self.helmet_centroids is not None:
                 helmet_mean = np.mean(helmet_values, axis=0)
                 self.helmet_centroids[cluster_index] = (
@@ -308,12 +303,7 @@ def extract_tracklet_sample(
 def estimate_grass_lab(frame_bgr: np.ndarray) -> np.ndarray:
     """Estimate grass color in CIELab, with a football-field green fallback."""
     hsv = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2HSV)
-    mask = (
-        (hsv[:, :, 0] >= 35)
-        & (hsv[:, :, 0] <= 95)
-        & (hsv[:, :, 1] >= 35)
-        & (hsv[:, :, 2] >= 25)
-    )
+    mask = (hsv[:, :, 0] >= 35) & (hsv[:, :, 0] <= 95) & (hsv[:, :, 1] >= 35) & (hsv[:, :, 2] >= 25)
     pixels = frame_bgr[mask]
     if len(pixels) == 0:
         pixels = np.array([[40, 120, 40]], dtype=np.uint8)
@@ -323,32 +313,65 @@ def estimate_grass_lab(frame_bgr: np.ndarray) -> np.ndarray:
     return _mean_lab(pixels)
 
 
+#: Below this torso size stripes can't be resolved (players from a drone are
+#: ~20-40 px tall); the detector abstains instead of guessing.
+MIN_STRIPE_CROP_HEIGHT = 24
+MIN_STRIPE_CROP_WIDTH = 12
+
+
 def detect_stripe_score(crop_bgr: np.ndarray) -> float:
-    """Return a bounded Gabor response score for official stripe patterns."""
-    if crop_bgr.size == 0 or crop_bgr.shape[0] < 8 or crop_bgr.shape[1] < 8:
+    """Score in [0, 1] for an official's vertical black-and-white stripes.
+
+    A referee shirt is a regular left-to-right light/dark alternation (a few
+    stripes across the torso) that repeats down every row. A jersey
+    number or logo is not periodic and not consistent across rows. The score
+    is the share of the column-intensity spectrum in that stripe band,
+    weighted by how consistently the rows share the pattern. Crops too small
+    to resolve stripes score 0 (abstain): the earlier Gabor version saturated
+    to 1.0 on every small textured crop, labelling a whole drone clip as
+    officials.
+    """
+    if crop_bgr.size == 0:
         return 0.0
-    gray = cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2GRAY)
-    gray = cv2.resize(gray, (48, 48), interpolation=cv2.INTER_AREA)
-    contrast = float(np.std(gray) / 255.0)
-    if contrast < 0.08:
+    height, width = crop_bgr.shape[:2]
+    if height < MIN_STRIPE_CROP_HEIGHT or width < MIN_STRIPE_CROP_WIDTH:
+        return 0.0
+    gray = cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2GRAY).astype(np.float32)
+    gray = cv2.resize(gray, (32, 32), interpolation=cv2.INTER_AREA)
+    if float(np.std(gray)) / 255.0 < 0.08:
         return 0.0
 
-    responses: list[float] = []
-    for theta in (np.pi / 4.0, 3.0 * np.pi / 4.0):
-        for wavelength in (8.0, 10.0, 12.0):
-            kernel = cv2.getGaborKernel(
-                (15, 15),
-                sigma=4.0,
-                theta=theta,
-                lambd=wavelength,
-                gamma=0.5,
-                psi=0,
-                ktype=cv2.CV_32F,
-            )
-            response = cv2.filter2D(gray, cv2.CV_32F, kernel)
-            responses.append(float(np.mean(np.abs(response)) / 255.0))
+    profile = gray.mean(axis=0)
+    profile = profile - profile.mean()
+    power = np.abs(np.fft.rfft(profile)) ** 2
+    total = float(power[1:].sum())
+    if total <= 0.0:
+        return 0.0
+    # 2-8 cycles across the cropped torso: ~2-inch NCAA stripes on the
+    # central two-thirds of a chest.
+    band = float(power[2:9].sum()) / total
 
-    return min(1.0, max(responses) * contrast)
+    # Stripes are evenly spaced; a number ("11") is two bars on uneven
+    # background. Require >= 3 interior light/dark runs of similar width.
+    binary = profile > 0
+    edges = np.flatnonzero(np.diff(binary.astype(np.int8))) + 1
+    runs = np.diff(edges)
+    if len(runs) < 3 or float(np.std(runs) / (np.mean(runs) + 1e-6)) > 0.5:
+        return 0.0
+    # Officials' stripes are about half black, half white; a white number on
+    # a solid jersey is thin bars on wide background.
+    light = [int(r) for r, start in zip(runs, edges[:-1], strict=False) if binary[start]]
+    dark = [int(r) for r, start in zip(runs, edges[:-1], strict=False) if not binary[start]]
+    if light and dark:
+        duty = float(np.mean(light) / np.mean(dark))
+        if not 0.6 <= duty <= 1.67:
+            return 0.0
+
+    rows = gray - gray.mean(axis=1, keepdims=True)
+    reference = profile / (np.linalg.norm(profile) + 1e-6)
+    norms = np.linalg.norm(rows, axis=1) + 1e-6
+    consistency = float(np.clip(np.mean((rows @ reference) / norms), 0.0, 1.0))
+    return float(np.clip(band * consistency * 1.5, 0.0, 1.0))
 
 
 def _samples_for_frame(
@@ -378,9 +401,7 @@ def _samples_for_frame(
     return samples
 
 
-def _point_at_frame(
-    tracklet: dict[str, Any], frame_number: int
-) -> dict[str, Any] | None:
+def _point_at_frame(tracklet: dict[str, Any], frame_number: int) -> dict[str, Any] | None:
     for point in tracklet.get("track_points", []):
         if int(point.get("frame_number", -1)) == frame_number:
             return point
@@ -401,9 +422,7 @@ def _non_grass_pixels(crop_bgr: np.ndarray, *, max_pixels: int) -> np.ndarray:
     if len(pixels) == 0:
         return pixels
     hsv = cv2.cvtColor(pixels.reshape(-1, 1, 3), cv2.COLOR_BGR2HSV).reshape(-1, 3)
-    grass_mask = (
-        (hsv[:, 0] >= 35) & (hsv[:, 0] <= 95) & (hsv[:, 1] >= 35) & (hsv[:, 2] >= 25)
-    )
+    grass_mask = (hsv[:, 0] >= 35) & (hsv[:, 0] <= 95) & (hsv[:, 1] >= 35) & (hsv[:, 2] >= 25)
     visible_mask = hsv[:, 2] >= 20
     pixels = pixels[(~grass_mask) & visible_mask]
     if len(pixels) > max_pixels:
@@ -510,8 +529,14 @@ def _assign_cluster_labels(
 
     by_far_from_grass = [int(i) for i in np.argsort(-distances) if int(i) in clusters]
     if len(by_far_from_grass) == 3:
-        labels[by_far_from_grass[2]] = TEAM_OFFICIAL
-        by_far_from_grass = by_far_from_grass[:2]
+        # No striped cluster: there may be no officials at all (practice).
+        # The two most-populated clusters are the teams; the smallest is a
+        # coach, a different-colored QB jersey or noise -- unknown, never
+        # "official" (the closest-to-grass rule mislabelled a whole team).
+        sizes = {c: int(np.sum(assignments == c)) for c in by_far_from_grass}
+        smallest = min(by_far_from_grass, key=lambda c: sizes[c])
+        labels[smallest] = TEAM_UNKNOWN
+        by_far_from_grass = [c for c in by_far_from_grass if c != smallest]
 
     if by_far_from_grass:
         labels[by_far_from_grass[0]] = TEAM_OFFENSE

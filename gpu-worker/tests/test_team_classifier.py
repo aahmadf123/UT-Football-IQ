@@ -14,6 +14,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from pipeline.stage_labels import run as run_labels
 from pipeline.team_classification.kmeans_team_classifier import (
+    DEFAULT_STRIPE_THRESHOLD,
     TEAM_DEFENSE,
     TEAM_OFFENSE,
     TEAM_OFFICIAL,
@@ -63,14 +64,9 @@ def _paint_player(
         torso_top = y1 + int(0.28 * (y2 - y1))
         torso_bottom = y1 + int(0.72 * (y2 - y1))
         cv2.rectangle(frame, (x1, torso_top), (x2, torso_bottom), (245, 245, 245), -1)
-        for offset in range(-40, 80, 10):
-            cv2.line(
-                frame,
-                (x1 + offset, torso_bottom),
-                (x1 + offset + 45, torso_top),
-                (10, 10, 10),
-                thickness=4,
-            )
+        # Officials wear vertical black-and-white stripes.
+        for x in range(x1 + 2, x2, 8):
+            cv2.line(frame, (x, torso_top), (x, torso_bottom), (10, 10, 10), thickness=4)
 
 
 def _frame(
@@ -197,7 +193,7 @@ def test_stripe_detector_scores_official_pattern_above_plain_jersey() -> None:
     striped_crop = striped_frame[58:102, 180:220]
 
     assert detect_stripe_score(striped_crop) > detect_stripe_score(plain)
-    assert detect_stripe_score(striped_crop) >= 0.18
+    assert detect_stripe_score(striped_crop) >= DEFAULT_STRIPE_THRESHOLD
 
 
 def test_stage_labels_writes_team_labels_and_patches_tracklets() -> None:
@@ -235,9 +231,7 @@ def test_stage_labels_writes_team_labels_and_patches_tracklets() -> None:
         return {"id": tracklet_id}
 
     with (
-        patch(
-            "pipeline.stage_labels.backend.create_label", side_effect=fake_create_label
-        ),
+        patch("pipeline.stage_labels.backend.create_label", side_effect=fake_create_label),
         patch(
             "pipeline.stage_labels.backend.patch_tracklet_team_label",
             side_effect=fake_patch_tracklet_team_label,
@@ -252,9 +246,7 @@ def test_stage_labels_writes_team_labels_and_patches_tracklets() -> None:
         )
 
     team_labels = [
-        label
-        for label in created_labels
-        if label["label_type"] == "team_classification"
+        label for label in created_labels if label["label_type"] == "team_classification"
     ]
     assert len(team_labels) == 3
     assert ("official", TEAM_OFFICIAL) in patched

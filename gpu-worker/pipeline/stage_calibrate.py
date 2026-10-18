@@ -50,6 +50,8 @@ from pipeline.video_timeline import VideoTimeline
 log = structlog.get_logger(__name__)
 
 CONFIDENCE_THRESHOLD = 0.75  # Issue #127 gate: analytics_safe at ≥ 0.75
+#: Share of a moving camera's sampled frames that must calibrate.
+MIN_SAFE_FRACTION = 0.6
 RANSAC_THRESHOLD_PX = 3.0  # Issue #127 §7.1 re-projection threshold
 SAMPLE_INTERVAL_S = 5.0
 N_SAMPLE_FRAMES_FIXED = 6  # fixed camera: pick the single cleanest frame
@@ -161,8 +163,9 @@ def _calibrate(
             regime,
             is_game_anchor=regime == FIXED_SIDELINE and start_time == 0.0 and end_time is None,
         )
-    return _calibrate_drone(video_id, job_id, frames, regime, variant, video_path=video_path,
-                            timeline=timeline)
+    return _calibrate_drone(
+        video_id, job_id, frames, regime, variant, video_path=video_path, timeline=timeline
+    )
 
 
 # ── FIXED_SIDELINE: one anchor homography for the whole clip ───────────────────
@@ -630,9 +633,22 @@ def _persist_and_return(
     if regime not in FIXED_REGIMES and video_path is not None and homography is not None:
         from pipeline.homography.timeline import calibration_timeline
 
-        series = calibration_timeline(video_path, _best_frame_fit, threshold=CONFIDENCE_THRESHOLD,
-                                       timeline=timeline)
-        analytics_safe = bool(series) and all(p["analytics_safe"] for p in series)
+        series = calibration_timeline(
+            video_path, _best_frame_fit, threshold=CONFIDENCE_THRESHOLD, timeline=timeline
+        )
+        # Per-frame coordinates are gated point by point downstream
+        # (stage_track keeps a position only where its frame calibrated), so
+        # one blurred or occluded frame must not void a whole moving-camera
+        # clip. Require most of the clip to calibrate, and report how much.
+        safe_fraction = (
+            sum(1 for p in series if p["analytics_safe"]) / len(series) if series else 0.0
+        )
+        analytics_safe = safe_fraction >= MIN_SAFE_FRACTION
+        extra_diagnostics = {
+            **(extra_diagnostics or {}),
+            "timeline_safe_fraction": round(safe_fraction, 3),
+            "timeline_samples": len(series),
+        }
     elif regime not in FIXED_REGIMES and video_path is not None:
         analytics_safe = False
 
