@@ -138,7 +138,7 @@ export async function handleMultipartPart(request: Request, env: Env): Promise<R
     const part = await upload.uploadPart(partNumber, request.body);
     return json({ partNumber: part.partNumber, etag: part.etag });
   } catch (err) {
-    return json({ detail: `Part upload failed: ${errorMessage(err)}` }, 400);
+    return json({ detail: `Part upload failed: ${errorMessage(err)}` }, 503);
   }
 }
 

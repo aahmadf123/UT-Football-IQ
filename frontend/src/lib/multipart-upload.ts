@@ -21,6 +21,7 @@ const PART_ATTEMPTS = 4;
 
 interface MultipartOptions {
   getToken: () => string | undefined | Promise<string | undefined>;
+  refreshToken?: () => string | undefined | Promise<string | undefined>;
   onProgress?: (loaded: number, total: number) => void;
   signal?: AbortSignal;
   partSize?: number;
@@ -28,8 +29,12 @@ interface MultipartOptions {
   backoffMs?: (attempt: number) => number;
 }
 
-async function authHeaders(getToken: MultipartOptions["getToken"], json = false): Promise<Record<string, string>> {
-  const token = await getToken();
+async function authHeaders(
+  getToken: MultipartOptions["getToken"],
+  json = false,
+  tokenOverride?: string,
+): Promise<Record<string, string>> {
+  const token = tokenOverride ?? await getToken();
   return {
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
     ...(json ? { "Content-Type": "application/json" } : {}),
@@ -38,11 +43,16 @@ async function authHeaders(getToken: MultipartOptions["getToken"], json = false)
 
 function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(resolve, ms);
-    signal?.addEventListener("abort", () => {
+    const onAbort = () => {
       clearTimeout(timer);
       reject(new DOMException("Upload cancelled", "AbortError"));
-    }, { once: true });
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    if (signal?.aborted) onAbort();
+    else signal?.addEventListener("abort", onAbort, { once: true });
   });
 }
 
@@ -76,21 +86,49 @@ export async function uploadFilmMultipart(file: File, options: MultipartOptions)
   const count = Math.max(1, Math.ceil(total / partSize));
   const done: { partNumber: number; etag: string }[] = [];
   let uploaded = 0;
+  let refreshedToken: string | undefined;
+  let refreshPromise: Promise<string | undefined> | undefined;
+  const uploadController = new AbortController();
+  const abortFromCaller = () => uploadController.abort(options.signal?.reason);
+  if (options.signal?.aborted) abortFromCaller();
+  else options.signal?.addEventListener("abort", abortFromCaller, { once: true });
   options.onProgress?.(0, total);
+
+  const refreshExpiredToken = (failedToken: string | undefined) => {
+    if (!options.refreshToken) return Promise.resolve(undefined);
+    if (refreshedToken && failedToken !== refreshedToken) return Promise.resolve(refreshedToken);
+    refreshPromise ??= Promise.resolve()
+      .then(() => options.refreshToken!())
+      .then((token) => {
+        if (token) refreshedToken = token;
+        return token;
+      })
+      .catch(() => undefined);
+    return refreshPromise;
+  };
 
   const sendPart = async (partNumber: number) => {
     const blob = file.slice((partNumber - 1) * partSize, Math.min(partNumber * partSize, total));
     for (let attempt = 1; ; attempt++) {
       try {
         const query = new URLSearchParams({ key, uploadId, partNumber: String(partNumber) });
+        const token = refreshedToken ?? await options.getToken();
         const response = await fetch(`${base}/part?${query.toString()}`, {
           method: "PUT",
-          headers: await authHeaders(options.getToken),
+          headers: token ? { Authorization: "Bearer " + token } : {},
           body: blob,
-          signal: options.signal,
+          signal: uploadController.signal,
         });
         if (!response.ok) {
           const error = await apiErrorFromResponse(response, action);
+          if (response.status === 401 && options.refreshToken) {
+            const nextToken = await refreshExpiredToken(token);
+            if (nextToken && nextToken !== token) {
+              if (attempt >= PART_ATTEMPTS) throw error;
+              continue;
+            }
+            throw error;
+          }
           // Client errors (bad token after refresh, invalid part) won't fix
           // themselves; server/network errors are worth retrying.
           if (response.status < 500 && response.status !== 401 && response.status !== 429) throw error;
@@ -103,40 +141,57 @@ export async function uploadFilmMultipart(file: File, options: MultipartOptions)
           return;
         }
       } catch (cause) {
-        if (options.signal?.aborted || cause instanceof ApiError || attempt >= PART_ATTEMPTS) {
-          throw cause instanceof ApiError || options.signal?.aborted ? cause : offlineError(action, cause);
+        if (uploadController.signal.aborted || cause instanceof ApiError || attempt >= PART_ATTEMPTS) {
+          throw cause instanceof ApiError || uploadController.signal.aborted ? cause : offlineError(action, cause);
         }
       }
-      await sleep(backoff(attempt), options.signal);
+      await sleep(backoff(attempt), uploadController.signal);
     }
   };
 
   try {
     let next = 1;
+    let firstError: unknown;
+    let hasError = false;
     const workers = Array.from({ length: Math.min(CONCURRENCY, count) }, async () => {
-      while (next <= count) {
+      while (!uploadController.signal.aborted && next <= count) {
         const partNumber = next++;
-        await sendPart(partNumber);
+        try {
+          await sendPart(partNumber);
+        } catch (error) {
+          if (!hasError) {
+            firstError = error;
+            hasError = true;
+          }
+          if (!uploadController.signal.aborted) uploadController.abort(error);
+          throw error;
+        }
       }
     });
-    await Promise.all(workers);
+    await Promise.allSettled(workers);
+    if (hasError) throw firstError;
+    if (uploadController.signal.aborted) {
+      throw uploadController.signal.reason ?? new DOMException("Upload cancelled", "AbortError");
+    }
 
     const completed = await fetch(`${base}/complete`, {
       method: "POST",
-      headers: await authHeaders(options.getToken, true),
+      headers: await authHeaders(options.getToken, true, refreshedToken),
       body: JSON.stringify({ key, uploadId, parts: done.sort((a, b) => a.partNumber - b.partNumber) }),
-      signal: options.signal,
+      signal: uploadController.signal,
     });
     if (!completed.ok) throw await apiErrorFromResponse(completed, action);
     const result = (await completed.json()) as { key: string; size: number; etag: string; storageUri: string };
     return { key: result.key, size: result.size, etag: result.etag, storageUri: result.storageUri };
   } catch (error) {
-    // Free the incomplete upload's parts; best effort.
+    // Free the incomplete upload's parts only after all part requests have stopped.
     const query = new URLSearchParams({ key, uploadId });
-    void fetch(`${base}/abort?${query.toString()}`, {
+    await fetch(`${base}/abort?${query.toString()}`, {
       method: "DELETE",
-      headers: await authHeaders(options.getToken).catch(() => ({})),
+      headers: await authHeaders(options.getToken, false, refreshedToken).catch(() => ({})),
     }).catch(() => undefined);
     throw error;
+  } finally {
+    options.signal?.removeEventListener("abort", abortFromCaller);
   }
 }

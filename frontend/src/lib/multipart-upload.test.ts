@@ -10,19 +10,23 @@ function file(bytes: number): File {
   return new File([new Uint8Array(bytes)], "game.mp4", { type: "video/mp4" });
 }
 
-function server(handlers: { part?: (n: number, attempt: number) => Response; create?: () => Response }) {
+function server(handlers: {
+  part?: (n: number, attempt: number, signal?: AbortSignal) => Response | Promise<Response>;
+  create?: () => Response;
+}) {
   const calls: Call[] = [];
   const attempts = new Map<number, number>();
   vi.stubGlobal("fetch", vi.fn(async (url: string, init: RequestInit) => {
     const method = init.method ?? "GET";
-    const auth = (init.headers as Record<string, string> | undefined)?.Authorization;
+    const auth = new Headers(init.headers).get("Authorization") ?? undefined;
     calls.push({ url, method, auth });
     if (url.endsWith("/create")) return handlers.create?.() ?? Response.json({ key: "raw/k", uploadId: "u1" });
     if (url.includes("/part?")) {
       const n = Number(new URL(url).searchParams.get("partNumber"));
       const attempt = (attempts.get(n) ?? 0) + 1;
       attempts.set(n, attempt);
-      return handlers.part?.(n, attempt) ?? Response.json({ partNumber: n, etag: `e${n}` });
+      return handlers.part?.(n, attempt, init.signal as AbortSignal | undefined) ??
+        Response.json({ partNumber: n, etag: `e${n}` });
     }
     if (url.endsWith("/complete")) {
       const body = JSON.parse(String(init.body)) as { parts: { partNumber: number }[] };
@@ -66,6 +70,34 @@ describe("uploadFilmMultipart", () => {
     expect(calls.filter((c) => c.url.includes("partNumber=2"))).toHaveLength(2);
   });
 
+  test("refreshes an expired token once for concurrent 401 part failures", async () => {
+    let token = "expired";
+    let refreshes = 0;
+    const calls = server({
+      part: (n, attempt) =>
+        attempt === 1
+          ? new Response("expired", { status: 401 })
+          : Response.json({ partNumber: n, etag: `e${n}` }),
+    });
+    await uploadFilmMultipart(file(4), {
+      getToken: () => token,
+      refreshToken: async () => {
+        refreshes++;
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        token = "fresh";
+        return token;
+      },
+      partSize: 1,
+      backoffMs: () => 0,
+    });
+    expect(refreshes).toBe(1);
+    const partCalls = calls.filter((c) => c.url.includes("/part?"));
+    expect(partCalls).toHaveLength(8);
+    expect(new Set(partCalls.slice(0, 4).map((c) => c.auth)).size).toBe(1);
+    expect(new Set(partCalls.slice(4).map((c) => c.auth)).size).toBe(1);
+    expect(partCalls[0].auth).not.toBe(partCalls[4].auth);
+  });
+
   test("returns null when the server has no multipart route", async () => {
     server({ create: () => new Response("nope", { status: 404 }) });
     expect(await uploadFilmMultipart(file(25), { getToken: () => "t", partSize: 10 })).toBeNull();
@@ -77,5 +109,42 @@ describe("uploadFilmMultipart", () => {
       uploadFilmMultipart(file(25), { getToken: () => "t", partSize: 10, backoffMs: () => 0 }),
     ).rejects.toMatchObject({ name: "ApiError", status: 400 });
     await vi.waitFor(() => expect(calls.some((c) => c.method === "DELETE")).toBe(true));
+  });
+
+  test("stops scheduling and waits for sibling parts before aborting", async () => {
+    const calls: Call[] = [];
+    const requestedParts: number[] = [];
+    let activeParts = 0;
+    let activeAtAbort = -1;
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init: RequestInit) => {
+      const method = init.method ?? "GET";
+      calls.push({ url, method });
+      if (url.endsWith("/create")) return Response.json({ key: "raw/k", uploadId: "u1" });
+      if (url.includes("/part?")) {
+        const n = Number(new URL(url).searchParams.get("partNumber"));
+        requestedParts.push(n);
+        activeParts++;
+        try {
+          if (n === 1) return new Response("{\"detail\":\"Invalid storage key\"}", { status: 400 });
+          await new Promise<never>((_resolve, reject) => {
+            const signal = init.signal as AbortSignal;
+            signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+          });
+        } finally {
+          activeParts--;
+        }
+      }
+      if (url.includes("/abort?")) {
+        activeAtAbort = activeParts;
+        return new Response(null, { status: 204 });
+      }
+      return new Response("not found", { status: 404 });
+    }));
+
+    await expect(
+      uploadFilmMultipart(file(8), { getToken: () => "t", partSize: 1 }),
+    ).rejects.toMatchObject({ name: "ApiError", status: 400 });
+    expect(requestedParts.sort()).toEqual([1, 2, 3, 4]);
+    expect(activeAtAbort).toBe(0);
   });
 });

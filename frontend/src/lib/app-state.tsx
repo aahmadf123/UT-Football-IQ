@@ -418,6 +418,7 @@ export function AppStateProvider({
         updateUpload(clip.id, { phase: "uploading", progress: 0 });
         uploadResult = await uploadFilmMultipart(file, {
           getToken: () => tokenRef.current ?? token,
+          refreshToken: () => resolveToken(),
           onProgress,
           signal: controller.signal,
         });
