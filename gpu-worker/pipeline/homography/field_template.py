@@ -6,8 +6,8 @@ The homography stack maps pixel coordinates to a standardized field frame:
   Y: -26.665 → +26.665 yards (south sideline → north sideline)
 
 These are *NCAA-standard* field dimensions, not Toledo-specific constants —
-a 53.33 yd (160 ft) wide field with inbound hash marks 40 ft from each
-sideline. The values are exposed as a dataclass so a venue with non-standard
+a 53.33 yd (160 ft) wide field with inbound hash marks 60 ft from each
+sideline, i.e. 40 ft (13.33 yd) apart (NCAA Rule 1, since 1993). The values are exposed as a dataclass so a venue with non-standard
 markings can supply an override without editing call sites; nothing here is
 keyed to a single stadium.
 
@@ -25,9 +25,13 @@ from dataclasses import dataclass, field
 FIELD_LENGTH: float = 100.0           # goal line to goal line
 FIELD_WIDTH: float = 53.33            # sideline to sideline (160 ft)
 HALF_WIDTH: float = FIELD_WIDTH / 2.0  # 26.665
-# Inbound hash marks: 40 ft (13.335 yd) from each sideline.
-HASH_Y_SOUTH: float = -(HALF_WIDTH - 13.335)   # ~ -13.330
-HASH_Y_NORTH: float = +(HALF_WIDTH - 13.335)   # ~ +13.330
+# Inbound hash marks: 60 ft (20 yd) from each sideline, 40 ft (13.33 yd)
+# apart. An earlier value put them 40 ft from each sideline (80 ft apart),
+# which doubled every lateral distance on Toledo film (players at y = +/-48 on
+# a field that ends at +/-26.7) and inflated speeds accordingly.
+HASH_FROM_SIDELINE: float = 20.0
+HASH_Y_SOUTH: float = -(HALF_WIDTH - HASH_FROM_SIDELINE)   # ~ -6.665
+HASH_Y_NORTH: float = +(HALF_WIDTH - HASH_FROM_SIDELINE)   # ~ +6.665
 # Yard lines painted every 5 yards between the goal lines.
 YARD_LINES_X: tuple[int, ...] = tuple(range(5, 100, 5))
 

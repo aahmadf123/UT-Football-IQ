@@ -164,7 +164,7 @@ def unmirror(H: np.ndarray) -> np.ndarray:
     """Return the handedness-corrected twin of a mirrored fit.
 
     Composes the field-frame reflection ``y → -y``, which maps the template's
-    landmark rows onto themselves (``±13.33`` swap, ``±26.665`` swap) and the
+    landmark rows onto themselves (``±6.665`` hash swap, ``±26.665`` sideline swap) and the
     yard lines onto themselves. The corrected fit therefore explains exactly the
     same observed lines with exactly the same re-projection error -- it is a
     relabelling, not a refit.
