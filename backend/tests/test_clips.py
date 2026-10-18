@@ -213,6 +213,25 @@ def test_create_game_clip_requires_our_possession() -> None:
     assert captured == []
 
 
+def test_pipeline_cut_game_clip_may_omit_possession_until_linked() -> None:
+    """Game film cut by the pipeline can't know possession yet; the clip is
+    created and marked pending for the CFBD link or a coach to fill in."""
+    captured: list[Clip] = []
+    video = _make_video(session_kind=SessionKind.game, opponent_team="Michigan State")
+    _override(video, captured)
+    try:
+        resp = _post_clip(
+            video.id,
+            {"start_time": 0.0, "end_time": 5.0, "boundary_source": "heuristic"},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["our_possession"] is None
+    assert captured[0].label_data == {"possession_pending": True}
+
+
 def test_create_practice_clip_may_omit_our_possession() -> None:
     """Practice clips inherit our_possession from the parent video."""
     captured: list[Clip] = []
