@@ -168,54 +168,67 @@ ONSET_CLUSTER_S: float = 0.15
 ONSET_SMOOTH_S: float = 0.2
 
 
-def _positions_yd(tracklet: dict[str, Any]) -> dict[int, tuple[float, float]]:
-    """Per-frame position in yards: field coordinates when calibrated, else
-    the box's foot point scaled by the track's median box height (players are
-    ~2 yd tall), so the signal also works on uncalibrated film. A per-frame
-    height would turn box jitter into fake movement."""
+def _pixel_positions(
+    tracklet: dict[str, Any],
+) -> tuple[dict[int, tuple[float, float]], float | None]:
+    """Per-frame pixel position and yards-per-pixel scale for one track."""
     points = tracklet.get("track_points") or []
-    out: dict[int, tuple[float, float]] = {}
     heights = [
         float(p["bbox"][3]) - float(p["bbox"][1])
         for p in points
         if p.get("bbox") and len(p["bbox"]) >= 4 and float(p["bbox"][3]) - float(p["bbox"][1]) > 1
     ]
     scale = PLAYER_HEIGHT_YD / float(np.median(heights)) if heights else None
+    out: dict[int, tuple[float, float]] = {}
     for point in points:
         frame = point.get("frame_number")
-        if frame is None:
-            continue
-        if point.get("field_x") is not None and point.get("field_y") is not None:
-            out[int(frame)] = (float(point["field_x"]), float(point["field_y"]))
-            continue
         bbox = point.get("bbox")
         if scale is None or not bbox or len(bbox) < 4:
             continue
-        out[int(frame)] = (
-            (float(bbox[0]) + float(bbox[2])) / 2 * scale,
-            float(bbox[3]) * scale,
-        )
-    return out
+        if frame is not None:
+            out[int(frame)] = (
+                (float(bbox[0]) + float(bbox[2])) / 2,
+                float(bbox[3]),
+            )
+    return out, scale
 
 
 def _smoothed_speeds(positions: dict[int, tuple[float, float]], fps: float) -> dict[int, float]:
-    """Speed (yd/s) from a centred moving average, robust to box jitter."""
+    """Speed (yd/s) from a time-based moving average, with long gaps excluded."""
     frames = sorted(positions)
     if len(frames) < 3:
         return {}
-    xs = np.array([positions[f][0] for f in frames])
-    ys = np.array([positions[f][1] for f in frames])
+
+    cadence = _nominal_cadence(frames)
+    max_gap = 2 * cadence
     half = max(1, round(ONSET_SMOOTH_S * fps / 2))
-    kernel = np.ones(2 * half + 1) / (2 * half + 1)
-    if len(frames) > 2 * half + 1:
-        xs = np.convolve(np.pad(xs, half, mode="edge"), kernel, mode="valid")
-        ys = np.convolve(np.pad(ys, half, mode="edge"), kernel, mode="valid")
+    frame_array = np.asarray(frames)
+    position_array = np.asarray([positions[f] for f in frames], dtype=float)
     speeds: dict[int, float] = {}
-    for i in range(1, len(frames)):
-        dt = (frames[i] - frames[i - 1]) / fps if fps else 0.0
-        if dt > 0:
-            speeds[frames[i]] = float(np.hypot(xs[i] - xs[i - 1], ys[i] - ys[i - 1]) / dt)
+    segment_start = 0
+    for i in range(1, len(frames) + 1):
+        if i < len(frames) and frames[i] - frames[i - 1] <= max_gap:
+            continue
+        segment_frames = frame_array[segment_start:i]
+        segment_positions = position_array[segment_start:i]
+        if len(segment_frames) >= 2:
+            smoothed = []
+            for frame in segment_frames:
+                start = int(np.searchsorted(segment_frames, frame - half, side="left"))
+                end = int(np.searchsorted(segment_frames, frame + half, side="right"))
+                smoothed.append(np.mean(segment_positions[start:end], axis=0))
+            for j in range(1, len(segment_frames)):
+                delta = segment_frames[j] - segment_frames[j - 1]
+                speeds[int(segment_frames[j])] = float(
+                    np.hypot(*(smoothed[j] - smoothed[j - 1])) * fps / delta
+                )
+        segment_start = i
     return speeds
+
+
+def _nominal_cadence(frames: list[int]) -> float:
+    """Smallest observed interval estimates cadence without absorbing missed frames."""
+    return max(1.0, float(min(np.diff(frames))))
 
 
 def _camera_compensated(
@@ -245,13 +258,18 @@ def _camera_compensated(
 
 
 def _player_positions(tracklets: list[dict[str, Any]]) -> list[dict[int, tuple[float, float]]]:
-    """Per-player positions in yards, camera-compensated when they come from
-    pixels (uncalibrated film) rather than field coordinates."""
-    positions = [_positions_yd(t) for t in tracklets]
-    calibrated = any(
-        p.get("field_x") is not None for t in tracklets for p in (t.get("track_points") or [])
-    )
-    return positions if calibrated else _camera_compensated(positions)
+    """Consistent yard positions, using calibrated coordinates or compensated pixels."""
+    points = [p for t in tracklets for p in (t.get("track_points") or []) if p.get("frame_number") is not None]
+    if points and all(p.get("field_x") is not None and p.get("field_y") is not None for p in points):
+        return [_field_track(t) for t in tracklets]
+
+    pixel_tracks = [_pixel_positions(t) for t in tracklets]
+    compensated = _camera_compensated([positions for positions, _ in pixel_tracks])
+    return [
+        {frame: (x * scale, y * scale) for frame, (x, y) in positions.items()}
+        for positions, (_, scale) in zip(compensated, pixel_tracks, strict=True)
+        if scale is not None
+    ]
 
 
 def player_onsets(tracklets: list[dict[str, Any]], fps: float) -> list[int]:
@@ -265,18 +283,32 @@ def player_onsets(tracklets: list[dict[str, Any]], fps: float) -> list[int]:
     for positions in _player_positions(tracklets):
         speeds = _smoothed_speeds(positions, fps)
         frames = sorted(speeds)
-        still = 0
+        if len(frames) < 2:
+            continue
+        cadence = _nominal_cadence(frames)
+        max_gap = 2 * cadence
+        still_start: int | None = None
+        previous: int | None = None
         for i, f in enumerate(frames):
+            if previous is not None and f - previous > max_gap:
+                still_start = None
             if speeds[f] < ONSET_STATIC_YD_S:
-                still += 1
+                if still_start is None:
+                    still_start = f
+                previous = f
                 continue
-            if still >= set_frames and speeds[f] >= ONSET_START_YD_S:
-                ahead = [speeds[g] for g in frames[i : i + confirm + 1] if g - f <= confirm]
+            if (
+                still_start is not None
+                and f - still_start >= set_frames
+                and speeds[f] >= ONSET_START_YD_S
+            ):
+                ahead = [speeds[g] for g in frames[i:] if g - f <= confirm]
                 if ahead and max(ahead) >= ONSET_MOVING_YD_S:
                     onsets.append(f)
                     break
             if speeds[f] >= ONSET_START_YD_S:
-                still = 0
+                still_start = None
+            previous = f
     return onsets
 
 
@@ -304,8 +336,18 @@ def signal_collective_onset(tracklets: list[dict[str, Any]], fps: float) -> dict
         """Players tracked and still over the ``ONSET_SET_S`` before ``frame``."""
         count = 0
         for sp in speeds:
-            window = [v for g, v in sp.items() if frame - half - set_window <= g < frame - half]
-            if len(window) >= set_window // 2 and float(np.median(window)) < ONSET_STATIC_YD_S:
+            window = sorted(
+                (g, v) for g, v in sp.items() if frame - half - set_window <= g < frame - half
+            )
+            if len(window) < 2:
+                continue
+            sample_frames = [g for g, _ in window]
+            cadence = _nominal_cadence(sorted(sp))
+            if (
+                sample_frames[-1] - sample_frames[0] >= set_window - cadence
+                and all(b - a <= 2 * cadence for a, b in zip(sample_frames, sample_frames[1:]))
+                and float(np.median([v for _, v in window])) < ONSET_STATIC_YD_S
+            ):
                 count += 1
         return count
 

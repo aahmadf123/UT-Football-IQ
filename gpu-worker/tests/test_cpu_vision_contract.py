@@ -95,11 +95,12 @@ def test_pose_is_cropped_attributed_and_remapped_for_each_player(monkeypatch):
 
 
 class Capture:
-    def __init__(self):
+    def __init__(self, fps=30):
         self.index = 0
+        self.fps = fps
 
-    def get(self, _property):
-        return 30
+    def get(self, property):
+        return self.fps
 
     def isOpened(self):
         return True
@@ -147,6 +148,20 @@ def test_camera_alignment_failure_does_not_reuse_old_field_map(tmp_path, monkeyp
     assert _project_tracks([SimpleNamespace(points=[point])], np.eye(3).flatten().tolist(),
                            True, capture_regime="drone_follow") == 0
     assert "field_x" not in point
+
+
+@pytest.mark.parametrize(("fps", "expected_frames"), [(30, list(range(7))), (60, [0, 2, 4, 6])])
+def test_calibration_timeline_uses_gpu_detection_cadence(
+    tmp_path, monkeypatch, fps, expected_frames
+):
+    monkeypatch.delenv("DETECT_FRAME_STEP", raising=False)
+    monkeypatch.setattr("pipeline.runtime.inference_device", lambda: "cuda")
+    with patch("cv2.VideoCapture", return_value=Capture(fps)), patch(
+        "pipeline.homography.timeline.ecc.estimate_warp",
+        return_value=(np.eye(2, 3), True),
+    ):
+        timeline = calibration_timeline(tmp_path / "video.mp4", _fit)
+    assert [point["frame_number"] for point in timeline] == expected_frames
 
 
 def test_unsafe_recording_cannot_project_even_with_partial_series():

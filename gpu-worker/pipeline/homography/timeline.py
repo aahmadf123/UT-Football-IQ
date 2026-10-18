@@ -6,7 +6,6 @@ we never extend a representative matrix across an unobserved pan or camera cut.
 
 from __future__ import annotations
 
-import os
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -25,11 +24,13 @@ def calibration_timeline(
 ) -> list[dict[str, Any]]:
     import cv2
 
-    stride = max(1, int(os.environ.get("DETECT_FRAME_STEP", "3")))
     cap = cv2.VideoCapture(str(video_path))
     if not cap.isOpened():
         return []
     fps = float(cap.get(cv2.CAP_PROP_FPS) or 30)
+    from pipeline.stage_detect import detection_frame_step
+
+    stride = detection_frame_step(fps)
     timeline = timeline or VideoTimeline.from_path(
         video_path, fps_fallback=fps,
         frame_count_fallback=int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0),

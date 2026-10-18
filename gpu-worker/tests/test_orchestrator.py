@@ -132,6 +132,32 @@ def test_angle_calibration_and_tracking_use_clip_specific_regimes(monkeypatch) -
     assert tracked["analytics_safe"] is True
 
 
+def test_partial_calibration_safety_survives_tracking_gaps(monkeypatch) -> None:
+    ctx = PipelineContext(video_id="vid-partial", input_uri="file:///game.mp4")
+    ctx.calibration = {
+        "analytics_safe": True,
+        "calibration_series": [
+            {"frame_number": 0, "analytics_safe": True},
+            {"frame_number": 3, "analytics_safe": False},
+        ],
+    }
+    points = [
+        {"frame_number": 0, "field_x": 10.0, "field_y": 2.0},
+        {"frame_number": 3},
+    ]
+    ctx.clip_artifacts["clip"] = {"track": {"tracklets": [{"track_points": points}]}}
+    captured = {}
+    monkeypatch.setattr(
+        "pipeline.stage_metrics.run",
+        lambda *args, **kwargs: captured.update(analytics_safe=args[3]) or {},
+    )
+
+    _run_clip_stage("metrics", ctx, {"id": "clip"})
+
+    assert captured["analytics_safe"] is True
+    assert "field_x" not in points[1] and "field_y" not in points[1]
+
+
 def test_edited_multi_angle_film_disables_shared_spatial_calibration(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

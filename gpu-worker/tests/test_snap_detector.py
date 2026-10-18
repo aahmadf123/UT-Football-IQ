@@ -6,6 +6,8 @@ import os
 import sys
 from typing import Any
 
+import pytest
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from pipeline.events.snap_detector import (
@@ -187,3 +189,43 @@ def test_one_motion_man_is_not_a_snap() -> None:
     tracks += [_set_then_go(f"p{i}", 200.0 + 40 * i, 300.0, 10_000) for i in range(11)]
     result = BayesianSnapDetector().detect(SnapInputs(tracklets=tracks, fps=FPS))
     assert result.snap_frame is None
+
+
+@pytest.mark.parametrize(("fps", "stride"), [(30.0, 3), (60.0, 2)])
+def test_collective_onset_uses_source_frame_time_for_sparse_tracks(fps, stride) -> None:
+    from pipeline.events.snap_detector import player_onsets
+
+    snap = 30
+    tracks = []
+    for i in range(12):
+        track = _set_then_go(f"p{i}", 100.0 + 40 * i, 300.0, snap, angle=i * 0.52)
+        track["track_points"] = [
+            point for point in track["track_points"] if point["frame_number"] % stride == 0
+        ]
+        tracks.append(track)
+    onsets = player_onsets(tracks, fps)
+    assert len(onsets) >= 10
+    assert all(abs(onset - snap) <= stride * 2 for onset in onsets)
+    result = BayesianSnapDetector().detect(SnapInputs(tracklets=tracks, fps=fps))
+    assert result.snap_frame is not None
+    assert abs(result.snap_frame - snap) <= stride * 2
+
+
+def test_intermittent_calibration_and_unequal_boxes_do_not_create_pan_onsets() -> None:
+    from pipeline.events.snap_detector import player_onsets
+
+    tracks = []
+    for i, height in enumerate((20, 30, 40, 24, 36, 28, 44, 32)):
+        points = []
+        for frame in range(75):
+            left = 100.0 + i * 50 + 1.5 * frame
+            point = {
+                "frame_number": frame,
+                "bbox": [left, 300.0 - height, left + height / 2, 300.0],
+            }
+            if frame % 2 == 0:
+                point.update(field_x=1000.0 + frame, field_y=-1000.0 - frame)
+            points.append(point)
+        tracks.append({"id": f"p{i}", "track_points": points})
+
+    assert player_onsets(tracks, FPS) == []

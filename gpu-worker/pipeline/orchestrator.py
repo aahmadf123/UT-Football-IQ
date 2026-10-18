@@ -554,13 +554,6 @@ def _run_clip_stage(stage: str, ctx: PipelineContext, clip: dict[str, Any]) -> d
     clip_calibration_series = calibration.get("calibration_series") or []
     clip_regime = clip.get("capture_regime") or calibration.get("capture_regime") or ctx.capture_regime
     analytics_safe = bool(calibration.get("analytics_safe", ctx.analytics_safe))
-    if clip_calibration_series and tracklets:
-        points = [point for track in tracklets for point in track.get("track_points", [])]
-        analytics_safe = bool(points) and all(
-            isinstance(point.get("field_x"), (int, float))
-            and isinstance(point.get("field_y"), (int, float))
-            for point in points
-        )
 
     if stage == "track":
         from pipeline import stage_track
