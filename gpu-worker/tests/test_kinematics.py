@@ -57,7 +57,7 @@ def test_gaps_are_never_bridged() -> None:
 def test_field_template_uses_ncaa_hash_spacing() -> None:
     # NCAA Rule 1: inbound hash marks 60 ft from each sideline, 40 ft apart.
     # The old template put them 80 ft apart, doubling every lateral distance.
-    from pipeline.homography.field_template import HASH_Y_NORTH, HASH_Y_SOUTH, HALF_WIDTH
+    from pipeline.homography.field_template import HALF_WIDTH, HASH_Y_NORTH, HASH_Y_SOUTH
 
     assert abs((HASH_Y_NORTH - HASH_Y_SOUTH) - 40 / 3) < 0.01
     assert abs((HALF_WIDTH - HASH_Y_NORTH) - 20.0) < 0.01
