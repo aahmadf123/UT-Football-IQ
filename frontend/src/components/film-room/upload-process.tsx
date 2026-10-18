@@ -5,7 +5,9 @@ import { useCallback, useEffect, useState } from "react";
 import { PreliminaryBadge } from "@/components/clip-state-badge";
 import { UploadStatusList } from "@/components/shared/upload-status-list";
 import {
+  fetchAllJobs,
   fetchJobs,
+  fetchVideo,
   fetchSystemStatus,
   controlJob,
   requestVideoProcessing,
@@ -251,25 +253,60 @@ function PipelineJobsCard() {
   const { authToken, data, refreshData, apiError, mockMode } = useAppState();
   const [pending, setPending] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [jobs, setJobs] = useState<ApiJob[]>([]);
+  const [videoFilenames, setVideoFilenames] = useState<Record<string, string | null>>({});
+  const loadJobs = useCallback(async () => {
+    try {
+      setJobs(await fetchAllJobs({ has_video: true }, authToken));
+    } catch (cause) {
+      setError(friendlyMessage(cause));
+    }
+  }, [authToken]);
+  useEffect(() => {
+    void loadJobs();
+    const interval = window.setInterval(() => void loadJobs(), 5000);
+    return () => window.clearInterval(interval);
+  }, [loadJobs]);
+  useEffect(() => {
+    let cancelled = false;
+    const knownVideoIds = new Set(data.videos.map((video) => video.id));
+    const missingIds = [...new Set(jobs.flatMap((job) => job.video_id ? [job.video_id] : []))]
+      .filter((id) => !knownVideoIds.has(id) && videoFilenames[id] === undefined);
+    if (missingIds.length === 0) return;
+    void Promise.all(missingIds.map(async (id) => {
+      try {
+        return [id, (await fetchVideo(id, authToken)).filename] as const;
+      } catch {
+        return [id, null] as const;
+      }
+    })).then((filenames) => {
+      if (!cancelled) {
+        setVideoFilenames((current) => ({
+          ...current,
+          ...Object.fromEntries(filenames),
+        }));
+      }
+    });
+    return () => { cancelled = true; };
+  }, [authToken, data.videos, jobs, videoFilenames]);
   const act = async (id: string, action: "pause" | "resume" | "cancel" | "retry") => {
     setPending(id);
     setError(null);
     try {
       if (action === "retry") await retryJob(id, authToken);
       else await controlJob(id, action, authToken);
-      await refreshData();
+      await Promise.all([refreshData(), loadJobs()]);
     } catch (cause) { setError(friendlyMessage(cause)); }
     finally { setPending(null); }
   };
   const filenames = new Map(data.videos.map((video) => [video.id, video.filename] as const));
-  const label = (job: ApiJob) => filenames.get(job.video_id ?? "") ?? "Film";
-  const { current, history } = visibleJobs(data.jobs);
+  const label = (job: ApiJob) => filenames.get(job.video_id ?? "") ?? videoFilenames[job.video_id ?? ""] ?? `Film · ${job.video_id?.slice(0, 8) ?? ""}`;
+  const { current, history } = visibleJobs(jobs);
 
   const row = (job: ApiJob) => (
     <div key={job.id}>
-      <JobRow job={job} label={label(job)} />
+      <JobRow job={job} label={label(job)} errorMessage={job.error_message ? friendlyMessage(job.error_message, "process this film") : undefined} />
       {job.control_requested && <p role="status" className="mb-2 text-xs text-status-warn">{job.control_requested === "pause" ? "Pausing processing…" : "Cancelling processing…"}</p>}
-      {job.status === "failed" && job.error_message ? <p className="mb-2 text-xs text-muted-foreground">{friendlyMessage(job.error_message, "process this film")}</p> : null}
       {!mockMode && <div className="mb-3 flex flex-wrap gap-2">
         {["queued", "running"].includes(job.status) && <Button size="sm" variant="outline" disabled={pending === job.id || Boolean(job.control_requested)} onClick={() => void act(job.id, "pause")}>Pause</Button>}
         {job.status === "paused" && <Button size="sm" variant="outline" disabled={pending === job.id} onClick={() => void act(job.id, "resume")}>Resume</Button>}

@@ -116,6 +116,28 @@ describe("fetchVideos / fetchClipsForVideo / fetchClip / fetchVideo", () => {
   });
 });
 
+describe("fetchAllJobs", () => {
+  test("filters video-linked jobs before paging and reads every page", async () => {
+    const firstPage = Array.from({ length: 200 }, (_, i) => ({ id: String(i) }));
+    let calls = 0;
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => (++calls === 1 ? firstPage : [{ id: "older-film-job" }]),
+      text: async () => "[]",
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { fetchAllJobs } = await freshImport();
+    const jobs = await fetchAllJobs({ has_video: true });
+
+    expect(jobs).toHaveLength(201);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(String((fetchMock.mock.calls[0] as unknown as [string])[0])).toContain("has_video=true");
+    expect(String((fetchMock.mock.calls[1] as unknown as [string])[0])).toContain("offset=200");
+  });
+});
+
 describe("fetchAlerts", () => {
   test("encodes filter params", async () => {
     const fetchMock = vi.fn(async () => ({

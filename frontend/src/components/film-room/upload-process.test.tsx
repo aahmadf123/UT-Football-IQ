@@ -23,6 +23,7 @@ const UPLOADED_VIDEO = {
 
 interface MockOptions {
   jobResponse?: { status: number; body: unknown };
+  filmJobs?: Array<Record<string, unknown>>;
   postBodies?: Array<Record<string, unknown>>;
   inboxItems?: Array<Record<string, unknown>>;
   systemStatus?: Record<string, unknown>;
@@ -31,6 +32,12 @@ interface MockOptions {
 function installFetch(opts: MockOptions = {}) {
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
     const method = init?.method ?? "GET";
+    if (method === "GET" && url.includes("/api/v1/jobs") && url.includes("has_video=true")) {
+      return { ok: true, status: 200, json: async () => opts.filmJobs ?? [] } as Response;
+    }
+    if (url.endsWith("/api/v1/videos/video-outside-selection")) {
+      return { ok: true, status: 200, json: async () => ({ filename: "practice-outside-filter.mp4" }) } as Response;
+    }
     if (url.includes("/api/v1/system/status") && opts.systemStatus) {
       return { ok: true, status: 200, json: async () => opts.systemStatus } as Response;
     }
@@ -120,6 +127,28 @@ describe("UploadProcessFilm", () => {
     fireEvent.click(process);
     expect(postBodies).toHaveLength(0);
     expect(screen.getByText(/Your account has read-only film access/)).toBeTruthy();
+  });
+
+  test("loads the filename for an out-of-filter failed job and shows its friendly error once", async () => {
+    vi.stubEnv("NEXT_PUBLIC_API_URL", "https://api.test");
+    installFetch({
+      filmJobs: [{
+        id: "failed-job",
+        job_type: "pipeline",
+        status: "failed",
+        priority: 0,
+        video_id: "video-outside-selection",
+        created_at: "2026-10-18T00:00:00Z",
+        error_message: 'GET https://api.test/jobs failed (403): {"detail":"denied"}',
+      }],
+    });
+    await renderUploadProcess();
+
+    expect(await screen.findByText("practice-outside-filter.mp4")).toBeTruthy();
+    const friendlyError = "Couldn't process this film. Your account doesn't have access to this. Ask an admin if you need it.";
+    await screen.findByText(friendlyError);
+    expect(screen.getAllByText(friendlyError)).toHaveLength(1);
+    expect(screen.queryByText(/https:\/\/api\.test\/jobs/)).toBeNull();
   });
 
   test("processed film can be reprocessed with the selected CPU profile after coach edits", async () => {

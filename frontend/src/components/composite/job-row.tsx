@@ -10,7 +10,7 @@ import type { ApiJob, JobStageProgress } from "@/lib/types";
 import { StatusBadge, toneForJobStatus } from "@/components/composite/status-badge";
 import { cn } from "@/lib/utils";
 
-export function JobRow({ job, label }: { job: ApiJob; label?: string }) {
+export function JobRow({ job, label, errorMessage = job.error_message }: { job: ApiJob; label?: string; errorMessage?: string | null }) {
   const stages = summarizeProgress(job.progress);
   const lease = leaseSummary(job);
   return (
@@ -47,10 +47,10 @@ export function JobRow({ job, label }: { job: ApiJob; label?: string }) {
           ))}
         </div>
       ) : null}
-      {job.status === "failed" && job.error_message ? (
+      {job.status === "failed" && errorMessage ? (
         <div className="mt-1 text-xs text-status-danger">
           {job.error_stage ? `${job.error_stage}: ` : ""}
-          {job.error_message}
+          {errorMessage}
         </div>
       ) : null}
     </div>

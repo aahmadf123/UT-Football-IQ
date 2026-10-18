@@ -130,6 +130,7 @@ def test_list_jobs_filters_by_status_job_type_and_video() -> None:
                     "status": "failed",
                     "job_type": "detect",
                     "video_id": str(video_id),
+                    "has_video": "true",
                 },
             )
     finally:
@@ -141,6 +142,7 @@ def test_list_jobs_filters_by_status_job_type_and_video() -> None:
     assert "processing_jobs.status" in sql.split("WHERE")[1]
     assert "processing_jobs.job_type" in sql.split("WHERE")[1]
     assert "processing_jobs.video_id" in sql.split("WHERE")[1]
+    assert "IS NOT NULL" in sql.split("WHERE")[1]
 
 
 def test_list_jobs_rejects_invalid_status() -> None:
