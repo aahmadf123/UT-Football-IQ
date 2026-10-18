@@ -35,12 +35,16 @@ def _field_xy(point: dict[str, Any]) -> tuple[float, float] | None:
 
 
 def _times(points: list[dict[str, Any]], fps: float) -> np.ndarray:
-    """Seconds for each point: verified presentation time, else frame/fps."""
+    """Seconds for each point: presentation time when present, else frame/fps."""
     out = []
     for p in points:
         ts = p.get("timestamp_seconds")
-        if ts is not None and p.get("timestamp_verified"):
-            out.append(float(ts))
+        try:
+            seconds = float(ts)
+        except (TypeError, ValueError):
+            seconds = math.nan
+        if math.isfinite(seconds):
+            out.append(seconds)
         else:
             out.append(float(p.get("frame_number", 0)) / (fps or 30.0))
     return np.asarray(out, dtype=float)
@@ -85,26 +89,100 @@ def _smooth(
     return times, xy
 
 
+def _split_tracking_jumps(
+    run: list[tuple[dict[str, Any], tuple[float, float]]], fps: float
+) -> list[list[tuple[dict[str, Any], tuple[float, float]]]]:
+    """Split persistent impossible displacements before smoothing can hide them."""
+    window = MEDIAN_WINDOW
+    if len(run) < 2 * window:
+        return [run]
+
+    times = _times([point for point, _ in run], fps)
+    xy = np.asarray([position for _, position in run], dtype=float)
+    boundaries = [0]
+    boundary = window
+    while boundary <= len(run) - window:
+        before = xy[boundary - window : boundary]
+        after = xy[boundary : boundary + window]
+        before_position = np.median(before, axis=0)
+        after_position = np.median(after, axis=0)
+        before_time = float(np.median(times[boundary - window : boundary]))
+        onset_elapsed = times[boundary] - before_time
+        persistence_elapsed = (
+            float(np.median(times[boundary : boundary + window])) - times[boundary]
+        )
+        displacement = float(np.linalg.norm(xy[boundary] - before_position))
+        if onset_elapsed > 0 and persistence_elapsed > 0:
+            onset_speed = displacement / onset_elapsed
+            persistence_speed = (
+                float(np.linalg.norm(after_position - xy[boundary])) / persistence_elapsed
+            )
+        else:
+            onset_speed = persistence_speed = 0.0
+        if (
+            displacement > SPEED_SPAN_SECONDS * MAX_HUMAN_SPEED_YPS
+            and onset_speed > MAX_HUMAN_SPEED_YPS
+            and persistence_speed <= MAX_HUMAN_SPEED_YPS
+        ):
+            boundaries.append(boundary)
+            boundary += window
+        else:
+            boundary += 1
+
+    boundaries.append(len(run))
+    return [run[start:end] for start, end in zip(boundaries, boundaries[1:]) if start < end]
+
+
 def smoothed_paths(points: list[dict[str, Any]], fps: float) -> list[tuple[np.ndarray, np.ndarray]]:
     """``(times, xy)`` for each unbroken, smoothed stretch of the track."""
-    return [_smooth(run, fps) for run in _runs(points)]
+    return [
+        _smooth(stretch, fps)
+        for run in _runs(points)
+        for stretch in _split_tracking_jumps(run, fps)
+    ]
+
+
+def speed_samples(points: list[dict[str, Any]], fps: float) -> list[tuple[int, int, float]]:
+    """Plausible ``(start_frame, end_frame, speed)`` samples over ~0.2 s."""
+    out: list[tuple[int, int, float]] = []
+    for run in _runs(points):
+        for stretch in _split_tracking_jumps(run, fps):
+            times, xy = _smooth(stretch, fps)
+            frames = [int(point.get("frame_number", 0)) for point, _ in stretch]
+            run_samples: list[tuple[int, int, float]] = []
+            for i in range(len(times)):
+                j = i
+                while j < len(times) - 1 and times[j] - times[i] < SPEED_SPAN_SECONDS:
+                    j += 1
+                dt = times[j] - times[i]
+                if dt < SPEED_SPAN_SECONDS * 0.5:
+                    continue
+                v = float(np.hypot(*(xy[j] - xy[i])) / dt)
+                if v <= MAX_HUMAN_SPEED_YPS:
+                    run_samples.append((frames[i], frames[j], v))
+            out.extend(run_samples)
+
+            if len(times) > 1 and not any(end == frames[-1] for _, end, _ in run_samples):
+                prior = [
+                    i
+                    for i in range(len(times) - 1)
+                    if SPEED_SPAN_SECONDS * 0.5 <= times[-1] - times[i]
+                ]
+                if prior:
+                    i = min(
+                        prior,
+                        key=lambda index: abs((times[-1] - times[index]) - SPEED_SPAN_SECONDS),
+                    )
+                    dt = times[-1] - times[i]
+                    v = float(np.hypot(*(xy[-1] - xy[i])) / dt)
+                    if v <= MAX_HUMAN_SPEED_YPS:
+                        out.append((frames[i], frames[-1], v))
+    return out
 
 
 def speeds(points: list[dict[str, Any]], fps: float) -> list[float]:
     """Plausible speeds (yd/s) along the smoothed path, each over ~0.2 s."""
-    out: list[float] = []
-    for times, xy in smoothed_paths(points, fps):
-        j = 0
-        for i in range(len(times)):
-            while j < len(times) - 1 and times[j] - times[i] < SPEED_SPAN_SECONDS:
-                j += 1
-            dt = times[j] - times[i]
-            if dt < SPEED_SPAN_SECONDS * 0.5:
-                break
-            v = float(np.hypot(*(xy[j] - xy[i])) / dt)
-            if v <= MAX_HUMAN_SPEED_YPS:
-                out.append(v)
-    return out
+    return [speed for _, _, speed in speed_samples(points, fps)]
 
 
 def distance(points: list[dict[str, Any]], fps: float) -> float:
@@ -115,6 +193,6 @@ def distance(points: list[dict[str, Any]], fps: float) -> float:
         for i in range(1, len(times)):
             step = float(np.hypot(*(xy[i] - xy[i - 1])))
             dt = times[i] - times[i - 1]
-            if dt > 0 and step / dt <= MAX_HUMAN_SPEED_YPS * 1.5:
+            if dt > 0 and step / dt <= MAX_HUMAN_SPEED_YPS:
                 total += step
     return total

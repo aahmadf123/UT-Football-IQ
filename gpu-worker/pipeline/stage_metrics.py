@@ -430,14 +430,24 @@ def _ball_carrier_analytics(
     track_id = best_carrier.get("id", "unknown")
 
     # Speed at contact
-    speeds = _frame_speeds(bc_pts, fps)
-    contact_idx = _closest_index(bc_pts, contact_frame)
-    if contact_idx is not None and contact_idx < len(speeds):
+    contact_speed = min(
+        (
+            sample
+            for sample in kinematics.speed_samples(bc_pts, fps)
+            if sample[0] <= contact_frame <= sample[1]
+        ),
+        key=lambda sample: (
+            abs((sample[0] + sample[1]) / 2 - contact_frame),
+            sample[1] - sample[0],
+        ),
+        default=None,
+    )
+    if contact_speed is not None:
         metrics.append(
             {
                 "metric_name": "speed_at_contact",
                 "metric_value": {
-                    "yards_per_second": round(speeds[min(contact_idx, len(speeds) - 1)], 2),
+                    "yards_per_second": round(contact_speed[2], 2),
                     "track_id": track_id,
                     "confidence": 0.6,
                 },
