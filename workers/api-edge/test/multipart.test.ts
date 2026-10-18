@@ -1,7 +1,7 @@
 import { env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import type { Env } from "../src/env";
-import { MIN_PART_SIZE, buildObjectKey } from "../src/multipart";
+import { MIN_PART_SIZE, buildObjectKey, handleMultipartPart } from "../src/multipart";
 import { route } from "../src/index";
 
 const testEnv = env as Env;
@@ -145,6 +145,27 @@ describe("multipart upload", () => {
       testEnv,
     );
     expect(res.status).toBe(401);
+  });
+
+  it("returns a retryable status when R2 rejects a part write", async () => {
+    const failingBucket = {
+      resumeMultipartUpload: () => ({
+        uploadPart: async () => {
+          throw new Error("R2 unavailable");
+        },
+      }),
+    } as unknown as R2Bucket;
+    const failingEnv = { ...testEnv, RAW_VIDEO: failingBucket } as Env;
+    const response = await handleMultipartPart(
+      new Request(`${BASE}/part?key=raw/1-a.mp4&uploadId=x&partNumber=1`, {
+        method: "PUT",
+        headers: AUTH,
+        body: part(16, 0),
+      }),
+      failingEnv,
+    );
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toMatchObject({ detail: expect.stringContaining("Part upload failed") });
   });
 
   it("rejects a refresh token used as a credential", async () => {

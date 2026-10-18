@@ -16,6 +16,7 @@ import {
   registerVideo,
   requestUploadUrl,
   uploadToObjectStore,
+  type ObjectUploadResult,
 } from "./api";
 import type { ApiPlayerMetricsSummary, VideoInboxItem } from "./api";
 import type {
@@ -29,6 +30,7 @@ import type {
   OurPossession,
 } from "./types";
 import { ApiError, friendlyMessage } from "@/lib/api-error";
+import { MULTIPART_THRESHOLD, uploadFilmMultipart } from "@/lib/multipart-upload";
 
 export type SessionType = "all" | "practice" | "game" | "scrimmage";
 export type ApiStatus = "idle" | "loading" | "live" | "offline" | "error" | "mock";
@@ -406,28 +408,38 @@ export function AppStateProvider({
       // Step 1: Request a presigned upload URL from the backend
       updateUpload(clip.id, { phase: "requesting-url", progress: 0 });
       const token = await resolveToken();
-      const { uploadUrl } = await requestUploadUrl(file.name, token);
-      if (controller.signal.aborted) return;
+      const onProgress = (loaded: number, total: number) => {
+        updateUpload(clip.id, { progress: Math.round((loaded / total) * 100) });
+      };
+      let uploadResult: ObjectUploadResult | null = null;
+      if (file.size >= MULTIPART_THRESHOLD) {
+        // Full-game film: resumable parts straight to storage (a single PUT
+        // is capped at ~100 MB by the edge and can't recover from a drop).
+        updateUpload(clip.id, { phase: "uploading", progress: 0 });
+        uploadResult = await uploadFilmMultipart(file, {
+          getToken: () => tokenRef.current ?? token,
+          refreshToken: () => resolveToken(),
+          onProgress,
+          signal: controller.signal,
+        });
+      }
+      if (!uploadResult) {
+        const { uploadUrl } = await requestUploadUrl(file.name, token);
+        if (controller.signal.aborted) return;
 
-      // Step 2: PUT the file to the presigned upload URL
-      updateUpload(clip.id, { phase: "uploading", progress: 0 });
-      let uploadResult;
-      try {
-        uploadResult = await uploadToObjectStore(uploadUrl, file, token, (loaded, total) => {
-          const pct = Math.round((loaded / total) * 100);
-          updateUpload(clip.id, { progress: pct });
-        }, controller.signal);
-      } catch (err) {
-        const tokenExpired = err instanceof ApiError && err.status === 401;
-        if (!tokenExpired) throw err;
+        // Step 2: PUT the file to the presigned upload URL
+        updateUpload(clip.id, { phase: "uploading", progress: 0 });
+        try {
+          uploadResult = await uploadToObjectStore(uploadUrl, file, token, onProgress, controller.signal);
+        } catch (err) {
+          const tokenExpired = err instanceof ApiError && err.status === 401;
+          if (!tokenExpired) throw err;
 
-        const retriedToken = await resolveToken();
-        if (!retriedToken || retriedToken === token) throw err;
+          const retriedToken = await resolveToken();
+          if (!retriedToken || retriedToken === token) throw err;
 
-        uploadResult = await uploadToObjectStore(uploadUrl, file, retriedToken, (loaded, total) => {
-          const pct = Math.round((loaded / total) * 100);
-          updateUpload(clip.id, { progress: pct });
-        }, controller.signal);
+          uploadResult = await uploadToObjectStore(uploadUrl, file, retriedToken, onProgress, controller.signal);
+        }
       }
 
       if (controller.signal.aborted) return;
