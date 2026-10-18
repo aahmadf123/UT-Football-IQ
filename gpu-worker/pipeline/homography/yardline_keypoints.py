@@ -49,7 +49,7 @@ FAMILY_TOL_RAD = math.radians(12.0)
 #
 # The failure is silent and expensive. Feed the same frame in at 3x and a hash
 # tick becomes three times longer, clears the *solid* Hough threshold, and the
-# row reports as solid paint. Solid rows are sidelines, so two hash rows 26.7 yd
+# row reports as solid paint. Solid rows are sidelines, so two hash rows 13.3 yd
 # apart get labelled as two sidelines 53.3 yd apart: every lateral measurement
 # in the clip comes out 2x wrong, from a fit that has more correspondences than
 # the correct one and raises no warning.
@@ -336,7 +336,7 @@ def _row_verdict(
     solid Hough pass happened to find the line. That tag is not a property of
     the paint but of the threshold: rescaling one frame flips hash rows to
     "solid" and back, and because the tag decides whether two rows are the
-    hashes (26.7 yd apart) or the sidelines (53.3 yd), the flip silently doubles
+    hashes (13.3 yd apart) or the sidelines (53.3 yd), the flip silently quadruples
     every lateral measurement in the clip -- from a fit that reports more
     correspondences and no warning. Measured on the Toledo film, no continuity
     statistic separates the two populations: known-solid yard lines span
@@ -607,7 +607,7 @@ def _match_rows_to_template(
 
     The four template rows south→north are sideline, hash, hash, sideline. Which
     subset was detected sets the entire lateral scale: two rows read as the
-    hashes are 26.7 yd apart, the same two read as the sidelines are 53.3 yd, so
+    hashes are 13.3 yd apart, the same two read as the sidelines are 53.3 yd, so
     a mislabelling doubles every across-field measurement in the clip. The DLT
     fits mislabelled correspondences as happily as correct ones and reports a
     high inlier ratio either way, so nothing downstream catches it.
