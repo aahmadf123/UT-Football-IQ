@@ -91,6 +91,8 @@ export function PhysicalLeaderboard() {
 
   useEffect(() => {
     let cancelled = false;
+    setLoads(null);
+    setError(null);
     fetchPhysicalLoads(authToken ?? undefined)
       .then((rows) => {
         if (!cancelled) setLoads(rows);
