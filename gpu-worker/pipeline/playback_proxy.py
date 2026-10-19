@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import json
+import os
+import select
 import subprocess
 import tempfile
+import time
 from collections import Counter
 from pathlib import Path
 from typing import Any
@@ -18,6 +21,9 @@ from pipeline.video_timeline import VideoTimeline
 
 class _StreamingEncoder:
     """Raw BGR frames on stdin -> browser-ready H.264 MP4, in one ffmpeg pass."""
+
+    _timeout = 180
+    _poll_interval = 0.25
 
     def __init__(self, output: Path, size: tuple[int, int], fps: float) -> None:
         self.command = [
@@ -53,46 +59,108 @@ class _StreamingEncoder:
         ]
         self.errors = tempfile.TemporaryFile()
         self.process: subprocess.Popen[bytes] | None = None
+        self.deadline: float | None = None
 
     def __enter__(self) -> _StreamingEncoder:
         self.process = subprocess.Popen(
-            self.command, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=self.errors
+            self.command,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            stderr=self.errors,
+            bufsize=0,
         )
+        assert self.process.stdin is not None
+        os.set_blocking(self.process.stdin.fileno(), False)
+        self.deadline = time.monotonic() + self._timeout
         return self
 
     def write(self, frame: Any) -> None:
         assert self.process is not None and self.process.stdin is not None
-        try:
-            self.process.stdin.write(frame.tobytes())
-        except BrokenPipeError:
-            self._fail()
+        descriptor = self.process.stdin.fileno()
+        remaining = memoryview(frame.tobytes())
+        while remaining:
+            self._check_control()
+            if self.process.poll() is not None:
+                self._fail()
+            _, writable, _ = select.select(
+                [],
+                [descriptor],
+                [],
+                min(self._poll_interval, self._remaining()),
+            )
+            if not writable:
+                continue
+            try:
+                written = os.write(descriptor, remaining)
+            except BlockingIOError:
+                continue
+            except BrokenPipeError:
+                self._fail()
+            if not written:
+                self._fail()
+            remaining = remaining[written:]
 
     def _fail(self) -> None:
         assert self.process is not None
-        self.process.wait(timeout=30)
+        self._wait_for_exit()
         self.errors.seek(0)
         raise subprocess.CalledProcessError(
             self.process.returncode or 1, self.command, stderr=self.errors.read(16 * 1024)
         )
 
+    def _remaining(self) -> float:
+        assert self.deadline is not None
+        remaining = self.deadline - time.monotonic()
+        if remaining <= 0:
+            raise subprocess.TimeoutExpired(self.command, self._timeout)
+        return remaining
+
+    def _check_control(self) -> None:
+        check_control()
+        self._remaining()
+
+    def _wait_for_exit(self) -> None:
+        assert self.process is not None
+        while self.process.poll() is None:
+            self._check_control()
+            try:
+                self.process.wait(timeout=min(self._poll_interval, self._remaining()))
+            except subprocess.TimeoutExpired:
+                continue
+        self._check_control()
+
+    def _terminate(self) -> None:
+        assert self.process is not None
+        if self.process.poll() is None:
+            try:
+                self.process.terminate()
+            except ProcessLookupError:
+                pass
+            try:
+                self.process.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                self.process.kill()
+                self.process.wait()
+
     def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
         assert self.process is not None
         try:
-            if exc_type is not None:
-                self.process.kill()
-                self.process.wait(timeout=10)
-                return
             if self.process.stdin is not None:
                 try:
                     self.process.stdin.close()
                 except BrokenPipeError:
                     pass
-            self.process.wait(timeout=180)
+            if exc_type is not None:
+                self._terminate()
+                return
+            self._wait_for_exit()
             if self.process.returncode:
                 self._fail()
         finally:
             if self.process.poll() is None:
-                self.process.kill()
+                self._terminate()
+            if self.process.stdin is not None and not self.process.stdin.closed:
+                self.process.stdin.close()
             self.errors.close()
 
 
