@@ -86,7 +86,7 @@ class _WorkerClient(httpx.Client):
             record_id = stable_record_id(path, json)
             if record_id and not json.get("id"):
                 json = {**json, "id": record_id}
-            replayable = bool(record_id or json.get("id"))
+            replayable = path != "/api/v1/pose/keypoints" and bool(record_id or json.get("id"))
         response = _with_retries(
             lambda: super(_WorkerClient, self).post(url, json=json, **kwargs),
             replayable=replayable,
