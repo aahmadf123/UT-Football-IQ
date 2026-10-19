@@ -418,6 +418,7 @@ def _api_download(ref: str, bucket: str, key: str) -> Path:
                 # Content-Length. Resume from where it stopped and never hand
                 # a short file to the pipeline.
                 for attempt in range(DOWNLOAD_ATTEMPTS):
+                    check_control()
                     headers = {"Range": f"bytes={written}-"} if written else {}
                     try:
                         with client.stream("GET", url, headers=headers) as response:
