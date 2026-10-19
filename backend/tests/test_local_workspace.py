@@ -40,7 +40,7 @@ from app.routers.jobs import (
 from app.routers.reports import _run_report_job
 from app.routers.sessions import PlayMatch, ensure_recording_plays, match_play
 from app.routers.system import staff_storage_url
-from fastapi import HTTPException, Response
+from fastapi import BackgroundTasks, HTTPException, Response
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
@@ -261,6 +261,7 @@ async def test_stale_worker_attempt_cannot_publish_and_pause_survives_resume(wor
                 ),
                 db,
                 user,
+                BackgroundTasks(),
             )
         assert stale.value.status_code == 409
         await db.rollback()
@@ -275,6 +276,7 @@ async def test_stale_worker_attempt_cannot_publish_and_pause_survives_resume(wor
             ),
             db,
             user,
+            BackgroundTasks(),
         )
         await update_job_status(
             row.id,
@@ -285,6 +287,7 @@ async def test_stale_worker_attempt_cannot_publish_and_pause_survives_resume(wor
             ),
             db,
             user,
+            BackgroundTasks(),
         )
         resumed = await _control_job(row.id, "resume", db)
         assert resumed.status == "queued"
@@ -433,6 +436,7 @@ async def test_shutdown_recovery_preserves_explicit_pause_and_cancel(workspace_d
             ),
             db,
             user,
+            BackgroundTasks(),
         )
         assert response.status == "cancelled"
         assert await recover_shutdown_pauses(db) == 1

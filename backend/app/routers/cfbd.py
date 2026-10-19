@@ -39,7 +39,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.cfbd.models import CFBDPlayerSeason
 from app.config import get_settings
 from app.database import get_db
-from app.deps import require_admin
+from app.deps import require_admin, require_coach_or_above
 from app.governance import Action, Resource, require_policy
 from app.models import (
     CfbdDrive,
@@ -685,7 +685,7 @@ async def get_player_seasons(
 @router.post("/videos/{video_id}/link")
 async def link_game_film(
     video_id: uuid.UUID,
-    _user: Annotated[User, Depends(require_admin)],
+    _user: Annotated[User, Depends(require_coach_or_above)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> dict[str, Any]:
     """Match a processed game film's plays to CFBD play-by-play.
@@ -694,20 +694,22 @@ async def link_game_film(
     and PPA under ``label_data.cfbd``. Downloads the game's play-by-play first
     when it isn't cached. Safe to repeat.
     """
-    from app.cfbd.game_link import ensure_plays, find_game, link_video
+    from app.cfbd.game_link import ensure_game, ensure_plays, link_video
     from app.models import Video
 
     video = await db.get(Video, video_id)
     if video is None:
         raise HTTPException(404, "Film not found")
-    game = await find_game(db, video)
+    game = await ensure_game(db, video)
     if game is None:
+        await db.commit()  # keep the schedule just fetched
         raise HTTPException(
             404,
             "No Toledo game in CollegeFootballData on this film's date. "
             "Check the film's date, or refresh the season schedule.",
         )
     if not await ensure_plays(db, game):
+        await db.commit()
         raise HTTPException(503, "CFBD play-by-play for this game isn't available yet.")
     result = await link_video(db, video_id)
     await db.commit()

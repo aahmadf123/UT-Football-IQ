@@ -232,3 +232,40 @@ async def test_link_video_writes_official_results(db: async_sessionmaker[AsyncSe
     assert all(clip.our_possession == SideOfBall.special_teams for clip in kickoff_clips)
     assert stale_clip is not None
     assert stale_clip.label_data == {"view": "sideline", "custom": "preserve"}
+
+
+async def test_ensure_game_fetches_the_schedule_when_the_game_is_not_cached(monkeypatch):
+    from datetime import UTC, datetime
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock, MagicMock
+
+    from app.cfbd import client as client_module
+    from app.cfbd import game_link
+    from app.cfbd import sync as sync_module
+
+    game = SimpleNamespace(cfbd_game_id=1)
+    find = AsyncMock(side_effect=[None, game])
+    synced = AsyncMock()
+    monkeypatch.setattr(game_link, "find_game", find)
+    monkeypatch.setattr(sync_module, "sync_games", synced)
+    fake_client = MagicMock()
+    fake_client.__aenter__ = AsyncMock(return_value=fake_client)
+    fake_client.__aexit__ = AsyncMock(return_value=False)
+    monkeypatch.setattr(
+        client_module.CFBDClient, "from_settings", classmethod(lambda cls, **_: fake_client)
+    )
+    monkeypatch.setattr("app.config.get_settings", lambda: SimpleNamespace(cfbd_api_key="test-key"))
+
+    video = SimpleNamespace(recorded_at=datetime(2026, 9, 5, tzinfo=UTC))
+    assert await game_link.ensure_game(MagicMock(), video) is game
+    assert synced.await_args.kwargs == {"season": 2026, "season_type": "regular"}
+
+    # A January bowl belongs to the previous season.
+    find.side_effect = [None, None]
+    synced.reset_mock()
+    bowl = SimpleNamespace(recorded_at=datetime(2027, 1, 2, tzinfo=UTC))
+    assert await game_link.ensure_game(MagicMock(), bowl) is None
+    assert [c.kwargs for c in synced.await_args_list] == [
+        {"season": 2026, "season_type": "regular"},
+        {"season": 2026, "season_type": "postseason"},
+    ]
