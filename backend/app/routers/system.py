@@ -92,6 +92,16 @@ async def system_version() -> dict[str, str]:
     return {"git_sha": os.environ.get("GIT_SHA", "unknown")}
 
 
+@router.get("/errors")
+async def recent_errors(
+    _admin: Annotated[User, Depends(require_admin)],
+) -> list[dict[str, Any]]:
+    """The last 50 unhandled API errors since this server started, newest first."""
+    from app.error_log import recent
+
+    return recent()
+
+
 @router.get("/status")
 async def system_status(
     db: Annotated[AsyncSession, Depends(get_db)], _user: Annotated[User, Depends(get_current_user)]

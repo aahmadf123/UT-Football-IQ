@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.responses import Response
 
 from app.config import get_settings
+from app.error_log import unhandled_exception_handler
 from app.logging import configure_logging
 from app.observability import PrometheusMiddleware, metrics_response
 from app.roster_seeding import seed_roster
@@ -147,6 +148,8 @@ app = FastAPI(
     docs_url="/docs" if _env != "production" else None,
     redoc_url="/redoc" if _env != "production" else None,
 )
+
+app.add_exception_handler(Exception, unhandled_exception_handler)
 
 # ── Observability middleware ──────────────────────────────────────────────────
 app.add_middleware(PrometheusMiddleware)
