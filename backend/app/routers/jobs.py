@@ -393,7 +393,7 @@ async def heartbeat_job(
         ):
             should_link_game_film = True
     await db.flush()
-    if should_link_game_film:
+    if should_link_game_film and job.video_id is not None:
         await db.commit()
         background.add_task(link_game_film, job.video_id)
     return JobResponse.from_orm_job(job)

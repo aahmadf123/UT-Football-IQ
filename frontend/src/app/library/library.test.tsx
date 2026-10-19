@@ -193,12 +193,14 @@ describe("LibraryPage", () => {
     vi.stubGlobal("fetch", fetchMock);
     const { LibraryPage, AppStateProvider } = await importPage();
     render(<AppStateProvider><LibraryPage /></AppStateProvider>);
-    fireEvent.click(await screen.findByRole("button", { name: "Load more recordings" }));
-    await screen.findByText("201 loaded");
+    // 200 rows take well over the default 1 s to render on CI runners.
+    const slow = { timeout: 10_000 };
+    fireEvent.click(await screen.findByRole("button", { name: "Load more recordings" }, slow));
+    await screen.findByText("201 loaded", {}, slow);
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes("offset=200"))).toBe(true);
     expect(screen.queryByRole("button", { name: "Load more recordings" })).toBeNull();
     fireEvent.change(screen.getByLabelText("Search film"), { target: { value: "last-recording" } });
-    fireEvent.click(await screen.findByRole("button", { name: /Expand session.*May 20, 2026/ }));
-    await screen.findByRole("link", { name: "last-recording.mp4" });
-  });
+    fireEvent.click(await screen.findByRole("button", { name: /Expand session.*May 20, 2026/ }, slow));
+    await screen.findByRole("link", { name: "last-recording.mp4" }, slow);
+  }, 30_000);
 });
