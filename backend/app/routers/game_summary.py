@@ -69,6 +69,7 @@ class DownSummary(BaseModel):
     success_rate: float | None
     yards_per_play: float | None
     rush_share: float | None
+    clip_ids: list[uuid.UUID]
 
 
 class SideSummary(BaseModel):
@@ -163,30 +164,33 @@ def summarize_side(plays: list[tuple[dict[str, Any], uuid.UUID]]) -> SideSummary
     epa_total = 0.0
     epa_count = 0
     successes = {"all": [0, 0], "rush": [0, 0], "pass": [0, 0]}
-    downs: dict[int, dict[str, float]] = {}
+    downs: dict[int, dict[str, Any]] = {}
     for play, clip_id in plays:
         kind = play_kind(play)
-        if kind is None:
+        if kind is None and play.get("play_type") not in FUMBLE_TYPES:
             continue
         gained = int(play.get("yards_gained") or 0)
         groups["all"].append(clip_id)
-        groups[kind].append(clip_id)
+        if kind is not None:
+            groups[kind].append(clip_id)
         yards += gained
         if kind == "rush":
             rush_yards += gained
-        else:
+        elif kind == "pass":
             pass_yards += gained
         if play.get("ppa") is not None:
             epa_total += float(play["ppa"])
             epa_count += 1
         success = is_success(play)
         if success is not None:
-            for bucket in ("all", kind):
-                successes[bucket][1] += 1
-                successes[bucket][0] += int(success)
+            successes["all"][1] += 1
+            successes["all"][0] += int(success)
+            if kind is not None:
+                successes[kind][1] += 1
+                successes[kind][0] += int(success)
             if success:
                 groups["success"].append(clip_id)
-        if is_explosive(play, kind):
+        if kind is not None and is_explosive(play, kind):
             groups["explosive"].append(clip_id)
         if play.get("play_type") in TURNOVER_TYPES:
             groups["turnovers"].append(clip_id)
@@ -197,11 +201,13 @@ def summarize_side(plays: list[tuple[dict[str, Any], uuid.UUID]]) -> SideSummary
         down = play.get("down")
         if down in (1, 2, 3, 4):
             row = downs.setdefault(
-                int(down), {"plays": 0, "yards": 0, "rush": 0, "success": 0, "graded": 0}
+                int(down),
+                {"plays": 0, "yards": 0, "rush": 0, "success": 0, "graded": 0, "clip_ids": []},
             )
             row["plays"] += 1
             row["yards"] += gained
             row["rush"] += int(kind == "rush")
+            row["clip_ids"].append(clip_id)
             if success is not None:
                 row["graded"] += 1
                 row["success"] += int(success)
@@ -248,6 +254,7 @@ def summarize_side(plays: list[tuple[dict[str, Any], uuid.UUID]]) -> SideSummary
                 success_rate=_rate(int(row["success"]), int(row["graded"])),
                 yards_per_play=_per(row["yards"], int(row["plays"])),
                 rush_share=_rate(int(row["rush"]), int(row["plays"])),
+                clip_ids=row["clip_ids"],
             )
             for down, row in sorted(downs.items())
         ],

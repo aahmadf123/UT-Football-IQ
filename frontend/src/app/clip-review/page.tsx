@@ -461,7 +461,12 @@ function ClipReviewReady({
                   isPreliminary={clip.is_preliminary}
                   reviewState={clip.review_state}
                 />
-                <AngleSwitch clip={clip} siblings={siblingClips} />
+                <AngleSwitch
+                  clip={clip}
+                  siblings={siblingClips}
+                  playlist={playlist}
+                  playlistIndex={playlistIndex}
+                />
               </div>
               {situationLabel(clip) ? (
                 <p className="mt-1 font-mono text-xs font-semibold text-foreground">{situationLabel(clip)}</p>
@@ -681,7 +686,17 @@ function ClipReviewReady({
 }
 
 /** Sideline | End zone toggle between the camera angles of one play. */
-function AngleSwitch({ clip, siblings }: { clip: ApiClip; siblings: ApiClip[] }) {
+function AngleSwitch({
+  clip,
+  siblings,
+  playlist,
+  playlistIndex,
+}: {
+  clip: ApiClip;
+  siblings: ApiClip[];
+  playlist: string[];
+  playlistIndex: number;
+}) {
   const angles = sameplayAngles(clip, siblings);
   const current = clipView(clip);
   if (!current) return null;
@@ -692,7 +707,13 @@ function AngleSwitch({ clip, siblings }: { clip: ApiClip; siblings: ApiClip[] })
     {angles.map((angle) => {
       const view = clipView(angle)!;
       const active = angle.id === clip.id;
-      return <Link key={angle.id} href={`/clip-review/?clipId=${encodeURIComponent(angle.id)}`} aria-current={active ? "true" : undefined} className={cn("px-2.5 py-1 transition-colors", active ? "bg-primary text-primary-foreground" : "hover:bg-accent/50")}>{viewLabel(view)}</Link>;
+      const params = new URLSearchParams({ clipId: angle.id });
+      if (playlistIndex >= 0) {
+        const anglePlaylist = [...playlist];
+        anglePlaylist[playlistIndex] = angle.id;
+        params.set("playlist", anglePlaylist.join(","));
+      }
+      return <Link key={angle.id} href={`/clip-review/?${params.toString()}`} aria-current={active ? "true" : undefined} className={cn("px-2.5 py-1 transition-colors", active ? "bg-primary text-primary-foreground" : "hover:bg-accent/50")}>{viewLabel(view)}</Link>;
     })}
   </div>;
 }

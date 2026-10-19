@@ -124,12 +124,22 @@ function SideBreakdown({ side }: { side: ApiSideSummary }) {
           {side.by_down.map((down) => (
             <TableRow key={down.down}>
               <TableCell className="font-medium">
-                {["1st", "2nd", "3rd", "4th"][down.down - 1]} down
-                <span className="ml-2 text-xs text-muted-foreground">
-                  {pct(down.rush_share)} run
-                </span>
+                <Link href={playlistHref(down.clip_ids)} className="hover:text-primary">
+                  {["1st", "2nd", "3rd", "4th"][down.down - 1]} down
+                  <span className="ml-2 text-xs text-muted-foreground">
+                    {pct(down.rush_share)} run
+                  </span>
+                </Link>
               </TableCell>
-              <TableCell data-numeric className="text-right font-mono">{down.plays}</TableCell>
+              <TableCell data-numeric className="text-right font-mono">
+                <Link
+                  href={playlistHref(down.clip_ids)}
+                  aria-label={`${["1st", "2nd", "3rd", "4th"][down.down - 1]} down plays`}
+                  className="hover:text-primary"
+                >
+                  {down.plays}
+                </Link>
+              </TableCell>
               <TableCell data-numeric className="text-right font-mono">
                 {num(down.yards_per_play)}
               </TableCell>
@@ -166,18 +176,24 @@ export function GameSummaryView() {
 
   useEffect(() => {
     let cancelled = false;
-    fetchVideos({ session_kind: "game", limit: 200 }, token)
-      .then((videos) => {
+    (async () => {
+      const videos: ApiVideo[] = [];
+      const limit = 200;
+      for (let offset = 0; ; offset += limit) {
+        const page = await fetchVideos({ session_kind: "game", limit, offset }, token);
         if (cancelled) return;
-        const sorted = [...videos].sort((a, b) =>
-          (b.recorded_at ?? b.created_at ?? "").localeCompare(a.recorded_at ?? a.created_at ?? ""),
-        );
-        setGames(sorted);
-        setVideoId((current) => current || sorted[0]?.id || "");
-      })
-      .catch((err) => {
-        if (!cancelled) setError(friendlyMessage(err, "load your games"));
-      });
+        videos.push(...page);
+        if (page.length < limit) break;
+      }
+      if (cancelled) return;
+      const sorted = [...videos].sort((a, b) =>
+        (b.recorded_at ?? b.created_at ?? "").localeCompare(a.recorded_at ?? a.created_at ?? ""),
+      );
+      setGames(sorted);
+      setVideoId((current) => current || sorted[0]?.id || "");
+    })().catch((err) => {
+      if (!cancelled) setError(friendlyMessage(err, "load your games"));
+    });
     return () => {
       cancelled = true;
     };

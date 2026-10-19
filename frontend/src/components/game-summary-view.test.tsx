@@ -36,7 +36,7 @@ const side = {
   third_down_conversions: 5,
   explosive_plays: 7,
   turnovers: 1,
-  by_down: [{ down: 3, plays: 12, success_rate: 0.417, yards_per_play: 5.1, rush_share: 0.25 }],
+  by_down: [{ down: 3, plays: 12, success_rate: 0.417, yards_per_play: 5.1, rush_share: 0.25, clip_ids: ["c3", "c4"] }],
   groups: [
     { key: "third_down_converted", label: "3rd-down conversions", plays: 2, clip_ids: ["c1", "c2"] },
   ],
@@ -68,9 +68,54 @@ describe("GameSummaryView", () => {
     expect(screen.getByText(/115 of 161 film plays/)).toBeTruthy();
     const link = screen.getByRole("link", { name: /3rd-down conversions/ });
     expect(link.getAttribute("href")).toBe(playlistHref(["c1", "c2"]));
+    expect(screen.getByRole("link", { name: "3rd down plays" }).getAttribute("href")).toBe(
+      playlistHref(["c3", "c4"]),
+    );
 
     fireEvent.click(screen.getByRole("button", { name: "Toledo defense" }));
     expect(screen.getByText("No Toledo defense plays matched in this film.")).toBeTruthy();
+  });
+
+  test("loads subsequent pages before selecting the newest game", async () => {
+    const firstPage = Array.from({ length: 200 }, (_, index) => ({
+      id: `game-${index}`,
+      filename: `game-${index}.mp4`,
+      recorded_at: `2026-09-${String(5 - (index % 5)).padStart(2, "0")}T00:00:00Z`,
+      opponent_team: "Opponent",
+      created_at: "",
+    }));
+    fetchVideos.mockResolvedValueOnce(firstPage).mockResolvedValueOnce([
+      {
+        id: "older",
+        filename: "older.mp4",
+        recorded_at: "2020-09-05T00:00:00Z",
+        opponent_team: "Opponent",
+        created_at: "",
+      },
+    ]);
+    fetchGameSummary.mockResolvedValue({
+      video_id: "game-0",
+      opponent: "Opponent",
+      film_plays: 0,
+      linked_plays: 0,
+      offense: null,
+      defense: null,
+    });
+
+    render(<GameSummaryView />);
+
+    expect(await screen.findByText(/hasn't been split into plays yet/)).toBeTruthy();
+    expect(fetchVideos).toHaveBeenNthCalledWith(
+      1,
+      { session_kind: "game", limit: 200, offset: 0 },
+      "t",
+    );
+    expect(fetchVideos).toHaveBeenNthCalledWith(
+      2,
+      { session_kind: "game", limit: 200, offset: 200 },
+      "t",
+    );
+    expect(fetchGameSummary).toHaveBeenCalledWith("game-0", "t");
   });
 
   test("explains a game whose plays aren't matched yet", async () => {

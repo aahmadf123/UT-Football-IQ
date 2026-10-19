@@ -647,6 +647,7 @@ export interface ApiDownSummary {
   success_rate: number | null;
   yards_per_play: number | null;
   rush_share: number | null;
+  clip_ids: string[];
 }
 
 export interface ApiSideSummary {

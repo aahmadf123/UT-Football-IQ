@@ -80,6 +80,28 @@ def test_side_summary_counts_and_keeps_the_clips_behind_each_number():
     assert "scoring" not in groups  # empty groups are omitted
     third = next(d for d in side.by_down if d.down == 3)
     assert third.plays == 2 and third.success_rate == 0.5
+    assert third.clip_ids == [ids[2], ids[3]]
+
+
+def test_unclassified_scrimmage_fumble_stays_in_totals_but_not_run_or_pass():
+    fumble_id, punt_id = uuid.uuid4(), uuid.uuid4()
+    side = summarize_side(
+        [
+            (
+                _play("Fumble Recovery (Opponent)", 2, 7, 0, play_text=None),
+                fumble_id,
+            ),
+            (_play("Punt", 4, 9, 40), punt_id),
+        ]
+    )
+
+    assert side.plays == 1 and side.turnovers == 1
+    assert side.rush_plays == 0 and side.pass_plays == 0
+    groups = {group.key: group.clip_ids for group in side.groups}
+    assert groups["all"] == [fumble_id]
+    assert groups["turnovers"] == [fumble_id]
+    assert punt_id not in groups["all"]
+    assert side.by_down[0].clip_ids == [fumble_id]
 
 
 def test_one_clip_per_play_prefers_the_sideline_angle():
