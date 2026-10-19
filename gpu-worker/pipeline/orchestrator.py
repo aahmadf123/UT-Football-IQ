@@ -407,6 +407,9 @@ def _run_video_stage(stage: str, ctx: PipelineContext) -> dict[str, Any]:
             # installed, fit every play frame by frame instead of once.
             field_detector = None
             numeral_used = False
+            # Angle clips route separately from whole-video calibration, whose
+            # default (the drone's Kalman line fit) must not change.
+            variant = local_model_variant("calibrate_broadcast", ctx.priority, ctx.processing_profile)
             if variant == model_router.CALIB_NUMERAL_DLT:
                 from pipeline.field_model import get_field_detector
 

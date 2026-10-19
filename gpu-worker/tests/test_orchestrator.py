@@ -164,14 +164,16 @@ def test_angle_calibration_dispatches_and_records_routed_variant(
     monkeypatch.setattr(
         stage_calibrate,
         "_calibrate_broadcast",
-        lambda *args, **kwargs: calls.append("numeral")
-        or {"analytics_safe": True, "homography": None},
+        lambda *args, **kwargs: (
+            calls.append("numeral") or {"analytics_safe": True, "homography": None}
+        ),
     )
     monkeypatch.setattr(
         stage_calibrate,
         "_calibrate",
-        lambda *args, **kwargs: calls.append("classical")
-        or {"analytics_safe": True, "homography": [1.0] * 9},
+        lambda *args, **kwargs: (
+            calls.append("classical") or {"analytics_safe": True, "homography": [1.0] * 9}
+        ),
     )
 
     artifacts = _run_video_stage("calibrate", ctx)
@@ -461,3 +463,42 @@ def test_unrecognized_angles_do_not_disable_calibration_for_the_whole_game(
     per_clip = calibration["per_clip_calibration"]
     assert per_clip["a"]["analytics_safe"] and per_clip["b"]["analytics_safe"]
     assert per_clip["c"]["analytics_safe"] is False
+
+
+@pytest.mark.parametrize("device", ["cpu", "cuda"])
+def test_default_routing_uses_the_numeral_fit_when_a_field_model_is_installed(
+    monkeypatch, device
+) -> None:
+    from pipeline import model_router, stage_calibrate
+
+    monkeypatch.setenv("PIPELINE_DEVICE", device)
+    monkeypatch.delenv("MODEL_ROUTING_CONFIG", raising=False)
+    model_router.reload_routing()
+    ctx = PipelineContext(video_id="vid", input_uri="file:///game.mp4", priority=0, job_id="job")
+    ctx.video_path = Path("/game.mp4")
+    ctx.clips = [
+        {
+            "id": "side",
+            "view": "sideline",
+            "capture_regime": "fixed_sideline",
+            "start_time": 0.0,
+            "end_time": 2.0,
+        },
+    ]
+    calls = []
+    monkeypatch.setattr("pipeline.field_model.get_field_detector", lambda: object())
+    monkeypatch.setattr(
+        stage_calibrate,
+        "_calibrate_broadcast",
+        lambda *a, **k: calls.append("numeral") or {"analytics_safe": True, "homography": None},
+    )
+    monkeypatch.setattr(
+        stage_calibrate,
+        "_calibrate",
+        lambda *a, **k: calls.append("classical") or {"analytics_safe": True, "homography": None},
+    )
+
+    artifacts = _run_video_stage("calibrate", ctx)
+
+    assert calls == ["numeral"]
+    assert artifacts["model_execution"] == {"calibrate": "numeral-dlt"}

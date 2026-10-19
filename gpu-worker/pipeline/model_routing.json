@@ -1,6 +1,7 @@
 {
   "segment":    {"same_session": "optical-flow-fast", "nightly": "auto"},
   "calibrate":  {"same_session": "calib-hough-dlt",   "nightly": "calib-hough-dlt-kalman"},
+  "calibrate_broadcast": {"same_session": "calib-numeral-dlt", "nightly": "calib-numeral-dlt"},
   "detect":     {"same_session": "yolov8n",           "nightly": "yolov8m"},
   "ball":       {"same_session": "yolov8n-ball",      "nightly": "yolov8n-ball"},
   "track":      {"same_session": "iou-tracker",       "nightly": "iou-tracker"},
