@@ -312,7 +312,7 @@ function ReportRow({
   const stamp = new Date(report.created_at).toLocaleString();
   const subtitle =
     report.status === "failed" && report.error_message
-      ? `failed: ${report.error_message}`
+      ? "Couldn't create this report. Try again; if it fails again, let an admin know."
       : `${report.format.toUpperCase()} · ${stamp}`;
   return (
     <div className="flex items-center justify-between gap-3 border-b border-border-soft py-2 last:border-b-0">
