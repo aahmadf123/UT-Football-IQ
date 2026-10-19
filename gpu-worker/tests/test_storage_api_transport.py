@@ -166,3 +166,93 @@ def test_hosted_download_stops_at_byte_cap_and_removes_partial_file(
     with pytest.raises(hosted_limits.HostedCapacityError, match="512 MiB"):
         storage.download_to_temp("api://raw-video/raw/other.mp4")
     assert list(tmp_path.iterdir()) == []
+
+
+def _mock_client(monkeypatch: pytest.MonkeyPatch, handler) -> None:
+    original_client = httpx.Client
+    monkeypatch.setattr(
+        httpx,
+        "Client",
+        lambda **kwargs: original_client(transport=httpx.MockTransport(handler), **kwargs),
+    )
+    monkeypatch.setattr(storage.time, "sleep", lambda _seconds: None)
+
+
+FILM = bytes(range(256)) * 40
+
+
+def test_short_stream_resumes_with_a_range_request(
+    api_storage: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ranges: list[str | None] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "POST":
+            return httpx.Response(
+                200, json={"download_url": "https://objects.test/film", "size_bytes": len(FILM)}
+            )
+        ranges.append(request.headers.get("Range"))
+        if "Range" not in request.headers:
+            return httpx.Response(200, content=FILM[:3000])  # ended early, no error
+        start = int(request.headers["Range"].removeprefix("bytes=").rstrip("-"))
+        return httpx.Response(206, content=FILM[start:])
+
+    _mock_client(monkeypatch, handler)
+    path = storage.download_to_temp("s3://raw-video/raw/game.mp4")
+    try:
+        assert path.read_bytes() == FILM
+    finally:
+        path.unlink()
+    assert ranges == [None, "bytes=3000-"]
+
+
+def test_size_from_the_download_header_and_a_server_error_retry(
+    api_storage: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls = {"get": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "POST":
+            return httpx.Response(200, json={"download_url": "https://objects.test/film"})
+        calls["get"] += 1
+        if calls["get"] == 1:
+            return httpx.Response(503, json={"detail": "The server is restarting."})
+        return httpx.Response(200, content=FILM, headers={"X-Object-Size": str(len(FILM))})
+
+    _mock_client(monkeypatch, handler)
+    path = storage.download_to_temp("s3://raw-video/raw/game.mp4")
+    try:
+        assert path.read_bytes() == FILM
+    finally:
+        path.unlink()
+    assert calls["get"] == 2
+
+
+def test_a_download_that_never_completes_fails_instead_of_returning_a_short_file(
+    api_storage: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "POST":
+            return httpx.Response(
+                200, json={"download_url": "https://objects.test/film", "size_bytes": len(FILM)}
+            )
+        return httpx.Response(200, content=FILM[:100])  # server ignores Range
+
+    _mock_client(monkeypatch, handler)
+    with pytest.raises(OSError, match="Download incomplete"):
+        storage.download_to_temp("s3://raw-video/raw/game.mp4")
+
+
+def test_access_errors_are_not_retried(api_storage: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = {"get": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "POST":
+            return httpx.Response(200, json={"download_url": "https://objects.test/film"})
+        calls["get"] += 1
+        return httpx.Response(403, json={"detail": "Invalid or expired object access"})
+
+    _mock_client(monkeypatch, handler)
+    with pytest.raises(httpx.HTTPStatusError):
+        storage.download_to_temp("s3://raw-video/raw/game.mp4")
+    assert calls["get"] == 1
