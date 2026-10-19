@@ -386,6 +386,9 @@ def _run_video_stage(stage: str, ctx: PipelineContext) -> dict[str, Any]:
             clip.get("capture_regime") in {"fixed_sideline", "fixed_endzone"}
             for clip in angle_clips
         )
+        from pipeline import stage_calibrate
+
+        variant = local_model_variant("calibrate", ctx.priority, ctx.processing_profile)
         if ctx.spatial_analytics_disabled and not angle_windows_available:
             ctx.analytics_safe = False
             ctx.homography = None
@@ -395,12 +398,19 @@ def _run_video_stage(stage: str, ctx: PipelineContext) -> dict[str, Any]:
                 "reason": "angle_specific_calibration_unavailable",
                 "analytics_safe": False,
                 "spatial_analytics_disabled": True,
+                "model_routing": {"calibrate": variant},
+                "model_execution": {"calibrate": "skipped"},
             }
-        from pipeline import stage_calibrate
-        variant = local_model_variant("calibrate", ctx.priority, ctx.processing_profile)
-        variant = local_model_variant("calibrate", ctx.priority, ctx.processing_profile)
         if angle_clips:
             per_clip: dict[str, dict[str, Any]] = {}
+            # Game cameras pan and zoom with the ball: with a yard-number model
+            # installed, fit every play frame by frame instead of once.
+            field_detector = None
+            numeral_used = False
+            if variant == model_router.CALIB_NUMERAL_DLT:
+                from pipeline.field_model import get_field_detector
+
+                field_detector = get_field_detector()
             for clip in angle_clips:
                 clip_id = str(clip["id"])
                 regime = clip.get("capture_regime")
@@ -410,6 +420,19 @@ def _run_video_stage(stage: str, ctx: PipelineContext) -> dict[str, Any]:
                         "capture_regime": regime,
                         "reason_codes": ["angle_calibration_unavailable"],
                     }
+                    continue
+                if variant == model_router.CALIB_NUMERAL_DLT and field_detector is not None:
+                    per_clip[clip_id] = stage_calibrate._calibrate_broadcast(
+                        ctx.video_id,
+                        ctx.video_path,
+                        ctx.job_id,
+                        regime,
+                        field_detector,
+                        timeline=ctx.timeline,
+                        start_time=float(clip.get("start_time") or 0.0),
+                        end_time=float(clip.get("end_time") or 0.0),
+                    )
+                    numeral_used = True
                     continue
                 per_clip[clip_id] = stage_calibrate._calibrate(
                     ctx.video_id,
@@ -428,6 +451,10 @@ def _run_video_stage(stage: str, ctx: PipelineContext) -> dict[str, Any]:
                 "homography": None,
                 "per_clip_calibration": per_clip,
                 "spatial_analytics_disabled": False,
+                "model_routing": {"calibrate": variant},
+                "model_execution": {
+                    "calibrate": "numeral-dlt" if numeral_used else "classical-line-fit"
+                },
             }
             ctx.spatial_analytics_disabled = False
             ctx.analytics_safe = False
@@ -444,6 +471,8 @@ def _run_video_stage(stage: str, ctx: PipelineContext) -> dict[str, Any]:
             capture_regime=ctx.capture_regime,
             timeline=ctx.timeline,
         )
+        artifacts["model_routing"] = {"calibrate": variant}
+        artifacts["model_execution"] = {"calibrate": "classical-line-fit"}
         ctx.analytics_safe = bool(artifacts.get("analytics_safe", False))
         ctx.calibration = artifacts
         ctx.homography = artifacts.get("homography")

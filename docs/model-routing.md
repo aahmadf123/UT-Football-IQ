@@ -91,8 +91,8 @@ regime/slicing detail in `output_artifacts["detection_strategy"]`.
 ## Calibration variants (Issue #127)
 
 The `calibrate` stage is regime-aware (it branches on the `capture_regime`
-detected at ingest, Issue #126) and pixel-only — both variants are pure
-OpenCV/NumPy paths, so neither is on the `NIGHTLY_ONLY_VARIANTS` guardrail:
+detected at ingest, Issue #126). Its default variants are pixel-only
+OpenCV/NumPy paths:
 
 - `calib-hough-dlt` (same-session): white-paint detection → Hough →
   angle clustering → labeled yard-line correspondences → normalized
@@ -102,6 +102,11 @@ OpenCV/NumPy paths, so neither is on the `NIGHTLY_ONLY_VARIANTS` guardrail:
   9-DoF Kalman smoother over the per-window homography series for
   `drone_follow` clips, and chained-ECC drift (Issue #138) as the
   temporal-stability signal.
+- `calib-numeral-dlt`: broadcast calibration anchored by the optional field
+  numeral detector. Select it for `calibrate` through
+  `MODEL_ROUTING_CONFIG`; the detector is loaded only when the router selects
+  this variant. The selected variant and actual execution path are recorded
+  separately in the pipeline audit artifacts.
 
 For single-camera `fixed_sideline` (game) film the camera is effectively
 bolted down, so a full-recording homography can be fit once on the cleanest

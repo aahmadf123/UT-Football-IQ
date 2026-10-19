@@ -117,3 +117,34 @@ The ball is **non-observable** in 720p drone practice footage
 the numbers will look plausible and mean nothing. Ball data comes from
 ≥1080p game/sideline footage; see `docs/capture-guidance.md`. The player and
 official classes train fine on all regimes.
+
+## Field registration from yard numbers (game film)
+
+Game cameras pan and zoom, so speeds and distances need a field transform
+for every frame, with no per-venue setup. The painted yard numbers give one:
+NCAA fields centre each number on its yard line with its top 9 yd from the
+sideline, so each detected number names an absolute field position.
+`pipeline/homography/numeral_fit.py` fits a homography from the numbers,
+uses it to recognise every other painted line (yard lines, hashes,
+sidelines), and refits on their intersections; `stage_calibrate._calibrate_broadcast`
+does this on anchor frames every ~2 s of each play and chains ECC camera
+motion in between.
+
+The detector is trained locally (no Roboflow credits):
+
+```bash
+python -m training.field.download          # ~7.5k images, CC BY 4.0
+python -m training.field.train --data roboflow-data/field_numbers/data.yaml
+copy runs\field\numbers\weights\best.pt %LOCALAPPDATA%\FootballIQ\worker\models\field_numbers.pt
+```
+
+The worker picks it up from `MODEL_FIELD_PATH` (set by
+`run-windows-worker.ps1` when that file exists), or from the registry's
+production `field` model (`python -m training.detect.register --stage field`).
+Without it, game clips keep the classical line-only calibration.
+
+Dataset attribution: "Football Field Yard Marker" by Football25 AI Field
+Session on Roboflow Universe
+(https://universe.roboflow.com/football25-ai-field-session-4kghd/football-field-yard-marker-h0mlg),
+licensed CC BY 4.0. Classes: `n`/`f` near/far row, `l`/`r` left/right of the
+50 as seen in the image, `1`-`4` = 10-40, `5` = the 50.

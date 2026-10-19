@@ -113,6 +113,9 @@ class KeypointResult:
     field_coverage: float
     yardline_angles: list[float] = field(default_factory=list)
     reason_codes: list[str] = field(default_factory=list)
+    #: Set by fitters that score themselves (numeral_fit); the classical
+    #: fit is scored from its diagnostics by ``confidence_scorer`` instead.
+    fit_confidence: float | None = None
 
     def has_enough(self) -> bool:
         return len(self.src_pts) >= 4

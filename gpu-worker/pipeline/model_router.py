@@ -99,6 +99,7 @@ PLAY_EMBED_BASELINE: str = "play-embed-clip-vitb32-baseline"
 # nightly-only variant and is not yet bundled.
 CALIB_HOUGH_DLT: str = "calib-hough-dlt"
 CALIB_HOUGH_DLT_KALMAN: str = "calib-hough-dlt-kalman"
+CALIB_NUMERAL_DLT: str = "calib-numeral-dlt"
 
 # Distilled DRONE_FOLLOW student detector — Issue #150. Produced by the nightly
 # cross-regime self-distillation trainer (``training.cross_regime_distill``),
