@@ -173,7 +173,15 @@ def run(
             )
 
         # Physical load: speed bands, sprint/acceleration efforts, get-off.
-        profile = physical_profile(pts, fps, snap_time=_snap_seconds(pts, snap_frame, fps))
+        snap_time = None
+        if snap_frame is not None:
+            if timeline is not None:
+                snap_time = timeline.timestamp(snap_frame)
+            elif snap_event is not None and snap_event.get("timestamp_seconds") is not None:
+                snap_time = float(snap_event["timestamp_seconds"])
+            else:
+                snap_time = _snap_seconds(pts, snap_frame, fps)
+        profile = physical_profile(pts, fps, snap_time=snap_time)
         if profile is not None:
             metrics.append(
                 {
