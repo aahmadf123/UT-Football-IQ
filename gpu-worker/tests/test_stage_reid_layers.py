@@ -167,3 +167,52 @@ def test_reid_strategy_reports_ocr_backend(_stub_video_and_backend) -> None:
     result = _run([t], NIGHTLY_PRIORITY)
     assert result["reid_strategy"]["ocr"] == "disabled"
     assert result["skipped"] is True
+
+
+def test_reid_strategy_reports_easyocr_backend(
+    _stub_video_and_backend, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from pipeline.tracking.easyocr_jersey import EasyOCRJerseyReader
+
+    tracklet = {
+        "id": "tk",
+        "player_id": "player-1",
+        "team_label": "unknown",
+        "track_points": _points([0, 1], [10, 12]),
+    }
+    monkeypatch.setattr(
+        stage_reid, "_get_ocr_adapter", lambda _variant: EasyOCRJerseyReader(object())
+    )
+    result = _run([tracklet], SAME_SESSION_PRIORITY)
+    assert result["reid_strategy"]["ocr"] == "easyocr-jersey"
+
+
+def test_reid_strategy_reports_parseq_backend(
+    _stub_video_and_backend, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from pipeline.tracking.parseq_ocr_adapter import PARSeqOCRAdapter
+
+    tracklet = {
+        "id": "tk",
+        "player_id": "player-1",
+        "team_label": "unknown",
+        "track_points": _points([0, 1], [10, 12]),
+    }
+    monkeypatch.setattr(
+        stage_reid, "_get_ocr_adapter", lambda _variant: object.__new__(PARSeqOCRAdapter)
+    )
+    result = _run([tracklet], NIGHTLY_PRIORITY)
+    assert result["reid_strategy"]["ocr"] == "parseq-ocr"
+
+
+def test_reid_strategy_reports_jersey_fallback(
+    _stub_video_and_backend,
+) -> None:
+    tracklet = {
+        "id": "tk",
+        "player_id": "player-1",
+        "team_label": "unknown",
+        "track_points": _points([0, 1], [10, 12]),
+    }
+    result = _run([tracklet], SAME_SESSION_PRIORITY)
+    assert result["reid_strategy"]["ocr"] == "jersey-ocr"

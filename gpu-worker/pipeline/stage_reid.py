@@ -72,10 +72,19 @@ def run(
     """
     nightly = priority is None or priority < SAME_SESSION_PRIORITY
     if not roster and not any(t.get("player_id") for t in tracklets):
-        return {"assigned": 0, "total": len(tracklets), "tracklets": tracklets,
-                "skipped": True, "reason": "roster_and_identity_seeds_unavailable",
-                "reid_strategy": {"ocr": "disabled", "trajectory_prior_assigned": 0,
-                                  "min_cost_flow_stitched": 0, "stitching_enabled": False}}
+        return {
+            "assigned": 0,
+            "total": len(tracklets),
+            "tracklets": tracklets,
+            "skipped": True,
+            "reason": "roster_and_identity_seeds_unavailable",
+            "reid_strategy": {
+                "ocr": "disabled",
+                "trajectory_prior_assigned": 0,
+                "min_cost_flow_stitched": 0,
+                "stitching_enabled": False,
+            },
+        }
     log.info(
         "stage_reid_start",
         clip_id=clip_id,
@@ -84,10 +93,14 @@ def run(
         nightly=nightly,
     )
 
+    # Shared numbers are normal (a #7 QB and a #7 safety): keep every player
+    # per number and only assign when the number is unique on the roster.
+    jersey_players: dict[int, list[str]] = {}
+    for p in roster:
+        if p.get("jersey_number") is not None:
+            jersey_players.setdefault(int(p["jersey_number"]), []).append(str(p["id"]))
     jersey_map: dict[int, str] = {
-        p["jersey_number"]: p["id"]
-        for p in roster
-        if p.get("jersey_number") is not None
+        number: ids[0] for number, ids in jersey_players.items() if len(ids) == 1
     }
 
     adapter = _get_reid_adapter()
@@ -129,17 +142,13 @@ def run(
         cap.release()
 
     # ── Layer 3: trajectory-prior re-ID for the still-unidentified ─────────
-    trajectory_assigned = _assign_by_trajectory(
-        tracklets, assigned_ids, backend_api_url
-    )
+    trajectory_assigned = _assign_by_trajectory(tracklets, assigned_ids, backend_api_url)
     assigned += trajectory_assigned
 
     # ── Layer 4: min-cost-flow stitching (nightly only) ────────────────────
     stitched_assigned = 0
     if nightly:
-        stitched_assigned = _stitch_and_propagate(
-            tracklets, assigned_ids, backend_api_url
-        )
+        stitched_assigned = _stitch_and_propagate(tracklets, assigned_ids, backend_api_url)
         assigned += stitched_assigned
 
     log.info(
@@ -154,14 +163,16 @@ def run(
         observation = dict(tracklet)
         pid = assigned_ids.get(tracklet["id"])
         if pid and not observation.get("player_id"):
-            observation.update(player_id=pid, identity_source="automatic_candidate", identity_verified=False)
+            observation.update(
+                player_id=pid, identity_source="automatic_candidate", identity_verified=False
+            )
         enriched.append(observation)
     return {
         "assigned": assigned,
         "total": len(tracklets),
         "tracklets": enriched,
         "reid_strategy": {
-            "ocr": PARSEQ_OCR if ocr_adapter is not None else "jersey-ocr",
+            "ocr": _ocr_backend_name(ocr_adapter),
             "trajectory_prior_assigned": trajectory_assigned,
             "min_cost_flow_stitched": stitched_assigned,
             "stitching_enabled": nightly,
@@ -328,7 +339,7 @@ def _extract_tracklet_embedding(
             continue
         x1, y1, x2, y2 = [int(v) for v in bbox]
         h, w = frame.shape[:2]
-        crop = frame[max(0, y1):min(h, y2), max(0, x1):min(w, x2)]
+        crop = frame[max(0, y1) : min(h, y2), max(0, x1) : min(w, x2)]
         if crop.size == 0:
             continue
         try:
@@ -361,14 +372,15 @@ def _identify_tracklet(
     if not points:
         return None
 
-    # Sample a few frames near the middle of the track
-    mid = len(points) // 2
-    sample_indices = list({0, mid, len(points) - 1})
-    for idx in sample_indices:
-        pt = points[idx]
-        bbox = pt.get("bbox")
-        if not bbox:
-            continue
+    # Read the largest sightings (most legible) and vote: a single read of a
+    # small, blurred number is often a partial ("7" of "75"), so a number is
+    # only trusted when several sightings agree.
+    sightings = sorted(
+        (p for p in points if p.get("bbox")),
+        key=lambda p: -(float(p["bbox"][3]) - float(p["bbox"][1])),
+    )[:JERSEY_SAMPLES]
+    votes: dict[int, int] = {}
+    for pt in sightings:
         frame_number = pt.get("frame_number", 0)
         if timeline is None:
             cap.set(cv2.CAP_PROP_POS_FRAMES, frame_number)
@@ -377,10 +389,12 @@ def _identify_tracklet(
         ret, frame = cap.read()
         if not ret:
             continue
-
-        number = _read_jersey(frame, bbox, ocr_adapter)
-        if number is not None and number in jersey_map:
-            return jersey_map[number]
+        number = _read_jersey(frame, pt["bbox"], ocr_adapter)
+        if number is not None:
+            votes[number] = votes.get(number, 0) + 1
+    number = jersey_vote(votes)
+    if number is not None and number in jersey_map:
+        return jersey_map[number]
 
     # OCR found nothing — fall back to appearance-based matching via the ReID adapter.
     if adapter is not None and gallery:
@@ -404,27 +418,69 @@ def _identify_tracklet(
     return None
 
 
-def _get_ocr_adapter(variant: str | None) -> Any | None:
-    """Return a PARSeq OCR adapter when routed to ``parseq-ocr``, else None.
+#: Sightings read per track, and how many must agree on a number.
+JERSEY_SAMPLES = 10
+JERSEY_MIN_VOTES = 3
+JERSEY_MIN_AGREEMENT = 0.75
 
-    Imported lazily so the heavy PARSeq/torch import never enters module import
-    or ``pytest`` collection. Returns ``None`` (Tesseract fallback) when the
-    variant is not ``parseq-ocr`` or PARSeq is unavailable at runtime.
-    """
-    if variant != PARSEQ_OCR:
+
+def jersey_vote(votes: dict[int, int]) -> int | None:
+    """The track's number if enough sightings agree, else ``None``."""
+    if not votes:
         return None
-    from pipeline.tracking.parseq_ocr_adapter import get_parseq_adapter
+    number, count = max(votes.items(), key=lambda kv: kv[1])
+    if count >= JERSEY_MIN_VOTES and count / sum(votes.values()) >= JERSEY_MIN_AGREEMENT:
+        return number
+    return None
 
-    return get_parseq_adapter()
+
+def _get_ocr_adapter(variant: str | None) -> Any | None:
+    """Return the jersey reader: PARSeq when routed to ``parseq-ocr``, else
+    EasyOCR when installed (it ships with the worker for scoreboards), else
+    ``None`` (Tesseract fallback, usually not installed).
+
+    Imported lazily so heavy OCR imports never enter module import or
+    ``pytest`` collection.
+    """
+    if variant == PARSEQ_OCR:
+        from pipeline.tracking.parseq_ocr_adapter import get_parseq_adapter
+
+        adapter = get_parseq_adapter()
+        if adapter is not None:
+            return adapter
+    from pipeline.tracking.easyocr_jersey import get_easyocr_jersey_reader
+
+    return get_easyocr_jersey_reader()
+
+
+def _ocr_backend_name(ocr_adapter: Any | None) -> str:
+    if ocr_adapter is None:
+        return "jersey-ocr"
+
+    from pipeline.tracking.easyocr_jersey import EasyOCRJerseyReader
+
+    if isinstance(ocr_adapter, EasyOCRJerseyReader):
+        return "easyocr-jersey"
+
+    from pipeline.tracking.parseq_ocr_adapter import PARSeqOCRAdapter
+
+    if isinstance(ocr_adapter, PARSeqOCRAdapter):
+        return PARSEQ_OCR
+    return "jersey-ocr"
 
 
 def _read_jersey(frame: Any, bbox: list[float], ocr_adapter: Any | None) -> int | None:
     """Read a jersey number, preferring PARSeq when available, else Tesseract."""
     if ocr_adapter is not None:
-        x1, y1, x2, y2 = [int(v) for v in bbox]
-        h, w = frame.shape[:2]
-        crop = frame[max(0, y1):min(h, y2), max(0, x1):min(w, x2)]
-        if crop.size > 0:
+        from pipeline.tracking.easyocr_jersey import EasyOCRJerseyReader, torso_crop
+
+        if isinstance(ocr_adapter, EasyOCRJerseyReader):
+            crop = torso_crop(frame, bbox)
+        else:
+            x1, y1, x2, y2 = [int(v) for v in bbox]
+            h, w = frame.shape[:2]
+            crop = frame[max(0, y1) : min(h, y2), max(0, x1) : min(w, x2)]
+        if crop is not None and crop.size > 0:
             number, _conf = ocr_adapter.recognize(crop)
             if number is not None:
                 return number
@@ -545,7 +601,7 @@ def _get_reid_adapter() -> NvidiaReIDAdapter | None:
     reid_model = os.environ.get("REID_MODEL", "")
     if not reid_model.startswith(_NVIDIA_TAO_PREFIX):
         return None
-    weights = reid_model[len(_NVIDIA_TAO_PREFIX):]
+    weights = reid_model[len(_NVIDIA_TAO_PREFIX) :]
     try:
         return NvidiaReIDAdapter(weights)
     except (ImportError, FileNotFoundError, RuntimeError) as exc:
