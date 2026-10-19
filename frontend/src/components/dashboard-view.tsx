@@ -15,6 +15,7 @@
  * numbers (repo rule #96).
  */
 
+import { processingErrorMessage } from "@/lib/api-error";
 import Link from "next/link";
 import { ArrowRight, Clapperboard, Upload, Activity, ScanEye, CircleAlert, Film, ChevronRight } from "lucide-react";
 import { useCallback } from "react";
@@ -243,11 +244,8 @@ function InboxVideoRow({ item }: { item: VideoInboxItem }) {
         </Link>
       </Button>
       {item.latest_error_message ? (
-        <span
-          title={item.latest_error_message}
-          className="basis-full text-sm text-status-danger"
-        >
-          {item.latest_error_stage ? `${item.latest_error_stage}: ` : ""}{item.latest_error_message}
+        <span className="basis-full text-sm text-status-danger">
+          {processingErrorMessage(item.latest_error_stage, item.latest_error_message)}
         </span>
       ) : null}
     </div>

@@ -145,7 +145,7 @@ describe("UploadProcessFilm", () => {
     await renderUploadProcess();
 
     expect(await screen.findByText("practice-outside-filter.mp4")).toBeTruthy();
-    const friendlyError = "Couldn't process this film. Your account doesn't have access to this. Ask an admin if you need it.";
+    const friendlyError = "Processing stopped. Retry it; if it fails again, let an admin know.";
     await screen.findByText(friendlyError);
     expect(screen.getAllByText(friendlyError)).toHaveLength(1);
     expect(screen.queryByText(/https:\/\/api\.test\/jobs/)).toBeNull();

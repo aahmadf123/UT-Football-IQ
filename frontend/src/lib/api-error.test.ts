@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { ApiError, apiErrorFromResponse, friendlyMessage, serverSentence } from "./api-error";
+import { ApiError, apiErrorFromResponse, friendlyMessage, processingErrorMessage, serverSentence } from "./api-error";
 
 describe("ApiError", () => {
   test("never shows URLs, status codes or JSON to people", async () => {
@@ -39,5 +39,18 @@ describe("friendlyMessage", () => {
     );
     expect(friendlyMessage(new Error('GET https://x/api failed (403): {"detail":"no"}'))).toContain("doesn't have access");
     expect(friendlyMessage(new Error("Upload was cancelled."))).toBe("Upload was cancelled.");
+  });
+});
+
+describe("processingErrorMessage", () => {
+  test("never shows the worker's raw exception text", () => {
+    const raw = "Client error '422 Unprocessable Entity' for url 'https://api.example/api/v1/videos/x/clips'";
+    const text = processingErrorMessage("segment", raw);
+    expect(text).toBe("Processing stopped while finding the plays. Retry it; if it fails again, let an admin know.");
+    expect(text).not.toMatch(/422|https?:|Client error/);
+  });
+
+  test("explains an offline processing computer", () => {
+    expect(processingErrorMessage(null, "lease expired; attempts exhausted")).toContain("went offline");
   });
 });

@@ -131,3 +131,37 @@ export function friendlyMessage(error: unknown, action = "finish that"): string 
   }
   return message;
 }
+
+const STAGE_LABELS: Record<string, string> = {
+  ingest: "reading the film",
+  segment: "finding the plays",
+  calibrate: "mapping the field",
+  detect: "finding players",
+  track: "tracking players",
+  reid: "identifying players",
+  pose: "measuring body position",
+  events: "detecting the snap and play events",
+  labels: "labelling formations",
+  metrics: "measuring speed and distance",
+  routes: "classifying routes",
+  coverage: "reading coverage",
+  render: "drawing the overlay video",
+  render_hls: "preparing playback",
+};
+
+/**
+ * A processing job's failure as a coach-readable sentence. The worker's raw
+ * ``error_message`` (exception text, URLs, status codes) stays in the job
+ * record for admins; people see where it stopped and what to do.
+ */
+export function processingErrorMessage(stage?: string | null, message?: string | null): string {
+  const raw = `${stage ?? ""} ${message ?? ""}`.toLowerCase();
+  const where = stage && STAGE_LABELS[stage] ? ` while ${STAGE_LABELS[stage]}` : "";
+  if (raw.includes("lease expired") || raw.includes("attempts exhausted")) {
+    return `Processing stopped${where} because the processing computer went offline. Retry when it's back on.`;
+  }
+  if (/model .*unavailable|weights|no module named/.test(raw)) {
+    return `Processing stopped${where}: a model the processing computer needs isn't installed. Ask an admin to check the processing computer.`;
+  }
+  return `Processing stopped${where}. Retry it; if it fails again, let an admin know.`;
+}
