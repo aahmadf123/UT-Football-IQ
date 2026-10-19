@@ -75,8 +75,11 @@ def main() -> int:
         fliplr=0.0,
         patience=15,
         workers=4,
+        # Ultralytics' results plot crashes when polars is unavailable (it
+        # is on the worker's pinned stack), after the weights are saved.
+        plots=False,
     )
-    metrics = model.val(data=str(data), split="test")
+    metrics = model.val(data=str(data), split="test", plots=False)
     summary = {"map50": float(metrics.box.map50), "map50_95": float(metrics.box.map)}
     best = Path(args.project) / args.name / "weights" / "best.pt"
     print(json.dumps({"best": str(best), "test": summary}))
