@@ -179,6 +179,11 @@ _DRONE_DISTILL_NIGHTLY_ENV = "ENABLE_DRONE_DISTILL_NIGHTLY"
 DEFAULT_ROUTING: dict[str, dict[str, str]] = {
     "segment":    {_SAME_SESSION_KEY: "optical-flow-fast", _NIGHTLY_KEY: "auto"},
     "calibrate":  {_SAME_SESSION_KEY: CALIB_HOUGH_DLT,     _NIGHTLY_KEY: CALIB_HOUGH_DLT_KALMAN},
+    # Game-film angle clips (panning/zooming broadcast-style cameras): the
+    # yard-number fit, which falls back to the line fit when no field model
+    # is installed. Separate from "calibrate" so drone practice film keeps
+    # its Kalman-smoothed line fit; override like any other stage.
+    "calibrate_broadcast": {_SAME_SESSION_KEY: CALIB_NUMERAL_DLT, _NIGHTLY_KEY: CALIB_NUMERAL_DLT},
     "detect":     {_SAME_SESSION_KEY: "yolov8n",           _NIGHTLY_KEY: "yolov8m"},
     "ball":       {_SAME_SESSION_KEY: YOLO_BALL,           _NIGHTLY_KEY: YOLO_BALL},
     "track":      {_SAME_SESSION_KEY: IOU_TRACKER,         _NIGHTLY_KEY: IOU_TRACKER},
@@ -195,6 +200,7 @@ DEFAULT_ROUTING: dict[str, dict[str, str]] = {
 # absent here use ``DEFAULT_ROUTING``.
 CPU_DEFAULT_ROUTING: dict[str, dict[str, str]] = {
     "calibrate": {_SAME_SESSION_KEY: CALIB_HOUGH_DLT, _NIGHTLY_KEY: CALIB_HOUGH_DLT},
+    "calibrate_broadcast": {_SAME_SESSION_KEY: CALIB_NUMERAL_DLT, _NIGHTLY_KEY: CALIB_NUMERAL_DLT},
     "detect":    {_SAME_SESSION_KEY: YOLOV8N,         _NIGHTLY_KEY: YOLOV8N},
     "track":     {_SAME_SESSION_KEY: IOU_TRACKER,     _NIGHTLY_KEY: IOU_TRACKER},
     "reid":      {_SAME_SESSION_KEY: JERSEY_OCR,      _NIGHTLY_KEY: JERSEY_OCR},

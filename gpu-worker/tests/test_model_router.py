@@ -605,3 +605,10 @@ def test_cpu_local_detect_variant_requires_sam3_nightly_flag(
     assert model_router.select_device_model("detect", NIGHTLY_PRIORITY) == model_router.SAM3_1
     # Never on the same-session path, even with the flag.
     assert model_router.select_device_model("detect", SAME_SESSION_PRIORITY) == model_router.YOLOV8N
+
+
+def test_game_angle_calibration_defaults_to_the_numeral_fit_without_touching_drone() -> None:
+    model_router.reload_routing()
+    assert select_model("calibrate_broadcast", NIGHTLY_PRIORITY) == model_router.CALIB_NUMERAL_DLT
+    assert select_model("calibrate_broadcast", SAME_SESSION_PRIORITY) == model_router.CALIB_NUMERAL_DLT
+    assert select_model("calibrate", NIGHTLY_PRIORITY) == model_router.CALIB_HOUGH_DLT_KALMAN
