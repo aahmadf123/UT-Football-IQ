@@ -183,7 +183,13 @@ class _StreamingEncoder:
             if self.process.poll() is None:
                 self._terminate()
             if self._writer is not None and self._writer.is_alive():
-                # ffmpeg is gone, so the writer's pending write fails promptly.
+                # ffmpeg termination unblocks writes; the sentinel unblocks queue.get().
+                while True:
+                    try:
+                        self._frames.get_nowait()
+                    except queue.Empty:
+                        break
+                self._frames.put_nowait(None)
                 self._writer.join(timeout=5)
             if self.process.stdin is not None and not self.process.stdin.closed:
                 try:
