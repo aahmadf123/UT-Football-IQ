@@ -105,9 +105,12 @@ test.describe("deployed platform", () => {
     const token = await signIn(page);
 
     const headers = { Authorization: `Bearer ${token}` };
-    const players = await (
-      await page.request.get(`${LIVE_API_URL}/api/v1/players?is_active=true&limit=1`, { headers })
-    ).json();
+    const playersResponse = await page.request.get(
+      `${LIVE_API_URL}/api/v1/players?is_active=true&limit=1`,
+      { headers },
+    );
+    await expect(playersResponse, "the roster lookup succeeds").toBeOK();
+    const players = await playersResponse.json();
     const playerId = (Array.isArray(players) ? players : players?.items ?? [])[0]?.id;
     const routes = playerId ? [...ROUTES, `/players/detail/?id=${playerId}`] : ROUTES;
 
