@@ -632,6 +632,61 @@ export async function fetchPlayerMetricsDetail(
   );
 }
 
+// ── Game summary (film + CFBD) ───────────────────────────────────────────────
+
+export interface ApiPlayGroup {
+  key: string;
+  label: string;
+  plays: number;
+  clip_ids: string[];
+}
+
+export interface ApiDownSummary {
+  down: number;
+  plays: number;
+  success_rate: number | null;
+  yards_per_play: number | null;
+  rush_share: number | null;
+}
+
+export interface ApiSideSummary {
+  plays: number;
+  yards: number;
+  yards_per_play: number | null;
+  success_rate: number | null;
+  epa_per_play: number | null;
+  rush_plays: number;
+  rush_yards: number;
+  rush_yards_per_play: number | null;
+  rush_success_rate: number | null;
+  pass_plays: number;
+  pass_yards: number;
+  pass_yards_per_play: number | null;
+  pass_success_rate: number | null;
+  third_down_attempts: number;
+  third_down_conversions: number;
+  explosive_plays: number;
+  turnovers: number;
+  by_down: ApiDownSummary[];
+  groups: ApiPlayGroup[];
+}
+
+export interface ApiGameSummary {
+  video_id: string;
+  opponent: string | null;
+  film_plays: number;
+  linked_plays: number;
+  offense: ApiSideSummary | null;
+  defense: ApiSideSummary | null;
+}
+
+export async function fetchGameSummary(videoId: string, token?: string): Promise<ApiGameSummary> {
+  return getJSON<ApiGameSummary>(
+    `${apiBase()}/api/v1/videos/${encodeURIComponent(videoId)}/game-summary`,
+    token,
+  );
+}
+
 // ── Metrics + coach corrections ──────────────────────────────────────────────
 
 export interface ApiMetric {

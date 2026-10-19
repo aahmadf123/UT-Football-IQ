@@ -326,22 +326,34 @@ function ClipReviewReady({
     return () => element.cancelVideoFrameCallback(handle);
   }, [playbackUrl]);
 
-  // Prev/next play within the same video (ordered by start time).
-  const clipIndex = siblingClips.findIndex((c) => c.id === clip.id);
-  const prevClip = clipIndex > 0 ? siblingClips[clipIndex - 1] : null;
-  const nextClip =
-    clipIndex >= 0 && clipIndex < siblingClips.length - 1 ? siblingClips[clipIndex + 1] : null;
+  // Prev/next play: through a playlist when one was opened (e.g. "3rd-down
+  // conversions" from Team Stats), else the same video by start time.
+  const searchParams = useSearchParams();
+  const playlistParam = searchParams.get("playlist") ?? "";
+  const playlist = useMemo(
+    () => (playlistParam ? playlistParam.split(",").filter(Boolean) : []),
+    [playlistParam],
+  );
+  const playlistIndex = playlist.indexOf(clip.id);
+  const sequence = playlistIndex >= 0 ? playlist : siblingClips.map((c) => c.id);
+  const clipIndex = playlistIndex >= 0 ? playlistIndex : siblingClips.findIndex((c) => c.id === clip.id);
+  const prevClipId = clipIndex > 0 ? sequence[clipIndex - 1] : null;
+  const nextClipId = clipIndex >= 0 && clipIndex < sequence.length - 1 ? sequence[clipIndex + 1] : null;
   const goToClip = useCallback(
-    (id: string) => router.push(`/clip-review/?clipId=${encodeURIComponent(id)}`),
-    [router],
+    (id: string) => {
+      const params = new URLSearchParams({ clipId: id });
+      if (playlistIndex >= 0) params.set("playlist", playlistParam);
+      router.push(`/clip-review/?${params.toString()}`);
+    },
+    [router, playlistIndex, playlistParam],
   );
   const goPrevClip = useMemo(
-    () => (prevClip ? () => goToClip(prevClip.id) : null),
-    [prevClip, goToClip],
+    () => (prevClipId ? () => goToClip(prevClipId) : null),
+    [prevClipId, goToClip],
   );
   const goNextClip = useMemo(
-    () => (nextClip ? () => goToClip(nextClip.id) : null),
-    [nextClip, goToClip],
+    () => (nextClipId ? () => goToClip(nextClipId) : null),
+    [nextClipId, goToClip],
   );
 
   // Clip-local seek target shared by the transport and the timeline.
@@ -428,7 +440,7 @@ function ClipReviewReady({
         <div>
           <div className="mb-2 flex items-center gap-2 text-[0.65rem] font-semibold uppercase tracking-[0.18em] text-muted-foreground"><Film className="size-3.5 text-primary" /> Film room <ChevronRight className="size-3" /> Review studio</div>
           <h2 className="max-w-3xl break-words text-xl font-semibold tracking-tight">{video.filename}</h2>
-          <p className="mt-1 text-sm text-muted-foreground">{video.camera_label || "Camera view"} · {sessionKindLabel}{clipIndex >= 0 && siblingClips.length ? ` · Play ${clipIndex + 1} of ${siblingClips.length}` : ""}</p>
+          <p className="mt-1 text-sm text-muted-foreground">{video.camera_label || "Camera view"} · {sessionKindLabel}{clipIndex >= 0 && sequence.length ? ` · ${playlistIndex >= 0 ? "Playlist play" : "Play"} ${clipIndex + 1} of ${sequence.length}` : ""}</p>
         </div>
         <Button asChild variant="outline" size="sm"><Link href={video.practice_session_id ? `/film-room/?tab=browse&sessionId=${encodeURIComponent(video.practice_session_id)}` : "/film-room/?tab=browse"}><ArrowLeft className="size-3.5" /> Back to film</Link></Button>
       </div>
