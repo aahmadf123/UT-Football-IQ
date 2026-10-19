@@ -157,6 +157,41 @@ def test_camera_alignment_failure_does_not_reuse_old_field_map(tmp_path, monkeyp
     assert "field_x" not in point
 
 
+def test_first_numeral_anchor_reconciles_provisional_line_calibration(tmp_path, monkeypatch):
+    from pipeline.video_timeline import VideoTimeline
+
+    monkeypatch.setenv("DETECT_FRAME_STEP", "3")
+    classical = np.array([[.1, 0., 0.], [0., .1, 0.], [0., 0., 1.]])
+    numeral = classical.copy()
+    numeral[0, 2] = 5.0
+    keypoints = SimpleNamespace(
+        fit_confidence=1.0, line_count=10, yardline_angles=[0.], field_coverage=1.
+    )
+    candidates = iter(
+        [
+            (classical, keypoints, 1., []),
+            (numeral, keypoints, 1., ["numeral_anchored"]),
+            (numeral, keypoints, 1., ["numeral_anchored"]),
+        ]
+    )
+    video_timeline = VideoTimeline([i / 30 for i in range(7)], 7 / 30, 30., verified=True)
+    with patch("cv2.VideoCapture", return_value=Capture()), patch(
+        "pipeline.homography.timeline.ecc.estimate_warp",
+        return_value=(np.eye(2, 3), True),
+    ):
+        timeline = calibration_timeline(
+            tmp_path / "video.mp4",
+            lambda _frames: next(candidates),
+            timeline=video_timeline,
+            anchor_seconds=.1,
+        )
+
+    assert timeline[0]["anchor_provenance"] == "numeral_reconciled"
+    assert timeline[0]["homography"] == pytest.approx(numeral.flatten().tolist())
+    assert "numeral_anchor_reconciled" in timeline[0]["reason_codes"]
+    assert timeline[1]["anchor_provenance"] == "numeral"
+
+
 @pytest.mark.parametrize(("fps", "expected_frames"), [(30, list(range(7))), (60, [0, 2, 4, 6])])
 def test_calibration_timeline_uses_gpu_detection_cadence(
     tmp_path, monkeypatch, fps, expected_frames

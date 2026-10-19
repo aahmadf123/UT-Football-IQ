@@ -24,6 +24,7 @@ from __future__ import annotations
 import math
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from itertools import product
 from typing import Any
 
 import numpy as np
@@ -112,17 +113,23 @@ def numeral_correspondences(numerals: Sequence[Numeral]) -> tuple[np.ndarray, np
     return np.asarray(src, dtype=float).reshape(-1, 2), np.asarray(dst, dtype=float).reshape(-1, 2)
 
 
-def _row_steps(row: Sequence[Numeral]) -> list[int]:
-    """Yard-number steps (10 yd each) of each numeral from the first in its
-    row, left to right, counting a gap of about twice the usual spacing as a
-    missed number."""
+def _row_step_hypotheses(row: Sequence[Numeral]) -> list[list[int]]:
+    """Retain neighboring integer spacings when a pixel gap is ambiguous."""
     centres = [(n.box[0] + n.box[2]) / 2.0 for n in row]
     gaps = [b - a for a, b in zip(centres, centres[1:])]
     typical = float(np.median(gaps)) if gaps else 1.0
-    steps = [0]
+    choices = []
     for gap in gaps:
-        steps.append(steps[-1] + max(1, round(gap / typical)) if typical > 0 else steps[-1] + 1)
-    return steps
+        ratio = gap / typical if typical > 0 else 1.0
+        low, high = max(1, math.floor(ratio)), max(1, math.ceil(ratio))
+        choices.append(sorted({low, high}))
+    patterns = []
+    for increments in product(*choices):
+        steps = [0]
+        for increment in increments:
+            steps.append(steps[-1] + increment)
+        patterns.append(steps)
+    return patterns or [[0]]
 
 
 def _on_row(row: list[Numeral]) -> list[Numeral]:
@@ -164,17 +171,31 @@ def labelling_hypotheses(numerals: Sequence[Numeral], limit: int = 8) -> list[li
             if not row:
                 options[near] = [(0.0, [])]
                 continue
-            steps = _row_steps(row)
-            votes: dict[float, float] = {}
-            for n, step in zip(row, steps):
-                start = n.x_yd - 10.0 * direction * step
-                votes[start] = votes.get(start, 0.0) + n.confidence
-            candidates = []
-            for start, vote in sorted(votes.items(), key=lambda kv: -kv[1])[:3]:
-                xs = [start + 10.0 * direction * step for step in steps]
-                if all(10.0 <= x <= 90.0 for x in xs):
-                    candidates.append((vote, xs))
-            options[near] = candidates or [(0.0, [])]
+            candidates: dict[tuple[float, ...], float] = {}
+            for steps in _row_step_hypotheses(row):
+                votes: dict[float, float] = {}
+                for n, step in zip(row, steps):
+                    start = n.x_yd - 10.0 * direction * step
+                    votes[start] = votes.get(start, 0.0) + n.confidence
+                for start, vote in sorted(votes.items(), key=lambda kv: -kv[1])[:3]:
+                    xs = tuple(start + 10.0 * direction * step for step in steps)
+                    if all(10.0 <= x <= 90.0 for x in xs):
+                        candidates[xs] = max(vote, candidates.get(xs, 0.0))
+            class_assignment = tuple(n.x_yd for n in row)
+            if all(10.0 <= x <= 90.0 for x in class_assignment):
+                candidates[class_assignment] = max(
+                    sum(n.confidence for n in row), candidates.get(class_assignment, 0.0)
+                )
+            ranked = sorted(
+                ((vote, list(xs)) for xs, vote in candidates.items()),
+                key=lambda item: -item[0],
+            )
+            selected = ranked[:8]
+            if class_assignment in candidates and not any(
+                xs == list(class_assignment) for _, xs in selected
+            ):
+                selected[-1:] = [(candidates[class_assignment], list(class_assignment))]
+            options[near] = selected or [(0.0, [])]
         for near_vote, near_xs in options[True]:
             for far_vote, far_xs in options[False]:
                 relabelled = [
@@ -266,7 +287,7 @@ def _initial_geometry_ok(numerals: Sequence[Numeral]) -> bool:
     """Four numerals spanning both rows and two yard lines pin a homography."""
     near = {n.x_yd for n in numerals if n.near}
     far = {n.x_yd for n in numerals if not n.near}
-    return len(numerals) >= 4 and len(near) >= 1 and len(far) >= 1 and len(near | far) >= 2
+    return len(numerals) >= 4 and len(near) >= 2 and len(far) >= 2
 
 
 def _line_samples(rho: float, theta: float, w: int, h: int, n: int = 9) -> np.ndarray:

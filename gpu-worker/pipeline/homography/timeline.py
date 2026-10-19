@@ -51,6 +51,9 @@ def calibration_timeline(
     interval = max(stride, int(fps * anchor_seconds))
     lost_interval = max(stride, int(fps * (lost_retry_seconds or anchor_seconds)))
     calibrations: list[dict[str, Any]] = []
+    provisional_samples: list[int] = []
+    provisional_anchor = False
+    anchor_provenance = "classical"
     previous_gray = None
     matrix = None
     confidence = 0.0
@@ -115,28 +118,66 @@ def calibration_timeline(
                     )
                     blocking = {"ambiguous_field_rows", "insufficient_lines", "low_inlier_ratio"}
                     if score >= threshold and not blocking.intersection(codes):
+                        numeral_anchor = "numeral_anchored" in codes
                         if matrix is None:
                             matrix, confidence = candidate, score
+                            provisional_anchor = not numeral_anchor
+                            anchor_provenance = (
+                                "numeral" if numeral_anchor else "classical_provisional"
+                            )
                         else:
-                            # Repeated yard lines can relabel the same location
-                            # five yards away. Preserve the established frame.
-                            corners = np.array([[w*.25, h*.25], [w*.75, h*.75]])
-                            gap = ecc._mean_reprojection_gap(matrix, candidate, corners)
-                            if gap <= 1.0:
-                                matrix, confidence = candidate, score
+                            if numeral_anchor and provisional_anchor:
+                                try:
+                                    correction = candidate @ np.linalg.inv(matrix)
+                                except np.linalg.LinAlgError:
+                                    correction = None
+                                if correction is not None:
+                                    for index in provisional_samples:
+                                        prior = np.asarray(
+                                            calibrations[index]["homography"], dtype=float
+                                        ).reshape(3, 3)
+                                        reconciled = correction @ prior
+                                        if abs(reconciled[2, 2]) > 1e-12:
+                                            reconciled /= reconciled[2, 2]
+                                        calibrations[index]["homography"] = reconciled.flatten().tolist()
+                                        calibrations[index]["anchor_provenance"] = "numeral_reconciled"
+                                        calibrations[index]["reason_codes"] = [
+                                            *calibrations[index]["reason_codes"],
+                                            "numeral_anchor_reconciled",
+                                        ]
+                                    matrix, confidence = candidate, score
+                                    provisional_anchor = False
+                                    anchor_provenance = "numeral"
+                                    provisional_samples.clear()
+                                else:
+                                    reason = "anchor_reconciliation_failed"
                             else:
-                                reason = "anchor_label_inconsistent"
+                                # Repeated yard lines can relabel the same location
+                                # five yards away. Preserve the established frame.
+                                corners = np.array([[w*.25, h*.25], [w*.75, h*.75]])
+                                gap = ecc._mean_reprojection_gap(matrix, candidate, corners)
+                                if gap <= 1.0:
+                                    matrix, confidence = candidate, score
+                                    if numeral_anchor:
+                                        anchor_provenance = "numeral"
+                                else:
+                                    reason = "anchor_label_inconsistent"
                     elif matrix is None:
                         reason = "anchor_confidence_low"
             safe = matrix is not None and confidence >= threshold
-            calibrations.append({
+            point = {
                 "frame_number": frame_number,
                 "timestamp_seconds": timeline.timestamp(frame_number),
                 "homography": matrix.flatten().tolist() if safe else None,
                 "analytics_safe": safe,
                 "confidence": round(confidence, 4) if safe else 0.0,
                 "reason_codes": [reason] if reason else ([] if safe else ["no_temporal_anchor"]),
-            })
+            }
+            if safe:
+                point["anchor_provenance"] = anchor_provenance
+                if provisional_anchor:
+                    provisional_samples.append(len(calibrations))
+            calibrations.append(point)
             previous_gray = gray
             previous_seconds = timeline.timestamp(frame_number)
             frame_number += 1

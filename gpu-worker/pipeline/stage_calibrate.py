@@ -207,16 +207,11 @@ def _calibrate_broadcast(
         lost_retry_seconds=0.25,
     )
     safe = [p for p in series if p["analytics_safe"] and p["homography"]]
-    homography = (
-        np.asarray(safe[len(safe) // 2]["homography"], dtype=np.float64).reshape(3, 3)
-        if safe
-        else None
-    )
     confidence = float(np.mean([p["confidence"] for p in safe])) if safe else 0.0
     return _persist_and_return(
         video_id,
         job_id,
-        homography=homography,
+        homography=None,
         breakdown=None,
         regime=regime,
         inlier_ratio=0.0,
@@ -705,7 +700,7 @@ def _persist_and_return(
         safe_fraction = (
             sum(1 for p in series if p["analytics_safe"]) / len(series) if series else 0.0
         )
-        analytics_safe = safe_fraction >= MIN_SAFE_FRACTION and homography is not None
+        analytics_safe = safe_fraction >= MIN_SAFE_FRACTION
         extra_diagnostics = {
             **(extra_diagnostics or {}),
             "timeline_safe_fraction": round(safe_fraction, 3),

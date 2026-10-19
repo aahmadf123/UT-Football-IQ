@@ -37,6 +37,14 @@ def test_resolve_returns_none_without_backend(monkeypatch: pytest.MonkeyPatch) -
     assert mrc.resolve("detect") is None
 
 
+def test_default_checkpoint_identity_includes_field_model(monkeypatch):
+    queried = []
+    monkeypatch.setattr(mrc, "resolve", lambda model_type: queried.append(model_type))
+
+    assert mrc.resolved_identity() == {}
+    assert queried == ["detect", "ball", "coverage", "field"]
+
+
 def test_resolve_downloads_and_caches_artifact(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

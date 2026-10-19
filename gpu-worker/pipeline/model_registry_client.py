@@ -49,7 +49,9 @@ _lock = threading.Lock()
 _resolved: dict[str, ResolvedModel | None] = {}
 
 
-def resolved_identity(model_types: tuple[str, ...] = ("detect", "ball", "coverage")) -> dict:
+def resolved_identity(
+    model_types: tuple[str, ...] = ("detect", "ball", "coverage", "field"),
+) -> dict:
     """Snapshot served version ids and bytes for checkpoint invalidation."""
     from pipeline.runtime import model_provenance
 

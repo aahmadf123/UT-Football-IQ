@@ -310,6 +310,27 @@ def test_calibrate_nightly_is_kalman_variant() -> None:
     assert select_model("calibrate", NIGHTLY_PRIORITY) == model_router.CALIB_HOUGH_DLT_KALMAN
 
 
+def test_calibrate_numeral_variant_can_be_routed_by_override(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cfg = tmp_path / "routing.json"
+    cfg.write_text(
+        json.dumps(
+            {
+                "calibrate": {
+                    "same_session": model_router.CALIB_NUMERAL_DLT,
+                    "nightly": model_router.CALIB_NUMERAL_DLT,
+                }
+            }
+        )
+    )
+    monkeypatch.setenv("MODEL_ROUTING_CONFIG", str(cfg))
+    model_router.reload_routing()
+
+    assert select_model("calibrate", SAME_SESSION_PRIORITY) == model_router.CALIB_NUMERAL_DLT
+    assert select_model("calibrate", NIGHTLY_PRIORITY) == model_router.CALIB_NUMERAL_DLT
+
+
 def test_calibrate_variants_are_not_nightly_only_guardrail() -> None:
     # Both calibrate variants are pixel-only OpenCV paths — neither is on the
     # SAM/embeddings hard guardrail.

@@ -137,6 +137,7 @@ def test_broadcast_calibration_gives_a_per_frame_series_for_one_play(tmp_path, m
     assert all(f % 2 == 0 for f in frames)
     assert out["analytics_safe"] is True
     assert out["calibration_mode"] == "time_indexed"
+    assert out["homography"] is None
     sample = next(p for p in series if p["analytics_safe"])
     fitted = np.asarray(sample["homography"]).reshape(3, 3)
     truth = [(30.0, -6.665), (45.0, 18.0)]
@@ -157,6 +158,34 @@ def test_a_misread_digit_is_outvoted_by_its_row():
         apply_homography_many(fit.homography, [tuple(p) for p in _project(m, truth)])
     )
     assert np.allclose(recovered, truth, atol=0.5)
+
+
+def test_missing_numeral_preserves_class_assignment_and_spacing_hypotheses():
+    near = [
+        nf.Numeral(f"n{x // 10}", 0.9, (centre - 5, 100, centre + 5, 110), float(x), True)
+        for centre, x in ((100, 20), (300, 30), (700, 50))
+    ]
+    far = [
+        nf.Numeral(f"f{x // 10}", 0.9, (centre - 5, 200, centre + 5, 210), float(x), False)
+        for centre, x in ((100, 20), (300, 30), (700, 50))
+    ]
+
+    hypotheses = nf.labelling_hypotheses([*near, *far])
+
+    assert any([n.x_yd for n in hypothesis if n.near] == [20.0, 30.0, 50.0]
+               and [n.x_yd for n in hypothesis if not n.near] == [20.0, 30.0, 50.0]
+               for hypothesis in hypotheses)
+    assert [0, 1, 3] in nf._row_step_hypotheses(near)
+
+
+def test_two_row_seed_requires_two_yard_positions_in_each_row():
+    numerals = [
+        nf.Numeral(f"n{i}", 0.9, (i * 100, 100, i * 100 + 10, 110), float(20 + i * 10), True)
+        for i in range(3)
+    ]
+    numerals.append(nf.Numeral("f2", 0.9, (500, 200, 510, 210), 20.0, False))
+
+    assert not nf._initial_geometry_ok(numerals)
 
 
 def test_one_numeral_row_with_hash_rows_still_registers():

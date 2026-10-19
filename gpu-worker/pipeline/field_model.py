@@ -8,6 +8,7 @@ anchors. Ultralytics imports lazily, per this repo's CI contract.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import threading
 import time
@@ -25,7 +26,7 @@ log = structlog.get_logger(__name__)
 Detection = tuple[str, float, Sequence[float]]
 
 _lock = threading.Lock()
-_cached: tuple[str, Any] | None = None
+_cached: tuple[str, str, Any] | None = None
 
 
 def preprocess(frame: Any, size: int = 640) -> Any:
@@ -106,14 +107,23 @@ def get_field_detector() -> FieldNumberDetector | None:
     path = _model_path()
     if path is None:
         return None
+    digest = hashlib.sha256()
+    try:
+        with Path(path).open("rb") as weights:
+            for block in iter(lambda: weights.read(1024 * 1024), b""):
+                digest.update(block)
+    except OSError as exc:
+        log.warning("field_model_read_failed", path=path, error_type=type(exc).__name__)
+        return None
+    artifact_sha256 = digest.hexdigest()
     with _lock:
-        if _cached is not None and _cached[0] == path:
-            return _cached[1]  # type: ignore[no-any-return]
+        if _cached is not None and _cached[:2] == (path, artifact_sha256):
+            return _cached[2]  # type: ignore[no-any-return]
         try:
             detector = FieldNumberDetector(path)
         except Exception as exc:  # noqa: BLE001 - fall back to line-only calibration
             log.warning("field_model_load_failed", path=path, error_type=type(exc).__name__)
             return None
-        _cached = (path, detector)
+        _cached = (path, artifact_sha256, detector)
         log.info("field_model_loaded", path=path)
         return detector

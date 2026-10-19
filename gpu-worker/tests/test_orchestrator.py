@@ -130,6 +130,57 @@ def test_angle_calibration_and_tracking_use_clip_specific_regimes(monkeypatch) -
     assert tracked["analytics_safe"] is True
 
 
+@pytest.mark.parametrize(
+    ("variant", "expected_execution"),
+    [
+        ("calib-numeral-dlt", "numeral-dlt"),
+        ("calib-hough-dlt", "classical-line-fit"),
+    ],
+)
+def test_angle_calibration_dispatches_and_records_routed_variant(
+    monkeypatch, variant, expected_execution
+) -> None:
+    from pipeline import model_router, stage_calibrate
+
+    ctx = PipelineContext(
+        video_id="vid-routed",
+        input_uri="file:///game.mp4",
+        priority=10,
+        job_id="job",
+    )
+    ctx.video_path = Path("/game.mp4")
+    ctx.clips = [
+        {
+            "id": "side",
+            "view": "sideline",
+            "capture_regime": "fixed_sideline",
+            "start_time": 0.0,
+            "end_time": 2.0,
+        }
+    ]
+    calls = []
+    monkeypatch.setattr(model_router, "select_device_model", lambda stage, priority: variant)
+    monkeypatch.setattr("pipeline.field_model.get_field_detector", lambda: object())
+    monkeypatch.setattr(
+        stage_calibrate,
+        "_calibrate_broadcast",
+        lambda *args, **kwargs: calls.append("numeral")
+        or {"analytics_safe": True, "homography": None},
+    )
+    monkeypatch.setattr(
+        stage_calibrate,
+        "_calibrate",
+        lambda *args, **kwargs: calls.append("classical")
+        or {"analytics_safe": True, "homography": [1.0] * 9},
+    )
+
+    artifacts = _run_video_stage("calibrate", ctx)
+
+    assert artifacts["model_routing"] == {"calibrate": variant}
+    assert artifacts["model_execution"] == {"calibrate": expected_execution}
+    assert calls == ["numeral" if expected_execution == "numeral-dlt" else "classical"]
+
+
 def test_partial_calibration_safety_survives_tracking_gaps(monkeypatch) -> None:
     ctx = PipelineContext(video_id="vid-partial", input_uri="file:///game.mp4")
     ctx.calibration = {

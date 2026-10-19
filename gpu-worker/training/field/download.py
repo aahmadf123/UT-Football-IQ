@@ -46,23 +46,27 @@ def download(version: int, out: Path, export_format: str = "yolov11") -> Path:
     import httpx
 
     key = _api_key()
-    with httpx.Client(timeout=120, follow_redirects=True) as client:
-        # Roboflow builds the export on first request (HTTP 202 + progress).
-        for _ in range(120):
-            meta = client.get(
-                f"{API}/{WORKSPACE}/{PROJECT}/{version}/{export_format}", params={"api_key": key}
-            )
-            meta.raise_for_status()
-            body = meta.json()
-            if "export" in body:
-                break
-            print(f"export progress {float(body.get('progress', 0)):.0%}", flush=True)
-            time.sleep(10)
-        else:
-            raise SystemExit("Roboflow export did not finish in 20 minutes; try again.")
-        link = body["export"]["link"]
-        archive = client.get(link, timeout=600)
-        archive.raise_for_status()
+    try:
+        with httpx.Client(timeout=120, follow_redirects=True) as client:
+            # Roboflow builds the export on first request (HTTP 202 + progress).
+            for _ in range(120):
+                meta = client.get(
+                    f"{API}/{WORKSPACE}/{PROJECT}/{version}/{export_format}",
+                    params={"api_key": key},
+                )
+                meta.raise_for_status()
+                body = meta.json()
+                if "export" in body:
+                    break
+                print(f"export progress {float(body.get('progress', 0)):.0%}", flush=True)
+                time.sleep(10)
+            else:
+                raise SystemExit("Roboflow export did not finish in 20 minutes; try again.")
+            link = body["export"]["link"]
+            archive = client.get(link, timeout=600)
+            archive.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        raise SystemExit(f"Roboflow request failed with HTTP {exc.response.status_code}.") from None
     out.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(io.BytesIO(archive.content)) as zipped:
         zipped.extractall(out)
