@@ -66,7 +66,22 @@ async function signIn(page: Page): Promise<string> {
   await page.getByLabel("Email").fill(EMAIL);
   await page.getByLabel("Password").fill(PASSWORD);
   await page.getByRole("button", { name: "Sign in" }).click();
-  await page.waitForURL((url) => !url.pathname.startsWith("/login"), { timeout: 120_000 });
+  // Fail at once, and say why, when the site rejects the login (wrong
+  // E2E_EMAIL / E2E_PASSWORD secrets) instead of timing out on the URL.
+  // (Next.js keeps an empty role="alert" route announcer on every page.)
+  const rejected = page.getByRole("alert").filter({ hasText: /\S/ }).first();
+  let outcome = "waiting";
+  await expect
+    .poll(
+      async () => {
+        if (!new URL(page.url()).pathname.startsWith("/login")) outcome = "signed-in";
+        else if (await rejected.isVisible()) outcome = `rejected: ${(await rejected.innerText()).trim()}`;
+        return outcome;
+      },
+      { timeout: 120_000, intervals: [500] },
+    )
+    .not.toBe("waiting");
+  expect(outcome, "Check the E2E_EMAIL and E2E_PASSWORD repository secrets.").toBe("signed-in");
   const token = await page.evaluate(() => {
     const raw = window.localStorage.getItem("football-iq-auth-v1");
     return raw ? (JSON.parse(raw).token as string | undefined) ?? null : null;
