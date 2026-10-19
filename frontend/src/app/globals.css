@@ -44,6 +44,10 @@
 }
 
 :root {
+  --font-inter: Inter, "Segoe UI", system-ui, sans-serif;
+  --font-barlow-condensed: "Arial Narrow", "Roboto Condensed", sans-serif;
+  --font-jetbrains-mono: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+
   /* Toledo navy ramp — unchanged from the original hand-built palette. */
   --navy-950: oklch(0.15 0.037 252);
   --navy-925: oklch(0.18 0.043 252);
