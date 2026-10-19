@@ -405,3 +405,203 @@ async def get_player_metrics_summary(
         ),
         weekly=weekly,
     )
+
+
+# ── Physical load (``physical_profile`` metrics) ─────────────────────────────
+
+_PHYSICAL = "physical_profile"
+SPEED_BANDS = ("walk", "jog", "run", "high_speed", "sprint")
+
+
+class PhysicalLoad(BaseModel):
+    """Physical load summed over a player's tracked reps.
+
+    Totals (yards, efforts) add up across reps; peaks are the best single
+    rep; get-off is the mean over reps where the snap was seen.
+    """
+
+    player_id: uuid.UUID
+    reps: int
+    seconds: float
+    yards: float
+    high_speed_yards: float
+    sprint_yards: float
+    sprints: int
+    high_speed_efforts: int
+    accelerations: int
+    decelerations: int
+    top_speed_yps: float | None
+    peak_accel_yps2: float | None
+    peak_decel_yps2: float | None
+    get_off_yards: float | None
+    get_off_reps: int
+    band_yards: dict[str, float]
+
+
+class PhysicalSession(BaseModel):
+    """One film day's physical load, for a player's trend."""
+
+    day: datetime
+    reps: int
+    yards: float
+    high_speed_yards: float
+    sprints: int
+    top_speed_yps: float | None
+
+
+class PlayerPhysicalDetail(BaseModel):
+    load: PhysicalLoad | None
+    sessions: list[PhysicalSession]
+
+
+def _physical_value(key: str) -> Any:
+    return Metric.metric_value[key].astext.cast(Float)
+
+
+def _physical_columns() -> list[Any]:
+    def total(key: str) -> Any:
+        return func.coalesce(func.sum(_physical_value(key)), 0).label(key)
+
+    return [
+        func.count(Metric.id).label("reps"),
+        total("seconds"),
+        total("yards"),
+        total("high_speed_yards"),
+        total("sprint_yards"),
+        total("sprints"),
+        total("high_speed_efforts"),
+        total("accelerations"),
+        total("decelerations"),
+        func.max(_physical_value("top_speed_yps")).label("top_speed_yps"),
+        func.max(_physical_value("peak_accel_yps2")).label("peak_accel_yps2"),
+        func.max(_physical_value("peak_decel_yps2")).label("peak_decel_yps2"),
+        func.avg(_physical_value("get_off_yards")).label("get_off_yards"),
+        func.count(_physical_value("get_off_yards")).label("get_off_reps"),
+        *(
+            func.coalesce(
+                func.sum(Metric.metric_value["band_yards"][band].astext.cast(Float)), 0
+            ).label(f"band_{band}")
+            for band in SPEED_BANDS
+        ),
+    ]
+
+
+def _physical_stmt(
+    columns: list[Any], session_kind: SessionKind | None, since: datetime | None
+) -> Select[tuple[Any, ...]]:
+    stmt = (
+        select(*columns)
+        .select_from(Metric)
+        .join(Tracklet, Tracklet.id == Metric.tracklet_id)
+        .join(Clip, Clip.id == Tracklet.clip_id)
+        .join(Video, Video.id == Clip.video_id)
+        .where(
+            Tracklet.player_id.is_not(None),
+            Metric.metric_name == _PHYSICAL,
+            Metric.is_suppressed.is_(False),
+            Metric.experimental_flag.is_(False),
+        )
+    )
+    return _apply_film_filters(stmt, session_kind, since)
+
+
+def _opt(value: Any) -> float | None:
+    return round(float(value), 2) if value is not None else None
+
+
+def _physical_load(row: Any) -> PhysicalLoad:
+    return PhysicalLoad(
+        player_id=row.pid,
+        reps=int(row.reps),
+        seconds=round(float(row.seconds), 1),
+        yards=round(float(row.yards), 1),
+        high_speed_yards=round(float(row.high_speed_yards), 1),
+        sprint_yards=round(float(row.sprint_yards), 1),
+        sprints=int(row.sprints),
+        high_speed_efforts=int(row.high_speed_efforts),
+        accelerations=int(row.accelerations),
+        decelerations=int(row.decelerations),
+        top_speed_yps=_opt(row.top_speed_yps),
+        peak_accel_yps2=_opt(row.peak_accel_yps2),
+        peak_decel_yps2=_opt(row.peak_decel_yps2),
+        get_off_yards=_opt(row.get_off_yards),
+        get_off_reps=int(row.get_off_reps),
+        band_yards={band: round(float(getattr(row, f"band_{band}")), 1) for band in SPEED_BANDS},
+    )
+
+
+@router.get("/api/v1/players/metrics/physical")
+async def list_player_physical_load(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_policy(Resource.PLAYER_METRICS, Action.READ))],
+    session_kind: _SessionKindQuery = None,
+    since: _SinceQuery = None,
+) -> list[PhysicalLoad]:
+    """Physical load for every player with tracked reps (the leaderboard feed).
+
+    Player-role callers only see their own row.
+    """
+    stmt = _physical_stmt(
+        [Tracklet.player_id.label("pid"), *_physical_columns()], session_kind, since
+    ).group_by(Tracklet.player_id)
+    if current_user.role == UserRole.player:
+        own = await _player_scope_id(db, current_user)
+        if own is None:
+            return []
+        stmt = stmt.where(Tracklet.player_id == own)
+    return [_physical_load(row) for row in (await db.execute(stmt)).all()]
+
+
+@router.get("/api/v1/players/{player_id}/metrics/physical")
+async def get_player_physical_load(
+    player_id: uuid.UUID,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_policy(Resource.PLAYER_METRICS, Action.READ))],
+    session_kind: _SessionKindQuery = None,
+    since: _SinceQuery = None,
+) -> PlayerPhysicalDetail:
+    """One player's physical load, plus one row per film day for trends."""
+    if current_user.role == UserRole.player:
+        own = await _player_scope_id(db, current_user)
+        if own is None or own != player_id:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Player not found")
+    total = (
+        await db.execute(
+            _physical_stmt(
+                [Tracklet.player_id.label("pid"), *_physical_columns()], session_kind, since
+            )
+            .where(Tracklet.player_id == player_id)
+            .group_by(Tracklet.player_id)
+        )
+    ).one_or_none()
+    day = func.date_trunc("day", _RECORDED)
+    daily_columns = [
+        day.label("day"),
+        func.count(Metric.id).label("reps"),
+        func.coalesce(func.sum(_physical_value("yards")), 0).label("yards"),
+        func.coalesce(func.sum(_physical_value("high_speed_yards")), 0).label("high_speed_yards"),
+        func.coalesce(func.sum(_physical_value("sprints")), 0).label("sprints"),
+        func.max(_physical_value("top_speed_yps")).label("top_speed_yps"),
+    ]
+    daily = (
+        await db.execute(
+            _physical_stmt(daily_columns, session_kind, since)
+            .where(Tracklet.player_id == player_id)
+            .group_by(day)
+            .order_by(day)
+        )
+    ).all()
+    return PlayerPhysicalDetail(
+        load=_physical_load(total) if total is not None else None,
+        sessions=[
+            PhysicalSession(
+                day=row.day,
+                reps=int(row.reps),
+                yards=round(float(row.yards), 1),
+                high_speed_yards=round(float(row.high_speed_yards), 1),
+                sprints=int(row.sprints),
+                top_speed_yps=_opt(row.top_speed_yps),
+            )
+            for row in daily
+        ],
+    )

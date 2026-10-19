@@ -52,6 +52,7 @@ import structlog
 from pipeline import backend
 from pipeline.metrics import kinematics
 from pipeline.metrics.effort_zscore import evaluate_effort_candidate
+from pipeline.metrics.physical import physical_profile
 from pipeline.metrics.workload_fusion import evaluate_workload_candidate
 from pipeline.runtime import PipelineInterrupted, check_control
 from pipeline.video_timeline import VideoTimeline, point_interval
@@ -166,6 +167,20 @@ def run(
                         "confidence": 0.65,
                     },
                     "unit": "yd/s",
+                    "is_suppressed": suppressed,
+                    "suppression_reason": reason,
+                }
+            )
+
+        # Physical load: speed bands, sprint/acceleration efforts, get-off.
+        profile = physical_profile(pts, fps, snap_time=_snap_seconds(pts, snap_frame, fps))
+        if profile is not None:
+            metrics.append(
+                {
+                    "tracklet_id": t.get("id"),
+                    "metric_name": "physical_profile",
+                    "metric_value": {**profile, "track_id": track_id, "confidence": 0.6},
+                    "unit": "profile",
                     "is_suppressed": suppressed,
                     "suppression_reason": reason,
                 }
@@ -364,6 +379,23 @@ def _observed_cushions(tracklets: list[dict[str, Any]], snap_frame: int) -> list
         if defenders
         else []
     )
+
+
+def _snap_seconds(pts: list[dict[str, Any]], snap_frame: int | None, fps: float) -> float | None:
+    """The snap on the points' own clock (presentation time when present)."""
+    if snap_frame is None:
+        return None
+    rate = fps or 30.0
+    idx = _closest_index(pts, snap_frame)
+    if idx is not None:
+        try:
+            nearest = float(pts[idx]["timestamp_seconds"])
+        except (KeyError, TypeError, ValueError):
+            pass
+        else:
+            frame = int(pts[idx].get("frame_number", snap_frame))
+            return nearest + (snap_frame - frame) / rate
+    return snap_frame / rate
 
 
 def _point_at_frame(pts: list[dict[str, Any]], frame: int) -> dict[str, Any] | None:

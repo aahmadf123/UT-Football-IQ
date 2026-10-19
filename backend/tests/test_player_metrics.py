@@ -33,7 +33,9 @@ from app.models import (
 )
 from app.routers.player_metrics import (
     get_player_metrics_summary,
+    get_player_physical_load,
     list_player_metrics_summaries,
+    list_player_physical_load,
 )
 from fastapi import HTTPException
 from sqlalchemy import inspect, select
@@ -402,3 +404,96 @@ async def test_player_role_is_scoped_to_self(
             ids["p1"], session, player_user, session_kind=None, since=None
         )
         assert own.summary.player_id == ids["p1"]
+
+
+def _profile(**overrides: Any) -> dict[str, Any]:
+    value: dict[str, Any] = {
+        "yards": 30.0,
+        "seconds": 6.0,
+        "top_speed_yps": 7.5,
+        "high_speed_yards": 9.0,
+        "sprint_yards": 4.0,
+        "sprints": 1,
+        "high_speed_efforts": 2,
+        "accelerations": 2,
+        "decelerations": 1,
+        "peak_accel_yps2": 4.2,
+        "peak_decel_yps2": 5.1,
+        "band_yards": {"walk": 3.0, "jog": 8.0, "run": 10.0, "high_speed": 5.0, "sprint": 4.0},
+    }
+    value.update(overrides)
+    return value
+
+
+async def _seed_physical(maker: async_sessionmaker[AsyncSession]) -> dict[str, uuid.UUID]:
+    ids = await _seed(maker)
+    async with maker() as session:
+        tracklets = {
+            (t.player_id, t.end_frame): t
+            for t in (await session.execute(select(Tracklet))).scalars()
+        }
+        t1 = tracklets[(ids["p1"], 99)]  # practice
+        t2 = tracklets[(ids["p1"], 9)]  # game
+        t3 = tracklets[(ids["p2"], 49)]
+        session.add_all(
+            [
+                _metric(t1.clip_id, t1.id, "physical_profile", _profile(get_off_yards=2.0)),
+                _metric(
+                    t2.clip_id,
+                    t2.id,
+                    "physical_profile",
+                    _profile(yards=10.0, top_speed_yps=8.4, sprints=2, get_off_yards=3.0),
+                ),
+                _metric(t3.clip_id, t3.id, "physical_profile", _profile(top_speed_yps=6.0)),
+                # Never counted: suppressed.
+                _metric(
+                    t1.clip_id,
+                    t1.id,
+                    "physical_profile",
+                    _profile(top_speed_yps=11.0),
+                    suppressed=True,
+                ),
+            ]
+        )
+        await session.commit()
+    return ids
+
+
+async def test_physical_load_totals_peaks_and_means(
+    db: async_sessionmaker[AsyncSession],
+) -> None:
+    ids = await _seed_physical(db)
+    async with db() as session:
+        rows = {r.player_id: r for r in await list_player_physical_load(session, _staff_user())}
+    p1 = rows[ids["p1"]]
+    assert p1.reps == 2
+    assert p1.yards == pytest.approx(40.0)
+    assert p1.sprints == 3
+    assert p1.top_speed_yps == pytest.approx(8.4)  # suppressed 11.0 excluded
+    assert p1.get_off_yards == pytest.approx(2.5)
+    assert p1.get_off_reps == 2
+    assert p1.band_yards["sprint"] == pytest.approx(8.0)
+    p2 = rows[ids["p2"]]
+    assert p2.reps == 1 and p2.get_off_yards is None and p2.get_off_reps == 0
+    assert ids["p3"] not in rows
+
+
+async def test_physical_load_filters_and_daily_trend(
+    db: async_sessionmaker[AsyncSession],
+) -> None:
+    ids = await _seed_physical(db)
+    async with db() as session:
+        practice = await list_player_physical_load(
+            session, _staff_user(), session_kind=SessionKind.practice
+        )
+        detail = await get_player_physical_load(
+            ids["p1"], session, _staff_user(), session_kind=None, since=None
+        )
+        empty = await get_player_physical_load(
+            ids["p3"], session, _staff_user(), session_kind=None, since=None
+        )
+    assert {r.player_id: r.reps for r in practice}[ids["p1"]] == 1
+    assert detail.load is not None and detail.load.reps == 2
+    assert [s.reps for s in detail.sessions] == [1, 1]
+    assert [s.top_speed_yps for s in detail.sessions] == [7.5, 8.4]
+    assert empty.load is None and empty.sessions == []

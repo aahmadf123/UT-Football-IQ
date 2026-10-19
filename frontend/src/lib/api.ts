@@ -632,6 +632,56 @@ export async function fetchPlayerMetricsDetail(
   );
 }
 
+// ── Physical load ────────────────────────────────────────────────────────────
+
+/** Physical load summed over a player's tracked reps (``physical_profile``). */
+export interface ApiPhysicalLoad {
+  player_id: string;
+  reps: number;
+  seconds: number;
+  yards: number;
+  high_speed_yards: number;
+  sprint_yards: number;
+  sprints: number;
+  high_speed_efforts: number;
+  accelerations: number;
+  decelerations: number;
+  top_speed_yps: number | null;
+  peak_accel_yps2: number | null;
+  peak_decel_yps2: number | null;
+  get_off_yards: number | null;
+  get_off_reps: number;
+  band_yards: Record<string, number>;
+}
+
+export interface ApiPhysicalSession {
+  day: string;
+  reps: number;
+  yards: number;
+  high_speed_yards: number;
+  sprints: number;
+  top_speed_yps: number | null;
+}
+
+export interface ApiPlayerPhysicalDetail {
+  load: ApiPhysicalLoad | null;
+  sessions: ApiPhysicalSession[];
+}
+
+export async function fetchPlayerPhysical(
+  playerId: string,
+  token?: string,
+): Promise<ApiPlayerPhysicalDetail> {
+  return getJSON<ApiPlayerPhysicalDetail>(
+    `${apiBase()}/api/v1/players/${encodeURIComponent(playerId)}/metrics/physical`,
+    token,
+  );
+}
+
+export async function fetchPhysicalLoads(token?: string): Promise<ApiPhysicalLoad[]> {
+  return getJSON<ApiPhysicalLoad[]>(`${apiBase()}/api/v1/players/metrics/physical`, token);
+}
+
 // ── Metrics + coach corrections ──────────────────────────────────────────────
 
 export interface ApiMetric {
