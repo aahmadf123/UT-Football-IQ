@@ -7,6 +7,7 @@ can write results without knowing the HTTP details.
 from __future__ import annotations
 
 import os
+import time
 from typing import Any
 
 import httpx
@@ -37,10 +38,46 @@ _IDEMPOTENT_CREATES = frozenset(
 )
 
 
+#: Server answers worth retrying: the API restarting, a dropped upstream.
+_RETRYABLE_STATUS = frozenset({500, 502, 503, 504})
+#: Pauses between attempts (seconds); a container rollout takes ~30 s.
+_RETRY_DELAYS = (1.0, 3.0, 8.0, 20.0)
+
+
+def _with_retries(send: Any, *, replayable: bool) -> httpx.Response:
+    """Send, retrying transient failures so one blip can't fail an hours-long job.
+
+    ``replayable`` requests (idempotent creates with a stable id, PATCH) are
+    retried after dropped connections and 5xx answers. Anything else is only
+    retried when the connection never opened, so the server cannot have acted
+    on it.
+    """
+    for attempt, delay in enumerate((*_RETRY_DELAYS, None)):
+        try:
+            response: httpx.Response = send()
+        except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
+            if delay is None:
+                raise
+            error = type(exc).__name__
+        except httpx.TransportError as exc:
+            if not replayable or delay is None:
+                raise
+            error = type(exc).__name__
+        else:
+            if not (replayable and response.status_code in _RETRYABLE_STATUS) or delay is None:
+                return response
+            error = str(response.status_code)
+        log.warning("backend_request_retry", attempt=attempt + 1, error=error)
+        time.sleep(delay)
+        check_control()
+    raise AssertionError("unreachable")
+
+
 class _WorkerClient(httpx.Client):
     def post(self, url: Any, *, json: Any = None, **kwargs: Any) -> httpx.Response:
         check_control()
         path = str(url).split("?", 1)[0]
+        replayable = False
         if isinstance(json, dict) and (
             path in _IDEMPOTENT_CREATES
             or path.startswith("/api/v1/videos/")
@@ -49,15 +86,24 @@ class _WorkerClient(httpx.Client):
             record_id = stable_record_id(path, json)
             if record_id and not json.get("id"):
                 json = {**json, "id": record_id}
-        response = super().post(url, json=json, **kwargs)
+            replayable = bool(record_id or json.get("id"))
+        response = _with_retries(
+            lambda: super(_WorkerClient, self).post(url, json=json, **kwargs),
+            replayable=replayable,
+        )
         _check_fence(response)
         return response
 
     def patch(self, url: Any, **kwargs: Any) -> httpx.Response:
         check_control()
-        response = super().patch(url, **kwargs)
+        response = _with_retries(
+            lambda: super(_WorkerClient, self).patch(url, **kwargs), replayable=True
+        )
         _check_fence(response)
         return response
+
+    def get(self, url: Any, **kwargs: Any) -> httpx.Response:
+        return _with_retries(lambda: super(_WorkerClient, self).get(url, **kwargs), replayable=True)
 
 
 def _check_fence(response: httpx.Response) -> None:
