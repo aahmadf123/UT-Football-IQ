@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { containerUnavailable, proxyToBackend } from "../src/proxy";
+import { RETRY_DELAYS_MS, containerUnavailable, proxyToBackend } from "../src/proxy";
 
 function env(...outcomes: Array<Response | Error>) {
   const fetch = vi.fn();
@@ -34,11 +34,11 @@ describe("proxy during container restarts", () => {
 
   it("gives up with a friendly retryable 503", async () => {
     vi.useFakeTimers();
-    const { env: e, fetch } = env(starting(), starting(), starting(), starting());
+    const { env: e, fetch } = env(...Array.from({ length: RETRY_DELAYS_MS.length + 1 }, starting));
     const pending = proxyToBackend(new Request("https://edge.test/api/v1/players"), e);
     await vi.runAllTimersAsync();
     const response = await pending;
-    expect(fetch).toHaveBeenCalledTimes(4);
+    expect(fetch).toHaveBeenCalledTimes(RETRY_DELAYS_MS.length + 1);
     expect(response.status).toBe(503);
     expect(response.headers.get("Retry-After")).toBe("5");
     expect(await response.json()).toEqual({ detail: "The server is restarting. Try again in a moment." });

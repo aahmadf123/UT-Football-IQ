@@ -76,8 +76,12 @@ export async function proxyToBackend(request: Request, env: Env): Promise<Respon
 }
 
 const REPLAYABLE = new Set(["GET", "HEAD"]);
-/** Backoff between attempts; a rollout's cold start takes a few seconds. */
-export const RETRY_DELAYS_MS = [500, 1500, 3000];
+/**
+ * Backoff between attempts (~20 s in all). A deploy replaces the single
+ * backend container and its replacement takes 10-20 s to boot; the live
+ * crawl caught pages failing with 503 after the earlier ~5 s budget.
+ */
+export const RETRY_DELAYS_MS = [500, 1500, 3000, 5000, 10000];
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
