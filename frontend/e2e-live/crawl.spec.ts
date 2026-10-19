@@ -84,7 +84,7 @@ test.describe("deployed platform", () => {
 
   test("the API runs the expected release", async ({ request }) => {
     // After a deploy the new container rolls out over a few minutes.
-    const expected = process.env.E2E_EXPECT_SHA;
+    const expected = process.env.E2E_EXPECT_SHA || undefined;
     test.setTimeout(expected ? 900_000 : 180_000);
     await expect
       .poll(
