@@ -138,11 +138,16 @@ def physical_profile(
             decels += _efforts(ta, a <= -ACCEL_YPS2, MIN_ACCEL_EFFORT_SECONDS)
             peak_accel = max(peak_accel, float(a.max()))
             peak_decel = max(peak_decel, float(-a.min()))
-        if snap_time is not None and get_off is None and times[0] <= snap_time + 0.1:
-            window = (times >= snap_time) & (times <= snap_time + GET_OFF_SECONDS)
-            if window.sum() >= 2 and times[-1] >= snap_time + GET_OFF_SECONDS * 0.9:
-                idx = np.flatnonzero(window)
-                get_off = float(np.hypot(*(xy[idx[-1]] - xy[idx[0]])))
+        if snap_time is not None and get_off is None:
+            end_time = snap_time + GET_OFF_SECONDS
+            if times[0] <= snap_time and times[-1] >= end_time:
+                start_xy = np.asarray(
+                    [np.interp(snap_time, times, xy[:, axis]) for axis in range(2)]
+                )
+                end_xy = np.asarray(
+                    [np.interp(end_time, times, xy[:, axis]) for axis in range(2)]
+                )
+                get_off = float(np.hypot(*(end_xy - start_xy)))
 
     if total_time < 1.0:
         return None
