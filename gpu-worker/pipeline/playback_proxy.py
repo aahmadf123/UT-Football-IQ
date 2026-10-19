@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import json
-import os
-import select
+import queue
 import subprocess
 import tempfile
+import threading
 import time
 from collections import Counter
 from pathlib import Path
@@ -60,6 +60,13 @@ class _StreamingEncoder:
         self.errors = tempfile.TemporaryFile()
         self.process: subprocess.Popen[bytes] | None = None
         self.deadline: float | None = None
+        # Frames reach ffmpeg through a writer thread: a blocking pipe write
+        # can't be interrupted, and select() on pipes is Unix-only (the GPU
+        # worker runs on Windows). The caller only ever waits on this queue,
+        # in short slices that check cancel, the deadline and ffmpeg's exit.
+        self._frames: queue.Queue[bytes | None] = queue.Queue(maxsize=4)
+        self._writer: threading.Thread | None = None
+        self._writer_error: BaseException | None = None
 
     def __enter__(self) -> _StreamingEncoder:
         self.process = subprocess.Popen(
@@ -70,35 +77,53 @@ class _StreamingEncoder:
             bufsize=0,
         )
         assert self.process.stdin is not None
-        os.set_blocking(self.process.stdin.fileno(), False)
         self.deadline = time.monotonic() + self._timeout
+        self._writer = threading.Thread(target=self._pump, name="proxy-encoder", daemon=True)
+        self._writer.start()
         return self
 
-    def write(self, frame: Any) -> None:
+    def _pump(self) -> None:
         assert self.process is not None and self.process.stdin is not None
-        descriptor = self.process.stdin.fileno()
-        remaining = memoryview(frame.tobytes())
-        while remaining:
-            self._check_control()
-            if self.process.poll() is not None:
-                self._fail()
-            _, writable, _ = select.select(
-                [],
-                [descriptor],
-                [],
-                min(self._poll_interval, self._remaining()),
-            )
-            if not writable:
-                continue
+        stdin = self.process.stdin
+        try:
+            while (chunk := self._frames.get()) is not None:
+                stdin.write(chunk)
+        except (BrokenPipeError, OSError, ValueError) as exc:
+            self._writer_error = exc
+        finally:
             try:
-                written = os.write(descriptor, remaining)
-            except BlockingIOError:
+                stdin.close()
+            except (BrokenPipeError, OSError, ValueError):
+                pass
+
+    def write(self, frame: Any) -> None:
+        assert self.process is not None
+        data = frame.tobytes()
+        while True:
+            self._check_control()
+            if self._writer_error is not None or self.process.poll() is not None:
+                self._fail()
+            try:
+                self._frames.put(data, timeout=min(self._poll_interval, self._remaining()))
+                return
+            except queue.Full:
                 continue
-            except BrokenPipeError:
-                self._fail()
-            if not written:
-                self._fail()
-            remaining = remaining[written:]
+
+    def _finish_writing(self) -> None:
+        """Send end-of-stream and wait for the writer to drain, interruptibly."""
+        if self._writer is None:
+            return
+        while True:
+            self._check_control()
+            try:
+                self._frames.put(None, timeout=min(self._poll_interval, self._remaining()))
+                break
+            except queue.Full:
+                if self.process is not None and self.process.poll() is not None:
+                    return
+        while self._writer.is_alive():
+            self._check_control()
+            self._writer.join(timeout=min(self._poll_interval, self._remaining()))
 
     def _fail(self) -> None:
         assert self.process is not None
@@ -145,22 +170,26 @@ class _StreamingEncoder:
     def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
         assert self.process is not None
         try:
-            if self.process.stdin is not None:
-                try:
-                    self.process.stdin.close()
-                except BrokenPipeError:
-                    pass
             if exc_type is not None:
                 self._terminate()
                 return
+            self._finish_writing()
+            if self._writer_error is not None:
+                self._fail()
             self._wait_for_exit()
             if self.process.returncode:
                 self._fail()
         finally:
             if self.process.poll() is None:
                 self._terminate()
+            if self._writer is not None and self._writer.is_alive():
+                # ffmpeg is gone, so the writer's pending write fails promptly.
+                self._writer.join(timeout=5)
             if self.process.stdin is not None and not self.process.stdin.closed:
-                self.process.stdin.close()
+                try:
+                    self.process.stdin.close()
+                except (BrokenPipeError, OSError):
+                    pass
             self.errors.close()
 
 
