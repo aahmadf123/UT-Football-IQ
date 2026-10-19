@@ -372,6 +372,17 @@ def _api_upload(body: Any, bucket: str, key: str, content_type: str) -> str:
         return str(result.json()["uri"])
 
 
+#: Tries (first request + resumes) before a download is declared incomplete.
+DOWNLOAD_ATTEMPTS = 6
+
+
+def _int_or_none(value: Any) -> int | None:
+    try:
+        return int(value) if value not in (None, "") else None
+    except (TypeError, ValueError):
+        return None
+
+
 def _api_download(ref: str, bucket: str, key: str) -> Path:
     """Use delegated signed film access without database/object-store secrets."""
     import httpx
@@ -389,9 +400,11 @@ def _api_download(ref: str, bucket: str, key: str) -> Path:
             json={"uri": ref if not ref.startswith("api://") else f"library://{bucket}/{key}"},
         )
         result.raise_for_status()
-        url = str(result.json()["download_url"])
+        resolved = result.json()
+        url = str(resolved["download_url"])
         if url.startswith("/"):
             url = base + url
+        expected = _int_or_none(resolved.get("size_bytes"))
         descriptor, temporary = tempfile.mkstemp(suffix=Path(key).suffix or ".bin")
         path = Path(temporary)
         # The shared hosted container must never fill its disk before the
@@ -399,19 +412,71 @@ def _api_download(ref: str, bucket: str, key: str) -> Path:
         limit = MAX_SOURCE_BYTES if os.environ.get("PIPELINE_HOSTED") == "1" else None
         try:
             with os.fdopen(descriptor, "wb") as target:
-                with client.stream("GET", url) as response:
-                    response.raise_for_status()
-                    written = 0
-                    for chunk in response.iter_bytes():
-                        check_control()
-                        written += len(chunk)
-                        if limit is not None and written > limit:
-                            raise HostedCapacityError(
-                                "Hosted CPU processing accepts up to 512 MiB per recording. "
-                                "Upload a short segment for processing; the original stays in "
-                                "the shared library."
+                written = 0
+                # A multi-GB stream can end early (container restart, dropped
+                # connection) without an error, and the edge drops
+                # Content-Length. Resume from where it stopped and never hand
+                # a short file to the pipeline.
+                for attempt in range(DOWNLOAD_ATTEMPTS):
+                    check_control()
+                    headers = {"Range": f"bytes={written}-"} if written else {}
+                    try:
+                        with client.stream("GET", url, headers=headers) as response:
+                            response.raise_for_status()
+                            if written and response.status_code != 206:
+                                target.seek(0)
+                                target.truncate()
+                                written = 0
+                            expected = expected or _int_or_none(
+                                response.headers.get("X-Object-Size")
                             )
-                        target.write(chunk)
+                            for chunk in response.iter_bytes():
+                                check_control()
+                                written += len(chunk)
+                                if limit is not None and written > limit:
+                                    raise HostedCapacityError(
+                                        "Hosted CPU processing accepts up to 512 MiB per "
+                                        "recording. Upload a short segment for processing; "
+                                        "the original stays in the shared library."
+                                    )
+                                target.write(chunk)
+                    except (httpx.TransportError, httpx.HTTPStatusError) as exc:
+                        if (
+                            isinstance(exc, httpx.TransportError)
+                            and expected is not None
+                            and written == expected
+                        ):
+                            break
+                        if (
+                            isinstance(exc, httpx.HTTPStatusError)
+                            and exc.response.status_code < 500
+                        ):
+                            raise
+                        log.warning(
+                            "storage_download_interrupted",
+                            key=key,
+                            written=written,
+                            attempt=attempt + 1,
+                            error_type=type(exc).__name__,
+                        )
+                    else:
+                        if expected is None or written == expected:
+                            break
+                        if written > expected:
+                            raise OSError("Downloaded more bytes than the stored recording has")
+                        log.warning(
+                            "storage_download_short",
+                            key=key,
+                            written=written,
+                            expected=expected,
+                            attempt=attempt + 1,
+                        )
+                    time.sleep(min(30, 2**attempt))
+                else:
+                    raise OSError(
+                        f"Download incomplete after {DOWNLOAD_ATTEMPTS} attempts "
+                        f"({written} of {expected or 'unknown'} bytes)"
+                    )
             return path
         except BaseException:
             path.unlink(missing_ok=True)

@@ -5,16 +5,17 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import cv2
 import numpy as np
 import pytest
 
-from pipeline import backend, orchestrator, storage
+from pipeline import backend, orchestrator, playback_proxy, storage
 from pipeline.orchestrator import DirArtifactSink, run_pipeline
-from pipeline.playback_proxy import PlaybackProxySession
-from pipeline.runtime import job_context
+from pipeline.playback_proxy import PlaybackProxySession, _StreamingEncoder
+from pipeline.runtime import PipelineInterrupted, job_context
 from pipeline.video_timeline import VideoTimeline
 
 
@@ -143,3 +144,38 @@ def test_clean_proxy_uses_exact_vfr_presentation_mapping(source: Path) -> None:
         assert result["playback"]["source_start_seconds"] == 0.44
     finally:
         session.close()
+
+
+@pytest.mark.parametrize("during_write", [True, False])
+def test_streaming_encoder_interrupts_and_reaps_ffmpeg(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, during_write: bool
+) -> None:
+    real_popen = subprocess.Popen
+    processes: list[subprocess.Popen[bytes]] = []
+
+    def sleeping_process(*_args, **kwargs):
+        process = real_popen(
+            [sys.executable, "-c", "import time; time.sleep(30)"],
+            stdin=kwargs["stdin"],
+            stdout=kwargs["stdout"],
+            stderr=kwargs["stderr"],
+            bufsize=kwargs["bufsize"],
+        )
+        processes.append(process)
+        return process
+
+    monkeypatch.setattr(playback_proxy.subprocess, "Popen", sleeping_process)
+    checks = 0
+
+    def control() -> str | None:
+        nonlocal checks
+        checks += 1
+        return "cancel" if checks >= (2 if during_write else 1) else None
+
+    with pytest.raises(PipelineInterrupted):
+        with job_context(control=control):
+            with _StreamingEncoder(tmp_path / "clip.mp4", (2048, 2048), 30) as encoder:
+                if during_write:
+                    encoder.write(np.zeros((1024, 1024, 3), dtype=np.uint8))
+
+    assert processes[0].poll() is not None

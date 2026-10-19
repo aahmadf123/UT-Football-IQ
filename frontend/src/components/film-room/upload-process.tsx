@@ -25,7 +25,7 @@ import { Label } from "@/components/ui/label";
 import { NativeSelect } from "@/components/ui/native-select";
 import type { ApiJob, ProcessingProfile } from "@/lib/types";
 import { useWorkspaceContext } from "@/lib/workspace-context";
-import { friendlyMessage } from "@/lib/api-error";
+import { friendlyMessage, processingErrorMessage } from "@/lib/api-error";
 
 // Per-video local request state, layered on top of the backend inbox status so
 // the coach gets immediate "Queued" feedback before the backend reflects it.
@@ -305,7 +305,7 @@ function PipelineJobsCard() {
 
   const row = (job: ApiJob) => (
     <div key={job.id}>
-      <JobRow job={job} label={label(job)} errorMessage={job.error_message ? friendlyMessage(job.error_message, "process this film") : undefined} />
+      <JobRow job={job} label={label(job)} errorMessage={job.error_message ? processingErrorMessage(job.error_stage, job.error_message) : undefined} />
       {job.control_requested && <p role="status" className="mb-2 text-xs text-status-warn">{job.control_requested === "pause" ? "Pausing processing…" : "Cancelling processing…"}</p>}
       {!mockMode && <div className="mb-3 flex flex-wrap gap-2">
         {["queued", "running"].includes(job.status) && <Button size="sm" variant="outline" disabled={pending === job.id || Boolean(job.control_requested)} onClick={() => void act(job.id, "pause")}>Pause</Button>}
@@ -459,7 +459,7 @@ function ProcessingRow({
           </div>
         )}
         {isFailed && item.latest_error_message && (
-          <div className="mt-0.5 text-xs text-status-danger">{item.latest_error_message}</div>
+          <div className="mt-0.5 text-xs text-status-danger">{processingErrorMessage(item.latest_error_stage, item.latest_error_message)}</div>
         )}
         {request?.kind === "busy" && (
           <div

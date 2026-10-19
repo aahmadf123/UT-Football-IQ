@@ -50,10 +50,27 @@ function getHeaders(token?: string): Record<string, string> {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
+/** Server hiccups worth one quiet retry for a read (restarts, dropped connections). */
+const RETRYABLE_READ_STATUS = new Set([500, 502, 503, 504]);
+export const READ_RETRY_DELAY_MS = 700;
+
+/**
+ * ``fetch`` for reads: retries once after a 5xx so a momentary server blip
+ * never reaches the screen. A network error is not retried (the browser is
+ * offline; say so at once). Never used for writes, which may already have
+ * been applied.
+ */
+export async function fetchForRead(url: string, init?: RequestInit): Promise<Response> {
+  const res = await fetch(url, init);
+  if (!RETRYABLE_READ_STATUS.has(res.status)) return res;
+  await new Promise((resolve) => setTimeout(resolve, READ_RETRY_DELAY_MS));
+  return fetch(url, init);
+}
+
 async function getJSON<T>(url: string, token?: string): Promise<T> {
   let res: Response;
   try {
-    res = await fetch(url, { headers: getHeaders(token) });
+    res = await fetchForRead(url, { headers: getHeaders(token) });
   } catch (cause) {
     throw offlineError("load the latest data", cause);
   }
@@ -344,7 +361,7 @@ export async function fetchInboxStatus(
   if (includeSucceeded) params.set("include_succeeded", "true");
   const qs = params.toString();
   const url = `${base}/api/v1/inbox/status${qs ? `?${qs}` : ""}`;
-  const res = await fetch(url, { headers: authHeaders(token) });
+  const res = await fetchForRead(url, { headers: authHeaders(token) });
   if (!res.ok) {
     throw await apiErrorFromResponse(res, "check processing status");
   }
@@ -686,6 +703,56 @@ export async function fetchGameSummary(videoId: string, token?: string): Promise
     `${apiBase()}/api/v1/videos/${encodeURIComponent(videoId)}/game-summary`,
     token,
   );
+}
+
+// ── Physical load ────────────────────────────────────────────────────────────
+
+/** Physical load summed over a player's tracked reps (``physical_profile``). */
+export interface ApiPhysicalLoad {
+  player_id: string;
+  reps: number;
+  seconds: number;
+  yards: number;
+  high_speed_yards: number;
+  sprint_yards: number;
+  sprints: number;
+  high_speed_efforts: number;
+  accelerations: number;
+  decelerations: number;
+  top_speed_yps: number | null;
+  peak_accel_yps2: number | null;
+  peak_decel_yps2: number | null;
+  get_off_yards: number | null;
+  get_off_reps: number;
+  band_yards: Record<string, number>;
+}
+
+export interface ApiPhysicalSession {
+  day: string;
+  reps: number;
+  yards: number;
+  high_speed_yards: number;
+  sprints: number;
+  top_speed_yps: number | null;
+}
+
+export interface ApiPlayerPhysicalDetail {
+  load: ApiPhysicalLoad | null;
+  sessions: ApiPhysicalSession[];
+}
+
+export async function fetchPlayerPhysical(
+  playerId: string,
+  token?: string,
+): Promise<ApiPlayerPhysicalDetail> {
+  return getJSON<ApiPlayerPhysicalDetail>(
+    `${apiBase()}/api/v1/players/${encodeURIComponent(playerId)}/metrics/physical`,
+    token,
+  );
+}
+
+export async function fetchPhysicalLoads(token?: string): Promise<ApiPhysicalLoad[]> {
+  return getJSON<ApiPhysicalLoad[]>(`${apiBase()}/api/v1/players/metrics/physical`, token);
 }
 
 // ── Metrics + coach corrections ──────────────────────────────────────────────

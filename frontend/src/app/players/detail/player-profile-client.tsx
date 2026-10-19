@@ -14,6 +14,7 @@ import { fetchPlayer, fetchPlayerMetricsDetail } from "@/lib/api";
 import type { PlayerSummary } from "@/lib/types";
 import { ConfidenceBadge } from "@/components/composite/confidence-badge";
 import { CollegeStatsCard } from "@/components/college-stats-card";
+import { PhysicalLoadCard } from "@/components/physical-load-card";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { NativeSelect } from "@/components/ui/native-select";
@@ -287,7 +288,10 @@ export function PlayerProfileClient({ id }: { id: string }) {
       </div>
 
       {!mockMode ? (
-        <CollegeStatsCard playerId={player.id} token={authToken ?? undefined} />
+        <>
+          <PhysicalLoadCard playerId={player.id} token={authToken ?? undefined} />
+          <CollegeStatsCard playerId={player.id} token={authToken ?? undefined} />
+        </>
       ) : null}
 
       <Card className="mt-4">

@@ -92,6 +92,16 @@ async def system_version() -> dict[str, str]:
     return {"git_sha": os.environ.get("GIT_SHA", "unknown")}
 
 
+@router.get("/errors")
+async def recent_errors(
+    _admin: Annotated[User, Depends(require_admin)],
+) -> list[dict[str, Any]]:
+    """The last 50 unhandled API errors since this server started, newest first."""
+    from app.error_log import recent
+
+    return recent()
+
+
 @router.get("/status")
 async def system_status(
     db: Annotated[AsyncSession, Depends(get_db)], _user: Annotated[User, Depends(get_current_user)]
@@ -269,7 +279,8 @@ async def request_repair(
     return {"id": request_id, "action": body.action, "state": "queued"}
 
 
-def staff_storage_url(uri: str) -> str:
+def staff_storage_target(uri: str) -> tuple[str, str, str]:
+    """``(scheme, logical bucket, key)`` for a staff-readable object URI."""
     if uri.startswith("library://"):
         uri = active_storage_backend() + "://" + uri[len("library://") :]
     scheme, bucket, key = parse_storage_uri(uri)
@@ -287,6 +298,12 @@ def staff_storage_url(uri: str) -> str:
             uri = f"{scheme}://{bucket}/{key}"
     if bucket not in {RAW_VIDEO, CLIPS, OVERLAYS, ARTIFACTS} or not is_valid_key(key):
         raise ValueError("Unsupported storage object")
+    return scheme, bucket, key
+
+
+def staff_storage_url(uri: str) -> str:
+    scheme, bucket, key = staff_storage_target(uri)
+    uri = f"{scheme}://{bucket}/{key}"
     if scheme == "local" or get_settings().signed_url_mode == "worker":
         url = signed_local_url(bucket, key, get_settings().s3_presign_ttl).replace(
             "/api/v1/storage/", "/api/v1/system/storage/download/", 1
@@ -298,11 +315,27 @@ def staff_storage_url(uri: str) -> str:
 @router.post("/storage/resolve")
 async def resolve_storage(
     body: StorageResolve, _user: Annotated[User, Depends(require_any_staff)]
-) -> dict[str, str]:
+) -> dict[str, Any]:
+    """A signed download URL, plus the object's size so the downloader can
+    detect a stream that ended early (proxies drop Content-Length)."""
     try:
-        return {"download_url": staff_storage_url(body.uri)}
+        target = staff_storage_target(body.uri)
+        url = staff_storage_url(body.uri)
     except ValueError as exc:
         raise HTTPException(400, "Invalid storage URI") from exc
+    size = await anyio.to_thread.run_sync(_object_size, *target)
+    return {"download_url": url, "size_bytes": size}
+
+
+def _object_size(scheme: str, bucket: str, key: str) -> int | None:
+    """Best effort: the object's byte size, or ``None`` when it can't be read."""
+    try:
+        if scheme == "local":
+            return local_object_path(bucket, key).stat().st_size
+        head = get_s3_client().head_object(Bucket=physical_bucket(bucket), Key=key)
+        return int(head["ContentLength"])
+    except Exception:  # noqa: BLE001 - size is advisory; the download still works
+        return None
 
 
 @router.get("/storage/download/{bucket}/{key:path}")
@@ -340,6 +373,10 @@ async def stream_staff_artifact(
         ):
             if source in obj:
                 headers[destination] = str(obj[source])
+        # Survives proxies that re-stream the body without Content-Length.
+        total = str(obj.get("ContentRange", "")).rpartition("/")[2] or obj.get("ContentLength")
+        if total not in (None, "", "*"):
+            headers["X-Object-Size"] = str(total)
         return StreamingResponse(
             obj["Body"].iter_chunks(chunk_size=1024 * 1024),
             status_code=206 if "ContentRange" in obj else 200,
@@ -353,7 +390,11 @@ async def stream_staff_artifact(
     return FileResponse(
         path,
         media_type=mimetypes.guess_type(key)[0] or "application/octet-stream",
-        headers={"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"},
+        headers={
+            "Cache-Control": "private, no-store",
+            "X-Content-Type-Options": "nosniff",
+            "X-Object-Size": str(path.stat().st_size),
+        },
     )
 
 

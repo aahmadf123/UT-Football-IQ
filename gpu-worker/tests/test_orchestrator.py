@@ -38,9 +38,7 @@ np = pytest.importorskip("numpy")
 def synthetic_video(tmp_path: Path) -> Path:
     """A 3-second 320x240@30fps mp4 with a moving bright square."""
     path = tmp_path / "synthetic.mp4"
-    writer = cv2.VideoWriter(
-        str(path), cv2.VideoWriter_fourcc(*"mp4v"), 30.0, (320, 240)
-    )
+    writer = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*"mp4v"), 30.0, (320, 240))
     assert writer.isOpened(), "cv2 could not open VideoWriter for mp4"
     for i in range(90):
         frame = np.zeros((240, 320, 3), dtype=np.uint8)
@@ -206,9 +204,7 @@ def test_edited_multi_angle_film_disables_shared_spatial_calibration(
 # ── Tests ─────────────────────────────────────────────────────────────────────
 
 
-def test_full_chain_offline(
-    synthetic_video: Path, offline_env: None, tmp_path: Path
-) -> None:
+def test_full_chain_offline(synthetic_video: Path, offline_env: None, tmp_path: Path) -> None:
     calls: list[tuple[str, str | None, str]] = []
 
     def progress(stage: str, clip_id: str | None, status: str, extra: dict) -> None:
@@ -269,10 +265,9 @@ def test_ledger_resume_skips_completed_stages(
     def progress(stage: str, clip_id: str | None, status: str, extra: dict) -> None:
         calls.append((stage, clip_id, status, extra))
 
-    with patch(
-        "pipeline.stage_ingest.run", side_effect=AssertionError("ingest re-ran")
-    ), patch(
-        "pipeline.stage_detect.run", side_effect=AssertionError("detect re-ran")
+    with (
+        patch("pipeline.stage_ingest.run", side_effect=AssertionError("ingest re-ran")),
+        patch("pipeline.stage_detect.run", side_effect=AssertionError("detect re-ran")),
     ):
         second = run_pipeline(
             "vid-2",
@@ -320,9 +315,7 @@ def test_clip_detection_slicing(synthetic_video: Path, offline_env: None) -> Non
         assert all(lo <= f <= hi for f in frames), (clip_id, lo, hi, frames[:5])
 
 
-def test_backend_coupled_stages_are_dropped(
-    synthetic_video: Path, offline_env: None
-) -> None:
+def test_backend_coupled_stages_are_dropped(synthetic_video: Path, offline_env: None) -> None:
     p1, p2 = _stub_detectors()
     with p1, p2:
         summary = run_pipeline(
@@ -368,3 +361,52 @@ def test_cli_smoke(synthetic_video: Path, offline_env: None, tmp_path: Path) -> 
     summary = json.loads(summary_path.read_text())
     assert summary["clip_count"] >= 1
     assert (out_dir / synthetic_video.stem / "artifacts" / "detect.json").is_file()
+
+
+def test_unrecognized_angles_do_not_disable_calibration_for_the_whole_game(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    ctx = PipelineContext(video_id="video", input_uri="film.mp4")
+    ctx.video_path = tmp_path / "film.mp4"
+    clips = [
+        {
+            "id": "a",
+            "start_time": 2.5,
+            "end_time": 19.0,
+            "capture_regime": "fixed_sideline",
+            "label_data": {"view": "sideline"},
+        },
+        {
+            "id": "b",
+            "start_time": 19.0,
+            "end_time": 28.0,
+            "capture_regime": "fixed_endzone",
+            "label_data": {"view": "endzone"},
+        },
+        {
+            "id": "c",
+            "start_time": 31.0,
+            "end_time": 40.0,
+            "capture_regime": "drone_follow",
+            "label_data": {"view": "unknown"},
+        },
+    ]
+    monkeypatch.setattr(
+        "pipeline.stage_segment.run",
+        lambda *_a, **_k: {"clips": clips, "game_film": {"edited": True, "sideline_views": 1}},
+    )
+    calibrated: list[str] = []
+
+    def fake_calibrate(_video, _path, _job, regime, _variant, **window):
+        calibrated.append(regime)
+        return {"analytics_safe": True, "capture_regime": regime}
+
+    monkeypatch.setattr("pipeline.stage_calibrate._calibrate", fake_calibrate)
+    _run_video_stage("segment", ctx)
+    calibration = _run_video_stage("calibrate", ctx)
+
+    assert calibration.get("skipped") is not True
+    assert calibrated == ["fixed_sideline", "fixed_endzone"]
+    per_clip = calibration["per_clip_calibration"]
+    assert per_clip["a"]["analytics_safe"] and per_clip["b"]["analytics_safe"]
+    assert per_clip["c"]["analytics_safe"] is False

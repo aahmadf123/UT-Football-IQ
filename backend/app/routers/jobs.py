@@ -15,7 +15,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any, Literal
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -352,6 +352,7 @@ async def heartbeat_job(
     body: JobHeartbeatRequest,
     db: Annotated[AsyncSession, Depends(get_db)],
     _current_user: Annotated[User, Depends(require_any_staff)],
+    background: BackgroundTasks,
 ) -> JobResponse:
     """Extend a claimed job's lease and merge per-stage progress."""
     result = await db.execute(
@@ -374,14 +375,33 @@ async def heartbeat_job(
     _ensure_worker_lease(job, body.worker_id, body.lease_token, body.attempt_count)
 
     job.lease_expires_at = datetime.now(UTC) + timedelta(seconds=body.lease_seconds)
+    should_link_game_film = False
     if body.progress:
         _reject_json_bomb("progress", body.progress)
+        segmented_before = _segment_succeeded(job.progress)
         merged = dict(job.progress or {})
         merged.update(body.progress)
         _reject_json_bomb("progress", merged)
         job.progress = merged
+        # Game clips exist once segmentation is done; per-clip tracking can
+        # take another hour, and coaches want the official results now.
+        if (
+            job.job_type == JobType.pipeline
+            and job.video_id
+            and not segmented_before
+            and _segment_succeeded(merged)
+        ):
+            should_link_game_film = True
     await db.flush()
+    if should_link_game_film:
+        await db.commit()
+        background.add_task(link_game_film, job.video_id)
     return JobResponse.from_orm_job(job)
+
+
+def _segment_succeeded(progress: dict[str, Any] | None) -> bool:
+    segment = (progress or {}).get("segment")
+    return isinstance(segment, dict) and segment.get("status") == "succeeded"
 
 
 @router.get("/{job_id}", response_model=JobResponse)
@@ -406,6 +426,7 @@ async def update_job_status(
     body: JobStatusUpdate,
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(require_any_staff)],
+    background: BackgroundTasks,
 ) -> JobResponse:
     """Update job status — used by GPU worker callbacks."""
     result = await db.execute(
@@ -504,27 +525,41 @@ async def update_job_status(
     await db.flush()
     log.info("job_status_updated", job_id=str(job_id), status=body.status)
     if body.status == JobStatus.succeeded and job.job_type == JobType.pipeline and job.video_id:
-        await _link_game_film(db, job.video_id)
+        await db.commit()
+        background.add_task(link_game_film, job.video_id)
     return JobResponse.from_orm_job(job)
 
 
-async def _link_game_film(db: AsyncSession, video_id: uuid.UUID) -> None:
-    """Give a processed game film's clips their official CFBD results.
+async def link_game_film(video_id: uuid.UUID) -> None:
+    """Give a game film's clips their official CFBD results.
 
-    Best effort, cached play-by-play only (no vendor call on the worker's
-    request); ``POST /api/cfbd/videos/{id}/link`` fetches plays on demand.
+    Runs after the worker's request has been answered (its own session), so
+    downloading the game's play-by-play never slows a heartbeat. Best effort
+    and idempotent: it runs when segmentation finishes and again when the
+    job succeeds; ``POST /api/cfbd/videos/{id}/link`` repeats it on demand.
     """
-    from app.cfbd.game_link import link_video
+    from app.cfbd.game_link import ensure_game, ensure_plays, link_video
+    from app.database import AsyncSessionLocal
     from app.models import SessionKind, Video
 
-    video = await db.get(Video, video_id)
-    if video is None or video.session_kind != SessionKind.game:
-        return
     try:
-        async with db.begin_nested():
+        async with AsyncSessionLocal() as db:
+            video = await db.get(Video, video_id)
+            if video is None or video.session_kind != SessionKind.game:
+                return
+            game = await ensure_game(db, video)
+            if game is None:
+                await db.commit()
+                log.info("game_film_cfbd_link", video_id=str(video_id), status="no_game")
+                return
+            if not await ensure_plays(db, game):
+                await db.commit()
+                log.info("game_film_cfbd_link", video_id=str(video_id), status="no_plays")
+                return
             result = await link_video(db, video_id)
+            await db.commit()
         log.info("game_film_cfbd_link", video_id=str(video_id), **result)
-    except Exception as exc:  # noqa: BLE001 - never fail the worker's status update
+    except Exception as exc:  # noqa: BLE001 - background work must never raise
         log.warning(
             "game_film_cfbd_link_failed", video_id=str(video_id), error_type=type(exc).__name__
         )
