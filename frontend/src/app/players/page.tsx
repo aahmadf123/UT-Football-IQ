@@ -6,6 +6,7 @@ import { Suspense } from "react";
 import { FootballShell } from "@/components/shell/app-shell";
 import { PlayersView } from "@/components/players-view";
 import { PlayerDevelopmentView } from "@/components/player-development-view";
+import { PhysicalLeaderboard } from "@/components/physical-leaderboard";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
@@ -14,6 +15,7 @@ import { cn } from "@/lib/utils";
 const TABS = [
   { key: "roster", label: "Roster" },
   { key: "development", label: "Development" },
+  { key: "leaderboard", label: "Leaderboards" },
 ] as const;
 
 type TabKey = (typeof TABS)[number]["key"];
@@ -70,6 +72,7 @@ function PlayersContent() {
 
       {activeTab === "roster" && <PlayersView />}
       {activeTab === "development" && <PlayerDevelopmentView />}
+      {activeTab === "leaderboard" && <PhysicalLeaderboard />}
     </>
   );
 }
