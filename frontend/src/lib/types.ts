@@ -2,6 +2,7 @@ export type PageKey =
   // Consolidated top-level destinations (ADR 0003)
   | "dashboard"
   | "film-room"
+  | "team-stats"
   | "scouting"
   | "players"
   | "analytics"

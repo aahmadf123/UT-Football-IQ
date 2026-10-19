@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import {
+  BarChart3,
   ClipboardList,
   Clapperboard,
   FileText,
@@ -28,6 +29,7 @@ import { useWorkspaceContext } from "@/lib/workspace-context";
 const NAV_ITEMS = [
   { key: "dashboard", label: "Today", href: "/", icon: Home },
   { key: "film-room", label: "Film Room", href: "/film-room", icon: Clapperboard },
+  { key: "team-stats", label: "Team Stats", href: "/team-stats", icon: BarChart3 },
   { key: "scouting", label: "Scouting", href: "/scouting", icon: ClipboardList },
   { key: "players", label: "Players", href: "/players", icon: UserRound },
   { key: "reports", label: "Reports", href: "/reports", icon: FileText },

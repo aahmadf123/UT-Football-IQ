@@ -31,6 +31,10 @@ export const pageTitles: Record<PageKey, { title: string; subtitle: string }> = 
     title: "Film Room",
     subtitle: "Upload and process new film, browse sessions, and review & tag plays",
   },
+  "team-stats": {
+    title: "Team Stats",
+    subtitle: "Game breakdowns from film and official play-by-play",
+  },
   scouting: {
     title: "Scouting",
     subtitle: "Our tendencies, opponent prep, and college data context",

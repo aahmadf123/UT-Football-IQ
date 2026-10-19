@@ -32,6 +32,7 @@ from app.routers.counterfactuals import router as counterfactuals_router
 from app.routers.embeddings import router as embeddings_router
 from app.routers.events import router as events_router
 from app.routers.frontier_analytics import router as frontier_analytics_router
+from app.routers.game_summary import router as game_summary_router
 from app.routers.health_ingest import router as health_ingest_router
 from app.routers.health_workload import router as health_workload_router
 from app.routers.inbox_integration import router as inbox_router
@@ -203,6 +204,7 @@ app.include_router(auth_router)
 # win over the videos router's dynamic /{video_id} route.
 app.include_router(uploads_router)
 app.include_router(videos_router)
+app.include_router(game_summary_router)
 app.include_router(storage_router)
 app.include_router(clips_router, dependencies=[Depends(validate_worker_write)])
 app.include_router(practice_sessions_router)

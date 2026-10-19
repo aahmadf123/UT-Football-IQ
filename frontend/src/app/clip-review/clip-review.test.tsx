@@ -14,12 +14,13 @@ vi.mock("next/image", () => ({
 const routerPush = vi.fn();
 vi.mock("next/navigation", () => ({
   usePathname: () => "/clip-review",
-  useSearchParams: () => new URLSearchParams("clipId=c-1"),
+  useSearchParams: () => new URLSearchParams(window.location.search || "clipId=c-1"),
   useRouter: () => ({ push: routerPush, replace: vi.fn(), back: vi.fn() }),
 }));
 
 afterEach(() => {
   cleanup();
+  window.history.replaceState({}, "", "/");
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
   vi.resetModules();
@@ -110,6 +111,44 @@ function installFetchRoutes(routes: RouteSpec[]) {
 }
 
 describe("ClipReviewPage overlays", () => {
+  test("switching camera angles replaces the current clip in its playlist", async () => {
+    window.history.replaceState({}, "", "/clip-review/?clipId=c-1&playlist=c-1%2Cc-3");
+    installFetchRoutes([
+      { url: "/api/v1/videos/download-url", body: { downloadUrl: "https://dl.test/x" } },
+      { url: "/api/v1/clips/c-1/overlays", body: EMPTY_OVERLAYS },
+      { url: "/api/v1/clips/c-1", body: { ...SAMPLE_CLIP, label_data: { view: "sideline" } } },
+      {
+        url: "/api/v1/videos/v-1/clips",
+        body: [
+          { ...SAMPLE_CLIP, label_data: { view: "sideline" } },
+          {
+            ...SAMPLE_CLIP,
+            id: "c-angle",
+            label_data: { view: "endzone" },
+          },
+        ],
+      },
+      { url: "/api/v1/videos/v-1", body: SAMPLE_VIDEO },
+      { url: "/api/v1/players", body: [] },
+      { url: "/api/v1/inbox/status", body: [] },
+      { url: "/api/v1/videos", body: [] },
+      { url: "/api/v1/jobs", body: [] },
+      { url: "/api/v1/self-scout/tendencies", body: { pre_snap_tells: [] } },
+    ]);
+
+    const { ClipReviewPage, AppStateProvider } = await importPage();
+    render(
+      <AppStateProvider>
+        <ClipReviewPage />
+      </AppStateProvider>,
+    );
+
+    const angleLink = await screen.findByRole("link", { name: "End zone" });
+    expect(angleLink.getAttribute("href")).toBe(
+      "/clip-review/?clipId=c-angle&playlist=c-angle%2Cc-3",
+    );
+  });
+
   test("explains a local API network failure", async () => {
     vi.stubEnv("NEXT_PUBLIC_API_URL", "");
     vi.stubGlobal("fetch", vi.fn(() => Promise.reject(new TypeError("Failed to fetch"))));
