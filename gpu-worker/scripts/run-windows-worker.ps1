@@ -24,6 +24,11 @@ $env:ENABLE_BOTSORT_NIGHTLY = "1"
 $env:PROCESSING_PROFILE = $config.profile
 $env:WORKER_PROFILES = "review,quick,detailed"
 $env:MODEL_DETECT_PATH = $config.detector_path
+# Yard-number detector for automatic per-frame field registration on game
+# film (training/field). Optional: without it, game clips keep line-only
+# calibration.
+$fieldModel = if ($config.PSObject.Properties["field_model_path"]) { $config.field_model_path } else { Join-Path $DataDir "modelsield_numbers.pt" }
+if (Test-Path $fieldModel) { $env:MODEL_FIELD_PATH = $fieldModel }
 $env:PIPELINE_STORAGE_TRANSPORT = "api"
 $env:PYTHONUTF8 = "1"
 $env:PYTHONUNBUFFERED = "1"

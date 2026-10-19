@@ -168,6 +168,69 @@ def _calibrate(
     )
 
 
+# ── Game film: per-frame fit anchored on the painted yard numbers ─────────────
+
+
+def _calibrate_broadcast(
+    video_id: str,
+    video_path: Path,
+    job_id: str,
+    regime: str,
+    detector: Any,
+    *,
+    timeline: VideoTimeline | None = None,
+    start_time: float = 0.0,
+    end_time: float | None = None,
+) -> dict[str, Any]:
+    """Per-frame field transforms for one play of panning/zooming game film.
+
+    Game cameras follow the ball, so one homography per clip is wrong. Anchor
+    frames (every ~2 s) are fitted from the yard numbers plus the lines they
+    identify (``numeral_fit``), falling back to the classical line fit, and
+    chained-ECC carries the transform between anchors. No per-venue setup.
+    """
+    from pipeline.homography import numeral_fit
+    from pipeline.homography.timeline import calibration_timeline
+
+    start_frame, end_frame = 0, None
+    if timeline is not None and end_time is not None and end_time > start_time:
+        start_frame, end_frame = timeline.window(start_time, end_time)
+    fitter = numeral_fit.make_frame_fitter(detector, fallback=_best_frame_fit)
+    series = calibration_timeline(
+        video_path,
+        fitter,
+        threshold=CONFIDENCE_THRESHOLD,
+        timeline=timeline,
+        start_frame=start_frame,
+        end_frame=end_frame,
+        anchor_seconds=1.0,
+        lost_retry_seconds=0.25,
+    )
+    safe = [p for p in series if p["analytics_safe"] and p["homography"]]
+    homography = (
+        np.asarray(safe[len(safe) // 2]["homography"], dtype=np.float64).reshape(3, 3)
+        if safe
+        else None
+    )
+    confidence = float(np.mean([p["confidence"] for p in safe])) if safe else 0.0
+    return _persist_and_return(
+        video_id,
+        job_id,
+        homography=homography,
+        breakdown=None,
+        regime=regime,
+        inlier_ratio=0.0,
+        line_count=0,
+        parallel_variance=None,
+        temporal_drift=None,
+        kalman_state=None,
+        is_game_anchor=False,
+        reason_codes=["numeral_anchored"] if safe else ["no_calibration"],
+        series_override=series,
+        confidence_override=confidence,
+    )
+
+
 # ── FIXED_SIDELINE: one anchor homography for the whole clip ───────────────────
 
 
@@ -608,9 +671,15 @@ def _persist_and_return(
     field_boundary: dict[str, Any] | None = None,
     video_path: Path | None = None,
     timeline: VideoTimeline | None = None,
+    series_override: list[dict[str, Any]] | None = None,
+    confidence_override: float | None = None,
 ) -> dict[str, Any]:
     """Write the calibration record and return the stage output artifacts."""
-    confidence = breakdown.confidence if breakdown is not None else 0.0
+    confidence = (
+        confidence_override
+        if confidence_override is not None
+        else breakdown.confidence if breakdown is not None else 0.0
+    )
     components = breakdown.as_dict() if breakdown is not None else {}
     # Disqualifying reason codes block analytics regardless of score.
     blocking = {
@@ -630,7 +699,19 @@ def _persist_and_return(
     has_blocking = any(rc in blocking for rc in reason_codes)
     analytics_safe = (confidence >= CONFIDENCE_THRESHOLD) and not has_blocking
     series: list[dict[str, Any]] = []
-    if regime not in FIXED_REGIMES and video_path is not None and homography is not None:
+    time_indexed = regime not in FIXED_REGIMES or series_override is not None
+    if series_override is not None:
+        series = series_override
+        safe_fraction = (
+            sum(1 for p in series if p["analytics_safe"]) / len(series) if series else 0.0
+        )
+        analytics_safe = safe_fraction >= MIN_SAFE_FRACTION and homography is not None
+        extra_diagnostics = {
+            **(extra_diagnostics or {}),
+            "timeline_safe_fraction": round(safe_fraction, 3),
+            "timeline_samples": len(series),
+        }
+    elif regime not in FIXED_REGIMES and video_path is not None and homography is not None:
         from pipeline.homography.timeline import calibration_timeline
 
         series = calibration_timeline(
@@ -660,7 +741,7 @@ def _persist_and_return(
     calibration_points: dict[str, Any] = {
         "capture_regime": regime,
         "confidence_components": components,
-        "calibration_mode": "static" if regime in FIXED_REGIMES else "time_indexed",
+        "calibration_mode": "time_indexed" if time_indexed else "static",
         "calibration_series": series,
     }
     if extra_diagnostics:
@@ -701,7 +782,7 @@ def _persist_and_return(
     )
     return {
         "analytics_safe": analytics_safe,
-        "calibration_mode": "static" if regime in FIXED_REGIMES else "time_indexed",
+        "calibration_mode": "time_indexed" if time_indexed else "static",
         "calibration_series": series,
         "confidence": float(confidence),
         "capture_regime": regime,

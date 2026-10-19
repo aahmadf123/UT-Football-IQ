@@ -21,7 +21,20 @@ from pipeline.video_timeline import VideoTimeline
 def calibration_timeline(
     video_path: Path, fit_frame: Callable, *, threshold: float = 0.75,
     timeline: VideoTimeline | None = None,
+    start_frame: int = 0, end_frame: int | None = None,
+    anchor_seconds: float = 2.0, lost_retry_seconds: float | None = None,
 ) -> list[dict[str, Any]]:
+    """Per-frame field transforms at the detection stride.
+
+    ``start_frame``/``end_frame`` restrict the walk to one play's window of a
+    long game film. Frame numbers stay those of the whole recording, so the
+    series lines up with the detector's (``frame % stride == 0``) samples.
+
+    Anchors are refitted every ``anchor_seconds``; while no transform is held
+    (start of a play, after a zoom cut) every ``lost_retry_seconds`` instead,
+    so a broadcast camera that zooms is re-acquired within a fraction of a
+    second rather than losing the next two seconds of the play.
+    """
     import cv2
 
     cap = cv2.VideoCapture(str(video_path))
@@ -35,17 +48,25 @@ def calibration_timeline(
         video_path, fps_fallback=fps,
         frame_count_fallback=int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0),
     )
-    interval = max(stride, int(fps * 2))
+    interval = max(stride, int(fps * anchor_seconds))
+    lost_interval = max(stride, int(fps * (lost_retry_seconds or anchor_seconds)))
     calibrations: list[dict[str, Any]] = []
     previous_gray = None
     matrix = None
     confidence = 0.0
     frame_number = 0
-    anchor_frame = -interval
+    if start_frame > 0:
+        from pipeline.video_timeline import seek_source_frame
+
+        seek_source_frame(cap, start_frame, timeline)
+        frame_number = start_frame
+    anchor_frame = frame_number - interval
     previous_seconds = None
     try:
         while True:
             check_control()
+            if end_frame is not None and frame_number >= end_frame:
+                break
             ok, frame = cap.read()
             if not ok:
                 break
@@ -77,16 +98,21 @@ def calibration_timeline(
                     matrix = None
                     reason = "camera_alignment_failed"
             # Re-fit at bounded intervals; do not run Hough on every lost frame.
-            if frame_number - anchor_frame >= interval:
+            due = lost_interval if matrix is None else interval
+            if frame_number - anchor_frame >= due:
                 anchor_frame = frame_number
                 fitted = fit_frame([frame])
                 if fitted is not None:
                     candidate, keypoints, inliers, codes = fitted
-                    score = cs.compute_confidence(
-                        inlier_ratio=inliers, line_count=keypoints.line_count,
-                        parallel_line_score=cs.parallel_line_score(keypoints.yardline_angles),
-                        temporal_stability=1.0, field_coverage=keypoints.field_coverage,
-                    ).confidence
+                    score = (
+                        keypoints.fit_confidence
+                        if getattr(keypoints, "fit_confidence", None) is not None
+                        else cs.compute_confidence(
+                            inlier_ratio=inliers, line_count=keypoints.line_count,
+                            parallel_line_score=cs.parallel_line_score(keypoints.yardline_angles),
+                            temporal_stability=1.0, field_coverage=keypoints.field_coverage,
+                        ).confidence
+                    )
                     blocking = {"ambiguous_field_rows", "insufficient_lines", "low_inlier_ratio"}
                     if score >= threshold and not blocking.intersection(codes):
                         if matrix is None:

@@ -401,6 +401,11 @@ def _run_video_stage(stage: str, ctx: PipelineContext) -> dict[str, Any]:
         variant = local_model_variant("calibrate", ctx.priority, ctx.processing_profile)
         if angle_clips:
             per_clip: dict[str, dict[str, Any]] = {}
+            # Game cameras pan and zoom with the ball: with a yard-number model
+            # installed, fit every play frame by frame instead of once.
+            from pipeline.field_model import get_field_detector
+
+            field_detector = get_field_detector()
             for clip in angle_clips:
                 clip_id = str(clip["id"])
                 regime = clip.get("capture_regime")
@@ -410,6 +415,18 @@ def _run_video_stage(stage: str, ctx: PipelineContext) -> dict[str, Any]:
                         "capture_regime": regime,
                         "reason_codes": ["angle_calibration_unavailable"],
                     }
+                    continue
+                if field_detector is not None:
+                    per_clip[clip_id] = stage_calibrate._calibrate_broadcast(
+                        ctx.video_id,
+                        ctx.video_path,
+                        ctx.job_id,
+                        regime,
+                        field_detector,
+                        timeline=ctx.timeline,
+                        start_time=float(clip.get("start_time") or 0.0),
+                        end_time=float(clip.get("end_time") or 0.0),
+                    )
                     continue
                 per_clip[clip_id] = stage_calibrate._calibrate(
                     ctx.video_id,

@@ -34,6 +34,12 @@ HASH_Y_SOUTH: float = -(HALF_WIDTH - HASH_FROM_SIDELINE)   # ~ -6.665
 HASH_Y_NORTH: float = +(HALF_WIDTH - HASH_FROM_SIDELINE)   # ~ +6.665
 # Yard lines painted every 5 yards between the goal lines.
 YARD_LINES_X: tuple[int, ...] = tuple(range(5, 100, 5))
+# Yard numerals (10..50..10) are 6 ft tall, centred on their yard line, with
+# their tops 9 yd from the sideline: centre 8 yd in, base 7 yd in.
+NUMERAL_TOP_FROM_SIDELINE: float = 9.0
+NUMERAL_BASE_FROM_SIDELINE: float = 7.0
+NUMERAL_Y_SOUTH: float = -(HALF_WIDTH - 8.0)   # ~ -18.665
+NUMERAL_Y_NORTH: float = +(HALF_WIDTH - 8.0)   # ~ +18.665
 
 
 @dataclass(frozen=True)

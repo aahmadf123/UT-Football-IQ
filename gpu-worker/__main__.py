@@ -215,6 +215,7 @@ def worker_capabilities() -> dict[str, Any]:
         ("detect", "MODEL_DETECT_PATH", "yolov8n.pt", "ultralytics"),
         ("pose", "MODEL_POSE_PATH", "", "torch"),
         ("ball", "MODEL_BALL_PATH", "", "ultralytics"),
+        ("field", "MODEL_FIELD_PATH", "", "ultralytics"),
     ):
         configured = os.environ.get(variable, default)
         path = Path(configured).expanduser() if configured else None

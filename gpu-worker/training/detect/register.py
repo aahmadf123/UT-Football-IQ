@@ -10,7 +10,7 @@ the new weights automatically — no router changes.
 Usage:
     python -m training.detect.register --weights runs/footiq-detect/weights/best.pt \
         --model-name detect-yolov8 --version 2026-08-17a \
-        [--stage detect|ball] [--metrics metrics.json]
+        [--stage detect|ball|field] [--metrics metrics.json]
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ def main() -> int:
     parser.add_argument("--weights", type=Path, required=True)
     parser.add_argument("--model-name", required=True, help="e.g. detect-yolov8, ball-yolov8n")
     parser.add_argument("--version", default=None, help="Version label (default: timestamp)")
-    parser.add_argument("--stage", default="detect", choices=["detect", "ball"])
+    parser.add_argument("--stage", default="detect", choices=["detect", "ball", "field"])
     parser.add_argument("--metrics", type=Path, default=None, help="JSON file of eval metrics")
     args = parser.parse_args()
 
