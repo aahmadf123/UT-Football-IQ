@@ -331,6 +331,14 @@ async def test_heartbeat_links_game_film_once_segmentation_succeeds(
                 MagicMock(spec=User),
                 background,
             )
+            if progress.get("segment", {}).get("status") == "succeeded":
+                async with db() as observer:
+                    locked = await observer.execute(
+                        select(ProcessingJob)
+                        .where(ProcessingJob.id == claimed.id)
+                        .with_for_update(nowait=True)
+                    )
+                    assert locked.scalar_one().id == claimed.id
             await session.commit()
         return background
 
@@ -340,3 +348,42 @@ async def test_heartbeat_links_game_film_once_segmentation_succeeds(
     assert [(t.func, t.args) for t in done.tasks] == [(link_game_film, (video_id,))]
     later = await beat({"current_clip": {"status": "started"}})
     assert later.tasks == []
+
+
+async def test_successful_status_commits_before_linking_game_film(
+    db: async_sessionmaker[AsyncSession],
+) -> None:
+    from unittest.mock import MagicMock
+
+    from app.routers.jobs import JobStatusUpdate, link_game_film, update_job_status
+
+    video_id = await _seed_video(db)
+    await _seed_job(db, video_id)
+    claimed = await _claim(db, worker_id="w1")
+    assert claimed is not None
+    background = BackgroundTasks()
+
+    async with db() as session:
+        await update_job_status(
+            claimed.id,
+            JobStatusUpdate(
+                status=JobStatus.succeeded,
+                worker_id="w1",
+                lease_token=claimed.lease_token,
+                attempt_count=claimed.attempt_count,
+            ),
+            session,
+            MagicMock(spec=User),
+            background,
+        )
+        async with db() as observer:
+            locked = await observer.execute(
+                select(ProcessingJob)
+                .where(ProcessingJob.id == claimed.id)
+                .with_for_update(nowait=True)
+            )
+            assert locked.scalar_one().status == JobStatus.succeeded
+
+    assert [(task.func, task.args) for task in background.tasks] == [
+        (link_game_film, (video_id,))
+    ]

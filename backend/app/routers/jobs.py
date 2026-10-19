@@ -375,6 +375,7 @@ async def heartbeat_job(
     _ensure_worker_lease(job, body.worker_id, body.lease_token, body.attempt_count)
 
     job.lease_expires_at = datetime.now(UTC) + timedelta(seconds=body.lease_seconds)
+    should_link_game_film = False
     if body.progress:
         _reject_json_bomb("progress", body.progress)
         segmented_before = _segment_succeeded(job.progress)
@@ -390,8 +391,11 @@ async def heartbeat_job(
             and not segmented_before
             and _segment_succeeded(merged)
         ):
-            background.add_task(link_game_film, job.video_id)
+            should_link_game_film = True
     await db.flush()
+    if should_link_game_film:
+        await db.commit()
+        background.add_task(link_game_film, job.video_id)
     return JobResponse.from_orm_job(job)
 
 
@@ -521,6 +525,7 @@ async def update_job_status(
     await db.flush()
     log.info("job_status_updated", job_id=str(job_id), status=body.status)
     if body.status == JobStatus.succeeded and job.job_type == JobType.pipeline and job.video_id:
+        await db.commit()
         background.add_task(link_game_film, job.video_id)
     return JobResponse.from_orm_job(job)
 
