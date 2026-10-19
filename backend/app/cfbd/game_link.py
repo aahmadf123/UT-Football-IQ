@@ -296,6 +296,30 @@ async def link_video(db: AsyncSession, video_id: uuid.UUID) -> dict[str, Any]:
     }
 
 
+async def ensure_game(db: AsyncSession, video: Any) -> CFBDGame | None:
+    """Like :func:`find_game`, but fetches the season schedule from CFBD
+    first when the game isn't cached (production may never have synced it).
+    Needs a CFBD key; network errors leave whatever is cached.
+    """
+    from app.cfbd.client import CFBDClient
+    from app.cfbd.sync import sync_games
+    from app.config import get_settings
+
+    game = await find_game(db, video)
+    if game is not None or video.recorded_at is None:
+        return game
+    if not get_settings().cfbd_api_key.strip():
+        return None
+    played = video.recorded_at
+    # January bowl games belong to the previous season.
+    season = played.year if played.month >= 3 else played.year - 1
+    season_types = ["regular", "postseason"] if played.month in (12, 1) else ["regular"]
+    async with CFBDClient.from_settings(timeout=20.0, max_retries=2) as client:
+        for season_type in season_types:
+            await sync_games(db, client, season=season, season_type=season_type)
+    return await find_game(db, video)
+
+
 async def ensure_plays(db: AsyncSession, game: CFBDGame) -> bool:
     """Cache CFBD play-by-play for ``game``'s week if it isn't yet.
 

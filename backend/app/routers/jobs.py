@@ -533,7 +533,7 @@ async def link_game_film(video_id: uuid.UUID) -> None:
     and idempotent: it runs when segmentation finishes and again when the
     job succeeds; ``POST /api/cfbd/videos/{id}/link`` repeats it on demand.
     """
-    from app.cfbd.game_link import ensure_plays, find_game, link_video
+    from app.cfbd.game_link import ensure_game, ensure_plays, link_video
     from app.database import AsyncSessionLocal
     from app.models import SessionKind, Video
 
@@ -542,8 +542,9 @@ async def link_game_film(video_id: uuid.UUID) -> None:
             video = await db.get(Video, video_id)
             if video is None or video.session_kind != SessionKind.game:
                 return
-            game = await find_game(db, video)
+            game = await ensure_game(db, video)
             if game is None:
+                await db.commit()
                 log.info("game_film_cfbd_link", video_id=str(video_id), status="no_game")
                 return
             if not await ensure_plays(db, game):
