@@ -459,7 +459,7 @@ function ProcessingRow({
           </div>
         )}
         {isFailed && item.latest_error_message && (
-          <div className="mt-0.5 text-xs text-status-danger">{item.latest_error_message}</div>
+          <div className="mt-0.5 text-xs text-status-danger">{processingErrorMessage(item.latest_error_stage, item.latest_error_message)}</div>
         )}
         {request?.kind === "busy" && (
           <div

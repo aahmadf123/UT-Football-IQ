@@ -53,4 +53,10 @@ describe("processingErrorMessage", () => {
   test("explains an offline processing computer", () => {
     expect(processingErrorMessage(null, "lease expired; attempts exhausted")).toContain("went offline");
   });
+
+  test("recovers a recognized stage prefix when the structured stage is missing", () => {
+    const text = processingErrorMessage(null, "segment: GET https://api.example failed (422)");
+    expect(text).toBe("Processing stopped while finding the plays. Retry it; if it fails again, let an admin know.");
+    expect(text).not.toMatch(/segment:|422|https?:/);
+  });
 });

@@ -139,16 +139,37 @@ describe("UploadProcessFilm", () => {
         priority: 0,
         video_id: "video-outside-selection",
         created_at: "2026-10-18T00:00:00Z",
+        error_stage: "track",
         error_message: 'GET https://api.test/jobs failed (403): {"detail":"denied"}',
       }],
     });
     await renderUploadProcess();
 
     expect(await screen.findByText("practice-outside-filter.mp4")).toBeTruthy();
-    const friendlyError = "Processing stopped. Retry it; if it fails again, let an admin know.";
+    const friendlyError = "Processing stopped while tracking players. Retry it; if it fails again, let an admin know.";
     await screen.findByText(friendlyError);
     expect(screen.getAllByText(friendlyError)).toHaveLength(1);
+    expect(screen.queryByText(/track: Processing stopped/)).toBeNull();
     expect(screen.queryByText(/https:\/\/api\.test\/jobs/)).toBeNull();
+  });
+
+  test("failed inbox film shows a sanitized error summary", async () => {
+    vi.stubEnv("NEXT_PUBLIC_API_URL", "https://api.test");
+    installFetch({
+      inboxItems: [{
+        ...UPLOADED_VIDEO,
+        video_status: "failed",
+        failed_jobs: 1,
+        latest_error_stage: "segment",
+        latest_error_message: "segment: GET https://api.test/clips failed (422)",
+      }],
+    });
+    await renderUploadProcess();
+
+    const friendlyError = "Processing stopped while finding the plays. Retry it; if it fails again, let an admin know.";
+    expect(await screen.findByText(friendlyError)).toBeTruthy();
+    expect(screen.queryByText(/https:\/\/api\.test\/clips|422/)).toBeNull();
+    expect(screen.queryByText(/^segment: /)).toBeNull();
   });
 
   test("processed film can be reprocessed with the selected CPU profile after coach edits", async () => {

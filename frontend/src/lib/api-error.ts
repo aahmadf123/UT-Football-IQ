@@ -156,7 +156,13 @@ const STAGE_LABELS: Record<string, string> = {
  */
 export function processingErrorMessage(stage?: string | null, message?: string | null): string {
   const raw = `${stage ?? ""} ${message ?? ""}`.toLowerCase();
-  const where = stage && STAGE_LABELS[stage] ? ` while ${STAGE_LABELS[stage]}` : "";
+  const prefixedStage = !stage
+    ? Object.keys(STAGE_LABELS).find((candidate) =>
+        new RegExp(`^${candidate}:`, "i").test(message?.trim() ?? ""),
+      )
+    : undefined;
+  const knownStage = stage && STAGE_LABELS[stage] ? stage : prefixedStage;
+  const where = knownStage ? ` while ${STAGE_LABELS[knownStage]}` : "";
   if (raw.includes("lease expired") || raw.includes("attempts exhausted")) {
     return `Processing stopped${where} because the processing computer went offline. Retry when it's back on.`;
   }
