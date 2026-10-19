@@ -685,7 +685,7 @@ async def get_player_seasons(
 @router.post("/videos/{video_id}/link")
 async def link_game_film(
     video_id: uuid.UUID,
-    _user: Annotated[User, Depends(_require_cfbd_read)],
+    _user: Annotated[User, Depends(require_admin)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> dict[str, Any]:
     """Match a processed game film's plays to CFBD play-by-play.

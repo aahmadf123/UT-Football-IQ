@@ -5,9 +5,18 @@ from __future__ import annotations
 import uuid
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
+from types import SimpleNamespace
 
 import pytest_asyncio
-from app.cfbd.game_link import FilmPlay, OfficialPlay, align, ball_on, link_video, match_score
+from app.cfbd.game_link import (
+    FilmPlay,
+    OfficialPlay,
+    align,
+    ball_on,
+    find_game,
+    link_video,
+    match_score,
+)
 from app.cfbd.models import CFBDGame, CFBDPlay
 from app.config import get_settings
 from app.database import Base
@@ -62,6 +71,13 @@ def test_unrelated_sequences_do_not_force_matches() -> None:
     assert align(film, official) == []
 
 
+def test_alignment_skips_below_threshold_pairs_before_matching() -> None:
+    film = [_film(1, 2, 1, 10, 25), _film(2, 2, 1, 10, 30)]
+    official = [_official(0, 1, 1, 10, 75), _official(1, 2, 1, 10, 75)]
+
+    assert align(film, official) == [(0, 1, 6.5)]
+
+
 @pytest_asyncio.fixture
 async def db() -> AsyncGenerator[async_sessionmaker[AsyncSession], None]:
     schema = f"gamelink_{uuid.uuid4().hex}"
@@ -79,6 +95,31 @@ async def db() -> AsyncGenerator[async_sessionmaker[AsyncSession], None]:
         async with engine.begin() as conn:
             await conn.execute(text(f'DROP SCHEMA "{schema}" CASCADE'))
         await engine.dispose()
+
+
+async def test_find_game_rejects_wrong_opponent_for_single_candidate(
+    db: async_sessionmaker[AsyncSession],
+) -> None:
+    kickoff = datetime(2026, 9, 5, 23, 0, tzinfo=UTC)
+    async with db() as s:
+        s.add(
+            CFBDGame(
+                cfbd_game_id=401858429,
+                season=2026,
+                week=1,
+                start_date=kickoff,
+                home_team="Michigan State",
+                away_team="Toledo",
+            )
+        )
+        await s.commit()
+
+        game = await find_game(
+            s,
+            SimpleNamespace(recorded_at=kickoff, opponent_team="Ohio"),
+        )
+
+    assert game is None
 
 
 async def test_link_video_writes_official_results(db: async_sessionmaker[AsyncSession]) -> None:
@@ -135,11 +176,16 @@ async def test_link_video_writes_official_results(db: async_sessionmaker[AsyncSe
             )
         boards = {
             1: {"quarter": 1},
-            2: {"quarter": 1, "down": 1, "distance": 10, "ball_on": 25},
+            2: {"quarter": 1, "down": 1, "distance": None, "ball_on": 25},
             3: {"quarter": 1, "down": 2, "distance": 5, "ball_on": 30},
         }
         for number, board in boards.items():
             for view_index, view in enumerate(("sideline", "endzone")):
+                attributes = {}
+                if number == 2 and view == "sideline":
+                    attributes = {"down": 1, "our_possession": SideOfBall.defense}
+                elif number == 2:
+                    attributes = {"distance": 10}
                 s.add(
                     Clip(
                         id=uuid.uuid4(),
@@ -148,21 +194,41 @@ async def test_link_video_writes_official_results(db: async_sessionmaker[AsyncSe
                         end_time=number * 30 + view_index * 12 + 10,
                         play_number=number,
                         label_data={"view": view, "scoreboard": board},
+                        **attributes,
                     )
                 )
+        stale_clip = Clip(
+            id=uuid.uuid4(),
+            video_id=video.id,
+            start_time=150,
+            end_time=160,
+            play_number=99,
+            label_data={"view": "sideline", "custom": "preserve", "cfbd": {"play_id": -1}},
+        )
+        s.add(stale_clip)
         await s.commit()
         video_id = video.id
+        stale_clip_id = stale_clip.id
 
     async with db() as s:
         result = await link_video(s, video_id)
         await s.commit()
     assert result["status"] == "linked"
-    assert result["matched_plays"] == 3 and result["clips_updated"] == 6
+    assert result["matched_plays"] == 3 and result["clips_updated"] == 7
 
     async with db() as s:
         clips = list((await s.execute(select(Clip).where(Clip.play_number == 2))).scalars())
+        kickoff_clips = list((await s.execute(select(Clip).where(Clip.play_number == 1))).scalars())
+        stale_clip = await s.get(Clip, stale_clip_id)
     assert len(clips) == 2
     for clip in clips:
         assert clip.label_data["cfbd"]["play_type"] == "Rush"
         assert clip.label_data["cfbd"]["yards_gained"] == 5
-        assert clip.our_possession == SideOfBall.offense
+        assert clip.down == 1 and clip.distance == 10
+    sideline = next(clip for clip in clips if clip.our_possession == SideOfBall.defense)
+    endzone = next(clip for clip in clips if clip.our_possession == SideOfBall.offense)
+    assert sideline.our_possession == SideOfBall.defense
+    assert endzone.our_possession == SideOfBall.offense
+    assert all(clip.our_possession == SideOfBall.special_teams for clip in kickoff_clips)
+    assert stale_clip is not None
+    assert stale_clip.label_data == {"view": "sideline", "custom": "preserve"}

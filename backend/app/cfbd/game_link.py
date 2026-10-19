@@ -46,6 +46,16 @@ NO_DOWN_PLAYS = {
 MIN_MATCH_SCORE = 2.0
 SKIP_FILM = -1.0
 SKIP_CFBD = -0.5
+SPECIAL_TEAMS_PLAY_TYPE_MARKERS = (
+    "kickoff",
+    "punt",
+    "field goal",
+    "extra point",
+    "two point",
+    "2pt",
+    "2-point",
+    "try",
+)
 
 
 @dataclass(frozen=True)
@@ -111,8 +121,9 @@ def align(film: list[FilmPlay], official: list[OfficialPlay]) -> list[tuple[int,
         move[0][j] = 2
     for i in range(1, n + 1):
         for j in range(1, m + 1):
+            score = match_score(film[i - 1], official[j - 1])
             options = (
-                best[i - 1][j - 1] + match_score(film[i - 1], official[j - 1]),
+                best[i - 1][j - 1] + score if score >= MIN_MATCH_SCORE else float("-inf"),
                 best[i - 1][j] + SKIP_FILM,
                 best[i][j - 1] + SKIP_CFBD,
             )
@@ -166,13 +177,13 @@ async def find_game(db: AsyncSession, video: Any) -> CFBDGame | None:
             )
         ).scalars()
     )
-    if len(games) > 1 and video.opponent_team:
+    if video.opponent_team:
         opponent = video.opponent_team.lower()
         games = [
             g
             for g in games
             if opponent in (g.home_team or "").lower() or opponent in (g.away_team or "").lower()
-        ] or games
+        ]
     return games[0] if games else None
 
 
@@ -216,6 +227,11 @@ async def link_video(db: AsyncSession, video_id: uuid.UUID) -> dict[str, Any]:
     for clip in clips:
         match = by_number.get(clip.play_number) if clip.play_number is not None else None
         if match is None:
+            label_data = dict(clip.label_data or {})
+            if "cfbd" in label_data:
+                label_data.pop("cfbd")
+                clip.label_data = label_data
+                updated += 1
             continue
         play, score = match
         label_data = dict(clip.label_data or {})
@@ -239,10 +255,23 @@ async def link_video(db: AsyncSession, video_id: uuid.UUID) -> dict[str, Any]:
             # Possession is now known (see clips.create: pending until linked).
             label_data.pop("possession_pending", None)
         clip.label_data = label_data
-        if clip.down is None and play.down and play.play_type not in NO_DOWN_PLAYS:
+        if clip.down is None and play.down is not None and play.play_type not in NO_DOWN_PLAYS:
             clip.down = play.down
+        if (
+            clip.distance is None
+            and play.distance is not None
+            and play.play_type not in NO_DOWN_PLAYS
+        ):
             clip.distance = play.distance
-        if play.offense:
+        if (
+            clip.our_possession is None
+            and play.play_type
+            and any(
+                marker in play.play_type.casefold() for marker in SPECIAL_TEAMS_PLAY_TYPE_MARKERS
+            )
+        ):
+            clip.our_possession = SideOfBall.special_teams
+        elif clip.our_possession is None and play.offense:
             clip.our_possession = (
                 SideOfBall.offense if play.offense == TOLEDO else SideOfBall.defense
             )
