@@ -42,7 +42,31 @@ jobs:
       - run: npx tsc --noEmit
       - run: npx vitest run
       - name: Deploy
-        run: npx wrangler deploy --var GIT_SHA:${{ github.sha }}
+        run: npx wrangler deploy --var GIT_SHA:${{ github.sha }} 2>&1 | tee deploy.log
+        shell: bash -o pipefail {0}
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      # Each deploy pushes a ~5 GB backend image and the account's registry
+      # holds 50 GB: after ~10 deploys pushes failed ("Docker command exited
+      # with code 1"). Keep only the image this deploy runs; rolling back
+      # means redeploying an older commit, which rebuilds its image.
+      - name: Prune old container images
+        if: success()
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          repo=footiq-api-edge-backendcontainer
+          current=$(grep -oE "${repo}:[0-9a-f]+" deploy.log | head -1 | cut -d: -f2)
+          if [ -z "$current" ]; then
+            echo "No image tag in deploy output (image unchanged); nothing to prune."
+            exit 0
+          fi
+          npx wrangler containers images list --json \
+            | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));for(const r of d)for(const t of r.tags)console.log(r.name+":"+t)' \
+            | grep "^${repo}:" | grep -v ":${current}$" \
+            | while read -r image; do
+                npx wrangler containers images delete "$image" || echo "could not delete $image"
+              done
