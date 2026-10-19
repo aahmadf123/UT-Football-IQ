@@ -48,13 +48,13 @@ export async function proxyToBackend(request: Request, env: Env): Promise<Respon
   const clientIp = request.headers.get("CF-Connecting-IP");
   if (clientIp) headers.set("X-Forwarded-For", clientIp);
 
-  const container = env.BACKEND.getByName(INSTANCE_NAME);
   // Only bodiless reads are replayed: a POST that failed mid-flight may already
   // have been applied, and its body stream can't be read twice anyway.
   const replayable = REPLAYABLE.has(request.method);
   for (let attempt = 0; ; attempt++) {
     let failure: string;
     try {
+      const container = env.BACKEND.getByName(INSTANCE_NAME);
       const response = await container.fetch(
         new Request(url, { method: request.method, headers, body: request.body }),
       );

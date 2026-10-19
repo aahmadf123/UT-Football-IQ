@@ -17,12 +17,19 @@ describe("proxy during container restarts", () => {
 
   it("retries a read until the new container answers", async () => {
     vi.useFakeTimers();
-    const { env: e, fetch } = env(starting(), new Error("Durable Object reset"), Response.json({ ok: true }));
+    const failedFetch = vi.fn().mockRejectedValue(new Error("Durable Object reset"));
+    const recoveredFetch = vi.fn().mockResolvedValue(Response.json({ ok: true }));
+    const getByName = vi.fn()
+      .mockReturnValueOnce({ fetch: failedFetch })
+      .mockReturnValue({ fetch: recoveredFetch });
+    const e = { BACKEND: { getByName } } as never;
     const pending = proxyToBackend(new Request("https://edge.test/api/v1/players"), e);
     await vi.runAllTimersAsync();
     const response = await pending;
     expect(response.status).toBe(200);
-    expect(fetch).toHaveBeenCalledTimes(3);
+    expect(failedFetch).toHaveBeenCalledOnce();
+    expect(recoveredFetch).toHaveBeenCalledOnce();
+    expect(getByName).toHaveBeenCalledTimes(2);
   });
 
   it("gives up with a friendly retryable 503", async () => {
