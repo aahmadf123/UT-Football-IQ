@@ -503,7 +503,31 @@ async def update_job_status(
 
     await db.flush()
     log.info("job_status_updated", job_id=str(job_id), status=body.status)
+    if body.status == JobStatus.succeeded and job.job_type == JobType.pipeline and job.video_id:
+        await _link_game_film(db, job.video_id)
     return JobResponse.from_orm_job(job)
+
+
+async def _link_game_film(db: AsyncSession, video_id: uuid.UUID) -> None:
+    """Give a processed game film's clips their official CFBD results.
+
+    Best effort, cached play-by-play only (no vendor call on the worker's
+    request); ``POST /api/cfbd/videos/{id}/link`` fetches plays on demand.
+    """
+    from app.cfbd.game_link import link_video
+    from app.models import SessionKind, Video
+
+    video = await db.get(Video, video_id)
+    if video is None or video.session_kind != SessionKind.game:
+        return
+    try:
+        async with db.begin_nested():
+            result = await link_video(db, video_id)
+        log.info("game_film_cfbd_link", video_id=str(video_id), **result)
+    except Exception as exc:  # noqa: BLE001 - never fail the worker's status update
+        log.warning(
+            "game_film_cfbd_link_failed", video_id=str(video_id), error_type=type(exc).__name__
+        )
 
 
 @router.post("/{job_id}/retry", response_model=JobResponse, status_code=status.HTTP_201_CREATED)

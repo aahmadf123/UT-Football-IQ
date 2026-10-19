@@ -328,3 +328,9 @@ def test_cfbd_allows_coach() -> None:
     with _client(_make_db(), user=_make_user(UserRole.coach)) as c:
         resp = c.get("/api/cfbd/teams/toledo")
     assert resp.status_code == 200
+
+
+def test_cfbd_film_link_requires_admin() -> None:
+    with _client(_make_db(), user=_make_user(UserRole.sportsperformance)) as c:
+        resp = c.post(f"/api/cfbd/videos/{uuid.uuid4()}/link")
+    assert resp.status_code == 403
