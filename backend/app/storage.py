@@ -260,26 +260,90 @@ def upload_fileobj(bucket: str, key: str, fileobj: Any, content_type: str) -> st
     return f"s3://{bucket}/{key}"
 
 
+#: Recordings up to this size are hashed in full. Larger ones (game film is
+#: several GB; a full read took ~3 minutes and blocked "Save film") get a
+#: sampled fingerprint instead.
+FULL_HASH_BYTES = 64 * 1024 * 1024
+_SAMPLE_EDGE_BYTES = 4 * 1024 * 1024
+_SAMPLE_BYTES = 1024 * 1024
+_SAMPLE_COUNT = 16
+
+
+def _sample_ranges(size: int) -> list[tuple[int, int]]:
+    """Byte ranges a sampled fingerprint reads: both ends (container headers
+    and indexes live there) plus evenly spaced chunks through the middle."""
+    ranges = [(0, _SAMPLE_EDGE_BYTES), (size - _SAMPLE_EDGE_BYTES, size)]
+    span = size - 2 * _SAMPLE_EDGE_BYTES - _SAMPLE_BYTES
+    for i in range(_SAMPLE_COUNT):
+        start = _SAMPLE_EDGE_BYTES + span * (i + 1) // (_SAMPLE_COUNT + 1)
+        ranges.append((start, start + _SAMPLE_BYTES))
+    return sorted(ranges)
+
+
+def sampled_fingerprint(size: int, read_range: Any) -> str:
+    """SHA-256 over the size and sampled byte ranges of a large recording.
+
+    Two different films with the same byte length and identical bytes at all
+    18 sample points do not occur in practice (compressed video differs
+    everywhere, and the index at either end records every frame's offset),
+    so this identifies recordings as well as a full hash for de-duplication.
+    """
+    digest = hashlib.sha256(b"football-iq sampled fingerprint v1:")
+    digest.update(str(size).encode())
+    for start, end in _sample_ranges(size):
+        chunk = read_range(start, end)
+        if len(chunk) != end - start:
+            raise ValueError("Recording changed while it was being verified")
+        digest.update(start.to_bytes(8, "big"))
+        digest.update(chunk)
+    return digest.hexdigest()
+
+
 def recording_fingerprint(uri: str, max_bytes: int) -> tuple[str, int]:
-    """Hash finalized raw film from trusted storage, with bounded memory.
+    """Fingerprint finalized raw film from trusted storage, with bounded memory.
 
     The browser's filename, digest and multipart ETag are not content identity.
     Read the actual object for both local imports and direct R2 uploads so all
-    upload paths share the same duplicate check. No object bytes are logged.
+    upload paths share the same duplicate check: a full SHA-256 up to
+    ``FULL_HASH_BYTES``, a sampled one above it. No object bytes are logged.
     """
     scheme, bucket, key = parse_storage_uri(uri)
     if bucket != RAW_VIDEO or not is_valid_key(key):
         raise ValueError("Recording must use raw-video storage")
     if scheme == "local":
-        source = local_object_path(bucket, key).open("rb")
+        path = local_object_path(bucket, key)
+        size = path.stat().st_size
+        if FULL_HASH_BYTES < size <= max_bytes:
+            with path.open("rb") as handle:
+
+                def read_local(start: int, end: int) -> bytes:
+                    handle.seek(start)
+                    return handle.read(end - start)
+
+                return sampled_fingerprint(size, read_local), size
+        source = path.open("rb")
     else:
+        client = get_s3_client()
+        physical = physical_bucket(bucket)
         try:
-            response = get_s3_client().get_object(Bucket=physical_bucket(bucket), Key=key)
+            response = client.get_object(Bucket=physical, Key=key)
         except ClientError as exc:
             if str(exc.response.get("Error", {}).get("Code")) in {"404", "NoSuchKey", "NotFound"}:
                 raise FileNotFoundError("Recording upload is not finalized") from exc
             raise
         source = response["Body"]
+        length = response.get("ContentLength")
+        if isinstance(length, int) and FULL_HASH_BYTES < length <= max_bytes:
+            source.close()
+
+            def read_remote(start: int, end: int) -> bytes:
+                part = client.get_object(Bucket=physical, Key=key, Range=f"bytes={start}-{end - 1}")
+                try:
+                    return bytes(part["Body"].read())
+                finally:
+                    part["Body"].close()
+
+            return sampled_fingerprint(length, read_remote), length
     digest = hashlib.sha256()
     size = 0
     try:

@@ -194,3 +194,63 @@ def test_remote_fingerprint_limits_stream_size_and_closes_body(monkeypatch):
     with pytest.raises(OverflowError):
         storage.recording_fingerprint("s3://raw-video/raw/film.mp4", 3)
     assert source.closed
+
+
+@pytest.fixture
+def small_samples(monkeypatch: pytest.MonkeyPatch):
+    """Shrink the sampled-fingerprint thresholds so tests use KB, not GB."""
+    monkeypatch.setattr(storage, "FULL_HASH_BYTES", 64 * 1024)
+    monkeypatch.setattr(storage, "_SAMPLE_EDGE_BYTES", 4096)
+    monkeypatch.setattr(storage, "_SAMPLE_BYTES", 1024)
+
+
+def _film(size: int) -> bytes:
+    return bytes((i * 7919) % 251 for i in range(size))
+
+
+def test_large_local_recording_gets_a_stable_sampled_fingerprint(
+    tmp_path, monkeypatch, small_samples
+):
+    monkeypatch.setattr(
+        storage, "local_object_path", lambda _b, key: tmp_path / key.replace("/", "_")
+    )
+    content = _film(300_000)
+    (tmp_path / "raw_a.mp4").write_bytes(content)
+    (tmp_path / "raw_b.mp4").write_bytes(content)
+    digest_a, size = storage.recording_fingerprint("local://raw-video/raw/a.mp4", 10**9)
+    digest_b, _ = storage.recording_fingerprint("local://raw-video/raw/b.mp4", 10**9)
+    assert size == len(content)
+    assert digest_a == digest_b
+    assert digest_a != hashlib.sha256(content).hexdigest()
+
+    # Different film of the same length (header differs) is a different recording.
+    (tmp_path / "raw_b.mp4").write_bytes(b"\x01" + content[1:])
+    assert storage.recording_fingerprint("local://raw-video/raw/b.mp4", 10**9)[0] != digest_a
+    # So is the same film with bytes appended.
+    (tmp_path / "raw_b.mp4").write_bytes(content + b"tail")
+    assert storage.recording_fingerprint("local://raw-video/raw/b.mp4", 10**9)[0] != digest_a
+
+
+def test_large_remote_recording_reads_only_sampled_ranges(monkeypatch, small_samples):
+    content = _film(300_000)
+    ranges: list[str] = []
+
+    def get_object(Bucket, Key, Range=None):  # noqa: N803 - boto3 keyword names
+        if Range is None:
+            return {"Body": io.BytesIO(content), "ContentLength": len(content)}
+        ranges.append(Range)
+        start, end = (int(v) for v in Range.removeprefix("bytes=").split("-"))
+        return {"Body": io.BytesIO(content[start : end + 1])}
+
+    client = MagicMock()
+    client.get_object.side_effect = get_object
+    monkeypatch.setattr(storage, "get_s3_client", lambda: client)
+    digest, size = storage.recording_fingerprint("s3://raw-video/raw/film.mp4", 10**9)
+    assert size == len(content)
+    assert len(ranges) == 2 + storage._SAMPLE_COUNT
+    read = sum(
+        int(r.split("-")[1]) - int(r.removeprefix("bytes=").split("-")[0]) + 1 for r in ranges
+    )
+    assert read < len(content) / 4
+    local = storage.sampled_fingerprint(len(content), lambda s, e: content[s:e])
+    assert digest == local
