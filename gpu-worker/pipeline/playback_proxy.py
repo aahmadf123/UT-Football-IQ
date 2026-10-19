@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import tempfile
 from collections import Counter
 from pathlib import Path
@@ -13,7 +14,86 @@ import cv2
 from pipeline import backend, storage
 from pipeline.runtime import check_control, configure_cpu_threads
 from pipeline.video_timeline import VideoTimeline
-from worker.media_process import run_checked
+
+
+class _StreamingEncoder:
+    """Raw BGR frames on stdin -> browser-ready H.264 MP4, in one ffmpeg pass."""
+
+    def __init__(self, output: Path, size: tuple[int, int], fps: float) -> None:
+        self.command = [
+            "ffmpeg",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-y",
+            "-f",
+            "rawvideo",
+            "-pix_fmt",
+            "bgr24",
+            "-s",
+            f"{size[0]}x{size[1]}",
+            "-r",
+            f"{fps:g}",
+            "-i",
+            "-",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "veryfast",
+            "-crf",
+            "23",
+            "-threads",
+            str(configure_cpu_threads()),
+            "-pix_fmt",
+            "yuv420p",
+            "-movflags",
+            "+faststart",
+            "-an",
+            str(output),
+        ]
+        self.errors = tempfile.TemporaryFile()
+        self.process: subprocess.Popen[bytes] | None = None
+
+    def __enter__(self) -> _StreamingEncoder:
+        self.process = subprocess.Popen(
+            self.command, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=self.errors
+        )
+        return self
+
+    def write(self, frame: Any) -> None:
+        assert self.process is not None and self.process.stdin is not None
+        try:
+            self.process.stdin.write(frame.tobytes())
+        except BrokenPipeError:
+            self._fail()
+
+    def _fail(self) -> None:
+        assert self.process is not None
+        self.process.wait(timeout=30)
+        self.errors.seek(0)
+        raise subprocess.CalledProcessError(
+            self.process.returncode or 1, self.command, stderr=self.errors.read(16 * 1024)
+        )
+
+    def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
+        assert self.process is not None
+        try:
+            if exc_type is not None:
+                self.process.kill()
+                self.process.wait(timeout=10)
+                return
+            if self.process.stdin is not None:
+                try:
+                    self.process.stdin.close()
+                except BrokenPipeError:
+                    pass
+            self.process.wait(timeout=180)
+            if self.process.returncode:
+                self._fail()
+        finally:
+            if self.process.poll() is None:
+                self.process.kill()
+            self.errors.close()
 
 
 class PlaybackProxySession:
@@ -73,51 +153,28 @@ class PlaybackProxySession:
         scale = min(1, height / max(1, source_height))
         size = (max(2, int(width * scale) // 2 * 2), max(2, int(source_height * scale) // 2 * 2))
         with tempfile.TemporaryDirectory(prefix="football-iq-playback-") as directory:
-            raw_path = Path(directory) / "raw.mp4"
             output = Path(directory) / "clip.mp4"
-            writer = cv2.VideoWriter(str(raw_path), cv2.VideoWriter_fourcc(*"mp4v"), fps, size)
-            if not writer.isOpened():
-                raise ValueError("Unable to prepare clean play media")
-            try:
+            # Frames go straight into one x264 encode. (Writing an OpenCV
+            # MPEG-4 file first and re-encoding it took twice as long and,
+            # at ultrafast, made files ~4x larger to upload.)
+            with _StreamingEncoder(output, size, fps) as encoder:
                 while self.frame_number < frame_end:
                     check_control()
+                    count = repetitions.get(self.frame_number, 0)
+                    # Frames the proxy drops (60 -> 30 fps) are only decoded,
+                    # never converted to BGR.
+                    if not count:
+                        if not self.capture.grab():
+                            raise ValueError("Recording ended inside the requested play")
+                        self.frame_number += 1
+                        continue
                     ok, frame = self.capture.read()
                     if not ok:
                         raise ValueError("Recording ended inside the requested play")
-                    count = repetitions.get(self.frame_number, 0)
-                    if count:
-                        frame = cv2.resize(frame, size, interpolation=cv2.INTER_AREA)
-                        for _ in range(count):
-                            writer.write(frame)
+                    frame = cv2.resize(frame, size, interpolation=cv2.INTER_AREA)
+                    for _ in range(count):
+                        encoder.write(frame)
                     self.frame_number += 1
-            finally:
-                writer.release()
-            check_control()
-            run_checked(
-                [
-                    "ffmpeg",
-                    "-hide_banner",
-                    "-loglevel",
-                    "error",
-                    "-y",
-                    "-i",
-                    str(raw_path),
-                    "-c:v",
-                    "libx264",
-                    "-preset",
-                    "ultrafast",
-                    "-crf",
-                    "23",
-                    "-threads",
-                    str(configure_cpu_threads()),
-                    "-pix_fmt",
-                    "yuv420p",
-                    "-movflags",
-                    "+faststart",
-                    "-an",
-                    str(output),
-                ]
-            )
             playback_uri = storage.upload_file(
                 output, f"playback_proxies/{clip_id}/clip.mp4", "video/mp4", bucket="clips"
             )
