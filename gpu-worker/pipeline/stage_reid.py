@@ -172,7 +172,7 @@ def run(
         "total": len(tracklets),
         "tracklets": enriched,
         "reid_strategy": {
-            "ocr": PARSEQ_OCR if ocr_adapter is not None else "jersey-ocr",
+            "ocr": _ocr_backend_name(ocr_adapter),
             "trajectory_prior_assigned": trajectory_assigned,
             "min_cost_flow_stitched": stitched_assigned,
             "stitching_enabled": nightly,
@@ -451,6 +451,22 @@ def _get_ocr_adapter(variant: str | None) -> Any | None:
     from pipeline.tracking.easyocr_jersey import get_easyocr_jersey_reader
 
     return get_easyocr_jersey_reader()
+
+
+def _ocr_backend_name(ocr_adapter: Any | None) -> str:
+    if ocr_adapter is None:
+        return "jersey-ocr"
+
+    from pipeline.tracking.easyocr_jersey import EasyOCRJerseyReader
+
+    if isinstance(ocr_adapter, EasyOCRJerseyReader):
+        return "easyocr-jersey"
+
+    from pipeline.tracking.parseq_ocr_adapter import PARSeqOCRAdapter
+
+    if isinstance(ocr_adapter, PARSeqOCRAdapter):
+        return PARSEQ_OCR
+    return "jersey-ocr"
 
 
 def _read_jersey(frame: Any, bbox: list[float], ocr_adapter: Any | None) -> int | None:

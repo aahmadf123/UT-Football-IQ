@@ -71,13 +71,13 @@ class EasyOCRJerseyReader:
 
     def recognize(self, crop: np.ndarray) -> tuple[int | None, float]:
         results = self._reader.readtext(crop, allowlist="0123456789", detail=1)
-        best: tuple[int | None, float] = (None, 0.0)
-        for _box, text, confidence in results:
-            digits = "".join(ch for ch in str(text) if ch.isdigit())
-            if 1 <= len(digits) <= 2 and float(confidence) >= MIN_READ_CONFIDENCE:
-                if float(confidence) > best[1]:
-                    best = (int(digits), float(confidence))
-        return best
+        if len(results) != 1:
+            return None, 0.0
+        _box, text, confidence = results[0]
+        digits = "".join(ch for ch in str(text) if ch.isdigit())
+        if 1 <= len(digits) <= 2 and float(confidence) >= MIN_READ_CONFIDENCE:
+            return int(digits), float(confidence)
+        return None, 0.0
 
 
 def get_easyocr_jersey_reader() -> EasyOCRJerseyReader | None:

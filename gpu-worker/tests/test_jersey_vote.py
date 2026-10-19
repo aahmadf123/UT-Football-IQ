@@ -4,10 +4,25 @@ import os
 import sys
 from unittest.mock import patch
 
+import numpy as np
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from pipeline import stage_reid
 from pipeline.stage_reid import jersey_vote
+from pipeline.tracking.easyocr_jersey import EasyOCRJerseyReader
+
+
+def test_easyocr_rejects_split_digit_detections() -> None:
+    class SplitDigitReader:
+        def readtext(self, *_args, **_kwargs):  # type: ignore[no-untyped-def]
+            return [
+                ([], "7", 0.95),
+                ([], "5", 0.90),
+            ]
+
+    reader = EasyOCRJerseyReader(SplitDigitReader())
+    assert reader.recognize(np.zeros((96, 96, 3), dtype=np.uint8)) == (None, 0.0)
 
 
 def test_vote_needs_agreeing_sightings() -> None:
