@@ -441,6 +441,12 @@ def _api_download(ref: str, bucket: str, key: str) -> Path:
                                 target.write(chunk)
                     except (httpx.TransportError, httpx.HTTPStatusError) as exc:
                         if (
+                            isinstance(exc, httpx.TransportError)
+                            and expected is not None
+                            and written == expected
+                        ):
+                            break
+                        if (
                             isinstance(exc, httpx.HTTPStatusError)
                             and exc.response.status_code < 500
                         ):
