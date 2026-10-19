@@ -372,14 +372,20 @@ def _run_video_stage(stage: str, ctx: PipelineContext) -> dict[str, Any]:
                 angle_windows_available = False
                 break
             if (
-                clip.get("capture_regime") not in {"fixed_sideline", "fixed_endzone"}
-                or not math.isfinite(start_time)
+                not math.isfinite(start_time)
                 or not math.isfinite(end_time)
                 or start_time < 0
                 or end_time <= start_time
             ):
                 angle_windows_available = False
                 break
+        # A few clips whose angle wasn't recognized (the per-clip loop below
+        # leaves them uncalibrated) must not switch off field coordinates for
+        # every other play of the game.
+        angle_windows_available = angle_windows_available and any(
+            clip.get("capture_regime") in {"fixed_sideline", "fixed_endzone"}
+            for clip in angle_clips
+        )
         if ctx.spatial_analytics_disabled and not angle_windows_available:
             ctx.analytics_safe = False
             ctx.homography = None
