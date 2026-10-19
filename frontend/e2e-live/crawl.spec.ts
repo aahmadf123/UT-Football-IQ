@@ -23,6 +23,8 @@ const ROUTES = [
   "/scouting/?tab=college",
   "/players/?tab=roster",
   "/players/?tab=development",
+  "/players/?tab=leaderboard",
+  "/team-stats/",
   "/health-workload/",
   "/analytics/",
   "/reports/",
@@ -85,7 +87,7 @@ test.describe("deployed platform", () => {
   test("the API runs the expected release", async ({ request }) => {
     // After a deploy the new container rolls out over a few minutes.
     const expected = process.env.E2E_EXPECT_SHA || undefined;
-    test.setTimeout(expected ? 900_000 : 180_000);
+    test.setTimeout(expected ? 1_200_000 : 480_000);
     await expect
       .poll(
         async () => {
@@ -97,6 +99,19 @@ test.describe("deployed platform", () => {
         { timeout: expected ? 840_000 : 120_000, intervals: [15_000] },
       )
       .toBe(expected ?? "up");
+    // A deploy can bounce the container more than once while it settles:
+    // only crawl once the API has answered steadily for about a minute.
+    let steady = 0;
+    await expect
+      .poll(
+        async () => {
+          const response = await request.get(`${LIVE_API_URL}/api/v1/system/version`);
+          steady = response.ok() ? steady + 1 : 0;
+          return steady;
+        },
+        { timeout: 300_000, intervals: [10_000] },
+      )
+      .toBeGreaterThanOrEqual(6);
   });
 
   test("every page loads cleanly for the team account", async ({ page }) => {
