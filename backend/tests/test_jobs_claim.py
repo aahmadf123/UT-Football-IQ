@@ -384,6 +384,4 @@ async def test_successful_status_commits_before_linking_game_film(
             )
             assert locked.scalar_one().status == JobStatus.succeeded
 
-    assert [(task.func, task.args) for task in background.tasks] == [
-        (link_game_film, (video_id,))
-    ]
+    assert [(task.func, task.args) for task in background.tasks] == [(link_game_film, (video_id,))]
