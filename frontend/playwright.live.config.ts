@@ -29,7 +29,7 @@ export default defineConfig({
   reporter: process.env.CI ? [["list"], ["html", { open: "never" }]] : "list",
   use: {
     baseURL: LIVE_BASE_URL,
-    trace: "retain-on-failure",
+    trace: "off",
     actionTimeout: 20_000,
     navigationTimeout: 60_000,
   },
