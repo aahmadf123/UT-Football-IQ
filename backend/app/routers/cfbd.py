@@ -39,7 +39,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.cfbd.models import CFBDPlayerSeason
 from app.config import get_settings
 from app.database import get_db
-from app.deps import require_admin
+from app.deps import require_admin, require_coach_or_above
 from app.governance import Action, Resource, require_policy
 from app.models import (
     CfbdDrive,
@@ -685,7 +685,7 @@ async def get_player_seasons(
 @router.post("/videos/{video_id}/link")
 async def link_game_film(
     video_id: uuid.UUID,
-    _user: Annotated[User, Depends(require_admin)],
+    _user: Annotated[User, Depends(require_coach_or_above)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> dict[str, Any]:
     """Match a processed game film's plays to CFBD play-by-play.
