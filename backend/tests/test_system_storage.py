@@ -34,8 +34,10 @@ async def test_worker_artifact_put_resolve_and_download(monkeypatch, tmp_path):
                 json={"uri": "library://artifacts/checkpoints/stage.json"},
             )
             assert resolved.status_code == 200
+            assert resolved.json()["size_bytes"] == len(b'{"frame":42}')
             downloaded = await client.get(resolved.json()["download_url"])
             assert downloaded.status_code == 200 and downloaded.json() == {"frame": 42}
+            assert downloaded.headers["x-object-size"] == str(len(b'{"frame":42}'))
             # Artifact capabilities stay on the role-gated resolve surface.
             generic = await client.get(
                 "/api/v1/videos/download-url",
@@ -94,6 +96,7 @@ async def test_hosted_worker_signing_streams_artifacts_through_authorized_route(
         "ContentLength": len(payload),
         "ContentType": "application/json",
     }
+    cloud.head_object.return_value = {"ContentLength": len(payload)}
     monkeypatch.setattr("app.routers.system.get_s3_client", lambda: cloud)
     try:
         async with httpx.AsyncClient(
@@ -105,10 +108,47 @@ async def test_hosted_worker_signing_streams_artifacts_through_authorized_route(
             )
             assert resolved.status_code == 200
             url = resolved.json()["download_url"]
+            assert resolved.json()["size_bytes"] == len(payload)
             assert "/api/v1/system/storage/download/artifacts/" in url
             downloaded = await client.get(url)
             assert downloaded.status_code == 200
             assert downloaded.json() == {"hosted": True}
+            assert downloaded.headers["x-object-size"] == str(len(payload))
         cloud.get_object.assert_called_once_with(Bucket="team-artifacts", Key="reports/export.json")
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+
+async def test_ranged_download_reports_the_whole_object_size(monkeypatch):
+    import io
+
+    from botocore.response import StreamingBody
+
+    monkeypatch.setenv("STORAGE_BACKEND", "s3")
+    monkeypatch.setenv("SIGNED_URL_MODE", "worker")
+    get_settings.cache_clear()
+    user = MagicMock(spec=User)
+    user.role = UserRole.analyst
+    app.dependency_overrides[get_current_user] = lambda: user
+    cloud = MagicMock()
+    cloud.get_object.return_value = {
+        "Body": StreamingBody(io.BytesIO(b"tail"), 4),
+        "ContentLength": 4,
+        "ContentRange": "bytes 96-99/100",
+    }
+    cloud.head_object.side_effect = RuntimeError("no head permission")
+    monkeypatch.setattr("app.routers.system.get_s3_client", lambda: cloud)
+    try:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://localhost"
+        ) as client:
+            resolved = await client.post(
+                "/api/v1/system/storage/resolve", json={"uri": "s3://raw-video/raw/game.mp4"}
+            )
+            assert resolved.status_code == 200
+            assert resolved.json()["size_bytes"] is None  # advisory only
+            part = await client.get(resolved.json()["download_url"], headers={"Range": "bytes=96-"})
+            assert part.status_code == 206 and part.content == b"tail"
+            assert part.headers["x-object-size"] == "100"
     finally:
         app.dependency_overrides.pop(get_current_user, None)
