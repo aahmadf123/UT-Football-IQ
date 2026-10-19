@@ -549,6 +549,10 @@ async def update_clip(
         clip.boundary_confidence = body.boundary_confidence
     if body.our_possession is not None:
         clip.our_possession = body.our_possession
+        if isinstance(clip.label_data, dict) and "possession_pending" in clip.label_data:
+            clip.label_data = {
+                key: value for key, value in clip.label_data.items() if key != "possession_pending"
+            }
     if body.side_of_ball is not None:
         clip.side_of_ball = body.side_of_ball
     if body.capture_regime is not None:
