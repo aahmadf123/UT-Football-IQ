@@ -76,6 +76,10 @@ router = APIRouter(tags=["clips"])
 # ── Schemas ───────────────────────────────────────────────────────────────────
 
 
+#: Boundaries proposed by the pipeline rather than a coach.
+_MACHINE_BOUNDARY_SOURCES = frozenset({"heuristic", "model", "synthetic_test"})
+
+
 class ClipCreate(BaseModel):
     model_config = {"protected_namespaces": ()}
     id: uuid.UUID | None = None
@@ -341,16 +345,21 @@ async def create_clip(
 
     # Game clips must carry their own possession because possession flips
     # within the session. Practice/scrimmage clips may inherit from the
-    # parent video.
+    # parent video. The exception is film the pipeline cut automatically: it
+    # can't know possession yet, so the clip is marked pending and filled in
+    # by the CFBD play-by-play link (app.cfbd.game_link) or a coach.
+    machine_cut = body.boundary_source in _MACHINE_BOUNDARY_SOURCES
     if (
         video.session_kind == SessionKind.game
         and our_possession is None
         and video.our_possession is None
     ):
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="our_possession is required for clips of session_kind='game'",
-        )
+        if not machine_cut:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="our_possession is required for clips of session_kind='game'",
+            )
+        body.label_data = {**(body.label_data or {}), "possession_pending": True}
 
     # Inherit capture-regime from the parent video (set at ingest) unless
     # the caller passed an explicit override. Mirrors the session_kind
@@ -540,6 +549,10 @@ async def update_clip(
         clip.boundary_confidence = body.boundary_confidence
     if body.our_possession is not None:
         clip.our_possession = body.our_possession
+        if isinstance(clip.label_data, dict) and "possession_pending" in clip.label_data:
+            clip.label_data = {
+                key: value for key, value in clip.label_data.items() if key != "possession_pending"
+            }
     if body.side_of_ball is not None:
         clip.side_of_ball = body.side_of_ball
     if body.capture_regime is not None:

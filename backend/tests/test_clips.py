@@ -213,6 +213,70 @@ def test_create_game_clip_requires_our_possession() -> None:
     assert captured == []
 
 
+def test_pipeline_cut_game_clip_may_omit_possession_until_linked() -> None:
+    """Game film cut by the pipeline can't know possession yet; the clip is
+    created and marked pending for the CFBD link or a coach to fill in."""
+    captured: list[Clip] = []
+    video = _make_video(session_kind=SessionKind.game, opponent_team="Michigan State")
+    _override(video, captured)
+    try:
+        resp = _post_clip(
+            video.id,
+            {"start_time": 0.0, "end_time": 5.0, "boundary_source": "heuristic"},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["our_possession"] is None
+    assert captured[0].label_data == {"possession_pending": True}
+
+
+def test_update_clip_clears_pending_possession_after_pipeline_create() -> None:
+    captured: list[Clip] = []
+    video = _make_video(session_kind=SessionKind.game, opponent_team="Michigan State")
+    _override(video, captured)
+    try:
+        with TestClient(app) as c:
+            created = c.post(
+                f"/api/v1/videos/{video.id}/clips",
+                json={
+                    "start_time": 0.0,
+                    "end_time": 5.0,
+                    "boundary_source": "heuristic",
+                    "label_data": {"play_type": "pass"},
+                },
+            )
+            assert created.status_code == 201, created.text
+            assert created.json()["label_data"]["possession_pending"] is True
+            clip = captured[0]
+
+            async def _db_update() -> AsyncGenerator[Any, None]:
+                session = AsyncMock()
+                result = MagicMock()
+                result.scalar_one_or_none.return_value = clip
+                session.execute = AsyncMock(return_value=result)
+                session.flush = AsyncMock()
+                session.add = MagicMock()
+                yield session
+
+            app.dependency_overrides[get_db] = _db_update
+            app.dependency_overrides[require_coach_or_above] = lambda: _make_user()
+            updated = c.patch(
+                f"/api/v1/clips/{clip.id}",
+                json={"our_possession": "offense"},
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["our_possession"] == "offense"
+    assert updated.json()["label_data"]["play_type"] == "pass"
+    assert "possession_pending" not in updated.json()["label_data"]
+    assert clip.label_data["play_type"] == "pass"
+    assert "possession_pending" not in clip.label_data
+
+
 def test_create_practice_clip_may_omit_our_possession() -> None:
     """Practice clips inherit our_possession from the parent video."""
     captured: list[Clip] = []
