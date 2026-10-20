@@ -40,9 +40,15 @@ class VideoTimeline:
             return _probe(str(source.resolve()), stat.st_size, stat.st_mtime_ns)
         except (OSError, ValueError, KeyError, IndexError, ZeroDivisionError, subprocess.SubprocessError,
                 json.JSONDecodeError):
-            fps = fps_fallback if fps_fallback > 0 else 30.
-            return cls(tuple(i / fps for i in range(frame_count_fallback)),
-                       frame_count_fallback / fps, fps, verified=False)
+            # The caller's FPS may be a placeholder (the orchestrator's 30.0
+            # before ingest runs); the container's own rate wins. Trusting 30
+            # on 59.94 film doubled every timestamp and cut each play from
+            # the wrong part of the game.
+            fps, frame_count = _container_rate(source)
+            fps = fps or (fps_fallback if fps_fallback > 0 else 30.)
+            frame_count = frame_count or frame_count_fallback
+            return cls(tuple(i / fps for i in range(frame_count)),
+                       frame_count / fps, fps, verified=False)
 
     def timestamp(self, frame: int) -> float:
         if frame == len(self.timestamps):
@@ -86,35 +92,74 @@ class VideoTimeline:
                 "pts_origin": self.pts_origin, "verified": self.verified}
 
 
+def _container_rate(source: Path) -> tuple[float, int]:
+    """Average FPS and frame count from the container, or zeros."""
+    try:
+        import cv2
+
+        capture = cv2.VideoCapture(str(source))
+        try:
+            fps = float(capture.get(cv2.CAP_PROP_FPS) or 0)
+            count = int(capture.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+        finally:
+            capture.release()
+    except Exception:  # noqa: BLE001 - metadata only; the caller has a fallback
+        return 0., 0
+    return (fps if math.isfinite(fps) and fps > 0 else 0.), max(0, count)
+
+
+#: Above this many frames, decoding each one to read its timestamp outlasts
+#: any sensible timeout (a 90-minute 60 fps game is ~300k frames), so
+#: presentation times come from the container's packet index instead.
+FRAME_PROBE_LIMIT = 20_000
+
+
+def _ffprobe_json(path: str, *args: str, timeout: float) -> dict[str, Any]:
+    check_control()
+    result = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", *args, "-of", "json", path],
+                            check=True, capture_output=True, text=True, timeout=timeout)
+    check_control()
+    return json.loads(result.stdout)
+
+
 @lru_cache(maxsize=8)
 def _probe(path: str, size: int, modified_ns: int) -> VideoTimeline:
     del size, modified_ns
-    check_control()
-    result = subprocess.run([
-        "ffprobe", "-v", "error", "-select_streams", "v:0", "-show_frames", "-show_streams",
-        "-show_entries", "frame=best_effort_timestamp_time,pkt_duration_time,duration_time:stream=avg_frame_rate,duration",
-        "-of", "json", path,
-    ], check=True, capture_output=True, text=True, timeout=60)
-    check_control()
-    data = json.loads(result.stdout)
-    frames = data.get("frames", [])
-    raw = [float(frame["best_effort_timestamp_time"]) for frame in frames]
-    if not raw or not all(math.isfinite(t) for t in raw) or any(b <= a for a, b in zip(raw, raw[1:])):
-        raise ValueError("Video has no usable strictly ordered presentation timestamps")
-    numerator, denominator = str(data["streams"][0]["avg_frame_rate"]).split("/")
+    stream = _ffprobe_json(path, "-show_entries", "stream=avg_frame_rate,duration,nb_frames",
+                           timeout=60)["streams"][0]
+    numerator, denominator = str(stream["avg_frame_rate"]).split("/")
     fps = float(numerator) / float(denominator)
     if fps <= 0 or not math.isfinite(fps):
         fps = 30.
+    stream_duration = float(stream.get("duration") or 0)
+    expected_frames = int(stream.get("nb_frames") or 0) or round(stream_duration * fps)
+
+    observed_tail: str | None
+    if expected_frames > FRAME_PROBE_LIMIT:
+        # Demux only, no decode: seconds even for a full game. Packets come
+        # in decode order; B-frames reorder for presentation. A packet's
+        # duration follows decode order, so the final frame's is unknown and
+        # the average frame interval stands in (one frame on a long film).
+        packets = _ffprobe_json(path, "-show_entries", "packet=pts_time", timeout=600).get("packets", [])
+        raw = sorted(float(p["pts_time"]) for p in packets if p.get("pts_time") not in (None, "N/A"))
+        observed_tail = None
+    else:
+        frames = _ffprobe_json(
+            path, "-show_frames", "-show_entries",
+            "frame=best_effort_timestamp_time,pkt_duration_time,duration_time", timeout=120,
+        ).get("frames", [])
+        raw = [float(frame["best_effort_timestamp_time"]) for frame in frames]
+        # FFmpeg 7 reports duration_time; earlier versions use pkt_duration_time.
+        # Average FPS cannot infer the duration of a VFR recording's final frame.
+        observed_tail = (frames[-1].get("duration_time") or frames[-1].get("pkt_duration_time")) if frames else None
+    if not raw or not all(math.isfinite(t) for t in raw) or any(b <= a for a, b in zip(raw, raw[1:])):
+        raise ValueError("Video has no usable strictly ordered presentation timestamps")
     origin = raw[0]
     timestamps = tuple(t - origin for t in raw)
-    # FFmpeg 7 reports duration_time; earlier versions use pkt_duration_time.
-    # Average FPS cannot infer the duration of a VFR recording's final frame.
-    observed_tail = frames[-1].get("duration_time") or frames[-1].get("pkt_duration_time")
     tail = float(observed_tail or (1 / fps))
     if not math.isfinite(tail) or tail <= 0:
         observed_tail = None
         tail = 1 / fps
-    stream_duration = float(data["streams"][0].get("duration") or 0)
     if not math.isfinite(stream_duration) or stream_duration < timestamps[-1]:
         stream_duration = 0.
     frame_end = timestamps[-1] + tail

@@ -1174,7 +1174,15 @@ def run_pipeline(
             profile=profile,
             stages=stage_list,
             priority=priority,
-            revisions={**revision_inputs, "timestamps_verified": ctx.timeline.verified},
+            revisions={
+                **revision_inputs,
+                "timestamps_verified": ctx.timeline.verified,
+                # Every clip's frame window derives from this timeline.
+                "timeline": {
+                    "fps": round(ctx.timeline.fps, 4),
+                    "frames": len(ctx.timeline.timestamps),
+                },
+            },
         )
         sink.configure(identity)
         set_checkpoint_identity(
