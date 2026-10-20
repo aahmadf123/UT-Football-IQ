@@ -34,7 +34,7 @@ import { ReviewMetadataPanel } from "./review-metadata-panel";
 import { RecordingReview } from "./recording-review";
 import { CorrectionHistory } from "./correction-history";
 import { FieldMinimap } from "./field-minimap";
-import { OverlayCanvas, eventTimeSeconds } from "./overlay-canvas";
+import { OverlayCanvas, eventTimeSeconds, type OverlayStyle } from "./overlay-canvas";
 import { VideoTransport } from "./video-transport";
 import { canSeeTechnicalDetails, resolveCurrentRole } from "@/lib/roles";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -48,12 +48,35 @@ import { friendlyMessage } from "@/lib/api-error";
 
 const LAYER_TOGGLES: ReadonlyArray<{ key: OverlayLayerKey; label: string }> = [
   { key: "raw", label: "Original film" },
-  { key: "tracks", label: "Player boxes" },
+  { key: "tracks", label: "Players" },
   { key: "labels", label: "Identities" },
   { key: "events", label: "Events" },
   { key: "metrics", label: "Metrics" },
   { key: "field", label: "Field view" },
 ];
+
+const OVERLAY_STYLE_KEY = "footiq.overlayStyle";
+
+/** Clean is the default; an analyst's choice is remembered on this browser. */
+function useOverlayStyle(): [OverlayStyle, (style: OverlayStyle) => void] {
+  const [style, setStyle] = useState<OverlayStyle>("clean");
+  useEffect(() => {
+    try {
+      if (window.localStorage.getItem(OVERLAY_STYLE_KEY) === "analyst") setStyle("analyst");
+    } catch {
+      // Storage can be blocked; the clean default still applies.
+    }
+  }, []);
+  const choose = useCallback((next: OverlayStyle) => {
+    setStyle(next);
+    try {
+      window.localStorage.setItem(OVERLAY_STYLE_KEY, next);
+    } catch {
+      // Not remembered this time; the choice still applies.
+    }
+  }, []);
+  return [style, choose];
+}
 
 // Default playback frame rate when the parent video has no ``fps`` recorded.
 // Phase CV pipeline targets 30fps; overlays sync to this by default so the
@@ -339,6 +362,7 @@ function ClipReviewReady({
   const fps = sourceFps != null && sourceFps > 0 ? sourceFps : DEFAULT_FPS;
   const sourceStartTime = overlayPayload?.source_start_time_seconds ?? clip.start_time;
   const [showTrails, setShowTrails] = useState(true);
+  const [overlayStyle, setOverlayStyle] = useOverlayStyle();
   const [intrinsicSize, setIntrinsicSize] = useState<{ width: number; height: number } | null>(null);
   const [activeLayers, setActiveLayers] = useState<Set<OverlayLayerKey>>(
     () => new Set<OverlayLayerKey>(["tracks", "events", "labels", "metrics"]),
@@ -625,6 +649,7 @@ function ClipReviewReady({
                   selectedTrackletId={selection?.trackletId ?? null}
                   onSelectTracklet={selectTracklet}
                   showTrails={showTrails}
+                  overlayStyle={overlayStyle}
                 />
               </>
             ) : (
@@ -665,6 +690,8 @@ function ClipReviewReady({
             onToggle={toggleLayer}
             showTrails={showTrails}
             onToggleTrails={() => setShowTrails((value) => !value)}
+            overlayStyle={overlayStyle}
+            onOverlayStyle={setOverlayStyle}
           />
 
           {playbackUrl && (
@@ -996,12 +1023,16 @@ function OverlayToggles({
   onToggle,
   showTrails,
   onToggleTrails,
+  overlayStyle,
+  onOverlayStyle,
 }: {
   active: ReadonlySet<OverlayLayerKey>;
   overlayState: OverlayState;
   onToggle: (key: OverlayLayerKey) => void;
   showTrails: boolean;
   onToggleTrails: () => void;
+  overlayStyle: OverlayStyle;
+  onOverlayStyle: (style: OverlayStyle) => void;
 }) {
   const layersAvailable =
     overlayState.kind === "ready" || overlayState.kind === "empty"
@@ -1014,6 +1045,25 @@ function OverlayToggles({
       aria-label="Overlay layer toggles"
       className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-border-soft pt-3"
     >
+      <div role="radiogroup" aria-label="Overlay style" className="mr-2 inline-flex rounded-md border border-border-soft p-0.5">
+        {(["clean", "analyst"] as const).map((style) => (
+          <button
+            key={style}
+            type="button"
+            role="radio"
+            aria-checked={overlayStyle === style}
+            data-testid={`overlay-style-${style}`}
+            title={style === "clean" ? "A ring under each player; point at one for detail" : "Every box, tag and trail"}
+            onClick={() => onOverlayStyle(style)}
+            className={cn(
+              "min-h-7 rounded px-2.5 text-[0.7rem] font-semibold capitalize transition-colors",
+              overlayStyle === style ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            {style}
+          </button>
+        ))}
+      </div>
       <span className="mr-1 inline-flex items-center gap-1.5 text-[0.65rem] font-semibold uppercase tracking-wider text-muted-foreground"><Layers className="size-3.5" /> Layers</span>
       {LAYER_TOGGLES.map((layer) => {
         const isActive = active.has(layer.key);
@@ -1344,6 +1394,7 @@ const FrameOverlay = memo(function FrameOverlay({
   selectedTrackletId,
   onSelectTracklet,
   showTrails,
+  overlayStyle,
 }: {
   clock: MediaClock;
   toLocal: (elementTime: number) => number;
@@ -1362,6 +1413,7 @@ const FrameOverlay = memo(function FrameOverlay({
   selectedTrackletId: string | null;
   onSelectTracklet: (id: string) => void;
   showTrails: boolean;
+  overlayStyle: OverlayStyle;
 }) {
   const localTime = toLocal(useMediaTime(clock));
   const trackTime = trackTimeAt(localTime);
@@ -1389,6 +1441,7 @@ const FrameOverlay = memo(function FrameOverlay({
           selectedTrackletId={selectedTrackletId}
           onSelectTracklet={onSelectTracklet}
           showTrails={showTrails}
+          overlayStyle={overlayStyle}
         />
       )}
       <div className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between gap-2 bg-gradient-to-b from-black/65 to-transparent px-4 pb-8 pt-3 text-[0.65rem] font-semibold uppercase tracking-wider text-white/85">

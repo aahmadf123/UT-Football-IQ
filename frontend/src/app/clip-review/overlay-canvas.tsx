@@ -1,4 +1,5 @@
 "use client";
+import { useState } from "react";
 import { activeTrackPointIndex } from "@/lib/tracking-time";
 
 /**
@@ -23,6 +24,12 @@ import { activeTrackPointIndex } from "@/lib/tracking-time";
  * Interactivity: the SVG itself ignores the pointer, but each tracklet group
  * is clickable — clicking a player selects that tracklet and prefills the
  * corrections panel.
+ *
+ * Styles: "analyst" draws every box, tag, trail and callout. "clean" is the
+ * broadcast look (SkillCorner / Second Spectrum telestration): a small
+ * team-coloured ring at each player's feet and nothing else, so the film
+ * stays watchable. The pointed-at or selected player still gets the full
+ * box, identity, trail and speed; nothing is hidden, only quieted.
  */
 
 import type { OverlayEvent, OverlayLayerKey, OverlayTracklet } from "@/lib/types";
@@ -41,8 +48,13 @@ const DEFAULT_VIEW_H = 720;
 const TEAM_COLORS: Record<string, string> = {
   home: "var(--primary)",
   away: "var(--status-info)",
+  // Game film labels sides of the ball rather than teams.
+  offense: "var(--primary)",
+  defense: "var(--status-info)",
   unknown: "var(--muted-foreground)",
 };
+
+export type OverlayStyle = "clean" | "analyst";
 
 interface OverlayCanvasProps {
   tracklets: OverlayTracklet[];
@@ -62,6 +74,7 @@ interface OverlayCanvasProps {
   eventCurrentTimeSeconds?: number;
   sourceStartTimeSeconds?: number;
   showTrails?: boolean;
+  overlayStyle?: OverlayStyle;
 }
 
 export function OverlayCanvas({
@@ -79,7 +92,9 @@ export function OverlayCanvas({
   eventCurrentTimeSeconds = currentTimeSeconds,
   sourceStartTimeSeconds = 0,
   showTrails = true,
+  overlayStyle = "analyst",
 }: OverlayCanvasProps) {
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
   const showTracks = activeLayers.has("tracks");
   const showEvents = activeLayers.has("events");
   const showLabels = activeLayers.has("labels");
@@ -131,6 +146,9 @@ export function OverlayCanvas({
             selected={selectedTrackletId === t.id}
             dimmed={Boolean(selectedTrackletId && selectedTrackletId !== t.id)}
             onSelect={onSelectTracklet}
+            clean={overlayStyle === "clean"}
+            focused={selectedTrackletId === t.id || hoveredId === t.id}
+            onHover={setHoveredId}
           />
         ))}
       {showEvents && (
@@ -164,6 +182,9 @@ function TrackletGlyph({
   selected,
   dimmed,
   onSelect,
+  clean = false,
+  focused = false,
+  onHover,
 }: {
   tracklet: OverlayTracklet;
   // Position of the tracklet in the payload order — rendered as the ``T{n}``
@@ -185,6 +206,10 @@ function TrackletGlyph({
   selected: boolean;
   dimmed: boolean;
   onSelect?: (trackletId: string) => void;
+  /** Broadcast look: a ring at the feet until pointed at or selected. */
+  clean?: boolean;
+  focused?: boolean;
+  onHover?: (trackletId: string | null) => void;
 }) {
   const activeIdx = activeTrackPointIndex(tracklet, currentTimeSeconds, fps);
   if (activeIdx < 0) return null;
@@ -212,6 +237,10 @@ function TrackletGlyph({
   // Scale strokes/text with the intrinsic resolution so a 4K video doesn't
   // render hairline boxes.
   const scale = viewW / 1000;
+  // In the clean style only the focused player carries box, tag, trail and
+  // callout; everyone else is a ring on the turf.
+  const detailed = !clean || focused;
+  const ringRx = Math.max(box.w * 0.6, 7 * scale);
 
   return (
     <g
@@ -229,10 +258,31 @@ function TrackletGlyph({
           onSelect?.(tracklet.id);
         }
       }}
+      onMouseEnter={onHover ? () => onHover(tracklet.id) : undefined}
+      onMouseLeave={onHover ? () => onHover(null) : undefined}
       style={{ pointerEvents: "auto", cursor: onSelect ? "pointer" : "default" }}
-      opacity={dimmed ? 0.45 : 1}
+      opacity={dimmed ? (clean ? 0.35 : 0.45) : 1}
     >
-      {showBox && showTrail && trail.length > 1 && (
+      {clean && (
+        <>
+          {/* The ring can be smaller than a finger; the body stays the target. */}
+          <rect x={box.x} y={box.y} width={box.w} height={box.h} fill="transparent" />
+          {showBox && (
+            <ellipse
+              data-testid={`overlay-tracklet-ring-${tracklet.id}`}
+              cx={box.cx}
+              cy={box.y + box.h}
+              rx={ringRx}
+              ry={ringRx * 0.32}
+              fill={color}
+              fillOpacity={focused ? 0.35 : 0.2}
+              stroke={color}
+              strokeWidth={(focused ? 2.2 : 1.5) * scale}
+            />
+          )}
+        </>
+      )}
+      {detailed && showBox && showTrail && trail.length > 1 && (
         <path
           d={trail.join(" ")}
           stroke={color}
@@ -241,7 +291,7 @@ function TrackletGlyph({
           opacity={0.6}
         />
       )}
-      {showBox && (
+      {detailed && showBox && (
         <rect
           x={box.x}
           y={box.y}
@@ -254,7 +304,7 @@ function TrackletGlyph({
           rx={2 * scale}
         />
       )}
-      {(showLabel || showBox) && (
+      {detailed && (showLabel || showBox) && (
         <g>
         <rect
           x={box.x - 1 * scale}
@@ -279,7 +329,7 @@ function TrackletGlyph({
         </text>
         </g>
       )}
-      {metricText != null && (
+      {detailed && metricText != null && (
         <text
           data-testid={`overlay-tracklet-metric-${tracklet.id}`}
           x={box.x}
