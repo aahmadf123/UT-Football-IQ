@@ -28,8 +28,8 @@ afterEach(() => { cleanup(); vi.clearAllMocks(); });
 describe("session workspace", () => {
   test("each camera recording is watchable before matching views", async () => {
     render(<SessionWorkspace initialSessionId="s-1" onSelect={vi.fn()} />);
-    await waitFor(() => expect(screen.getAllByRole("link", { name: "Watch recording" })).toHaveLength(2));
-    const links = screen.getAllByRole("link", { name: "Watch recording" });
+    await waitFor(() => expect(screen.getAllByRole("link", { name: "Full recording" })).toHaveLength(2));
+    const links = screen.getAllByRole("link", { name: "Full recording" });
     expect(links[0].getAttribute("href")).toContain("videoId=v-1");
     expect(links[1].getAttribute("href")).toContain("videoId=v-2");
     expect(screen.getByText("Sideline · 2026-10-14")).toBeTruthy();

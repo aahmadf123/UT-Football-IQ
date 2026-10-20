@@ -1449,17 +1449,37 @@ async function _fetchVideoDownloadUrlFrom(
  * Fetch a signed download/streaming URL for an object-store-backed video object.
  * The returned URL can be used directly as a `<video src>`.
  */
+/**
+ * Signed playback URLs, reused until shortly before they expire (they are
+ * minted for an hour). Reusing the exact URL lets the browser's HTTP cache
+ * serve a play that was preloaded while the previous one was playing.
+ */
+const SIGNED_URL_REUSE_MS = 50 * 60 * 1000;
+const signedUrlCache = new Map<string, { url: string; mintedAt: number }>();
+
 export async function fetchVideoDownloadUrl(
   bucket: string,
   key: string,
   token?: string,
+  { fresh = false }: { fresh?: boolean } = {},
 ): Promise<string | null> {
+  const cacheKey = `${bucket}/${key}`;
+  const cached = signedUrlCache.get(cacheKey);
+  if (!fresh && cached && Date.now() - cached.mintedAt < SIGNED_URL_REUSE_MS) return cached.url;
   const apiUrl = apiBase();
   try {
-    return await _fetchVideoDownloadUrlFrom(apiUrl, bucket, key, token);
+    const url = await _fetchVideoDownloadUrlFrom(apiUrl, bucket, key, token);
+    if (url) signedUrlCache.set(cacheKey, { url, mintedAt: Date.now() });
+    return url;
   } catch {
     return null;
   }
+}
+
+/** Milliseconds until a URL from :func:`fetchVideoDownloadUrl` should be re-minted. */
+export function signedUrlRefreshDelay(bucket: string, key: string): number {
+  const cached = signedUrlCache.get(`${bucket}/${key}`);
+  return cached ? Math.max(0, SIGNED_URL_REUSE_MS - (Date.now() - cached.mintedAt)) : SIGNED_URL_REUSE_MS;
 }
 
 // ── CFBD cached analytics (Issue #163) ──────────────────────────────────────

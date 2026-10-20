@@ -3,7 +3,7 @@
 import { clipView, sameplayAngles, situationLabel, viewLabel } from "@/lib/clip-view";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ArrowLeft, Check, ChevronRight, Clapperboard, Crosshair, Film, Layers, Route, ScanLine, Users } from "lucide-react";
 import { AnalyticsCard } from "@/components/analytics-card";
 import { ClipStateBadges } from "@/components/clip-state-badge";
@@ -16,7 +16,10 @@ import {
   fetchVideo,
   fetchVideoDownloadUrl,
   parseStorageUri,
+  signedUrlRefreshDelay,
 } from "@/lib/api";
+import { pauseBackgroundRefresh, resumeBackgroundRefresh, isBackgroundRefreshPaused } from "@/lib/background-refresh";
+import { createMediaClock, useMediaTime, useThrottledMediaTime, type MediaClock } from "@/lib/media-clock";
 import type {
   ApiClip,
   ApiVideo,
@@ -102,7 +105,7 @@ function ClipReviewLoader() {
       <EmptyState
         icon={Clapperboard}
         title="No clip selected"
-        hint="Open a clip from Film Room → Browse Film to review it."
+        hint="Open a play from Film Room → Review plays."
         action={
           <Button asChild variant="outline">
             <Link href="/film-room/?tab=browse">
@@ -123,7 +126,10 @@ function ClipReviewView({ clipId }: { clipId: string }) {
   // Ordered sibling clips of the same video, for prev/next play navigation.
   const [siblingClips, setSiblingClips] = useState<ApiClip[]>([]);
   const [revision, setRevision] = useState(0);
-  const [preferClipAsset, setPreferClipAsset] = useState(false);
+  // "auto" plays the per-play proxy when one exists (a few MB, 30 fps, made
+  // for the browser) and the full recording otherwise; an <video> error flips
+  // to the other source once.
+  const [sourceChoice, setSourceChoice] = useState<"auto" | "parent" | "clip">("auto");
   const [playbackError, setPlaybackError] = useState<string | null>(null);
   const refresh = useCallback(() => setRevision((current) => current + 1), []);
 
@@ -139,9 +145,17 @@ function ClipReviewView({ clipId }: { clipId: string }) {
         try {
           const clipStorage = parseStorageUri(clip.storage_uri);
           const videoStorage = parseStorageUri(video.storage_uri);
-          // The original recording keeps layer toggles meaningful: rendered
-          // previews may already contain permanent boxes and labels.
-          const target = preferClipAsset && clipStorage?.bucket === "clips" ? clipStorage : videoStorage ?? clipStorage;
+          // Rendered previews may contain burned-in boxes, so only the clean
+          // proxy replaces the original by default. Streaming the 3+ GB game
+          // recording instead made game clips stall every second or two.
+          const clipPlayable = clipStorage?.bucket === "clips";
+          const useClip =
+            sourceChoice === "clip"
+              ? clipPlayable
+              : sourceChoice === "parent"
+                ? !videoStorage && clipPlayable
+                : clipPlayable && isCleanProxy(clip);
+          const target = useClip ? clipStorage : videoStorage ?? clipStorage;
           playbackUsesClipAsset = Boolean(target && target === clipStorage);
           if (!target) {
             playbackUnavailable = "no_storage_uri";
@@ -157,10 +171,8 @@ function ClipReviewView({ clipId }: { clipId: string }) {
         if (playbackUrl) setPlaybackError(null);
         // Prev/next-play navigation degrades to disabled buttons on failure.
         try {
-          const clips = await fetchClipsForVideo(clip.video_id, authToken);
-          if (!cancelled) {
-            setSiblingClips([...clips].sort((a, b) => a.start_time - b.start_time));
-          }
+          const clips = await siblingClipsFor(clip.video_id, authToken);
+          if (!cancelled) setSiblingClips(clips);
         } catch {
           if (!cancelled) setSiblingClips([]);
         }
@@ -175,16 +187,35 @@ function ClipReviewView({ clipId }: { clipId: string }) {
     return () => {
       cancelled = true;
     };
-  }, [clipId, authToken, revision, preferClipAsset]);
+  }, [clipId, authToken, revision, sourceChoice]);
+
+  // Signed URLs last an hour: re-mint shortly before expiry so a long review
+  // session never breaks mid-play (the player resumes at the same moment).
+  const playbackTarget = state.kind === "ready" ? playbackStorage(state) : null;
+  const targetBucket = playbackTarget?.bucket ?? null;
+  const targetKey = playbackTarget?.key ?? null;
+  useEffect(() => {
+    if (!targetBucket || !targetKey) return;
+    const timer = window.setTimeout(async () => {
+      const url = await fetchVideoDownloadUrl(targetBucket, targetKey, authToken, { fresh: true });
+      if (url) setState((current) => (current.kind === "ready" ? { ...current, playbackUrl: url } : current));
+    }, signedUrlRefreshDelay(targetBucket, targetKey));
+    return () => window.clearTimeout(timer);
+  }, [targetBucket, targetKey, authToken]);
 
   // Overlay fetch is independent of the clip fetch — a clip with no overlays
   // (e.g. ingest still running) should still render the player + metadata.
   useEffect(() => {
     let cancelled = false;
+    let signature = "";
     const load = async () => {
       try {
         const payload = await fetchClipOverlays(clipId, authToken);
         if (cancelled) return;
+        // Replacing an identical payload re-renders every overlay consumer.
+        const next = overlaySignature(payload);
+        if (next === signature) return;
+        signature = next;
         const empty =
           !payload.layers_available.tracklets &&
           !payload.layers_available.events &&
@@ -201,7 +232,7 @@ function ClipReviewView({ clipId }: { clipId: string }) {
     };
     void load();
     const interval = window.setInterval(() => {
-      if (document.visibilityState !== "hidden") void load();
+      if (document.visibilityState !== "hidden" && !isBackgroundRefreshPaused()) void load();
     }, 5000);
     return () => {
       cancelled = true;
@@ -249,8 +280,13 @@ function ClipReviewView({ clipId }: { clipId: string }) {
   }
 
   return <ClipReviewReady state={state} overlayState={overlayState} siblingClips={siblingClips} onRefresh={refresh} playbackError={playbackError} onPlaybackError={() => {
-    if (!preferClipAsset && parseStorageUri(state.clip.storage_uri)?.bucket === "clips") {
-      setPreferClipAsset(true);
+    const clipPlayable = parseStorageUri(state.clip.storage_uri)?.bucket === "clips";
+    const parentPlayable = Boolean(parseStorageUri(state.video.storage_uri));
+    if (state.playbackUsesClipAsset && parentPlayable && sourceChoice !== "parent") {
+      setSourceChoice("parent");
+      setPlaybackError(null);
+    } else if (!state.playbackUsesClipAsset && clipPlayable && sourceChoice !== "clip") {
+      setSourceChoice("clip");
       setPlaybackError(null);
     } else setPlaybackError("Playback failed. Refresh its link, or reprocess this recording to create a browser-compatible clean clip.");
   }} />;
@@ -279,10 +315,15 @@ function ClipReviewReady({
   // Stored as a fresh object per click so re-selecting the same tracklet still
   // re-triggers the corrections panel (e.g. after the coach hid it).
   const [selection, setSelection] = useState<{ trackletId: string } | null>(null);
-  const selectTracklet = useCallback(
-    (trackletId: string) => setSelection({ trackletId }),
-    [],
-  );
+  const [sideTab, setSideTab] = useState<SideTab>("tag");
+  // A box clicked on the film opens the correction form; a pick from the
+  // Players list stays there to show that player's details.
+  const selectTracklet = useCallback((trackletId: string) => {
+    setSelection({ trackletId });
+    setSideTab("tag");
+  }, []);
+  const inspectTracklet = useCallback((trackletId: string) => setSelection({ trackletId }), []);
+  const clearSelection = useCallback(() => setSelection(null), []);
   const possession = clip.our_possession ?? clip.side_of_ball ?? video.our_possession ?? null;
   const possessionLabel = possession ? POSSESSION_LABEL[possession] : null;
   const sessionKindLabel = clip.session_kind
@@ -302,29 +343,55 @@ function ClipReviewReady({
   const [activeLayers, setActiveLayers] = useState<Set<OverlayLayerKey>>(
     () => new Set<OverlayLayerKey>(["tracks", "events", "labels", "metrics"]),
   );
+  // Playback time lives in a media clock, not React state: per-frame state
+  // re-rendered this whole page 30-60x a second. Only the overlay subscribes
+  // per frame; other time readers are throttled (see <Timed>).
   // Parent-video playback uses full-video time and must be shifted into the
-  // clip timeline. Rendered clip playback already starts at clip-local time 0.
-  const [videoCurrentTime, setVideoCurrentTime] = useState(0);
-  const clipLocalTime = playbackUsesClipAsset
-    ? Math.max(0, videoCurrentTime)
-    : Math.max(0, videoCurrentTime - clip.start_time);
+  // clip timeline. Clip-asset playback already starts at clip-local time 0.
+  const clock = useMemo(() => createMediaClock(), []);
+  const toLocal = useCallback(
+    (elementTime: number) =>
+      playbackUsesClipAsset ? Math.max(0, elementTime) : Math.max(0, elementTime - clip.start_time),
+    [playbackUsesClipAsset, clip.start_time],
+  );
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const onTimeUpdate = useCallback(() => {
     const el = videoRef.current;
-    if (el) setVideoCurrentTime(el.currentTime);
-  }, []);
+    if (el) clock.set(el.currentTime);
+  }, [clock]);
   useEffect(() => {
     const element = videoRef.current;
     if (!element || !element.requestVideoFrameCallback) return;
     let handle = 0;
     const frame = (_now: number, metadata: VideoFrameCallbackMetadata) => {
-      setVideoCurrentTime(metadata.mediaTime);
+      clock.set(metadata.mediaTime);
       handle = element.requestVideoFrameCallback(frame);
     };
     handle = element.requestVideoFrameCallback(frame);
     return () => element.cancelVideoFrameCallback(handle);
-  }, [playbackUrl]);
+  }, [playbackUrl, clock]);
+
+  // No background polling while film plays; resume on pause, end or leave.
+  // A re-minted URL (expiry refresh) resumes at the same moment and state.
+  const resumeRef = useRef<{ time: number; playing: boolean } | null>(null);
+  useEffect(() => {
+    const el = videoRef.current;
+    if (!el) return;
+    const reason = `clip-review-${clip.id}`;
+    const onPlay = () => pauseBackgroundRefresh(reason);
+    const onStop = () => resumeBackgroundRefresh(reason);
+    el.addEventListener("play", onPlay);
+    el.addEventListener("pause", onStop);
+    el.addEventListener("ended", onStop);
+    return () => {
+      resumeRef.current = { time: el.currentTime, playing: !el.paused };
+      el.removeEventListener("play", onPlay);
+      el.removeEventListener("pause", onStop);
+      el.removeEventListener("ended", onStop);
+      resumeBackgroundRefresh(reason);
+    };
+  }, [playbackUrl, clip.id]);
 
   // Prev/next play: through a playlist when one was opened (e.g. "3rd-down
   // conversions" from Team Stats), else the same video by start time.
@@ -335,6 +402,12 @@ function ClipReviewReady({
     [playlistParam],
   );
   const playlistIndex = playlist.indexOf(clip.id);
+  // Back returns where the coach came from (a review list, a Team Stats
+  // playlist); only same-site paths are honoured.
+  const fromParam = searchParams.get("from") ?? "";
+  const backHref = fromParam.startsWith("/") && !fromParam.startsWith("//")
+    ? fromParam
+    : `/film-room/?tab=review&videoId=${encodeURIComponent(video.id)}`;
   const sequence = playlistIndex >= 0 ? playlist : siblingClips.map((c) => c.id);
   const clipIndex = playlistIndex >= 0 ? playlistIndex : siblingClips.findIndex((c) => c.id === clip.id);
   const prevClipId = clipIndex > 0 ? sequence[clipIndex - 1] : null;
@@ -359,6 +432,10 @@ function ClipReviewReady({
   // Clip-local seek target shared by the transport and the timeline.
   const clipOffset = playbackUsesClipAsset ? 0 : clip.start_time;
   const clipDuration = Math.max(clip.end_time - clip.start_time, 0);
+  const clipBounds = useMemo(
+    () => ({ start: clip.start_time, end: clip.end_time, duration: video.duration_seconds ?? null }),
+    [clip.start_time, clip.end_time, video.duration_seconds],
+  );
   const seekToLocal = useCallback(
     (t: number) => {
       const el = videoRef.current;
@@ -382,11 +459,14 @@ function ClipReviewReady({
     });
   }, []);
 
-  const trackTime = trackingTimeSeconds(overlayPayload, clipLocalTime, clip.start_time);
-  const visibleTracks = overlayPayload?.tracklets.filter((track) => {
-    const index = activeTrackPointIndex(track, trackTime, fps);
-    return index >= 0 && track.track_points[index]?.bbox != null;
-  }) ?? [];
+  const trackTimeAt = useCallback(
+    (localTime: number) => trackingTimeSeconds(overlayPayload, localTime, clip.start_time),
+    [overlayPayload, clip.start_time],
+  );
+
+  // Instant next play: warm the browser cache with the next clip's proxy
+  // while this one plays (the URL is reused, so the cache hit is real).
+  usePreloadClip(nextClipId, authToken);
 
   // Roster names for attributed tracklets ("#7 · C. Jones" on the Labels layer
   // and the field mini-map).
@@ -438,14 +518,17 @@ function ClipReviewReady({
     <div className="flex flex-col gap-5" data-testid="review-workspace">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <div className="mb-2 flex items-center gap-2 text-[0.65rem] font-semibold uppercase tracking-[0.18em] text-muted-foreground"><Film className="size-3.5 text-primary" /> Film room <ChevronRight className="size-3" /> Review studio</div>
+          <nav aria-label="Breadcrumb" className="mb-2 flex items-center gap-2 text-[0.65rem] font-semibold uppercase tracking-[0.18em] text-muted-foreground"><Film className="size-3.5 text-primary" /> <Link href="/film-room/" className="hover:text-foreground">Film room</Link> <ChevronRight className="size-3" /> <Link href={`/film-room/?tab=review&videoId=${encodeURIComponent(video.id)}`} className="hover:text-foreground">Review plays</Link> <ChevronRight className="size-3" /> <span aria-current="page">Play</span></nav>
           <h2 className="max-w-3xl break-words text-xl font-semibold tracking-tight">{video.filename}</h2>
           <p className="mt-1 text-sm text-muted-foreground">{video.camera_label || "Camera view"} · {sessionKindLabel}{clipIndex >= 0 && sequence.length ? ` · ${playlistIndex >= 0 ? "Playlist play" : "Play"} ${clipIndex + 1} of ${sequence.length}` : ""}</p>
         </div>
-        <Button asChild variant="outline" size="sm"><Link href={video.practice_session_id ? `/film-room/?tab=browse&sessionId=${encodeURIComponent(video.practice_session_id)}` : "/film-room/?tab=browse"}><ArrowLeft className="size-3.5" /> Back to film</Link></Button>
+        <div className="flex flex-wrap gap-2">
+          <Button asChild variant="ghost" size="sm"><Link href={`/clip-review/?videoId=${encodeURIComponent(video.id)}`}>Watch full recording</Link></Button>
+          <Button asChild variant="outline" size="sm"><Link href={backHref}><ArrowLeft className="size-3.5" /> Back</Link></Button>
+        </div>
       </div>
 
-      <div className="grid items-start gap-5 2xl:grid-cols-[minmax(0,1fr)_340px] xl:grid-cols-[minmax(0,1fr)_310px]">
+      <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_300px] xl:grid-cols-[minmax(0,1fr)_330px] 2xl:grid-cols-[minmax(0,1fr)_360px]">
       <Card className="min-w-0 gap-0 overflow-hidden border-border-soft py-0 shadow-none">
         <CardContent className="px-0">
           <div className="border-b border-border-soft px-5 py-4">
@@ -501,10 +584,15 @@ function ClipReviewReady({
                     // jump to the clip start once metadata makes seeking safe.
                     const el = videoRef.current;
                     if (el && el.videoWidth > 0 && el.videoHeight > 0) setIntrinsicSize({ width: el.videoWidth, height: el.videoHeight });
-                    if (el && clipOffset > 0 && el.currentTime < clipOffset) {
+                    const resume = resumeRef.current;
+                    resumeRef.current = null;
+                    if (el && resume && resume.time > 0) {
+                      el.currentTime = resume.time;
+                      if (resume.playing) void el.play().catch(() => undefined);
+                    } else if (el && clipOffset > 0 && el.currentTime < clipOffset) {
                       el.currentTime = clipOffset;
                     }
-                    if (el) setVideoCurrentTime(el.currentTime);
+                    if (el) clock.set(el.currentTime);
                   }}
                   onClick={() => {
                     const el = videoRef.current;
@@ -516,30 +604,28 @@ function ClipReviewReady({
                     else el.pause();
                   }}
                   aria-label={`Clip ${clip.play_number ?? clip.id} video`}
+                  preload="auto"
                   className="absolute inset-0 block h-full w-full cursor-pointer object-contain"
                 />
-                {overlayPayload && (
-                  <OverlayCanvas
-                    tracklets={overlayPayload.tracklets}
-                    events={overlayPayload.events}
-                    currentTimeSeconds={trackTime}
-                    eventCurrentTimeSeconds={clipLocalTime}
-                    sourceStartTimeSeconds={sourceStartTime}
-                    fps={fps}
-                    videoWidth={video.width ?? intrinsicSize?.width ?? null}
-                    videoHeight={video.height ?? intrinsicSize?.height ?? null}
-                    activeLayers={overlayLayersForCanvas}
-                    playerNamesById={playerNamesById}
-                    metricTextByTrackletId={metricTextByTrackletId}
-                    selectedTrackletId={selection?.trackletId ?? null}
-                    onSelectTracklet={selectTracklet}
-                    showTrails={showTrails}
-                  />
-                )}
-                <div className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between gap-2 bg-gradient-to-b from-black/65 to-transparent px-4 pb-8 pt-3 text-[0.65rem] font-semibold uppercase tracking-wider text-white/85">
-                  <span className="inline-flex items-center gap-2 rounded-md border border-white/15 bg-black/35 px-2 py-1"><span className={cn("size-1.5 rounded-full", visibleTracks.length && !activeLayers.has("raw") ? "bg-emerald-400" : "bg-white/45")} />{activeLayers.has("raw") ? "Original recording" : overlayState.kind === "loading" ? "Loading tracking" : visibleTracks.length ? `${visibleTracks.length} tracks in frame` : "No player boxes at this frame"}</span>
-                  <span className="rounded-md border border-white/15 bg-black/35 px-2 py-1 font-mono normal-case">{clipLocalTime.toFixed(2)} / {clipDuration.toFixed(2)}s</span>
-                </div>
+                <FrameOverlay
+                  clock={clock}
+                  toLocal={toLocal}
+                  trackTimeAt={trackTimeAt}
+                  overlayPayload={overlayPayload}
+                  overlayLoading={overlayState.kind === "loading"}
+                  fps={fps}
+                  sourceStartTime={sourceStartTime}
+                  clipDuration={clipDuration}
+                  videoWidth={video.width ?? intrinsicSize?.width ?? null}
+                  videoHeight={video.height ?? intrinsicSize?.height ?? null}
+                  activeLayers={overlayLayersForCanvas}
+                  rawOnly={activeLayers.has("raw")}
+                  playerNamesById={playerNamesById}
+                  metricTextByTrackletId={metricTextByTrackletId}
+                  selectedTrackletId={selection?.trackletId ?? null}
+                  onSelectTracklet={selectTracklet}
+                  showTrails={showTrails}
+                />
               </>
             ) : (
               <div className="p-6 text-center text-muted-foreground">
@@ -555,17 +641,21 @@ function ClipReviewReady({
 
           <div className="px-4 pb-4 pt-2">
           {playbackUrl && (
-            <VideoTransport
-              videoRef={videoRef}
-              fps={fps}
-              clipOffset={clipOffset}
-              duration={clipDuration}
-              currentLocalTime={clipLocalTime}
-              eventTimes={eventTimesSorted}
-              enforceBounds={!playbackUsesClipAsset}
-              onPrevClip={goPrevClip}
-              onNextClip={goNextClip}
-            />
+            <Timed clock={clock} everyMs={100}>
+              {(t) => (
+                <VideoTransport
+                  videoRef={videoRef}
+                  fps={fps}
+                  clipOffset={clipOffset}
+                  duration={clipDuration}
+                  currentLocalTime={toLocal(t)}
+                  eventTimes={eventTimesSorted}
+                  enforceBounds={!playbackUsesClipAsset}
+                  onPrevClip={goPrevClip}
+                  onNextClip={goNextClip}
+                />
+              )}
+            </Timed>
           )}
           {playbackError && <div role="alert" className="mt-2 text-sm text-status-danger">{playbackError}<Button size="sm" variant="outline" className="ml-2" onClick={onRefresh}>Refresh playback</Button></div>}
 
@@ -578,37 +668,105 @@ function ClipReviewReady({
           />
 
           {playbackUrl && (
-            <EventTimeline
-              events={eventsForTimeline}
-              clipDuration={clipDuration}
-              currentTime={clipLocalTime}
-              onSeek={seekToLocal}
-            />
+            <Timed clock={clock} everyMs={250}>
+              {(t) => (
+                <EventTimeline
+                  events={eventsForTimeline}
+                  clipDuration={clipDuration}
+                  currentTime={toLocal(t)}
+                  onSeek={seekToLocal}
+                />
+              )}
+            </Timed>
           )}
 
           {calibration && calibration.analytics_safe === false && calibrationDismissedFor !== clip.id ? <CalibrationBanner reason={calibration.reason} onDismiss={dismissCalibrationBanner} /> : null}
           {overlayPayload && (overlayPayload.warnings?.length ?? 0) > 0 ? <div role="status" className="mt-3 rounded-lg border border-status-warn/30 bg-status-warn/5 p-3 text-xs"><p className="font-semibold text-status-warn">Analysis availability</p>{overlayPayload.warnings?.map((warning) => <p key={warning} className="mt-1 text-muted-foreground">{warning}</p>)}</div> : null}
 
           {overlayPayload && activeLayers.has("field") && !activeLayers.has("raw") && (
-            <FieldMinimap
-              tracklets={overlayPayload.tracklets}
-              currentFrame={Math.round(trackTime * fps)}
-              currentTimeSeconds={trackTime}
-              fps={fps}
-              calibration={overlayPayload.calibration ?? null}
-              playerNamesById={playerNamesById}
-            />
+            <Timed clock={clock} everyMs={66}>
+              {(t) => (
+                <FieldMinimap
+                  tracklets={overlayPayload.tracklets}
+                  currentFrame={Math.round(trackTimeAt(toLocal(t)) * fps)}
+                  currentTimeSeconds={trackTimeAt(toLocal(t))}
+                  fps={fps}
+                  calibration={overlayPayload.calibration ?? null}
+                  playerNamesById={playerNamesById}
+                />
+              )}
+            </Timed>
           )}
           </div>
-          <PlayQueue clips={siblingClips} currentClipId={clip.id} />
         </CardContent>
       </Card>
 
-      <div className="flex min-w-0 flex-col gap-4">
-      <TrackingInspector tracklets={overlayPayload?.tracklets ?? []} playerNamesById={playerNamesById} selectedTrackletId={selection?.trackletId ?? null} currentTimeSeconds={trackTime} fps={fps} onSelect={selectTracklet} onClear={() => setSelection(null)} loading={overlayState.kind === "loading"} />
-      <Card className="gap-0 border-border-soft py-4 shadow-none">
-        <CardContent className="px-4">
-          <h3 className="text-sm font-semibold">Play details</h3>
+      <aside
+        aria-label="Play review tools"
+        className="flex min-w-0 flex-col gap-3 lg:sticky lg:top-20 lg:max-h-[calc(100vh-6rem)]"
+      >
+        <div role="tablist" aria-label="Review panels" className="grid grid-cols-4 gap-1 rounded-lg border border-border-soft bg-secondary/40 p-1">
+          {SIDE_TABS.map((tab) => (
+            <button
+              key={tab.key}
+              type="button"
+              role="tab"
+              aria-selected={sideTab === tab.key}
+              onClick={() => setSideTab(tab.key)}
+              className={cn(
+                "min-h-8 rounded-md px-2 text-xs font-semibold transition-colors",
+                sideTab === tab.key
+                  ? "bg-gradient-to-b from-primary to-gold-strong text-primary-foreground"
+                  : "text-muted-foreground hover:bg-accent hover:text-foreground",
+              )}
+            >
+              {tab.label}
+              {tab.key === "plays" && sequence.length ? <span className="ml-1 font-mono font-normal opacity-80">{sequence.length}</span> : null}
+            </button>
+          ))}
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto pr-0.5">
+        {sideTab === "tag" && (
+          <Card className="gap-0 border-border-soft py-4 shadow-none">
+            <CardContent className="px-4">
+          <ReviewMetadataPanel key={`${clip.id}-${clip.annotation_revision ?? 0}`} clip={clip} onSaved={onRefresh} onNext={goNextClip} />
+
+              <Timed clock={clock} everyMs={500}>
+                {(t) => (
+                  <CorrectionsPanel
+                    key={clip.id}
+                    clipId={clip.id}
+                    tracklets={overlayPayload?.tracklets ?? EMPTY_TRACKLETS}
+                    selection={selection}
+                    annotationRevision={clip.annotation_revision}
+                    clipBounds={clipBounds}
+                    onSaved={onRefresh}
+                    currentTimeSeconds={toLocal(t)}
+                  />
+                )}
+              </Timed>
+              <CorrectionHistory clipId={clip.id} annotationRevision={clip.annotation_revision} />
+              <OverlaySummary
+                overlayState={overlayState}
+                showMetrics={activeLayers.has("metrics") && !activeLayers.has("raw")}
+                showLabels={activeLayers.has("labels") && !activeLayers.has("raw")}
+              />
+
+            </CardContent>
+          </Card>
+        )}
+        {sideTab === "plays" && (
+          <PlayQueue clips={siblingClips} currentClipId={clip.id} playlist={playlistIndex >= 0 ? playlist : null} playlistParam={playlistParam} />
+        )}
+        {sideTab === "players" && (
+          <Timed clock={clock} everyMs={250}>
+            {(t) => <TrackingInspector tracklets={overlayPayload?.tracklets ?? []} playerNamesById={playerNamesById} selectedTrackletId={selection?.trackletId ?? null} currentTimeSeconds={trackTimeAt(toLocal(t))} fps={fps} onSelect={inspectTracklet} onClear={clearSelection} loading={overlayState.kind === "loading"} />}
+          </Timed>
+        )}
+        {sideTab === "details" && (
+          <Card className="gap-0 border-border-soft py-4 shadow-none">
+            <CardContent className="px-4">
+              <h3 className="text-sm font-semibold">Play details</h3>
           <div className="mt-3 flex flex-col gap-1.5">
             <StatLine label="Video" value={video.filename} />
             <StatLine label="Video status" value={video.status} />
@@ -647,25 +805,6 @@ function ClipReviewReady({
             )}
           </div>
 
-          <OverlaySummary
-            overlayState={overlayState}
-            showMetrics={activeLayers.has("metrics") && !activeLayers.has("raw")}
-            showLabels={activeLayers.has("labels") && !activeLayers.has("raw")}
-          />
-
-          <ReviewMetadataPanel key={`${clip.id}-${clip.annotation_revision ?? 0}`} clip={clip} onSaved={onRefresh} onNext={goNextClip} />
-
-          <CorrectionsPanel
-            key={clip.id}
-            clipId={clip.id}
-            tracklets={overlayPayload?.tracklets ?? []}
-            selection={selection}
-            annotationRevision={clip.annotation_revision}
-            clipBounds={{ start: clip.start_time, end: clip.end_time, duration: video.duration_seconds ?? null }}
-            onSaved={onRefresh}
-            currentTimeSeconds={clipLocalTime}
-          />
-          <CorrectionHistory clipId={clip.id} annotationRevision={clip.annotation_revision} />
 
           {showTechnicalDetails && (
             <details className="mt-4">
@@ -677,16 +816,26 @@ function ClipReviewReady({
               </p>
             </details>
           )}
-        </CardContent>
-      </Card>
-      </div>
+            </CardContent>
+          </Card>
+        )}
+        </div>
+      </aside>
       </div>
     </div>
   );
 }
 
+const SIDE_TABS = [
+  { key: "tag", label: "Tag" },
+  { key: "plays", label: "Plays" },
+  { key: "players", label: "Players" },
+  { key: "details", label: "Details" },
+] as const;
+type SideTab = (typeof SIDE_TABS)[number]["key"];
+
 /** Sideline | End zone toggle between the camera angles of one play. */
-function AngleSwitch({
+const AngleSwitch = memo(function AngleSwitch({
   clip,
   siblings,
   playlist,
@@ -716,18 +865,41 @@ function AngleSwitch({
       return <Link key={angle.id} href={`/clip-review/?${params.toString()}`} aria-current={active ? "true" : undefined} className={cn("px-2.5 py-1 transition-colors", active ? "bg-primary text-primary-foreground" : "hover:bg-accent/50")}>{viewLabel(view)}</Link>;
     })}
   </div>;
-}
+});
 
-function PlayQueue({ clips, currentClipId }: { clips: ApiClip[]; currentClipId: string }) {
-  if (clips.length < 2) return null;
-  return <nav aria-label="Plays in this recording" className="border-t border-border-soft bg-secondary/20 p-4">
-    <div className="mb-3 flex items-center justify-between gap-2"><h3 className="flex items-center gap-2 text-xs font-semibold"><Film className="size-3.5 text-primary" /> Play sequence</h3><span className="text-[0.65rem] text-muted-foreground">{clips.length} plays · [ / ] to navigate</span></div>
-    <div className="flex gap-2 overflow-x-auto pb-1">{clips.map((item) => <Link key={item.id} href={`/clip-review/?clipId=${encodeURIComponent(item.id)}`} aria-current={item.id === currentClipId ? "page" : undefined} className={cn("min-w-28 shrink-0 rounded-lg border px-3 py-2.5 transition-colors", item.id === currentClipId ? "border-primary/60 bg-primary/10" : "border-border-soft bg-background/40 hover:border-border hover:bg-accent/40")}>
-      <div className="flex items-center justify-between gap-3"><span className={cn("text-xs font-semibold", item.id === currentClipId && "text-primary")}>Play {item.play_number ?? clips.indexOf(item) + 1}{clipView(item) ? <span className="ml-1 font-normal text-muted-foreground">· {viewLabel(clipView(item)!)}</span> : null}</span>{item.is_reviewed ? <Check aria-label="Reviewed" className="size-3 text-status-ok" /> : <span className="size-1.5 rounded-full bg-muted-foreground/40" />}</div>
-      <p className="mt-2 font-mono text-[0.65rem] text-muted-foreground">{situationLabel(item) ?? `${item.start_time.toFixed(1)}–${item.end_time.toFixed(1)}s`}</p>
-    </Link>)}</div>
+const PlayQueue = memo(function PlayQueue({
+  clips,
+  currentClipId,
+  playlist,
+  playlistParam,
+}: {
+  clips: ApiClip[];
+  currentClipId: string;
+  playlist: string[] | null;
+  playlistParam: string;
+}) {
+  const currentRef = useRef<HTMLAnchorElement | null>(null);
+  useEffect(() => {
+    currentRef.current?.scrollIntoView({ block: "nearest" });
+  }, [currentClipId]);
+  const byId = useMemo(() => new Map(clips.map((item) => [item.id, item])), [clips]);
+  const items = playlist ? playlist.map((id) => byId.get(id)).filter((item): item is ApiClip => Boolean(item)) : clips;
+  if (items.length < 2) {
+    return <p className="rounded-lg border border-dashed border-border-soft p-4 text-xs text-muted-foreground">This is the only play in this recording.</p>;
+  }
+  return <nav aria-label="Plays in this recording" className="rounded-lg border border-border-soft bg-secondary/20 p-3">
+    <div className="mb-2 flex items-center justify-between gap-2"><h3 className="flex items-center gap-2 text-xs font-semibold"><Film className="size-3.5 text-primary" /> {playlist ? "Playlist" : "Play sequence"}</h3><span className="text-[0.65rem] text-muted-foreground">{items.length} plays · [ / ] keys</span></div>
+    <ol className="flex flex-col gap-1">{items.map((item, index) => {
+      const current = item.id === currentClipId;
+      const params = new URLSearchParams({ clipId: item.id });
+      if (playlist) params.set("playlist", playlistParam);
+      return <li key={item.id}><Link ref={current ? currentRef : undefined} href={`/clip-review/?${params.toString()}`} aria-current={current ? "page" : undefined} className={cn("flex items-center justify-between gap-2 rounded-md border px-2.5 py-2 transition-colors", current ? "border-primary/60 bg-primary/10" : "border-transparent hover:border-border-soft hover:bg-accent/40")}>
+        <span className="min-w-0"><span className={cn("block text-xs font-semibold", current && "text-primary")}>Play {item.play_number ?? index + 1}{clipView(item) ? <span className="ml-1 font-normal text-muted-foreground">· {viewLabel(clipView(item)!)}</span> : null}</span><span className="mt-0.5 block truncate font-mono text-[0.65rem] text-muted-foreground">{situationLabel(item) ?? `${item.start_time.toFixed(1)}–${item.end_time.toFixed(1)}s`}</span></span>
+        {item.is_reviewed ? <Check aria-label="Reviewed" className="size-3.5 shrink-0 text-status-ok" /> : <span className="size-1.5 shrink-0 rounded-full bg-muted-foreground/40" />}
+      </Link></li>;
+    })}</ol>
   </nav>;
-}
+});
 
 function TrackingInspector({ tracklets, playerNamesById, selectedTrackletId, currentTimeSeconds, fps, onSelect, onClear, loading }: {
   tracklets: OverlayTracklet[];
@@ -1131,4 +1303,166 @@ function summarizeMetricValue(value: Record<string, unknown>): string {
   if ("value" in value) return String(value.value);
   const entries = Object.entries(value).slice(0, 2);
   return entries.map(([k, v]) => `${k}=${String(v)}`).join(", ");
+}
+
+
+const EMPTY_TRACKLETS: OverlayTracklet[] = [];
+
+/** Render-prop subscriber: re-renders only its children, at most every ``everyMs``. */
+function Timed({
+  clock,
+  everyMs,
+  children,
+}: {
+  clock: MediaClock;
+  everyMs: number;
+  children: (elementTime: number) => ReactNode;
+}) {
+  const time = useThrottledMediaTime(clock, everyMs);
+  return <>{children(time)}</>;
+}
+
+/**
+ * The per-frame layer: overlay boxes and the in-frame status. The only part
+ * of the page that re-renders on every video frame.
+ */
+const FrameOverlay = memo(function FrameOverlay({
+  clock,
+  toLocal,
+  trackTimeAt,
+  overlayPayload,
+  overlayLoading,
+  fps,
+  sourceStartTime,
+  clipDuration,
+  videoWidth,
+  videoHeight,
+  activeLayers,
+  rawOnly,
+  playerNamesById,
+  metricTextByTrackletId,
+  selectedTrackletId,
+  onSelectTracklet,
+  showTrails,
+}: {
+  clock: MediaClock;
+  toLocal: (elementTime: number) => number;
+  trackTimeAt: (localTime: number) => number;
+  overlayPayload: ClipOverlayPayload | null;
+  overlayLoading: boolean;
+  fps: number;
+  sourceStartTime: number;
+  clipDuration: number;
+  videoWidth: number | null;
+  videoHeight: number | null;
+  activeLayers: Set<OverlayLayerKey>;
+  rawOnly: boolean;
+  playerNamesById: ReadonlyMap<string, string>;
+  metricTextByTrackletId: ReadonlyMap<string, string>;
+  selectedTrackletId: string | null;
+  onSelectTracklet: (id: string) => void;
+  showTrails: boolean;
+}) {
+  const localTime = toLocal(useMediaTime(clock));
+  const trackTime = trackTimeAt(localTime);
+  const visibleCount = overlayPayload
+    ? overlayPayload.tracklets.reduce((count, track) => {
+        const index = activeTrackPointIndex(track, trackTime, fps);
+        return index >= 0 && track.track_points[index]?.bbox != null ? count + 1 : count;
+      }, 0)
+    : 0;
+  return (
+    <>
+      {overlayPayload && (
+        <OverlayCanvas
+          tracklets={overlayPayload.tracklets}
+          events={overlayPayload.events}
+          currentTimeSeconds={trackTime}
+          eventCurrentTimeSeconds={localTime}
+          sourceStartTimeSeconds={sourceStartTime}
+          fps={fps}
+          videoWidth={videoWidth}
+          videoHeight={videoHeight}
+          activeLayers={activeLayers}
+          playerNamesById={playerNamesById}
+          metricTextByTrackletId={metricTextByTrackletId}
+          selectedTrackletId={selectedTrackletId}
+          onSelectTracklet={onSelectTracklet}
+          showTrails={showTrails}
+        />
+      )}
+      <div className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between gap-2 bg-gradient-to-b from-black/65 to-transparent px-4 pb-8 pt-3 text-[0.65rem] font-semibold uppercase tracking-wider text-white/85">
+        <span className="inline-flex items-center gap-2 rounded-md border border-white/15 bg-black/35 px-2 py-1"><span className={cn("size-1.5 rounded-full", visibleCount && !rawOnly ? "bg-emerald-400" : "bg-white/45")} />{rawOnly ? "Original recording" : overlayLoading ? "Loading tracking" : visibleCount ? `${visibleCount} tracks in frame` : "No player boxes at this frame"}</span>
+        <span className="rounded-md border border-white/15 bg-black/35 px-2 py-1 font-mono normal-case">{localTime.toFixed(2)} / {clipDuration.toFixed(2)}s</span>
+      </div>
+    </>
+  );
+});
+
+/** True when the clip's stored media is the clean per-play playback proxy. */
+function isCleanProxy(clip: ApiClip): boolean {
+  const playback = (clip.provenance as { playback?: { kind?: unknown } } | null | undefined)?.playback;
+  return playback?.kind === "clean_clip";
+}
+
+/** The storage object a ready review is playing. */
+function playbackStorage(state: Extract<ReviewState, { kind: "ready" }>): { bucket: string; key: string } | null {
+  const target = state.playbackUsesClipAsset ? state.clip.storage_uri : state.video.storage_uri ?? state.clip.storage_uri;
+  return parseStorageUri(target ?? null);
+}
+
+/** Cheap change detector for the overlay poll (counts, not a deep compare). */
+function overlaySignature(payload: ClipOverlayPayload): string {
+  const points = payload.tracklets.reduce((total, track) => total + track.track_points.length, 0);
+  return [
+    payload.tracklets.length,
+    points,
+    payload.events.length,
+    payload.labels.length,
+    payload.metrics.length,
+    payload.calibration?.analytics_safe ?? "",
+    payload.tracklets.map((track) => `${track.player_id ?? ""}${track.team_label ?? ""}`).join(""),
+  ].join("|");
+}
+
+/** Sibling clips per recording, briefly cached so stepping plays is instant. */
+const siblingCache = new Map<string, { at: number; clips: ApiClip[] }>();
+async function siblingClipsFor(videoId: string, token?: string): Promise<ApiClip[]> {
+  const cached = siblingCache.get(videoId);
+  if (cached && Date.now() - cached.at < 60_000) return cached.clips;
+  const clips = [...(await fetchClipsForVideo(videoId, token))].sort((a, b) => a.start_time - b.start_time);
+  siblingCache.set(videoId, { at: Date.now(), clips });
+  return clips;
+}
+
+/** Start downloading the next play's proxy so prev/next feels instant. */
+function usePreloadClip(clipId: string | null, token?: string) {
+  useEffect(() => {
+    if (!clipId) return;
+    let cancelled = false;
+    let element: HTMLVideoElement | null = null;
+    const timer = window.setTimeout(async () => {
+      try {
+        const next = await fetchClip(clipId, token);
+        const storage = parseStorageUri(next.storage_uri);
+        if (cancelled || !storage || storage.bucket !== "clips" || !isCleanProxy(next)) return;
+        const url = await fetchVideoDownloadUrl(storage.bucket, storage.key, token);
+        if (cancelled || !url) return;
+        element = document.createElement("video");
+        element.preload = "auto";
+        element.muted = true;
+        element.src = url;
+      } catch {
+        // Preloading is an optimisation only.
+      }
+    }, 1500);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+      if (element) {
+        element.removeAttribute("src");
+        element.load();
+      }
+    };
+  }, [clipId, token]);
 }

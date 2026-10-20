@@ -1,5 +1,6 @@
 "use client";
 
+import { isBackgroundRefreshPaused } from "./background-refresh";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { footballData } from "./mock-data";
 import { emptyFootballData } from "./empty-data";
@@ -345,7 +346,8 @@ export function AppStateProvider({
     setApiStatus("loading");
     void refreshData();
     const interval = window.setInterval(() => {
-      if (document.visibilityState !== "hidden") void refreshData();
+      // Never refresh under a playing video: see lib/background-refresh.
+      if (document.visibilityState !== "hidden" && !isBackgroundRefreshPaused()) void refreshData();
     }, 5000);
     const onFocus = () => void refreshData();
     window.addEventListener("focus", onFocus);

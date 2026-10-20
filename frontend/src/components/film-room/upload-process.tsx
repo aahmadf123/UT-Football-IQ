@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { Upload } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { PreliminaryBadge } from "@/components/clip-state-badge";
@@ -205,11 +206,16 @@ export function UploadProcessFilm({ onUploadClick }: { onUploadClick: () => void
         </Card>
       )}
 
+      <PipelineJobsCard />
+
       <Card>
         <CardHeader>
           <h2 className="font-display text-base font-semibold uppercase tracking-wide">
-            Film &amp; processing status
+            Your film
           </h2>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            Every upload, newest first. Processed film opens straight into its plays.
+          </p>
         </CardHeader>
         <CardContent>
           <ProcessingList
@@ -225,8 +231,6 @@ export function UploadProcessFilm({ onUploadClick }: { onUploadClick: () => void
           />
         </CardContent>
       </Card>
-
-      <PipelineJobsCard />
     </div>
   );
 }
@@ -478,9 +482,15 @@ function ProcessingRow({
           </div>
         )}
       </div>
+      {badge.label === "Processed" && item.clip_count > 0 && (
+        <Button asChild size="sm" data-testid={`review-plays-${item.video_id}`}>
+          <Link href={`/film-room/?tab=review&videoId=${encodeURIComponent(item.video_id)}`}>Review plays</Link>
+        </Button>
+      )}
       {canProcess && (
         <Button
           size="sm"
+          variant={badge.label === "Processed" ? "outline" : "default"}
           data-testid={`process-film-${item.video_id}`}
           onClick={() => onProcess(item.video_id)}
           disabled={pending || processingUnavailable}

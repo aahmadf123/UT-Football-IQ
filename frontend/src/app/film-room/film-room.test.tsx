@@ -140,7 +140,7 @@ describe("FilmRoomPage", () => {
     await renderHub();
 
     const row = await screen.findByTestId("review-clip-c-1");
-    expect(row.getAttribute("href")).toBe("/clip-review/?clipId=c-1");
+    expect(row.getAttribute("href")).toBe("/clip-review/?clipId=c-1&from=%2Ffilm-room%2F%3Ftab%3Dreview%26videoId%3Dv-1");
     expect(row.textContent).toContain("Play #1");
     // Same-session result tier + review state surface as badges.
     expect(screen.getByTestId("preliminary-badge")).toBeTruthy();
