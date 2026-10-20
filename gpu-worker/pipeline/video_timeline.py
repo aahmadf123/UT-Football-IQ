@@ -141,7 +141,9 @@ def _probe(path: str, size: int, modified_ns: int) -> VideoTimeline:
         # duration follows decode order, so the final frame's is unknown and
         # the average frame interval stands in (one frame on a long film).
         packets = _ffprobe_json(path, "-show_entries", "packet=pts_time", timeout=600).get("packets", [])
-        raw = sorted(float(p["pts_time"]) for p in packets if p.get("pts_time") not in (None, "N/A"))
+        if any(p.get("pts_time") in (None, "N/A") for p in packets):
+            raise ValueError("Video has packets without usable presentation timestamps")
+        raw = sorted(float(p["pts_time"]) for p in packets)
         observed_tail = None
     else:
         frames = _ffprobe_json(
