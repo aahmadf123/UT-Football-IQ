@@ -74,6 +74,15 @@ describe("playback boundaries", () => {
     expect(element.cancelVideoFrameCallback).toHaveBeenCalled();
   });
 
+  test("frame steps use the live playhead instead of the throttled readout", () => {
+    const element = document.createElement("video");
+    element.currentTime = 10.8;
+    element.pause = vi.fn();
+    render(<VideoTransport videoRef={{ current: element }} fps={30} clipOffset={10} duration={3} currentLocalTime={0} eventTimes={[]} />);
+    fireEvent.click(screen.getByTestId("transport-frame-forward"));
+    expect(element.currentTime).toBeGreaterThan(10.7);
+  });
+
   test("Space on the shortcut summary opens help instead of toggling playback", () => {
     const element = document.createElement("video");
     element.play = vi.fn().mockResolvedValue(undefined);

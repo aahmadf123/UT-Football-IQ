@@ -3,7 +3,7 @@
 import { clipView, sameplayAngles, situationLabel, viewLabel } from "@/lib/clip-view";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Suspense, memo, useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from "react";
 import { ArrowLeft, Check, ChevronRight, Clapperboard, Crosshair, Film, Layers, Route, ScanLine, Users } from "lucide-react";
 import { AnalyticsCard } from "@/components/analytics-card";
 import { ClipStateBadges } from "@/components/clip-state-badge";
@@ -82,6 +82,7 @@ function useOverlayStyle(): [OverlayStyle, (style: OverlayStyle) => void] {
 // Phase CV pipeline targets 30fps; overlays sync to this by default so the
 // player→frame conversion is still meaningful before metadata is filled in.
 const DEFAULT_FPS = 30;
+const siblingCache = new Map<string, { at: number; clips: ApiClip[] }>();
 
 type ReviewState =
   | { kind: "loading" }
@@ -154,7 +155,12 @@ function ClipReviewView({ clipId }: { clipId: string }) {
   // to the other source once.
   const [sourceChoice, setSourceChoice] = useState<"auto" | "parent" | "clip">("auto");
   const [playbackError, setPlaybackError] = useState<string | null>(null);
-  const refresh = useCallback(() => setRevision((current) => current + 1), []);
+  const playbackResumeRef = useRef<{ time: number; playing: boolean } | null>(null);
+  const capturePlaybackStateRef = useRef<(() => void) | null>(null);
+  const refresh = useCallback(() => {
+    if (state.kind === "ready") siblingCache.delete(state.video.id);
+    setRevision((current) => current + 1);
+  }, [state]);
 
   useEffect(() => {
     let cancelled = false;
@@ -212,18 +218,34 @@ function ClipReviewView({ clipId }: { clipId: string }) {
     };
   }, [clipId, authToken, revision, sourceChoice]);
 
-  // Signed URLs last an hour: re-mint shortly before expiry so a long review
-  // session never breaks mid-play (the player resumes at the same moment).
+  // Re-mint before the URL's actual expiration; failed renewals retry at a
+  // bounded interval so long-running reviews continue working.
   const playbackTarget = state.kind === "ready" ? playbackStorage(state) : null;
   const targetBucket = playbackTarget?.bucket ?? null;
   const targetKey = playbackTarget?.key ?? null;
   useEffect(() => {
     if (!targetBucket || !targetKey) return;
-    const timer = window.setTimeout(async () => {
+    let cancelled = false;
+    let timer = 0;
+    const schedule = (delay: number) => {
+      timer = window.setTimeout(() => void renew(), delay);
+    };
+    const renew = async () => {
       const url = await fetchVideoDownloadUrl(targetBucket, targetKey, authToken, { fresh: true });
-      if (url) setState((current) => (current.kind === "ready" ? { ...current, playbackUrl: url } : current));
-    }, signedUrlRefreshDelay(targetBucket, targetKey));
-    return () => window.clearTimeout(timer);
+      if (cancelled) return;
+      if (url) {
+        capturePlaybackStateRef.current?.();
+        setState((current) => (current.kind === "ready" ? { ...current, playbackUrl: url } : current));
+        schedule(signedUrlRefreshDelay(targetBucket, targetKey));
+      } else {
+        schedule(60_000);
+      }
+    };
+    schedule(signedUrlRefreshDelay(targetBucket, targetKey));
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
   }, [targetBucket, targetKey, authToken]);
 
   // Overlay fetch is independent of the clip fetch — a clip with no overlays
@@ -251,6 +273,7 @@ function ClipReviewView({ clipId }: { clipId: string }) {
           kind: "error",
           message: friendlyMessage(err),
         });
+        signature = "";
       }
     };
     void load();
@@ -302,13 +325,15 @@ function ClipReviewView({ clipId }: { clipId: string }) {
     );
   }
 
-  return <ClipReviewReady state={state} overlayState={overlayState} siblingClips={siblingClips} onRefresh={refresh} playbackError={playbackError} onPlaybackError={() => {
+  return <ClipReviewReady state={state} overlayState={overlayState} siblingClips={siblingClips} onRefresh={refresh} playbackError={playbackError} playbackResumeRef={playbackResumeRef} capturePlaybackStateRef={capturePlaybackStateRef} onPlaybackError={() => {
     const clipPlayable = parseStorageUri(state.clip.storage_uri)?.bucket === "clips";
     const parentPlayable = Boolean(parseStorageUri(state.video.storage_uri));
-    if (state.playbackUsesClipAsset && parentPlayable && sourceChoice !== "parent") {
+    if (sourceChoice === "auto" && state.playbackUsesClipAsset && parentPlayable) {
+      capturePlaybackStateRef.current?.();
       setSourceChoice("parent");
       setPlaybackError(null);
-    } else if (!state.playbackUsesClipAsset && clipPlayable && sourceChoice !== "clip") {
+    } else if (sourceChoice === "auto" && !state.playbackUsesClipAsset && clipPlayable) {
+      capturePlaybackStateRef.current?.();
       setSourceChoice("clip");
       setPlaybackError(null);
     } else setPlaybackError("Playback failed. Refresh its link, or reprocess this recording to create a browser-compatible clean clip.");
@@ -321,6 +346,8 @@ function ClipReviewReady({
   siblingClips,
   onRefresh,
   playbackError,
+  playbackResumeRef,
+  capturePlaybackStateRef,
   onPlaybackError,
 }: {
   state: Extract<ReviewState, { kind: "ready" }>;
@@ -328,6 +355,8 @@ function ClipReviewReady({
   siblingClips: ApiClip[];
   onRefresh: () => void;
   playbackError: string | null;
+  playbackResumeRef: MutableRefObject<{ time: number; playing: boolean } | null>;
+  capturePlaybackStateRef: MutableRefObject<(() => void) | null>;
   onPlaybackError: () => void;
 }) {
   const router = useRouter();
@@ -360,6 +389,8 @@ function ClipReviewReady({
     : null;
   const sourceFps = overlayPayload?.source_fps ?? video.fps;
   const fps = sourceFps != null && sourceFps > 0 ? sourceFps : DEFAULT_FPS;
+  const proxyFps = Number((clip.provenance as { playback?: { proxy_fps?: unknown } } | null | undefined)?.playback?.proxy_fps);
+  const transportFps = playbackUsesClipAsset && proxyFps > 0 ? proxyFps : fps;
   const sourceStartTime = overlayPayload?.source_start_time_seconds ?? clip.start_time;
   const [showTrails, setShowTrails] = useState(true);
   const [overlayStyle, setOverlayStyle] = useOverlayStyle();
@@ -380,6 +411,20 @@ function ClipReviewReady({
   );
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const capturePlaybackState = useCallback(() => {
+    const el = videoRef.current;
+    if (el) playbackResumeRef.current = { time: toLocal(el.currentTime), playing: !el.paused };
+  }, [playbackResumeRef, toLocal]);
+  useEffect(() => {
+    capturePlaybackStateRef.current = capturePlaybackState;
+    return () => {
+      if (capturePlaybackStateRef.current === capturePlaybackState) capturePlaybackStateRef.current = null;
+    };
+  }, [capturePlaybackState, capturePlaybackStateRef]);
+  const getLiveLocalTime = useCallback(() => {
+    const el = videoRef.current;
+    return toLocal(el ? el.currentTime : clock.get());
+  }, [clock, toLocal]);
   const onTimeUpdate = useCallback(() => {
     const el = videoRef.current;
     if (el) clock.set(el.currentTime);
@@ -397,8 +442,7 @@ function ClipReviewReady({
   }, [playbackUrl, clock]);
 
   // No background polling while film plays; resume on pause, end or leave.
-  // A re-minted URL (expiry refresh) resumes at the same moment and state.
-  const resumeRef = useRef<{ time: number; playing: boolean } | null>(null);
+  // Keep refresh pausing wired to the mounted media element.
   useEffect(() => {
     const el = videoRef.current;
     if (!el) return;
@@ -409,7 +453,6 @@ function ClipReviewReady({
     el.addEventListener("pause", onStop);
     el.addEventListener("ended", onStop);
     return () => {
-      resumeRef.current = { time: el.currentTime, playing: !el.paused };
       el.removeEventListener("play", onPlay);
       el.removeEventListener("pause", onStop);
       el.removeEventListener("ended", onStop);
@@ -608,10 +651,10 @@ function ClipReviewReady({
                     // jump to the clip start once metadata makes seeking safe.
                     const el = videoRef.current;
                     if (el && el.videoWidth > 0 && el.videoHeight > 0) setIntrinsicSize({ width: el.videoWidth, height: el.videoHeight });
-                    const resume = resumeRef.current;
-                    resumeRef.current = null;
-                    if (el && resume && resume.time > 0) {
-                      el.currentTime = resume.time;
+                    const resume = playbackResumeRef.current;
+                    playbackResumeRef.current = null;
+                    if (el && resume) {
+                      el.currentTime = clipOffset + Math.min(Math.max(resume.time, 0), Math.max(clipDuration - 0.01, 0));
                       if (resume.playing) void el.play().catch(() => undefined);
                     } else if (el && clipOffset > 0 && el.currentTime < clipOffset) {
                       el.currentTime = clipOffset;
@@ -670,7 +713,7 @@ function ClipReviewReady({
               {(t) => (
                 <VideoTransport
                   videoRef={videoRef}
-                  fps={fps}
+                  fps={transportFps}
                   clipOffset={clipOffset}
                   duration={clipDuration}
                   currentLocalTime={toLocal(t)}
@@ -753,7 +796,7 @@ function ClipReviewReady({
           ))}
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto pr-0.5">
-        {sideTab === "tag" && (
+        <div hidden={sideTab !== "tag"}>
           <Card className="gap-0 border-border-soft py-4 shadow-none">
             <CardContent className="px-4">
           <ReviewMetadataPanel key={`${clip.id}-${clip.annotation_revision ?? 0}`} clip={clip} onSaved={onRefresh} onNext={goNextClip} />
@@ -769,6 +812,7 @@ function ClipReviewReady({
                     clipBounds={clipBounds}
                     onSaved={onRefresh}
                     currentTimeSeconds={toLocal(t)}
+                    getCurrentTimeSeconds={getLiveLocalTime}
                   />
                 )}
               </Timed>
@@ -781,7 +825,7 @@ function ClipReviewReady({
 
             </CardContent>
           </Card>
-        )}
+        </div>
         {sideTab === "plays" && (
           <PlayQueue clips={siblingClips} currentClipId={clip.id} playlist={playlistIndex >= 0 ? playlist : null} playlistParam={playlistParam} />
         )}
@@ -1464,22 +1508,12 @@ function playbackStorage(state: Extract<ReviewState, { kind: "ready" }>): { buck
   return parseStorageUri(target ?? null);
 }
 
-/** Cheap change detector for the overlay poll (counts, not a deep compare). */
+/** Compare all rendered overlay data so equal counts do not hide updates. */
 function overlaySignature(payload: ClipOverlayPayload): string {
-  const points = payload.tracklets.reduce((total, track) => total + track.track_points.length, 0);
-  return [
-    payload.tracklets.length,
-    points,
-    payload.events.length,
-    payload.labels.length,
-    payload.metrics.length,
-    payload.calibration?.analytics_safe ?? "",
-    payload.tracklets.map((track) => `${track.player_id ?? ""}${track.team_label ?? ""}`).join(""),
-  ].join("|");
+  return JSON.stringify(payload);
 }
 
 /** Sibling clips per recording, briefly cached so stepping plays is instant. */
-const siblingCache = new Map<string, { at: number; clips: ApiClip[] }>();
 async function siblingClipsFor(videoId: string, token?: string): Promise<ApiClip[]> {
   const cached = siblingCache.get(videoId);
   if (cached && Date.now() - cached.at < 60_000) return cached.clips;
