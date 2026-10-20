@@ -291,6 +291,12 @@ async def game_summary(
     video = await db.get(Video, video_id)
     if video is None:
         raise HTTPException(404, "Film not found")
+    return await build_game_summary(db, video)
+
+
+async def build_game_summary(db: AsyncSession, video: Video) -> GameSummary:
+    """The game breakdown for ``video`` (also used by the team dashboard)."""
+    video_id = video.id
     clips = list((await db.execute(select(Clip).where(Clip.video_id == video_id))).scalars())
     film_plays = len({c.play_number for c in clips if c.play_number is not None})
     linked = _play_clips(clips)
