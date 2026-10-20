@@ -48,6 +48,12 @@ class _StreamingEncoder:
             "veryfast",
             "-crf",
             "23",
+            # A keyframe every second: the x264 default (250 frames, ~8 s at
+            # 30 fps) made scrubbing and frame-stepping in review wait.
+            "-g",
+            str(max(1, round(fps))),
+            "-keyint_min",
+            str(max(1, round(fps))),
             "-threads",
             str(configure_cpu_threads()),
             "-pix_fmt",

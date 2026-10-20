@@ -1449,17 +1449,65 @@ async function _fetchVideoDownloadUrlFrom(
  * Fetch a signed download/streaming URL for an object-store-backed video object.
  * The returned URL can be used directly as a `<video src>`.
  */
+/** Reuse signed URLs only until shortly before their actual expiration. */
+const SIGNED_URL_REFRESH_AHEAD_MS = 60 * 1000;
+const SIGNED_URL_RETRY_MS = 60 * 1000;
+const signedUrlCache = new Map<string, { url: string; expiresAt: number }>();
+
+function signedUrlExpiresAt(value: string): number | null {
+  try {
+    const url = new URL(value, typeof window === "undefined" ? "http://localhost" : window.location.origin);
+    const localExpiry = Number(url.searchParams.get("exp"));
+    if (Number.isFinite(localExpiry) && localExpiry > 0) return localExpiry * 1000;
+
+    const date = url.searchParams.get("X-Amz-Date");
+    const lifetime = Number(url.searchParams.get("X-Amz-Expires"));
+    const match = date?.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/);
+    if (!match || !Number.isFinite(lifetime) || lifetime <= 0) return null;
+    const issuedAt = Date.UTC(
+      Number(match[1]), Number(match[2]) - 1, Number(match[3]),
+      Number(match[4]), Number(match[5]), Number(match[6]),
+    );
+    return issuedAt + lifetime * 1000;
+  } catch {
+    return null;
+  }
+}
+
+function signedUrlRefreshAhead(expiresAt: number, now: number): number {
+  return Math.min(SIGNED_URL_REFRESH_AHEAD_MS, Math.max(0, (expiresAt - now) / 10));
+}
+
 export async function fetchVideoDownloadUrl(
   bucket: string,
   key: string,
   token?: string,
+  { fresh = false }: { fresh?: boolean } = {},
 ): Promise<string | null> {
+  const cacheKey = `${bucket}/${key}`;
+  const now = Date.now();
+  const cached = signedUrlCache.get(cacheKey);
+  if (!fresh && cached && now < cached.expiresAt - signedUrlRefreshAhead(cached.expiresAt, now)) return cached.url;
   const apiUrl = apiBase();
   try {
-    return await _fetchVideoDownloadUrlFrom(apiUrl, bucket, key, token);
+    const url = await _fetchVideoDownloadUrlFrom(apiUrl, bucket, key, token);
+    if (url) {
+      const expiresAt = signedUrlExpiresAt(url);
+      if (expiresAt != null && expiresAt > Date.now()) signedUrlCache.set(cacheKey, { url, expiresAt });
+      else signedUrlCache.delete(cacheKey);
+    }
+    return url;
   } catch {
     return null;
   }
+}
+
+/** Milliseconds until a URL from :func:`fetchVideoDownloadUrl` should be re-minted. */
+export function signedUrlRefreshDelay(bucket: string, key: string): number {
+  const cached = signedUrlCache.get(`${bucket}/${key}`);
+  if (!cached) return SIGNED_URL_RETRY_MS;
+  const now = Date.now();
+  return Math.max(0, cached.expiresAt - now - signedUrlRefreshAhead(cached.expiresAt, now));
 }
 
 // ── CFBD cached analytics (Issue #163) ──────────────────────────────────────

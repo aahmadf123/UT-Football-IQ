@@ -250,6 +250,18 @@ describe("CorrectionsPanel", () => {
     expect(JSON.parse(String(call?.[1]?.body))).toMatchObject({ correction_type: "event_tag", corrected_value: { event_type: "snap", timestamp_seconds: 2.5 } });
   });
 
+  test("manual play event uses the live playhead when submitted", async () => {
+    const fetchMock = installFetch({ ok: true, status: 201, body: { id: "cc-event" } });
+    const { CorrectionsPanel, AppStateProvider } = await importPanel();
+    render(<AppStateProvider><CorrectionsPanel clipId="c-1" tracklets={[]} currentTimeSeconds={2.5} getCurrentTimeSeconds={() => 4.75} /></AppStateProvider>);
+    fireEvent.click(screen.getByTestId("corrections-toggle"));
+    fireEvent.change(screen.getByLabelText(/What needs fixing/), { target: { value: "event_mark" } });
+    fireEvent.click(screen.getByTestId("correction-submit"));
+    await waitFor(() => expect(screen.getByTestId("correction-success")).toBeTruthy());
+    const call = fetchMock.mock.calls.find(([url]) => String(url).includes("/api/v1/corrections"));
+    expect(JSON.parse(String(call?.[1]?.body))).toMatchObject({ corrected_value: { timestamp_seconds: 4.75 } });
+  });
+
   test("failed POST surfaces the error inline", async () => {
     installFetch({ ok: false, status: 500, body: { detail: "boom" } });
 

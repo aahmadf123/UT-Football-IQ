@@ -107,6 +107,10 @@ export function VideoTransport({
   const [loop, setLoop] = useState(false);
   const [muted, setMuted] = useState(false);
   const [fullscreenAvailable, setFullscreenAvailable] = useState(false);
+  const readLocalTime = useCallback(() => {
+    const el = videoRef.current;
+    return el ? Math.max(0, el.currentTime - clipOffset) : currentLocalTime;
+  }, [videoRef, clipOffset, currentLocalTime]);
 
   // Mirror the element's play state (it can change from anywhere).
   useEffect(() => {
@@ -184,9 +188,9 @@ export function VideoTransport({
       const el = videoRef.current;
       if (!el) return;
       el.pause();
-      seekLocal(frameStepTarget(currentLocalTime, fps, delta));
+      seekLocal(frameStepTarget(readLocalTime(), fps, delta));
     },
-    [videoRef, seekLocal, currentLocalTime, fps],
+    [videoRef, seekLocal, readLocalTime, fps],
   );
 
   const applyRate = useCallback(
@@ -213,14 +217,15 @@ export function VideoTransport({
   const jumpEvent = useCallback(
     (direction: 1 | -1) => {
       if (eventTimes.length === 0) return;
+      const localTime = readLocalTime();
       // Small epsilon so repeated presses don't get stuck on the same event.
       const next =
         direction === 1
-          ? eventTimes.find((t) => t > currentLocalTime + 0.05)
-          : [...eventTimes].reverse().find((t) => t < currentLocalTime - 0.05);
+          ? eventTimes.find((t) => t > localTime + 0.05)
+          : [...eventTimes].reverse().find((t) => t < localTime - 0.05);
       if (next != null) seekLocal(next);
     },
-    [eventTimes, currentLocalTime, seekLocal],
+    [eventTimes, readLocalTime, seekLocal],
   );
 
   useEffect(() => {
@@ -246,12 +251,12 @@ export function VideoTransport({
           break;
         case "ArrowLeft":
           e.preventDefault();
-          if (e.shiftKey) seekLocal(currentLocalTime - 1);
+          if (e.shiftKey) seekLocal(readLocalTime() - 1);
           else stepFrame(-1);
           break;
         case "ArrowRight":
           e.preventDefault();
-          if (e.shiftKey) seekLocal(currentLocalTime + 1);
+          if (e.shiftKey) seekLocal(readLocalTime() + 1);
           else stepFrame(1);
           break;
         case ",":
@@ -290,7 +295,7 @@ export function VideoTransport({
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [togglePlay, shuttle, stepFrame, seekLocal, jumpEvent, currentLocalTime, duration, onPrevClip, onNextClip]);
+  }, [togglePlay, shuttle, stepFrame, seekLocal, jumpEvent, readLocalTime, duration, onPrevClip, onNextClip]);
 
   const frame = Math.floor(currentLocalTime * fps);
 

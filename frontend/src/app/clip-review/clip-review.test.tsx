@@ -26,6 +26,28 @@ afterEach(() => {
   vi.resetModules();
 });
 
+test("clean proxy transport steps at proxy fps while overlays use source fps", async () => {
+  installFetchRoutes([
+    { url: "/api/v1/videos/download-url", body: { downloadUrl: "https://dl.test/proxy" } },
+    { url: "/api/v1/clips/c-1/overlays", body: { ...EMPTY_OVERLAYS, source_fps: 60 } },
+    { url: "/api/v1/clips/c-1", body: { ...SAMPLE_CLIP, provenance: { playback: { kind: "clean_clip", proxy_fps: 30 } } } },
+    { url: "/api/v1/videos/v-1", body: { ...SAMPLE_VIDEO, fps: 60 } },
+    { url: "/api/v1/videos/v-1/clips", body: [SAMPLE_CLIP] },
+    { url: "/api/v1/players", body: [] },
+    { url: "/api/v1/inbox/status", body: [] },
+    { url: "/api/v1/videos", body: [] },
+    { url: "/api/v1/jobs", body: [] },
+    { url: "/api/v1/self-scout/tendencies", body: { pre_snap_tells: [] } },
+  ]);
+  const { ClipReviewPage, AppStateProvider } = await importPage();
+  render(<AppStateProvider><ClipReviewPage /></AppStateProvider>);
+  await screen.findByTestId("video-transport");
+
+  const player = document.querySelector("video")!;
+  fireEvent.click(screen.getByTestId("transport-frame-forward"));
+  expect(player.currentTime).toBe(0.05);
+});
+
 beforeEach(() => {
   vi.stubEnv("NEXT_PUBLIC_USE_MOCKS", "");
   vi.stubEnv("NEXT_PUBLIC_API_URL", "https://api.test");
@@ -336,6 +358,7 @@ describe("ClipReviewPage overlays", () => {
     expect(screen.queryByTestId("event-marker-outside-clip")).toBeNull();
     fireEvent.click(screen.getByTestId("event-marker-manual-event"));
     expect(player.currentTime).toBe(12);
+    fireEvent.click(screen.getByRole("tab", { name: "Players" }));
     fireEvent.click(screen.getByRole("button", { name: "Inspect track T1" }));
     expect(screen.getByTestId("selected-player-inspector").textContent).toContain("94%");
     fireEvent.keyDown(screen.getByTestId("event-timeline"), { key: "Home" });
@@ -402,7 +425,7 @@ describe("ClipReviewPage overlays", () => {
     fireEvent.click(screen.getByTestId("event-marker-e-1"));
     expect(video.currentTime).toBeCloseTo(SAMPLE_CLIP.start_time + 0.5, 3);
     fireEvent.timeUpdate(video);
-    expect(screen.getByTestId("transport-readout").textContent).toContain("0.50s");
+    await waitFor(() => expect(screen.getByTestId("transport-readout").textContent).toContain("0.50s"));
 
     // Frame stepping moves one frame at the video's own fps (30).
     fireEvent.click(screen.getByTestId("transport-frame-forward"));
@@ -422,6 +445,34 @@ describe("ClipReviewPage overlays", () => {
     routerPush.mockClear();
     fireEvent.keyDown(document, { key: "]" });
     expect(routerPush).toHaveBeenCalledWith("/clip-review/?clipId=c-2");
+  });
+
+  test("playback reports an error after both sources fail instead of alternating", async () => {
+    const fetchMock = installFetchRoutes([
+      { url: "/api/v1/videos/download-url", body: { downloadUrl: "https://dl.test/x" } },
+      { url: "/api/v1/clips/c-1/overlays", body: EMPTY_OVERLAYS },
+      { url: "/api/v1/clips/c-1", body: { ...SAMPLE_CLIP, provenance: { playback: { kind: "clean_clip" } } } },
+      { url: "/api/v1/videos/v-1", body: SAMPLE_VIDEO },
+      { url: "/api/v1/videos/v-1/clips", body: [SAMPLE_CLIP] },
+      { url: "/api/v1/players", body: [] },
+      { url: "/api/v1/inbox/status", body: [] },
+      { url: "/api/v1/videos", body: [] },
+      { url: "/api/v1/jobs", body: [] },
+      { url: "/api/v1/self-scout/tendencies", body: { pre_snap_tells: [] } },
+    ]);
+    const { ClipReviewPage, AppStateProvider } = await importPage();
+    render(<AppStateProvider><ClipReviewPage /></AppStateProvider>);
+
+    const player = await waitFor(() => {
+      const element = document.querySelector("video");
+      if (!element) throw new Error("video not loaded");
+      return element;
+    });
+    fireEvent.error(player);
+    await waitFor(() => expect(fetchMock.mock.calls.filter(([url]) => String(url).includes("videos/download-url"))).toHaveLength(2));
+    fireEvent.error(player);
+    expect((await screen.findByRole("alert")).textContent).toMatch(/Playback failed/);
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes("videos/download-url"))).toHaveLength(2);
   });
 
   test("clicking a player box prefills the corrections panel; field view is calibration-gated", async () => {
@@ -490,6 +541,10 @@ describe("ClipReviewPage overlays", () => {
     });
     const trackSelect = document.getElementById("correction-tracklet") as HTMLSelectElement;
     expect(trackSelect.value).toBe("t-1");
+    fireEvent.change(screen.getByLabelText("Correct team"), { target: { value: "home" } });
+    fireEvent.click(screen.getByRole("tab", { name: "Details" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Tag" }));
+    expect((screen.getByLabelText("Correct team") as HTMLSelectElement).value).toBe("home");
 
     // Field view is gated: uncalibrated footage explains itself instead of
     // plotting untrustworthy positions.
@@ -688,5 +743,88 @@ describe("ClipReviewPage overlays", () => {
     expect(
       (screen.getByTestId("overlay-toggle-tracks") as HTMLButtonElement).disabled,
     ).toBe(false);
+  });
+});
+
+describe("ClipReviewPage playback source", () => {
+  function routes(clip: Record<string, unknown>) {
+    return installFetchRoutes([
+      { url: "/api/v1/videos/download-url", body: { downloadUrl: "https://dl.test/x" } },
+      { url: "/api/v1/clips/c-1/overlays", body: EMPTY_OVERLAYS },
+      { url: "/api/v1/clips/c-1", body: clip },
+      { url: "/api/v1/videos/v-1/clips", body: [clip] },
+      { url: "/api/v1/videos/v-1", body: SAMPLE_VIDEO },
+      { url: "/api/v1/players", body: [] },
+      { url: "/api/v1/inbox/status", body: [] },
+      { url: "/api/v1/videos", body: [] },
+      { url: "/api/v1/jobs", body: [] },
+    ]);
+  }
+
+  function requestedBuckets(fetchMock: ReturnType<typeof vi.fn>): string[] {
+    return fetchMock.mock.calls
+      .map(([url]) => String(url))
+      .filter((url) => url.includes("videos/download-url"))
+      .map((url) => new URL(url).searchParams.get("bucket") ?? "");
+  }
+
+  test("plays the clean per-play proxy instead of the full recording", async () => {
+    const fetchMock = routes({ ...SAMPLE_CLIP, provenance: { playback: { kind: "clean_clip" } } });
+    const { ClipReviewPage, AppStateProvider } = await importPage();
+    render(
+      <AppStateProvider>
+        <ClipReviewPage />
+      </AppStateProvider>,
+    );
+    await screen.findByLabelText("Clip 7 video");
+    expect(requestedBuckets(fetchMock)[0]).toBe("clips");
+  });
+
+  test("falls back to the full recording when the proxy fails to play", async () => {
+    const fetchMock = routes({ ...SAMPLE_CLIP, provenance: { playback: { kind: "clean_clip" } } });
+    const { ClipReviewPage, AppStateProvider } = await importPage();
+    render(
+      <AppStateProvider>
+        <ClipReviewPage />
+      </AppStateProvider>,
+    );
+    fireEvent.error(await screen.findByLabelText("Clip 7 video"));
+    await waitFor(() => expect(requestedBuckets(fetchMock)).toEqual(["clips", "raw"]));
+  });
+
+  test("converts the saved clip-local playhead when falling back to the recording", async () => {
+    const fetchMock = routes({ ...SAMPLE_CLIP, provenance: { playback: { kind: "clean_clip" } } });
+    const { ClipReviewPage, AppStateProvider } = await importPage();
+    render(<AppStateProvider><ClipReviewPage /></AppStateProvider>);
+    const player = await screen.findByLabelText("Clip 7 video") as HTMLVideoElement;
+    player.currentTime = 2;
+    fireEvent.error(player);
+    await waitFor(() => expect(requestedBuckets(fetchMock)).toEqual(["clips", "raw"]));
+    fireEvent.loadedMetadata(player);
+    expect(player.currentTime).toBe(12);
+  });
+
+  test("converts the saved recording playhead when falling back to the clip", async () => {
+    const fetchMock = routes(SAMPLE_CLIP);
+    const { ClipReviewPage, AppStateProvider } = await importPage();
+    render(<AppStateProvider><ClipReviewPage /></AppStateProvider>);
+    const player = await screen.findByLabelText("Clip 7 video") as HTMLVideoElement;
+    player.currentTime = 12;
+    fireEvent.error(player);
+    await waitFor(() => expect(requestedBuckets(fetchMock)).toEqual(["raw", "clips"]));
+    fireEvent.loadedMetadata(player);
+    expect(player.currentTime).toBe(2);
+  });
+
+  test("keeps the full recording for rendered previews with burned-in overlays", async () => {
+    const fetchMock = routes(SAMPLE_CLIP);
+    const { ClipReviewPage, AppStateProvider } = await importPage();
+    render(
+      <AppStateProvider>
+        <ClipReviewPage />
+      </AppStateProvider>,
+    );
+    await screen.findByLabelText("Clip 7 video");
+    expect(requestedBuckets(fetchMock)[0]).toBe("raw");
   });
 });

@@ -66,6 +66,7 @@ interface Props {
   clipBounds?: { start: number; end: number; duration: number | null };
   onSaved?: () => void;
   currentTimeSeconds?: number;
+  getCurrentTimeSeconds?: () => number;
 }
 
 function Field({
@@ -89,7 +90,7 @@ function Field({
   );
 }
 
-export function CorrectionsPanel({ clipId, tracklets, selection, annotationRevision, clipBounds, onSaved, currentTimeSeconds = 0 }: Props) {
+export function CorrectionsPanel({ clipId, tracklets, selection, annotationRevision, clipBounds, onSaved, currentTimeSeconds = 0, getCurrentTimeSeconds }: Props) {
   const { authToken, currentRole, data, refreshData } = useAppState();
   const locked = !canSubmitCorrections(currentRole);
 
@@ -144,7 +145,7 @@ export function CorrectionsPanel({ clipId, tracklets, selection, annotationRevis
     setNote("");
   };
 
-  const buildPayload = (): CorrectionCreate | null => {
+  const buildPayload = (eventTimeNow = currentTimeSeconds): CorrectionCreate | null => {
     const trimmedNote = note.trim();
     switch (kind) {
       case "player_identity": {
@@ -219,7 +220,7 @@ export function CorrectionsPanel({ clipId, tracklets, selection, annotationRevis
         };
       }
       case "event_mark": {
-        const time = eventTime.trim() === "" ? currentTimeSeconds : Number(eventTime);
+        const time = eventTime.trim() === "" ? eventTimeNow : Number(eventTime);
         if (!Number.isFinite(time) || time < 0 || (clipBounds && time > clipBounds.end - clipBounds.start)) return null;
         return { clip_id: clipId, correction_type: "event_tag", corrected_value: { event_type: eventType, timestamp_seconds: time }, notes: trimmedNote || null };
       }
@@ -229,13 +230,14 @@ export function CorrectionsPanel({ clipId, tracklets, selection, annotationRevis
   const payload = buildPayload();
 
   const submit = async () => {
-    if (!payload || locked || submitting) return;
+    const submitPayload = buildPayload(getCurrentTimeSeconds?.() ?? currentTimeSeconds);
+    if (!submitPayload || locked || submitting) return;
     setSubmitting(true);
     setStatus({ kind: "idle" });
     try {
-      const fingerprint = JSON.stringify({ payload, annotationRevision });
+      const fingerprint = JSON.stringify({ payload: submitPayload, annotationRevision });
       if (operationRef.current?.fingerprint !== fingerprint) operationRef.current = { fingerprint, id: crypto.randomUUID() };
-      await createCorrection({ ...payload, expected_revision: annotationRevision, client_operation_id: operationRef.current.id }, authToken);
+      await createCorrection({ ...submitPayload, expected_revision: annotationRevision, client_operation_id: operationRef.current.id }, authToken);
       setStatus({ kind: "sent" });
       toast.success("Correction saved", {
         description: "Applied to this play and available for the learning loop.",

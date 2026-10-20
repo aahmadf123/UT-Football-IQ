@@ -179,3 +179,11 @@ def test_streaming_encoder_interrupts_and_reaps_ffmpeg(
                     encoder.write(np.zeros((1024, 1024, 3), dtype=np.uint8))
 
     assert processes[0].poll() is not None
+
+
+def test_proxy_has_a_keyframe_every_second(tmp_path: Path) -> None:
+    from pipeline.playback_proxy import _StreamingEncoder
+
+    command = _StreamingEncoder(tmp_path / "clip.mp4", (224, 128), 30).command
+    assert command[command.index("-g") + 1] == "30"
+    assert command[command.index("-keyint_min") + 1] == "30"

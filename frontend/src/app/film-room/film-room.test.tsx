@@ -3,7 +3,7 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 
 // Mutable navigation state shared with the hoisted next/navigation mock so each
 // test can drive the active ?tab= value before rendering.
-const nav = vi.hoisted(() => ({ tab: "" }));
+const nav = vi.hoisted(() => ({ tab: "", sessionId: "" }));
 
 vi.mock("next/link", () => ({
   default: ({ children, ...rest }: React.ComponentProps<"a">) => (
@@ -17,7 +17,10 @@ vi.mock("next/image", () => ({
 
 vi.mock("next/navigation", () => ({
   usePathname: () => "/film-room",
-  useSearchParams: () => new URLSearchParams(nav.tab ? `tab=${nav.tab}` : ""),
+  useSearchParams: () => new URLSearchParams([
+    nav.tab ? `tab=${nav.tab}` : "",
+    nav.sessionId ? `sessionId=${nav.sessionId}` : "",
+  ].filter(Boolean).join("&")),
 }));
 
 afterEach(() => {
@@ -26,6 +29,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.resetModules();
   nav.tab = "";
+  nav.sessionId = "";
 });
 
 beforeEach(() => {
@@ -97,7 +101,7 @@ describe("FilmRoomPage", () => {
     });
   });
 
-  test("review tab lists a video's real clips linking to /clip-review", async () => {
+  test("review tab preserves session scope in the back link", async () => {
     vi.stubEnv("NEXT_PUBLIC_API_URL", "https://api.test");
     const respond = (body: unknown) =>
       ({
@@ -111,6 +115,7 @@ describe("FilmRoomPage", () => {
       filename: "practice.mp4",
       status: "ready",
       created_at: "2026-07-20T10:00:00Z",
+      practice_session_id: "session-1",
     };
     const clip = {
       id: "c-1",
@@ -137,10 +142,11 @@ describe("FilmRoomPage", () => {
       }),
     );
     nav.tab = "review";
+    nav.sessionId = "session-1";
     await renderHub();
 
     const row = await screen.findByTestId("review-clip-c-1");
-    expect(row.getAttribute("href")).toBe("/clip-review/?clipId=c-1");
+    expect(row.getAttribute("href")).toBe("/clip-review/?clipId=c-1&from=%2Ffilm-room%2F%3Ftab%3Dreview%26videoId%3Dv-1%26sessionId%3Dsession-1");
     expect(row.textContent).toContain("Play #1");
     // Same-session result tier + review state surface as badges.
     expect(screen.getByTestId("preliminary-badge")).toBeTruthy();

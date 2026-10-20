@@ -113,7 +113,7 @@ export function ReviewTab({ initialVideoId, sessionId }: { initialVideoId?: stri
                 ? "Loading film…"
                 : apiStatus === "offline"
                   ? "Backend offline — processed clips appear when the team server is connected."
-                  : "No film yet. Upload video from the Upload / Process Film tab; clips appear here after processing."}
+                  : "No film yet. Upload video from the Upload & processing tab; plays appear here after processing."}
             </p>
           ) : (
             <>
@@ -140,7 +140,7 @@ export function ReviewTab({ initialVideoId, sessionId }: { initialVideoId?: stri
                 <p className="text-xs text-muted-foreground" data-testid="review-no-clips">
                   No clips processed for this video yet.
                   {selectedVideo?.status === "uploaded"
-                    ? " Start processing from the Upload / Process Film tab."
+                    ? " Start processing from the Upload & processing tab."
                     : selectedVideo?.status === "processing"
                       ? " Processing is still running — clips appear as play detection finishes."
                       : ""}
@@ -149,7 +149,7 @@ export function ReviewTab({ initialVideoId, sessionId }: { initialVideoId?: stri
               {state.kind === "ready" && (
                 <div className="flex flex-col gap-2">
                   {clips.map((clip) => (
-                    <ReviewClipRow key={clip.id} clip={clip} />
+                    <ReviewClipRow key={clip.id} clip={clip} sessionId={sessionId} />
                   ))}
                 </div>
               )}
@@ -161,14 +161,16 @@ export function ReviewTab({ initialVideoId, sessionId }: { initialVideoId?: stri
   );
 }
 
-function ReviewClipRow({ clip }: { clip: ApiClip }) {
+function ReviewClipRow({ clip, sessionId }: { clip: ApiClip; sessionId?: string }) {
   const possession = clip.our_possession ?? clip.side_of_ball ?? null;
   const possessionLabel = possession ? POSSESSION_LABEL[possession] : null;
   const isPreliminary =
     clip.is_preliminary === true || clip.result_state === "preliminary";
+  const fromParams = new URLSearchParams({ tab: "review", videoId: clip.video_id });
+  if (sessionId) fromParams.set("sessionId", sessionId);
   return (
     <Link
-      href={`/clip-review/?clipId=${encodeURIComponent(clip.id)}`}
+      href={`/clip-review/?${new URLSearchParams({ clipId: clip.id, from: `/film-room/?${fromParams.toString()}` }).toString()}`}
       data-testid={`review-clip-${clip.id}`}
       className="group flex items-center justify-between gap-3 rounded-md border border-border-soft px-3 py-2.5 transition-colors hover:border-border hover:bg-accent/50"
     >

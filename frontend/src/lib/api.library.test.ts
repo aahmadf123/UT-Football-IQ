@@ -5,6 +5,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
   vi.resetModules();
@@ -204,6 +205,29 @@ describe("fetchVideoDownloadUrl", () => {
     vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({ downloadUrl: "/api/v1/storage/raw-video/raw/test.mp4?sig=test" }) })));
     const url = await fetchVideoDownloadUrl("raw-video", "raw/test.mp4");
     expect(url).toBe("/api/v1/storage/raw-video/raw/test.mp4?sig=test");
+  });
+
+  test("reuses a signed URL only until shortly before its actual expiration", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-20T22:00:00Z"));
+    const expiresAt = Math.floor(Date.now() / 1000) + 15 * 60;
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ downloadUrl: `https://dl.test/object?exp=${expiresAt}&sig=test` }),
+      text: async () => "",
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { fetchVideoDownloadUrl, signedUrlRefreshDelay } = await freshImport();
+    await fetchVideoDownloadUrl("raw-video", "raw/ttl.mp4");
+    await fetchVideoDownloadUrl("raw-video", "raw/ttl.mp4");
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(signedUrlRefreshDelay("raw-video", "raw/ttl.mp4")).toBe(14 * 60 * 1000);
+
+    vi.setSystemTime(new Date("2026-10-20T22:15:00Z"));
+    await fetchVideoDownloadUrl("raw-video", "raw/ttl.mp4");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   test("returns null on non-ok response", async () => {
