@@ -135,7 +135,7 @@ def _probe(path: str, size: int, modified_ns: int) -> VideoTimeline:
     expected_frames = int(stream.get("nb_frames") or 0) or round(stream_duration * fps)
 
     observed_tail: str | None
-    if expected_frames > FRAME_PROBE_LIMIT:
+    if expected_frames <= 0 or expected_frames > FRAME_PROBE_LIMIT:
         # Demux only, no decode: seconds even for a full game. Packets come
         # in decode order; B-frames reorder for presentation. A packet's
         # duration follows decode order, so the final frame's is unknown and
