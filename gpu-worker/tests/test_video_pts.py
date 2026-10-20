@@ -112,3 +112,48 @@ def test_ntsc_end_rounding_cannot_extend_the_recording(tmp_path):
     # Individually rounded final PTS and frame duration can overshoot by one
     # microsecond; the elapsed recording duration must retain the real bound.
     assert timeline.duration <= 149 * 1001 / 30000
+
+
+def test_long_cfr_film_keeps_its_own_rate_when_probing_fails(tmp_path):
+    # A failed probe used to trust the orchestrator's 30.0 placeholder, so
+    # 59.94 fps game film got timestamps of frame / 30: twice real time.
+    source = tmp_path / "sixty.mp4"
+    subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi",
+                    "-i", "color=black:s=64x64:r=60000/1001", "-frames:v", "120",
+                    "-c:v", "libx264", str(source)], check=True, capture_output=True)
+    with patch("pipeline.video_timeline._probe", side_effect=subprocess.TimeoutExpired("ffprobe", 1)):
+        timeline = VideoTimeline.from_path(source, fps_fallback=30.)
+    assert not timeline.verified
+    assert timeline.fps == pytest.approx(59.94, abs=.01)
+    assert timeline.timestamp(930) == pytest.approx(930 / 59.94, abs=.001)
+    assert timeline.frame_for_time(1.) == 59  # not frame 30
+
+
+def test_probe_reads_presentation_order_from_packets(tmp_path):
+    # B-frames are stored out of presentation order; timestamps must not be.
+    source = tmp_path / "bframes.mp4"
+    subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi",
+                    "-i", "testsrc=s=64x64:r=60000/1001", "-frames:v", "90",
+                    "-c:v", "libx264", "-bf", "3", str(source)], check=True, capture_output=True)
+    timeline = VideoTimeline.from_path(source)
+    assert timeline.verified and len(timeline.timestamps) == 90
+    assert timeline.timestamp(60) == pytest.approx(60 * 1001 / 60000, abs=1e-3)
+
+
+def test_long_film_reads_packet_timestamps_without_decoding(tmp_path, monkeypatch):
+    source = tmp_path / "long.mp4"
+    subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi",
+                    "-i", "testsrc=s=64x64:r=60000/1001", "-frames:v", "300",
+                    "-c:v", "libx264", "-bf", "3", str(source)], check=True, capture_output=True)
+    monkeypatch.setattr("pipeline.video_timeline.FRAME_PROBE_LIMIT", 100)
+    real_run = subprocess.run
+
+    def no_decode(cmd, *args, **kwargs):
+        assert "-show_frames" not in cmd
+        return real_run(cmd, *args, **kwargs)
+
+    with patch("pipeline.video_timeline.subprocess.run", side_effect=no_decode):
+        timeline = VideoTimeline.from_path(source)
+    assert timeline.verified and len(timeline.timestamps) == 300
+    assert timeline.timestamp(240) == pytest.approx(240 * 1001 / 60000, abs=1e-3)
+    assert timeline.duration == pytest.approx(300 * 1001 / 60000, abs=1e-3)
