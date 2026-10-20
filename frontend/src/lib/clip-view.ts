@@ -22,6 +22,41 @@ export function sameplayAngles(clip: ApiClip, siblings: ApiClip[]): ApiClip[] {
     .sort((a, b) => a.start_time - b.start_time);
 }
 
+/**
+ * Clips to step through with previous/next play: one per play. Broadcast
+ * game film shows each play from the sideline and then the end zone; both
+ * clips share a play number, so stepping clip by clip replayed the same play
+ * from the other camera. Each play keeps the clip from the camera currently
+ * being watched when it has one (angles switch separately); clips with no
+ * play number stay as their own steps.
+ */
+export function playSequence(current: ApiClip, siblings: ApiClip[]): ApiClip[] {
+  const ordered = [...siblings].sort((a, b) => a.start_time - b.start_time);
+  const view = clipView(current);
+  const steps: ApiClip[] = [];
+  const byPlay = new Map<number, number>();
+  for (const clip of ordered) {
+    if (clip.play_number == null) {
+      steps.push(clip);
+      continue;
+    }
+    const at = byPlay.get(clip.play_number);
+    if (at === undefined) {
+      byPlay.set(clip.play_number, steps.length);
+      steps.push(clip);
+      continue;
+    }
+    const chosen = steps[at];
+    // The current clip always represents its own play; otherwise prefer the
+    // watched camera angle.
+    if (chosen.id === current.id) continue;
+    if (clip.id === current.id || (view && clipView(chosen) !== view && clipView(clip) === view)) {
+      steps[at] = clip;
+    }
+  }
+  return steps;
+}
+
 const ORDINALS = ["", "1st", "2nd", "3rd", "4th"];
 
 /** "1st & 10 · Q1 15:00 · Ball on 25" from the play's scoreboard reading. */

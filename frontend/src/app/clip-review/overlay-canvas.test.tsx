@@ -43,15 +43,15 @@ function canvas(props: Partial<Parameters<typeof OverlayCanvas>[0]> = {}) {
 
 describe("OverlayCanvas styles", () => {
   it("analyst style draws every box, tag and callout", () => {
-    canvas();
+    canvas({ overlayStyle: "analyst" });
     expect(screen.getByTestId("overlay-tracklet-tag-a")).toBeTruthy();
     expect(screen.getByTestId("overlay-tracklet-tag-b")).toBeTruthy();
     expect(screen.getByTestId("overlay-tracklet-metric-a")).toBeTruthy();
     expect(screen.queryByTestId("overlay-tracklet-ring-a")).toBeNull();
   });
 
-  it("clean style shows only a ring at each player's feet", () => {
-    canvas({ overlayStyle: "clean" });
+  it("clean style shows only a ring at each player's feet, and is the default", () => {
+    canvas();
     const ring = screen.getByTestId("overlay-tracklet-ring-a");
     // Bottom-centre of the box at frame 1: x 101..141, y 100..200.
     expect(Number(ring.getAttribute("cx"))).toBeCloseTo(121);
