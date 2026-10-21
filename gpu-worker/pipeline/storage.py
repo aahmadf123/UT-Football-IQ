@@ -210,6 +210,19 @@ def _copy_to_temp(source: Path, label: str) -> Path:
     suffix = source.suffix or ".bin"
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
     tmp.close()
+    target = Path(tmp.name)
+    # Callers delete the returned file when done. A hard link gives them
+    # their own name for the same bytes: instant, no disk written, and
+    # deleting it leaves the source intact. Copying instead wrote the whole
+    # 3.7 GB game once per play (450 GB in one night). Copy only across
+    # volumes or on filesystems without links.
+    try:
+        target.unlink()
+        os.link(source, target)
+        log.info("storage_local_link", source=str(source), path=tmp.name)
+        return target
+    except OSError:
+        target.unlink(missing_ok=True)
     try:
         shutil.copy2(source, tmp.name)
     except BaseException:
