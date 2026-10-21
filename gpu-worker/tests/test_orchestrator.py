@@ -502,3 +502,61 @@ def test_default_routing_uses_the_numeral_fit_when_a_field_model_is_installed(
 
     assert calls == ["numeral"]
     assert artifacts["model_execution"] == {"calibrate": "numeral-dlt"}
+
+
+def test_system_rewrites_of_an_annotated_clip_keep_checkpoints(
+    synthetic_video: Path, offline_env: None, tmp_path: Path
+) -> None:
+    # Every run relinks the official play-by-play and writes new playback
+    # proxies into the clip record; only a staff edit (annotation_revision)
+    # may throw the finished stages away.
+    from pipeline import stage_ingest
+
+    sink = DirArtifactSink(tmp_path / "artifacts")
+    annotated = {
+        "id": "clip-1",
+        "annotation_revision": 1,
+        "start_time": 0.0,
+        "end_time": 1.0,
+        "human_events": [],
+        "label_data": {"cfbd": {"match_score": 4.5}},
+        "storage_uri": "s3://clips/attempts/a/clip.mp4",
+    }
+    rewritten = {
+        **annotated,
+        "label_data": {"cfbd": {"match_score": 5.0}},
+        "storage_uri": "s3://clips/attempts/b/clip.mp4",
+    }
+    edited = {**rewritten, "annotation_revision": 2}
+    real_ingest = stage_ingest.run
+    ran: list[int] = []
+
+    def counted(*args: Any, **kwargs: Any) -> Any:
+        ran.append(1)
+        return real_ingest(*args, **kwargs)
+
+    with patch("pipeline.stage_ingest.run", side_effect=counted):
+        for record in (annotated, rewritten, edited):
+            run_pipeline(
+                "vid-9",
+                str(synthetic_video),
+                priority=10,
+                stages=["ingest", "segment"],
+                artifact_sink=sink,
+                revisions={"effective_annotations": [record]},
+            )
+            ran.append(0)
+    # First run computes; the system rewrite resumes; the staff edit recomputes.
+    assert ran == [1, 0, 0, 1, 0]
+
+
+def test_annotation_identity_keeps_only_what_staff_change() -> None:
+    from pipeline.orchestrator import annotation_identity
+
+    record = {"id": "b", "annotation_revision": 3, "start_time": 1.0, "end_time": 2.0,
+              "human_events": [{"event_type": "snap"}], "label_data": {"cfbd": {}}, "storage_uri": "x"}
+    assert annotation_identity([record, {"id": "a"}]) == [
+        {"id": "a", "annotation_revision": None, "start_time": None, "end_time": None, "human_events": None},
+        {"id": "b", "annotation_revision": 3, "start_time": 1.0, "end_time": 2.0,
+         "human_events": [{"event_type": "snap"}]},
+    ]
