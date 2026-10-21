@@ -251,3 +251,12 @@ export function sampleInboxItem(overrides: Record<string, unknown> = {}) {
     ...overrides,
   };
 }
+
+/** A team dashboard with nothing measured yet (Home's empty state). */
+export const EMPTY_DASHBOARD = {
+  weekly: [],
+  position_groups: [],
+  games: [],
+  readiness: { visible: false, player_level: false, as_of: null, groups: [], flagged: [] },
+  activity: { sessions_this_week: 0, plays_this_week: 0, film_processing: 0, film_uploaded: 0 },
+};

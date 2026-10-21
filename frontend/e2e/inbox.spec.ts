@@ -2,8 +2,8 @@ import { expect, test } from "@playwright/test";
 import { mockBackend, sampleInboxItem } from "./helpers";
 
 /**
- * Seeded /api/v1/inbox/status response → dashboard Practice Inbox
- * surfaces the row, status, and job summary returned by the backend.
+ * Seeded /api/v1/inbox/status response → Film Room's upload & processing
+ * list surfaces the row and status returned by the backend.
  */
 test("practice inbox renders seeded video status", async ({ page }) => {
   await mockBackend(page, {
@@ -22,10 +22,9 @@ test("practice inbox renders seeded video status", async ({ page }) => {
     ],
   });
 
-  await page.goto("/");
+  await page.goto("/film-room/?tab=upload");
 
-  const inbox = page.locator("section").filter({ hasText: /Practice Inbox/ });
-  await expect(inbox).toContainText("PR_20251015_DRONEA.mp4");
-  await expect(inbox).toContainText("3/6 jobs");
-  await expect(inbox).toContainText(/processing/i);
+  const row = page.getByText("PR_20251015_DRONEA.mp4").first();
+  await expect(row).toBeVisible();
+  await expect(page.locator("main")).toContainText(/processing/i);
 });

@@ -1,10 +1,10 @@
 import { FootballShell } from "@/components/shell/app-shell";
-import { DashboardView } from "@/components/dashboard-view";
+import { TeamDashboard } from "@/components/team-dashboard/team-dashboard";
 
-export default function DashboardPage() {
+export default function HomePage() {
   return (
     <FootballShell activePage="dashboard">
-      <DashboardView />
+      <TeamDashboard />
     </FootballShell>
   );
 }

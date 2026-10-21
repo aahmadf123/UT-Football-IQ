@@ -8,7 +8,7 @@ const FIXTURE_MP4 = path.resolve(__dirname, "fixtures/sample.mp4");
  * End-to-end upload path: a coach opens the upload dialog, picks an MP4,
  * describes the session, the backend issues a presigned upload URL, the file is
  * PUT to that (mocked) URL, the backend registers the resulting video with that
- * session metadata, and the Practice Inbox refreshes to surface the new row.
+ * session metadata, and Film Room's processing list refreshes to surface the new row.
  *
  * The session metadata is the part worth asserting. Registering a video with a
  * null session_kind and opponent_team is what left the Library filters and the
@@ -115,7 +115,7 @@ test("upload flow drives dialog → upload-url → PUT → register with metadat
   // Toast confirms the UI saw the batch as started.
   await expect(page.getByText(/Uploading \d+ clip/i)).toBeVisible();
 
-  // Practice Inbox refreshes and now shows the registered row.
-  const inbox = page.locator("section").filter({ hasText: /Practice Inbox/ });
-  await expect(inbox).toContainText("sample.mp4");
+  // Film Room's processing list shows the registered row.
+  await page.goto("/film-room/?tab=upload");
+  await expect(page.locator("main")).toContainText("sample.mp4");
 });

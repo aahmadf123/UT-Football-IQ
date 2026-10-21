@@ -27,7 +27,7 @@ import { useWorkspaceContext } from "@/lib/workspace-context";
 // Development lives in Players → Development; College Data lives inside
 // Scouting. Alerts get both a sidebar entry and the top-bar inbox bell.
 const NAV_ITEMS = [
-  { key: "dashboard", label: "Today", href: "/", icon: Home },
+  { key: "dashboard", label: "Home", href: "/", icon: Home },
   { key: "film-room", label: "Film Room", href: "/film-room", icon: Clapperboard },
   { key: "team-stats", label: "Team Stats", href: "/team-stats", icon: BarChart3 },
   { key: "scouting", label: "Scouting", href: "/scouting", icon: ClipboardList },
