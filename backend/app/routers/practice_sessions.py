@@ -42,7 +42,7 @@ class PracticeSessionGroup(BaseModel):
 
 @router.get("", response_model=list[PracticeSessionGroup])
 async def list_practice_sessions(
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _current_user: Annotated[User, Depends(get_current_user)],
     recorded_after: datetime | None = Query(default=None),
     recorded_before: datetime | None = Query(default=None),

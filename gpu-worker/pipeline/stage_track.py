@@ -16,6 +16,7 @@ keep working unchanged.
 from __future__ import annotations
 
 import math
+from pathlib import Path
 from typing import Any
 
 import structlog
@@ -32,7 +33,7 @@ from pipeline.tracker_models import StubTracker, TrackerBase, get_tracker
 
 log = structlog.get_logger(__name__)
 
-MAX_LOST_FRAMES = 30  # frames a track can be "lost" before it is closed
+MAX_LOST_SECONDS = 1.0
 IOU_THRESHOLD = 0.3
 # How far past the playing surface a real player can be, in yards. Deep enough
 # to cover a receiver carried out of bounds and a defender chasing into the
@@ -56,6 +57,8 @@ def run(
     calibration_series: list[dict[str, Any]] | None = None,
     capture_regime: str | None = None,
     detector_provenance: dict[str, Any] | None = None,
+    video_path: Path | None = None,
+    timeline: Any = None,
 ) -> dict[str, Any]:
     """Run tracking and write tracklets to the backend.
 
@@ -76,8 +79,17 @@ def run(
         tracker = get_tracker(
             variant or "iou-tracker",
             iou_threshold=IOU_THRESHOLD,
-            max_lost_frames=MAX_LOST_FRAMES,
+            max_lost_frames=max(1, round(fps * MAX_LOST_SECONDS)),
         )
+    tracker.max_lost_seconds = MAX_LOST_SECONDS
+    feature_diagnostics: dict[str, Any] = {}
+    from pipeline.tracking.botsort_adapter import BoTSORTTracker
+    if isinstance(tracker, BoTSORTTracker) and video_path is not None:
+        from pipeline.tracking.frame_features import tracking_frame_features
+        detections, camera_motion, feature_diagnostics = tracking_frame_features(
+            video_path, detections, fps, timeline
+        )
+        tracker.camera_motion = camera_motion
 
     results = tracker.track(detections)
     projected_points = _project_tracks(
@@ -118,6 +130,12 @@ def run(
             # A detector benchmark does not independently validate track IDs.
             "validated": False,
             "detector_validated": not synthetic and detector_provenance.get("validated") is True,
+            "shot_id": track.points[0].get("shot_id"),
+            "source_start_seconds": track.points[0].get("timestamp_seconds"),
+            "source_end_seconds": track.points[-1].get("timestamp_seconds"),
+            "visibility_state": "observed",
+            "max_lost_seconds": MAX_LOST_SECONDS,
+            "tracker_inputs": feature_diagnostics,
         }
         try:
             resp = backend.create_tracklet(
@@ -171,6 +189,7 @@ def run(
         "tracklets": tracklets,
         "mask_aware": tracker.mask_aware,
         "projected_points": projected_points,
+        "tracker_inputs": feature_diagnostics,
     }
 
 

@@ -56,7 +56,7 @@ class CorrectionAnalyticsResponse(BaseModel):
 
 @router.get("/summary", response_model=CorrectionAnalyticsResponse)
 async def correction_analytics_summary(
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _current_user: Annotated[User, Depends(get_current_user)],
     weeks: int = Query(default=4, ge=1, le=52),
 ) -> CorrectionAnalyticsResponse:

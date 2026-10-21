@@ -6,7 +6,9 @@ from typing import Annotated, Any, cast
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
-from sqlalchemy import CursorResult, select, update
+from sqlalchemy import CursorResult, func, select, update
+from sqlalchemy import cast as sql_cast
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
@@ -15,10 +17,12 @@ from app.deps import get_current_user, require_any_staff, require_coach_or_above
 from app.models import (
     CaptureRegime,
     Clip,
+    ClipEdit,
     ClipResultState,
     CoachCorrection,
     CorrectionType,
     Metric,
+    PlayView,
     SessionKind,
     SideOfBall,
     User,
@@ -32,6 +36,7 @@ from app.services.annotations import (
     touch_annotation,
     touch_observations,
 )
+from app.services.clip_state import active_clip, lock_boundary_scope
 from app.services.metric_policy import metric_visibility
 
 # Recognized clip-level possession values (must match SideOfBall enum).
@@ -182,6 +187,8 @@ class ClipResponse(BaseModel):
     review_state: str
     created_at: str
     provenance: dict[str, Any] | None = None
+    canonical_play_id: uuid.UUID | None = None
+    matched_views: list[dict[str, Any]] = Field(default_factory=list)
 
     @classmethod
     def from_orm_clip(cls, c: Clip) -> "ClipResponse":
@@ -277,10 +284,59 @@ class MetricResponse(BaseModel):
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 
+async def attach_play_context(
+    db: AsyncSession, responses: list[ClipResponse]
+) -> list[ClipResponse]:
+    """Batch the canonical view context, including independent recordings."""
+    if not responses:
+        return responses
+    views = (
+        (
+            await db.execute(
+                select(PlayView).where(
+                    PlayView.clip_id.in_([response.id for response in responses])
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    by_clip = {view.clip_id: view.play_id for view in views if isinstance(view, PlayView)}
+    matches: dict[uuid.UUID, list[dict[str, Any]]] = {}
+    if by_clip:
+        rows = (
+            await db.execute(
+                select(PlayView, Clip, Video)
+                .join(Clip, Clip.id == PlayView.clip_id)
+                .join(Video, Video.id == Clip.video_id)
+                .where(PlayView.play_id.in_(set(by_clip.values())))
+                .where(active_clip())
+                .order_by(Clip.created_at)
+            )
+        ).all()
+        for view, clip, video in rows:
+            matches.setdefault(view.play_id, []).append(
+                {
+                    "clip_id": str(clip.id),
+                    "video_id": str(video.id),
+                    "camera_label": video.camera_label,
+                    "start_time": clip.start_time,
+                    "end_time": clip.end_time,
+                    "alignment_offset_seconds": view.alignment_offset_seconds,
+                    "alignment_confidence": view.alignment_confidence,
+                    "match_source": view.match_source,
+                }
+            )
+    for response in responses:
+        response.canonical_play_id = by_clip.get(response.id, response.id)
+        response.matched_views = matches.get(response.canonical_play_id, [])
+    return responses
+
+
 @router.get("/api/v1/videos/{video_id}/clips", response_model=list[ClipResponse])
 async def list_clips_for_video(
     video_id: uuid.UUID,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _current_user: Annotated[User, Depends(get_current_user)],
     limit: int = Query(default=100, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
@@ -292,12 +348,14 @@ async def list_clips_for_video(
 
     result = await db.execute(
         select(Clip)
-        .where(Clip.video_id == video_id)
+        .where(Clip.video_id == video_id, active_clip())
         .order_by(Clip.start_time)
         .limit(limit)
         .offset(offset)
     )
-    return [ClipResponse.from_orm_clip(c) for c in result.scalars().all()]
+    return await attach_play_context(
+        db, [ClipResponse.from_orm_clip(c) for c in result.scalars().all()]
+    )
 
 
 @router.post(
@@ -308,10 +366,13 @@ async def list_clips_for_video(
 async def create_clip(
     video_id: uuid.UUID,
     body: ClipCreate,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _current_user: Annotated[User, Depends(require_any_staff)],
 ) -> ClipResponse:
     """Propose a new play boundary for a video (manual or system-generated)."""
+    machine_cut = body.boundary_source in _MACHINE_BOUNDARY_SOURCES or body.job_id is not None
+    if machine_cut:
+        await lock_boundary_scope(db, video_id)
     if body.id is not None:
         await lock_output_id(db, body.id)
         existing = (await db.execute(select(Clip).where(Clip.id == body.id))).scalar_one_or_none()
@@ -323,6 +384,25 @@ async def create_clip(
     video = vid_result.scalar_one_or_none()
     if video is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Video not found")
+    if machine_cut:
+        manual = (
+            await db.execute(
+                select(Clip.id)
+                .where(Clip.video_id == video_id, active_clip(), Clip.boundary_source == "manual")
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        edited = (
+            await db.execute(select(ClipEdit.id).where(ClipEdit.video_id == video_id).limit(1))
+        ).scalar_one_or_none()
+        if manual is not None or edited is not None:
+            raise HTTPException(
+                409,
+                detail=(
+                    "Staff boundary layout changed; reload boundary-overrides "
+                    "and reuse its clip IDs"
+                ),
+            )
     if body.start_time >= body.end_time:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -348,7 +428,6 @@ async def create_clip(
     # parent video. The exception is film the pipeline cut automatically: it
     # can't know possession yet, so the clip is marked pending and filled in
     # by the CFBD play-by-play link (app.cfbd.game_link) or a coach.
-    machine_cut = body.boundary_source in _MACHINE_BOUNDARY_SOURCES
     if (
         video.session_kind == SessionKind.game
         and our_possession is None
@@ -395,8 +474,14 @@ async def create_clip(
         regime_confidence=regime_confidence,
         uncertainty_score=body.uncertainty_score,
         uncertainty_calibrated=body.uncertainty_calibrated,
-        result_state=body.result_state.value if body.result_state else None,
-        provenance=body.provenance,
+        result_state=ClipResultState.preliminary.value
+        if machine_cut
+        else body.result_state.value
+        if body.result_state
+        else None,
+        provenance={**(body.provenance or {}), "cuts_state": "ready"}
+        if machine_cut
+        else body.provenance,
     )
     db.add(clip)
     await db.flush()
@@ -415,10 +500,11 @@ async def create_clip(
 
 
 class ClipFinalizeResponse(BaseModel):
-    """Result of upgrading a video's same-session clips to nightly-final."""
+    """Cut readiness; result tiers are promoted with complete analysis."""
 
     video_id: uuid.UUID
     finalized_count: int
+    cuts_ready_count: int = 0
 
 
 @router.post(
@@ -427,17 +513,10 @@ class ClipFinalizeResponse(BaseModel):
 )
 async def finalize_video_clips(
     video_id: uuid.UUID,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _current_user: Annotated[User, Depends(require_any_staff)],
 ) -> ClipFinalizeResponse:
-    """Upgrade a video's ``preliminary`` clips to ``final`` (Issue #147).
-
-    Called by the GPU worker when nightly full-quality processing finishes for a
-    video: the nightly run replaces the same-session first pass in place, so
-    every clip still flagged ``preliminary`` flips to ``final`` and the coach's
-    "Preliminary" badge clears. Idempotent — clips already ``final`` (or legacy
-    NULL) are left untouched, so a re-run finalizes nothing.
-    """
+    """Record completed cuts without prematurely promoting pending analysis."""
     vid_result = await db.execute(select(Video).where(Video.id == video_id))
     if vid_result.scalar_one_or_none() is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Video not found")
@@ -446,22 +525,26 @@ async def finalize_video_clips(
         update(Clip)
         .where(
             Clip.video_id == video_id,
-            Clip.result_state == ClipResultState.preliminary.value,
+            active_clip(),
         )
-        .values(result_state=ClipResultState.final.value)
+        .values(
+            provenance=func.coalesce(Clip.provenance, sql_cast({}, JSONB)).op("||")(
+                sql_cast({"cuts_state": "ready"}, JSONB)
+            )
+        )
     )
     # ``execute`` is typed ``Result``; an UPDATE returns a ``CursorResult`` whose
-    # ``rowcount`` is the number of clips upgraded.
+    # ``rowcount`` is the number of cuts marked ready.
     finalized = int(cast("CursorResult[Any]", result).rowcount or 0)
     await db.flush()
-    log.info("clips_finalized", video_id=str(video_id), finalized_count=finalized)
-    return ClipFinalizeResponse(video_id=video_id, finalized_count=finalized)
+    log.info("clip_cuts_ready", video_id=str(video_id), cuts_ready_count=finalized)
+    return ClipFinalizeResponse(video_id=video_id, finalized_count=0, cuts_ready_count=finalized)
 
 
 @router.get("/api/v1/clips/{clip_id}", response_model=ClipResponse)
 async def get_clip(
     clip_id: uuid.UUID,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _current_user: Annotated[User, Depends(get_current_user)],
 ) -> ClipResponse:
     """Get a single clip by ID."""
@@ -469,17 +552,19 @@ async def get_clip(
     clip = result.scalar_one_or_none()
     if clip is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Clip not found")
-    return ClipResponse.from_orm_clip(clip)
+    return (await attach_play_context(db, [ClipResponse.from_orm_clip(clip)]))[0]
 
 
 @router.patch("/api/v1/clips/{clip_id}", response_model=ClipResponse)
 async def update_clip(
     clip_id: uuid.UUID,
     body: ClipUpdate,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     current_user: Annotated[User, Depends(require_coach_or_above)],
 ) -> ClipResponse:
     """Update a clip's boundaries or review status (coach/analyst override)."""
+    if body.start_time is not None or body.end_time is not None:
+        await lock_boundary_scope(db, clip_id)
     result = await db.execute(select(Clip).where(Clip.id == clip_id).with_for_update())
     clip = result.scalar_one_or_none()
     if clip is None:
@@ -631,7 +716,7 @@ async def update_clip(
 @router.get("/api/v1/clips/{clip_id}/metrics", response_model=list[MetricResponse])
 async def get_clip_metrics(
     clip_id: uuid.UUID,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     current_user: Annotated[User, Depends(get_current_user)],
 ) -> list[MetricResponse]:
     """Get all metrics for a clip — each includes its evidence lineage."""

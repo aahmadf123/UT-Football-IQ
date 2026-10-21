@@ -76,9 +76,9 @@
     // domain plus localhost for local frontend dev against the deployed API.
     // If the Vercel project gets a different name/domain, update this.
     "CORS_ORIGINS": "https://ut-football-iq.vercel.app,http://localhost:3000",
-    // Anchored regex admitting per-deploy Vercel preview URLs for this
-    // project (previews get unique subdomains).
-    "CORS_ORIGIN_REGEX": "https://ut-football-iq-[a-z0-9-]+\\.vercel\\.app",
+    // Vercel shortens this project's unique deployments to `ut-football-*`.
+    // Admit those and branch aliases only within the observed owning team.
+    "CORS_ORIGIN_REGEX": "https://(?:ut-football-iq(?:-[a-z0-9-]+)?|ut-football-[a-z0-9]+)-aahmadf123-7151s-projects\\.vercel\\.app",
     // This Worker's public origin. The backend mints absolute upload and
     // playback URLs from it; left unset it falls back to X-Forwarded-*.
     "PUBLIC_API_BASE_URL": "https://footiq-api-edge.firas-azfar.workers.dev",

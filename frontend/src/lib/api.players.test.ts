@@ -154,8 +154,7 @@ describe("apiPlayerToSummary", () => {
     expect(summary.jersey).toBe("11");
     expect(summary.name).toBe("M. Carter");
     expect(summary.position).toBe("WR");
-    // Skill group is derived from WR when the backend hasn't set it.
-    expect(summary.group).toBe("Skill");
+    expect(summary.group).toBe("WR");
     // Metrics deliberately not fabricated — they arrive only via
     // mergePlayerMetrics from the live metrics summary endpoint.
     expect(summary.maxSpeed).toBeUndefined();
@@ -225,6 +224,29 @@ describe("apiPlayerToSummary", () => {
       created_at: "2026-05-01T12:00:00Z",
     });
     expect(summary.group).toBe("Custom Group");
+  });
+
+  test.each([
+    ["RB", null, "RB"],
+    ["WR", null, "WR"],
+    ["TE", null, "TE"],
+    ["RB", "Skill", "RB"],
+    ["WR", "Skill", "WR"],
+    ["TE", "Skill", "TE"],
+    ["FB", "Skill", "RB"],
+    ["HB", null, "RB"],
+    ["SLOT", "Skill", "WR"],
+    [" wr ", "Skill", "WR"],
+    ["ATH", "Skill", "Skill"],
+    [null, "Skill", "Skill"],
+    ["TE", "WR", "WR"],
+  ])("keeps listed position %s and stored group %s compatible", async (position, positionGroup, expected) => {
+    const { apiPlayerToSummary } = await import("./app-state");
+    expect(apiPlayerToSummary({
+      ...samplePlayer,
+      position,
+      position_group: positionGroup,
+    }).group).toBe(expected);
   });
 
   test("falls back to Unassigned when nothing is set", async () => {

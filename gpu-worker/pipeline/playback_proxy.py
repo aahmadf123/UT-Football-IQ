@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import queue
 import subprocess
@@ -15,6 +16,14 @@ from typing import Any
 import cv2
 
 from pipeline import backend, storage
+from pipeline.media_contract import (
+    MEDIA_GENERATOR_VERSION,
+    TIMELINE_REVISION,
+    encoder_config,
+    preserve_audio,
+    validate_alignment,
+    validate_duration,
+)
 from pipeline.runtime import check_control, configure_cpu_threads
 from pipeline.video_timeline import VideoTimeline, iter_frames
 
@@ -248,6 +257,9 @@ class PlaybackProxySession:
             raise ValueError("Playback window contains no source frames")
         capture = self._open()
         repetitions = Counter(mapping["proxy_to_source_frame"])
+        sample_indices = {0, len(mapping["proxy_to_source_frame"]) // 2,
+                          len(mapping["proxy_to_source_frame"]) - 1}
+        alignment_samples: dict[int, Any] = {}
         width = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH))
         source_height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
         scale = min(1, height / max(1, source_height))
@@ -278,30 +290,50 @@ class PlaybackProxySession:
                     count = repetitions[index]
                     for _copy in range(count):
                         encoder.write(small)
+                        if written + _copy in sample_indices:
+                            alignment_samples[written + _copy] = small.copy()
                     written += count
                 if written == 0:
                     raise ValueError("Recording ended before the requested play")
-                # The recording ended inside the play: hold the last picture.
-                for _copy in range(len(mapping["proxy_to_source_frame"]) - written):
-                    encoder.write(small)
+                if written != len(mapping["proxy_to_source_frame"]):
+                    raise ValueError("Recording ended before the requested source window completed")
+            audio = preserve_audio(self.source, output, start, end,
+                                   video_pts_origin=self.timeline.pts_origin)
+            duration_validation = validate_duration(output, end - start, fps)
+            alignment_validation = validate_alignment(output, alignment_samples)
+            with output.open("rb") as encoded:
+                artifact_sha256 = hashlib.file_digest(encoded, "sha256").hexdigest()
+            identity = {"generator": MEDIA_GENERATOR_VERSION, "timeline": TIMELINE_REVISION,
+                        "source": self.source_sha256, "start": start, "end": end,
+                        "encoder": encoder_config(fps, height), "artifact": artifact_sha256}
+            artifact_fingerprint = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
+            prefix = f"playback_proxies/{clip_id}/{artifact_fingerprint}"
             playback_uri = storage.upload_file(
-                output, f"playback_proxies/{clip_id}/clip.mp4", "video/mp4", bucket="clips"
+                output, f"{prefix}/clip.mp4", "video/mp4", bucket="clips"
             )
         timeline_uri = storage.upload_bytes(
             json.dumps(mapping).encode(),
-            f"playback_proxies/{clip_id}/timeline.json",
+            f"{prefix}/timeline.json",
             "application/json",
             bucket="artifacts",
         )
         media = {
-            "schema_version": 1,
+            "schema_version": 2,
+            "generator_version": MEDIA_GENERATOR_VERSION,
+            "timeline_revision": TIMELINE_REVISION,
+            "encoder_config": encoder_config(fps, height),
             "source_sha256": self.source_sha256,
+            "artifact_sha256": artifact_sha256,
+            "artifact_fingerprint": artifact_fingerprint,
             "kind": "clean_clip",
             "source_start_seconds": start,
             "source_end_seconds": end,
             "proxy_fps": fps,
             "timeline_uri": timeline_uri,
             "source_timestamps_verified": self.timeline.verified,
+            "duration_validation": duration_validation,
+            "alignment_validation": alignment_validation,
+            "audio": audio,
         }
         backend.patch_clip_storage_uri(clip_id, playback_uri, playback=media)
         return {"playback_uri": playback_uri, "playback": media, "proxy_timeline": mapping}

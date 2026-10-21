@@ -4,8 +4,8 @@ Covers:
   - ``result_state`` persistence on clip create + the derived ``is_preliminary``
     / ``review_state`` fields in the response.
   - ``_derive_review_state`` precedence (reviewed > low_confidence > needs_review).
-  - ``POST /api/v1/videos/{video_id}/clips/finalize`` — the nightly upgrade that
-    flips ``preliminary`` clips to ``final``.
+  - ``POST /api/v1/videos/{video_id}/clips/finalize`` records cut readiness;
+    qualified completion separately promotes preliminary results.
 
 DB access is mocked (mirrors ``tests/test_clips.py``) so the suite needs no
 Postgres.
@@ -208,7 +208,7 @@ def test_review_state_confident_first_pass_needs_review() -> None:
     assert _derive_review_state(_clip(confidence=0.95)) == "needs_review"
 
 
-# ── finalize endpoint (nightly upgrade) ───────────────────────────────────────
+# ── Cut readiness endpoint ───────────────────────────────────────────────────
 
 
 def _mock_db_for_finalize(video: Video | None, rowcount: int):
@@ -231,7 +231,7 @@ def _mock_db_for_finalize(video: Video | None, rowcount: int):
     return _db
 
 
-def test_finalize_flips_preliminary_clips() -> None:
+def test_finalize_marks_cuts_ready_without_promoting_pending_analysis() -> None:
     video = _make_video()
     app.dependency_overrides[get_current_user] = lambda: _make_user()
     app.dependency_overrides[get_db] = _mock_db_for_finalize(video, rowcount=5)
@@ -244,7 +244,8 @@ def test_finalize_flips_preliminary_clips() -> None:
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["video_id"] == str(video.id)
-    assert body["finalized_count"] == 5
+    assert body["finalized_count"] == 0
+    assert body["cuts_ready_count"] == 5
 
 
 def test_finalize_unknown_video_returns_404() -> None:

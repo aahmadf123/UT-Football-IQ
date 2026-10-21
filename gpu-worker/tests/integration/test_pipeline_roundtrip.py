@@ -63,8 +63,11 @@ def _free_port() -> int:
 
 
 def _backend_python() -> str:
-    venv = _BACKEND_DIR / ".venv" / "bin" / "python"
-    return str(venv) if venv.exists() else sys.executable
+    for relative in ("Scripts/python.exe", "bin/python"):
+        venv = _BACKEND_DIR / ".venv" / relative
+        if venv.is_file():
+            return str(venv)
+    return sys.executable
 
 
 @pytest.fixture(scope="module")
@@ -165,8 +168,13 @@ def _synthetic_video(path: Path) -> None:
     # split the clip into sub-minimum segments).
     writer = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*"mp4v"), 30.0, (320, 240))
     assert writer.isOpened()
+    # Shared scratch databases retain content-identity records across runs.
+    # Make this explicitly synthetic input unique so re-registration cannot
+    # return an older video's URI in a different temporary storage root.
+    nonce = np.frombuffer(uuid.uuid4().bytes, dtype=np.uint8)
     for i in range(150):
         frame = np.zeros((240, 320, 3), dtype=np.uint8)
+        frame[210:218, 10:26, :] = nonce[None, :, None]
         pos = (i * 3) % 540
         x = 10 + (pos if pos < 270 else 540 - pos)
         frame[100:140, x : x + 30] = (0, 255, 0)
@@ -307,19 +315,49 @@ asyncio.run(main())
     assert (job["output_artifacts"] or {}).get("source") == "synthetic_test"
     assert (job["output_artifacts"] or {}).get("trusted_analysis") is False
 
-    def _tracklet_total() -> int:
-        return sum(
-            len(client.get(f"/api/v1/clips/{clip['id']}/tracklets", headers=auth).json())
-            for clip in clips
-        )
-
-    tracklet_total = _poll(_tracklet_total, lambda count: count > 0)
-    assert tracklet_total > 0, "no explicitly synthetic test tracklets persisted"
+    # Successful synthetic outputs intentionally remain unpublished. Verify the
+    # actual persisted rows by ID through the API without weakening the normal
+    # list/overlay qualification filters. The query is read-only and restricted
+    # to this newly-created video's scratch-database records.
+    persisted_script = """
+import asyncio, json, os, uuid
+import asyncpg
+from sqlalchemy.engine import make_url
+async def main():
+    url = make_url(os.environ['DATABASE_URL'])
+    connection = await asyncpg.connect(host=url.host, port=url.port or 5432,
+                                      user=url.username, password=url.password,
+                                      database=url.database)
+    try:
+        ids = await connection.fetch(
+            'SELECT t.id FROM tracklets t JOIN clips c ON t.clip_id=c.id '
+            'WHERE c.video_id=$1', uuid.UUID(os.environ['ROUNDTRIP_VIDEO_ID']))
+        print(json.dumps([str(row['id']) for row in ids]))
+    finally:
+        await connection.close()
+asyncio.run(main())
+"""
+    persisted = subprocess.run(
+        [_backend_python(), "-c", persisted_script],
+        env={**os.environ, "ROUNDTRIP_VIDEO_ID": video_id},
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    tracklet_ids = json.loads(persisted.stdout)
+    assert tracklet_ids, "no explicitly synthetic test tracklets persisted"
+    for tracklet_id in tracklet_ids:
+        response = client.get(f"/api/v1/tracklets/{tracklet_id}", headers=auth)
+        response.raise_for_status()
+        row = response.json()
+        assert row["track_points"], "persisted synthetic observations missing"
+        assert row["provenance"]["source"] == "synthetic_test"
+        assert row["provenance"]["publication_state"] == "pending"
     assert all(clip.get("storage_uri", "").startswith("local://clips/") for clip in clips)
     assert all(0 <= clip["start_time"] < clip["end_time"] <= 5 for clip in clips)
     for clip in clips:
         tracklets = client.get(f"/api/v1/clips/{clip['id']}/tracklets", headers=auth).json()
-        assert all(row["provenance"]["source"] == "synthetic_test" for row in tracklets)
+        assert tracklets == [], "unpublished synthetic tracks leaked into normal clip reads"
         clean_path = Path(os.environ["LOCAL_STORAGE_ROOT"]) / clip["storage_uri"].removeprefix("local://")
         probe = json.loads(subprocess.check_output([
             "ffprobe", "-v", "error", "-select_streams", "v:0",

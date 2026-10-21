@@ -28,7 +28,7 @@ router = APIRouter(prefix="/api/v1/library", tags=["library-transfer"])
 @router.post("/sessions/{session_id}/export")
 async def export_session(
     session_id: uuid.UUID,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _actor: Annotated[User, Depends(require_analyst_or_above)],
 ) -> dict[str, Any]:
     async with AsyncSession(bind=db.bind) as snapshot:
@@ -70,7 +70,7 @@ async def download_archive(
 @router.post("/import")
 async def import_session(
     file: UploadFile,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     actor: Annotated[User, Depends(require_analyst_or_above)],
     dry_run: Annotated[bool, Form()] = True,
 ) -> dict[str, Any]:

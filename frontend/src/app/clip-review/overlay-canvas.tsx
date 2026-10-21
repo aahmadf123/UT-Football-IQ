@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
-import { activeTrackPointIndex } from "@/lib/tracking-time";
+import { activeTrackSample, MAX_INTERPOLATION_GAP_SECONDS } from "@/lib/tracking-time";
 
 /**
  * SVG overlay layer rendered on top of the clip-review video.
@@ -241,23 +241,33 @@ function TrackletGlyph({
   focused?: boolean;
   onHover?: (trackletId: string | null) => void;
 }) {
-  const activeIdx = activeTrackPointIndex(tracklet, currentTimeSeconds, fps);
-  if (activeIdx < 0) return null;
-
-  const activePoint = tracklet.track_points[activeIdx];
+  const sample = activeTrackSample(tracklet, currentTimeSeconds, fps);
+  if (!sample) return null;
+  const activeIdx = sample.index;
+  const activePoint = sample.point;
   const box = projectBox(activePoint, videoWidth, videoHeight, viewW, viewH);
   if (!box) return null;
 
   const color = TEAM_COLORS[tracklet.team_label ?? "unknown"] ?? TEAM_COLORS.unknown;
 
   // Build a trailing path from the last TRAIL_FRAMES samples (box centers).
-  const trailStart = Math.max(0, activeIdx - TRAIL_FRAMES);
+  let trailStart = activeIdx;
+  while (trailStart > Math.max(0, activeIdx - TRAIL_FRAMES)) {
+    const a = tracklet.track_points[trailStart - 1];
+    const b = tracklet.track_points[trailStart];
+    const gap = (b.timestamp_seconds ?? b.frame_number / fps) - (a.timestamp_seconds ?? a.frame_number / fps);
+    if (gap > MAX_INTERPOLATION_GAP_SECONDS || a.shot_id !== b.shot_id || ["lost", "occluded", "offscreen"].includes(a.visibility_state ?? "")) break;
+    trailStart--;
+  }
   const trail: string[] = [];
   for (let i = trailStart; i <= activeIdx; i++) {
+    const source = tracklet.track_points[i];
+    if ((source.timestamp_seconds ?? source.frame_number / fps) > currentTimeSeconds) break;
     const p = projectBox(tracklet.track_points[i], videoWidth, videoHeight, viewW, viewH);
     if (!p) continue;
     trail.push(`${trail.length === 0 ? "M" : "L"} ${p.cx} ${p.cy}`);
   }
+  if (sample.mode === "interpolated") trail.push(`${trail.length ? "L" : "M"} ${box.cx} ${box.cy}`);
 
   const tag = `T${index + 1}`;
   const identity = playerName ?? tag;
@@ -275,6 +285,7 @@ function TrackletGlyph({
   return (
     <g
       data-testid={`overlay-tracklet-${tracklet.id}`}
+      data-observation={sample.mode}
       role="button"
       aria-label={`Select ${identity}${confidencePct ? `, tracking confidence ${confidencePct}` : ""}`}
       tabIndex={0}
@@ -392,6 +403,7 @@ function projectBox(
 ): { x: number; y: number; w: number; h: number; cx: number; cy: number } | null {
   if (!point.bbox) return null;
   const [x1, y1, x2, y2] = point.bbox;
+  if (![x1, y1, x2, y2].every(Number.isFinite) || x2 < x1 || y2 < y1) return null;
   // When the video's intrinsic size is known the viewBox equals it and this
   // is an identity mapping; otherwise scale into the fallback box.
   const sx = videoWidth ? viewW / videoWidth : 1;

@@ -76,7 +76,7 @@ class CorrectionSyncResponse(BaseModel):
 @router.post("/sync", response_model=CorrectionSyncResponse, status_code=status.HTTP_201_CREATED)
 async def sync_corrections(
     body: CorrectionSyncRequest,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     current_user: Annotated[User, Depends(require_coach_or_above)],
 ) -> CorrectionSyncResponse:
     """Bulk-sync iPad one-tap corrections to the coach_corrections table.

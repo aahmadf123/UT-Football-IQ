@@ -32,6 +32,7 @@ from app.models import (
     Video,
 )
 from app.routers.alerts_sse import publish_alert
+from app.services.metric_policy import canonical_play_eligible
 from app.workload import require_workload_capacity
 
 log = structlog.get_logger(__name__)
@@ -143,7 +144,7 @@ class SelfScoutResponse(BaseModel):
 
 @router.get("/tendencies", response_model=SelfScoutResponse)
 async def get_tendencies(
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _current_user: Annotated[User, Depends(get_current_user)],
     video_id: uuid.UUID | None = Query(default=None),
     session_id: uuid.UUID | None = Query(default=None),
@@ -173,7 +174,7 @@ async def get_tendencies(
 
 @router.get("/opponent-tendencies", response_model=SelfScoutResponse)
 async def get_opponent_tendencies(
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _current_user: Annotated[User, Depends(get_current_user)],
     opponent_video_id: uuid.UUID = Query(...),
     limit: int = Query(default=500, ge=1, le=2000),
@@ -205,6 +206,7 @@ async def _run_tendency_engine(
         select(Clip)
         .join(Video, Video.id == Clip.video_id)
         .outerjoin(PlayView, PlayView.clip_id == Clip.id)
+        .where(canonical_play_eligible())
         .distinct(play_key)
         .order_by(play_key, Clip.is_reviewed.desc(), Clip.created_at)
         .limit(limit)
@@ -905,7 +907,7 @@ def _first_uuid(clip_ids: list[str]) -> uuid.UUID | None:
 
 @router.post("/tendency-break", response_model=TendencyBreakRunResponse)
 async def generate_tendency_break(
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _current_user: Annotated[User, Depends(require_coach_or_above)],
     _capacity: Annotated[Any, Depends(require_workload_capacity("self_scout.tendency_break"))],
     game_video_id: uuid.UUID | None = Query(
@@ -1016,7 +1018,7 @@ async def generate_tendency_break(
 
 @router.get("/tendency-break", response_model=TendencyBreakListResponse)
 async def list_tendency_break(
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     current_user: Annotated[User, Depends(get_current_user)],
     actioned: bool | None = Query(default=None),
     session_id: str | None = Query(default=None),

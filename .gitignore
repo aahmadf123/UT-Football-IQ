@@ -66,6 +66,11 @@ roboflow-data/
 gpu-worker/roboflow-data/
 gpu-worker/runs/
 runs/
+# Regenerable overhaul canary media; summary evidence lives one level above.
+/reports/overhaul/canary/
+# Local review screenshots and assembled staff archives are regenerable artifacts.
+/reports/overhaul/*.png
+/reports/overhaul/*.zip
 
 # NFL Big Data Bowl (Issue #164) — raw Kaggle data + normalized artifacts are
 # OFFLINE-only and must never be committed. The synthetic sample under

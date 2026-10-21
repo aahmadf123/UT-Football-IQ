@@ -30,7 +30,7 @@ def vfr_video(tmp_path):
     manifest.write_text("\n".join(lines) + "\n")
     output = tmp_path / "vfr.mp4"
     subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "concat", "-safe", "0",
-                    "-i", str(manifest), "-fps_mode", "vfr", "-c:v", "libx264", "-pix_fmt", "yuv420p",
+                    "-i", str(manifest), "-fps_mode", "vfr", "-c:v", "libx264", "-bf", "0", "-pix_fmt", "yuv420p",
                     str(output)], check=True, capture_output=True)
     return output
 

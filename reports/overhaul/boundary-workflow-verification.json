@@ -1,0 +1,10 @@
+{
+  "scope": "disposable_local_library",
+  "football_accuracy": "not_evaluated",
+  "nested_split_merge_reverse_undo": true,
+  "original_deep_link_preserved": true,
+  "real_reprocessing_preserves_staff_ids_and_windows": true,
+  "reprocessing_job_id": "b2d07780-3826-4fd8-8ab1-a43570a5b094",
+  "restored_original_boundaries_and_labels": true,
+  "audit_operations_retained": 2
+}

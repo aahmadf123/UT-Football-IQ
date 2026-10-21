@@ -136,7 +136,7 @@ async def cfbd_connection_status(
 async def refresh_cfbd_cache(
     body: CfbdSyncRequest,
     _user: Annotated[User, Depends(require_admin)],
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _lock: Annotated[None, Depends(_sync_lock)],
 ) -> CfbdSyncResponse:
     """Refresh one bounded scope, preserving cached data on vendor failure."""
@@ -371,7 +371,7 @@ async def _cache_meta(db: AsyncSession, source_endpoint: str, *, row_count: int)
 
 @router.get("/teams/toledo", response_model=CfbdTeamResponse)
 async def get_toledo_team(
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _user: Annotated[User, Depends(_require_cfbd_read)],
 ) -> CfbdTeamResponse:
     """Return cached Toledo team metadata."""
@@ -399,7 +399,7 @@ async def get_toledo_team(
 
 @router.get("/teams/toledo/schedule", response_model=CfbdScheduleResponse)
 async def get_toledo_schedule(
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _user: Annotated[User, Depends(_require_cfbd_read)],
     season: Annotated[int | None, Query(ge=1900, le=2100)] = None,
 ) -> CfbdScheduleResponse:
@@ -435,7 +435,7 @@ async def get_toledo_schedule(
 @router.get("/games/{game_id}/plays", response_model=CfbdPlaysResponse)
 async def get_game_plays(
     game_id: int,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _user: Annotated[User, Depends(_require_cfbd_read)],
     limit: Annotated[int, Query(ge=1, le=500)] = 300,
 ) -> CfbdPlaysResponse:
@@ -476,7 +476,7 @@ async def get_game_plays(
 @router.get("/games/{game_id}/drives", response_model=CfbdDrivesResponse)
 async def get_game_drives(
     game_id: int,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _user: Annotated[User, Depends(_require_cfbd_read)],
 ) -> CfbdDrivesResponse:
     """Return cached drive summaries for a single game."""
@@ -513,7 +513,7 @@ async def get_game_drives(
 @router.get("/games/{game_id}/win-probability", response_model=CfbdWinProbResponse)
 async def get_game_win_probability(
     game_id: int,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _user: Annotated[User, Depends(_require_cfbd_read)],
 ) -> CfbdWinProbResponse:
     """Return the cached win-probability timeline for a single game."""
@@ -544,7 +544,7 @@ async def get_game_win_probability(
 
 @router.get("/mac/benchmark", response_model=CfbdMacBenchmarkResponse)
 async def get_mac_benchmark(
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _user: Annotated[User, Depends(_require_cfbd_read)],
     # Heavy: aggregates box scores across the whole conference. Returns a
     # distinguishable 503 workload_gated under load.
@@ -643,7 +643,7 @@ class CfbdPlayerSeasonsResponse(BaseModel):
 async def get_player_seasons(
     player_id: uuid.UUID,
     _user: Annotated[User, Depends(_require_cfbd_read)],
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
 ) -> CfbdPlayerSeasonsResponse:
     """A rostered player's CFBD seasons, newest first. Empty when the player
     isn't linked to CFBD (e.g. a walk-on added by a coach)."""
@@ -686,7 +686,7 @@ async def get_player_seasons(
 async def link_game_film(
     video_id: uuid.UUID,
     _user: Annotated[User, Depends(require_coach_or_above)],
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
 ) -> dict[str, Any]:
     """Match a processed game film's plays to CFBD play-by-play.
 

@@ -30,6 +30,7 @@ from app.models import (
     ReportFormat,
     Video,
 )
+from app.services.metric_policy import canonical_play_eligible
 
 # Section labels mirror the existing Reports UI (page-renderer.tsx). Keep
 # these in sync with the frontend so the section toggles drive real output.
@@ -123,7 +124,7 @@ async def aggregate_coaching_summary(
             videos = videos.where(
                 Video.recorded_at >= value if operator == "after" else Video.recorded_at <= value
             )
-    clip_scope = Clip.video_id.in_(videos)
+    clip_scope = Clip.video_id.in_(videos) & canonical_play_eligible()
     play_key = func.coalesce(PlayView.play_id, Clip.id)
     canonical_count = (
         select(func.count(func.distinct(play_key)))

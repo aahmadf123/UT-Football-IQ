@@ -39,6 +39,8 @@ class SystemConfig(BaseModel):
     # film never sits idle. The Film Room "Process Film" CTA remains for
     # manual mode (toggle off) and for retries.
     auto_process_on_upload: bool = True
+    auto_processing_profile: Literal["review", "quick", "detailed"] = "quick"
+    auto_detailed_analysis: bool = True
 
 
 class SystemConfigUpdate(BaseModel):
@@ -51,6 +53,8 @@ class SystemConfigUpdate(BaseModel):
     storage_bucket: str | None = Field(default=None, max_length=120)
     auto_export_access: Literal["off", "staff", "all"] | None = None
     auto_process_on_upload: bool | None = None
+    auto_processing_profile: Literal["review", "quick", "detailed"] | None = None
+    auto_detailed_analysis: bool | None = None
 
 
 class ModelSensitivity(BaseModel):

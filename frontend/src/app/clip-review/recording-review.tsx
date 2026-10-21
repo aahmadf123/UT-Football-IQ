@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, ArrowUpRight, Film, ScanLine } from "lucide-react";
-import { fetchClipOverlays, fetchClipsForVideo, fetchVideo, fetchVideoDownloadUrl, parseStorageUri } from "@/lib/api";
+import { fetchClipOverlays, fetchClipsForVideo, fetchVideo, fetchVideoDownloadUrl, parseStorageUri, signedUrlRefreshDelay } from "@/lib/api";
 import { useAppState } from "@/lib/app-state";
 import type { ApiClip, ApiVideo, ClipOverlayPayload, OverlayLayerKey } from "@/lib/types";
 import { trackingTimeSeconds } from "@/lib/tracking-time";
@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { OverlayCanvas } from "./overlay-canvas";
+import { FieldInset } from "./field-inset";
 import { VideoTransport } from "./video-transport";
 import { friendlyMessage } from "@/lib/api-error";
 
@@ -31,8 +32,14 @@ export function RecordingReview({ videoId }: { videoId: string }) {
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [showTracking, setShowTracking] = useState(true);
+  const [showField, setShowField] = useState(true);
   const [intrinsicSize, setIntrinsicSize] = useState<{ width: number; height: number } | null>(null);
-  const reload = useCallback(() => setRevision((value) => value + 1), []);
+  const resume = useRef<{ time: number; rate: number; playing: boolean; muted: boolean; volume: number } | null>(null);
+  const capture = useCallback(() => {
+    const element = videoRef.current;
+    if (element) resume.current = { time: element.currentTime, rate: element.playbackRate, playing: !element.paused, muted: element.muted, volume: element.volume };
+  }, []);
+  const reload = useCallback(() => { capture(); setRevision((value) => value + 1); }, [capture]);
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
@@ -50,6 +57,26 @@ export function RecordingReview({ videoId }: { videoId: string }) {
     })();
     return () => { cancelled = true; };
   }, [videoId, authToken, revision]);
+
+  const storage = parseStorageUri(recording?.storage_uri ?? null);
+  const bucket = recording ? storage?.bucket : null;
+  const objectKey = recording ? storage?.key : null;
+  useEffect(() => {
+    if (!bucket || !objectKey) return;
+    let cancelled = false;
+    let timer = 0;
+    const schedule = (delay: number) => { timer = window.setTimeout(() => void renew(), Math.max(delay, 1000)); };
+    const renew = async () => {
+      try {
+        const renewed = await fetchVideoDownloadUrl(bucket, objectKey, authToken, { fresh: true });
+        if (cancelled) return;
+        if (renewed) { capture(); setUrl(renewed); schedule(signedUrlRefreshDelay(bucket, objectKey)); }
+        else schedule(60_000);
+      } catch { if (!cancelled) schedule(60_000); }
+    };
+    schedule(signedUrlRefreshDelay(bucket, objectKey));
+    return () => { cancelled = true; window.clearTimeout(timer); };
+  }, [bucket, objectKey, authToken, revision, capture]);
 
   useEffect(() => {
     let cancelled = false;
@@ -99,12 +126,13 @@ export function RecordingReview({ videoId }: { videoId: string }) {
     </div>
     <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_300px]">
       <Card className="min-w-0 gap-0 overflow-hidden border-border-soft py-0 shadow-none">
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border-soft px-4 py-3"><span className="inline-flex items-center gap-2 text-xs font-semibold"><ScanLine className="size-4 text-primary" /> {activeClip ? `Play ${activeClip.play_number ?? clips.indexOf(activeClip) + 1}` : "Original recording"}</span><button type="button" aria-pressed={showTracking} onClick={() => setShowTracking((value) => !value)} className={cn("min-h-8 rounded-md border px-3 text-xs font-medium", showTracking ? "border-primary/35 bg-primary/10 text-primary" : "border-border-soft text-muted-foreground")}>Player tracking {showTracking ? "on" : "off"}</button></div>
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border-soft px-4 py-3"><span className="inline-flex items-center gap-2 text-xs font-semibold"><ScanLine className="size-4 text-primary" /> {activeClip ? `Play ${activeClip.play_number ?? clips.indexOf(activeClip) + 1}` : "Original recording"}</span><div className="flex flex-wrap gap-2"><button type="button" aria-pressed={showField} onClick={() => setShowField((value) => !value)} className={cn("min-h-8 rounded-md border px-3 text-xs font-medium", showField ? "border-primary/35 bg-primary/10 text-primary" : "border-border-soft text-muted-foreground")}>Field view {showField ? "on" : "off"}</button><button type="button" aria-pressed={showTracking} onClick={() => setShowTracking((value) => !value)} className={cn("min-h-8 rounded-md border px-3 text-xs font-medium", showTracking ? "border-primary/35 bg-primary/10 text-primary" : "border-border-soft text-muted-foreground")}>Player tracking {showTracking ? "on" : "off"}</button></div></div>
         {loading ? <div role="status" className="flex aspect-video items-center justify-center bg-black text-sm text-muted-foreground">Opening saved recording…</div> : null}
         {url && !loading ? <>
           <div className="relative aspect-video overflow-hidden bg-black [&:fullscreen]:h-screen [&:fullscreen]:w-screen" style={{ aspectRatio: intrinsicSize ? `${intrinsicSize.width} / ${intrinsicSize.height}` : undefined }}>
-            <video ref={videoRef} key={url} src={url} playsInline className="absolute inset-0 h-full w-full cursor-pointer object-contain" aria-label={recording?.filename ?? "Recording"} onTimeUpdate={() => setCurrentTime(videoRef.current?.currentTime ?? 0)} onSeeked={() => setCurrentTime(videoRef.current?.currentTime ?? 0)} onClick={() => { const el = videoRef.current; if (el?.paused) void el.play().catch(() => undefined); else el?.pause(); }} onLoadedMetadata={() => { const el = videoRef.current; if (!el) return; if (Number.isFinite(el.duration)) setDuration(el.duration); if (el.videoWidth > 0 && el.videoHeight > 0) setIntrinsicSize({ width: el.videoWidth, height: el.videoHeight }); }} onError={() => setError("Playback failed. Refresh the link, or check that this recording uses a supported browser video format.")} />
+            <video ref={videoRef} key={url} src={url} playsInline className="absolute inset-0 h-full w-full cursor-pointer object-contain" aria-label={recording?.filename ?? "Recording"} onTimeUpdate={() => setCurrentTime(videoRef.current?.currentTime ?? 0)} onSeeked={() => setCurrentTime(videoRef.current?.currentTime ?? 0)} onClick={() => { const el = videoRef.current; if (el?.paused) void el.play().catch(() => undefined); else el?.pause(); }} onLoadedMetadata={() => { const el = videoRef.current; if (!el) return; if (Number.isFinite(el.duration)) setDuration(el.duration); if (el.videoWidth > 0 && el.videoHeight > 0) setIntrinsicSize({ width: el.videoWidth, height: el.videoHeight }); const previous = resume.current; resume.current = null; if (previous) { el.currentTime = Math.min(Math.max(previous.time, 0), Number.isFinite(el.duration) ? Math.max(el.duration - 0.01, 0) : previous.time); el.playbackRate = previous.rate; el.muted = previous.muted; el.volume = previous.volume; setCurrentTime(el.currentTime); if (previous.playing) void el.play().catch(() => undefined); } else el.playbackRate = 1; }} onError={() => setError("Playback failed. Refresh the link, or check that this recording uses a supported browser video format.")} />
             {payload && showTracking ? <OverlayCanvas tracklets={payload.tracklets} events={payload.events} currentTimeSeconds={trackingTimeSeconds(payload, clipLocalTime, activeClip?.start_time ?? 0)} eventCurrentTimeSeconds={clipLocalTime} sourceStartTimeSeconds={payload.source_start_time_seconds ?? activeClip?.start_time ?? 0} fps={fps} videoWidth={recording?.width ?? intrinsicSize?.width ?? null} videoHeight={recording?.height ?? intrinsicSize?.height ?? null} activeLayers={RECORDING_LAYERS} playerNamesById={playerNames} onSelectTracklet={activeClip ? () => { videoRef.current?.pause(); } : undefined} /> : null}
+            {payload && showField ? <FieldInset tracklets={payload.tracklets} seconds={trackingTimeSeconds(payload, clipLocalTime, activeClip?.start_time ?? 0)} fps={fps} calibration={payload.calibration ?? null} playerNamesById={playerNames} /> : null}
           </div>
           <div className="px-4 pb-4 pt-2"><VideoTransport key={url} videoRef={videoRef} fps={fps} clipOffset={0} duration={duration} currentLocalTime={currentTime} eventTimes={clips.map((clip) => clip.start_time)} />
             <label className="mt-4 block"><span className="mb-2 flex items-center justify-between text-[0.65rem] text-muted-foreground"><span className="font-semibold uppercase tracking-wider">Recording timeline</span><span className="font-mono">{currentTime.toFixed(1)} / {duration.toFixed(1)}s</span></span><input type="range" aria-label="Recording timeline" min={0} max={Math.max(duration, 0.01)} step={1 / fps} value={Math.min(currentTime, duration)} onChange={(event) => seekTo(Number(event.target.value))} className="block h-2 w-full cursor-pointer accent-[var(--primary)]" /></label>

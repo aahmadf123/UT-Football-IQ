@@ -11,7 +11,7 @@ import { NativeSelect } from "@/components/ui/native-select";
 import { Switch } from "@/components/ui/switch";
 import { friendlyMessage } from "@/lib/api-error";
 
-const GROUPS = ["QB", "Skill", "OL", "DL", "LB", "DB", "ST"] as const;
+const GROUPS = ["QB", "RB", "WR", "TE", "Skill", "OL", "DL", "LB", "DB", "ST"] as const;
 
 export function RosterEditor({ playerId, onClose }: { playerId: string | null; onClose: () => void }) {
   const { authToken, refreshData } = useAppState();

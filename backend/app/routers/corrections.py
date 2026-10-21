@@ -117,7 +117,7 @@ class AnnotationQueueItem(BaseModel):
 
 @router.get("/queue", response_model=list[AnnotationQueueItem])
 async def get_annotation_queue(
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _current_user: Annotated[User, Depends(require_coach_or_above)],
     strategy: str = Query(default="uncertainty", pattern="^(uncertainty|recent)$"),
     video_id: uuid.UUID | None = Query(default=None),
@@ -161,7 +161,7 @@ async def get_annotation_queue(
 @router.post("", response_model=CorrectionResponse, status_code=status.HTTP_201_CREATED)
 async def create_correction(
     body: CorrectionCreate,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     current_user: Annotated[User, Depends(require_coach_or_above)],
 ) -> CorrectionResponse:
     """Apply a coach correction and record history in the same transaction."""
@@ -181,7 +181,7 @@ async def create_correction(
 
 @router.get("", response_model=list[CorrectionResponse])
 async def list_corrections(
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _current_user: Annotated[User, Depends(get_current_user)],
     clip_id: uuid.UUID | None = Query(default=None),
     exported: bool | None = Query(default=None),
@@ -205,7 +205,7 @@ async def list_corrections(
 
 @router.post("/export", response_model=ExportResponse)
 async def export_corrections_as_labels(
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _current_user: Annotated[User, Depends(require_analyst_or_above)],
     clip_id: uuid.UUID | None = Query(default=None),
     model_scope: str = Query(default="general"),

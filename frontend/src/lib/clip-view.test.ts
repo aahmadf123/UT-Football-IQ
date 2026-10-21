@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import type { ApiClip } from "./types";
-import { clipView, playSequence, sameplayAngles, situationLabel } from "./clip-view";
+import { alignedViewTime, clipView, playSequence, sameplayAngles, situationLabel } from "./clip-view";
 
 function clip(id: string, play: number, view: string | null, start: number, extra: Partial<ApiClip> = {}): ApiClip {
   return {
@@ -17,6 +17,12 @@ function clip(id: string, play: number, view: string | null, start: number, extr
 }
 
 describe("clip view helpers", () => {
+  test("angle offsets use canonical time, and independent views retain clamped local time", () => {
+    expect(alignedViewTime(5, 2, 4, 10)).toBe(3);
+    expect(alignedViewTime(5, null, null, 10)).toBe(5);
+    expect(alignedViewTime(5, 0, 9, 10)).toBe(0);
+    expect(alignedViewTime(15, null, null, 10)).toBeCloseTo(9.99);
+  });
   test("pairs the angles of one play in film order", () => {
     const side = clip("a", 3, "sideline", 30);
     const end = clip("b", 3, "endzone", 42);

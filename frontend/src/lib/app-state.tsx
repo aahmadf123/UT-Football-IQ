@@ -44,13 +44,15 @@ const SESSION_LABELS: Record<SessionType, string> = {
 };
 
 // Fallback group derivation when a player row hasn't been tagged yet. Maps
-// positions to the coaching-group labels used by the roster filters (Skill,
-// OL, DL, LB, DB, ST, QB).
+// positions to the distinct coaching groups used by the roster filters.
 const GROUP_BY_POSITION: Record<string, string> = {
   QB: "QB",
-  RB: "Skill",
-  WR: "Skill",
-  TE: "Skill",
+  RB: "RB",
+  FB: "RB",
+  HB: "RB",
+  WR: "WR",
+  SLOT: "WR",
+  TE: "TE",
   OL: "OL",
   C: "OL",
   G: "OL",
@@ -87,9 +89,11 @@ function looksNetworkFailure(error: unknown): boolean {
 }
 
 function deriveGroup(position: string | null, positionGroup: string | null): string {
-  if (positionGroup) return positionGroup;
-  if (position && GROUP_BY_POSITION[position]) return GROUP_BY_POSITION[position];
-  return "Unassigned";
+  // Old roster imports stored RB/WR/TE together as Skill. A known listed
+  // position can restore the specific group without guessing for ATH rows.
+  if (positionGroup && positionGroup.trim().toUpperCase() !== "SKILL") return positionGroup;
+  const listedGroup = position && GROUP_BY_POSITION[position.trim().toUpperCase()];
+  return listedGroup || positionGroup || "Unassigned";
 }
 
 /**

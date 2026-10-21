@@ -97,7 +97,7 @@ class DailyWorkloadBatch(BaseModel):
 
 @router.get("/surface")
 async def health_workload_surface(
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     user: Annotated[User, Depends(_require_health_read)],
 ) -> dict[str, object]:
     """Return the policy-safe athlete health/workload surface status.
@@ -126,7 +126,7 @@ async def health_workload_surface(
 
 @router.get("/injury-risk")
 async def injury_risk(
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     user: Annotated[User, Depends(_require_health_read)],
     date: datetime.date | None = Query(default=None, description="Rollup day (default: latest)"),
     days: int = Query(default=14, ge=1, le=56, description="Trailing window length in days"),
@@ -216,7 +216,7 @@ async def injury_risk(
 
 @router.get("/dashboard")
 async def health_dashboard(
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     user: Annotated[User, Depends(_require_health_read)],
     date: datetime.date | None = Query(default=None, description="Day (default: latest rollup)"),
     days: int = Query(default=14, ge=1, le=56, description="Trend window length in days"),
@@ -328,7 +328,7 @@ def _position_group_trends(
 
 @router.get("/daily-loads")
 async def daily_loads(
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     user: Annotated[User, Depends(require_analyst_or_above)],
     date: datetime.date = Query(..., description="Day to aggregate (UTC)"),
 ) -> dict[str, Any]:
@@ -419,7 +419,7 @@ async def daily_loads(
 @router.post("/daily", status_code=status.HTTP_201_CREATED)
 async def upsert_daily_workload(
     body: DailyWorkloadBatch,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     user: Annotated[User, Depends(require_analyst_or_above)],
 ) -> dict[str, Any]:
     """Bulk upsert nightly ``player_workload_daily`` rows (GPU worker path).

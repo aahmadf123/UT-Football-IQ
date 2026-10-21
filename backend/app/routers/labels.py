@@ -79,7 +79,7 @@ class LabelResponse(BaseModel):
 @router.get("/api/v1/clips/{clip_id}/labels", response_model=list[LabelResponse])
 async def list_labels_for_clip(
     clip_id: uuid.UUID,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _current_user: Annotated[User, Depends(get_current_user)],
     label_type: str | None = Query(default=None),
     source: str | None = Query(default=None),
@@ -109,7 +109,7 @@ async def list_labels_for_clip(
 @router.get("/api/v1/tracklets/{tracklet_id}/labels", response_model=list[LabelResponse])
 async def list_labels_for_tracklet(
     tracklet_id: uuid.UUID,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _current_user: Annotated[User, Depends(get_current_user)],
     label_type: str | None = Query(default=None),
 ) -> list[LabelResponse]:
@@ -132,7 +132,7 @@ async def list_labels_for_tracklet(
 )
 async def create_label(
     body: LabelCreate,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     current_user: Annotated[User, Depends(require_any_staff)],
 ) -> LabelResponse:
     """Store a formation/coverage/route label for a clip or tracklet."""
@@ -277,7 +277,7 @@ async def create_label(
 @router.get("/api/v1/labels/{label_id}", response_model=LabelResponse)
 async def get_label(
     label_id: uuid.UUID,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _current_user: Annotated[User, Depends(get_current_user)],
 ) -> LabelResponse:
     """Get a single label record."""
@@ -291,7 +291,7 @@ async def get_label(
 @router.delete("/api/v1/labels/{label_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_label(
     label_id: uuid.UUID,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _current_user: Annotated[User, Depends(require_analyst_or_above)],
 ) -> None:
     """Delete a label (e.g. erroneous model output)."""

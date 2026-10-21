@@ -372,8 +372,9 @@ def test_quick_does_not_claim_a_short_window_is_a_detected_play(monkeypatch):
     result = stage_segment.run(
         "short-film", "file:///short-film.mp4", "job-short", processing_profile="quick"
     )
-    assert result["clip_count"] == 0
-    assert fake.calls == []
+    assert result["clip_count"] == 1
+    assert fake.calls[0]["boundary_confidence"] == 0
+    assert fake.calls[0]["extra"]["label_data"]["canonical_count_eligible"] is False
 
 
 def test_stage_segment_drops_too_short_segments(
@@ -394,9 +395,9 @@ def test_stage_segment_drops_too_short_segments(
 
     fake = _patch_stage(monkeypatch, segmenter=_DenseSegmenter(), duration=60.0)
     result = stage_segment.run("vid-3", "s3://b/k/x.mp4", "job-3")
-    # Only the trailing segment (1.4 → 60.0) clears MIN_PLAY_DURATION.
+    # Remove short proposals instead of losing the first 1.4s of source film.
     assert result["clip_count"] == 1
-    assert fake.calls[0]["start_time"] == pytest.approx(1.4)
+    assert fake.calls[0]["start_time"] == pytest.approx(0)
     assert fake.calls[0]["end_time"] == pytest.approx(60.0)
 
 

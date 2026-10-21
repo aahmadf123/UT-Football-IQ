@@ -110,7 +110,7 @@ async def current_account(current_user: Annotated[User, Depends(get_current_user
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 async def register(
     body: RegisterRequest,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
 ) -> User:
     """Create a new user account.
 
@@ -163,7 +163,7 @@ async def register(
 @router.post("/login", response_model=TokenResponse)
 async def login(
     body: LoginRequest,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
 ) -> TokenResponse:
     """Authenticate and return JWT access + refresh tokens."""
     normalized = _normalize_email(body.email)
@@ -190,7 +190,7 @@ async def login(
 @router.post("/refresh", response_model=TokenResponse)
 async def refresh_token(
     body: RefreshRequest,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
 ) -> TokenResponse:
     """Exchange a refresh token for a new access token."""
     payload = decode_token(body.refresh_token)
@@ -214,7 +214,7 @@ async def refresh_token(
 
 @router.get("/users", response_model=list[UserResponse])
 async def list_users(
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _admin: Annotated[User, Depends(require_admin)],
 ) -> list[User]:
     """List all user accounts (admin only)."""
@@ -226,7 +226,7 @@ async def list_users(
 async def update_user_role(
     user_id: uuid.UUID,
     body: RoleUpdateRequest,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     admin: Annotated[User, Depends(require_admin)],
 ) -> User:
     """Change a role while preserving an active administrator under concurrency."""
@@ -271,7 +271,7 @@ async def update_user_role(
 
 @router.post("/dev-login", response_model=TokenResponse)
 async def dev_login(
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
 ) -> TokenResponse:
     """Issue tokens for the seeded admin without credentials — dev only.
 

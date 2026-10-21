@@ -32,8 +32,8 @@ export const pageTitles: Record<PageKey, { title: string; subtitle: string }> = 
     subtitle: "Upload and process new film, browse sessions, and review & tag plays",
   },
   "team-stats": {
-    title: "Team Stats",
-    subtitle: "Game breakdowns from film and official play-by-play",
+    title: "Team Analytics",
+    subtitle: "Compare qualified practice and game observations, with every measurement linked to film",
   },
   scouting: {
     title: "Scouting",
@@ -44,8 +44,8 @@ export const pageTitles: Record<PageKey, { title: string; subtitle: string }> = 
     subtitle: "Roster, identity confidence, and development snapshots",
   },
   analytics: {
-    title: "Model Insights",
-    subtitle: "Model-derived metrics, formation recognition, tracking quality, and model outputs",
+    title: "Analyst tools",
+    subtitle: "Cohorts, measurement definitions, uncertainty and film evidence",
   },
   "health-workload": {
     title: "Health & Workload",

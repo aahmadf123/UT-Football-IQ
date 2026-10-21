@@ -1,0 +1,13 @@
+{
+  "scope": "player profile local API and navigation wiring",
+  "remote_origin_env_required": false,
+  "actual_identity_api_called_in_local_test": true,
+  "peer_and_switch_typed_cohort_preserved": true,
+  "explicit_safe_from_back": true,
+  "lifetime_metrics_scope_visible": true,
+  "filtered_film_link_uses_current_player": true,
+  "mounted_tests": {"passed": 3, "fixture_source": "synthetic unit-test fixtures only"},
+  "targeted_eslint": "passed",
+  "typecheck": "passed",
+  "independent_review": "primary owner reviewed diff and mounted tests; no blocker"
+}

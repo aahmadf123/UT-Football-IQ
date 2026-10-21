@@ -39,6 +39,8 @@ from pipeline import backend, object_store
 from pipeline.lightweight_config import processing_profile as select_processing_profile
 from pipeline.runtime import check_control
 from pipeline.segment_models import (
+    GameFilmSegmenter,
+    OpticalFlowSegmenter,
     SegmenterBase,
     get_segmenter,
 )
@@ -67,6 +69,11 @@ def run(video_id: str, input_uri: str, job_id: str, *, priority: int = 0,
     if variant is None:
         variant = model_router.select_device_model("segment", priority)
     segmenter = get_segmenter(variant)
+    if isinstance(segmenter, OpticalFlowSegmenter):
+        # Film structure is independent of fast/detailed model budget. Even a
+        # fast optical-flow job must see camera discontinuities before making
+        # football-play proposals; continuous practice retains its baseline.
+        segmenter = GameFilmSegmenter(fallback=segmenter)
     if timeline is not None:
         segmenter.timeline = timeline
     log.info(
@@ -206,6 +213,13 @@ def _write_clips(
             continue
         pivots_by_time[time_s] = min(pivots_by_time.get(time_s, confidence), confidence)
     pivots = sorted(pivots_by_time.items())
+    # Remove over-close proposals instead of deleting source intervals. A short
+    # quiet span may contain an aborted snap or action; dropping it loses film.
+    spaced = [pivots[0]]
+    for pivot in pivots[1:-1]:
+        if pivot[0] - spaced[-1][0] >= MIN_PLAY_DURATION and duration - pivot[0] >= MIN_PLAY_DURATION:
+            spaced.append(pivot)
+    pivots = [*spaced, pivots[-1]]
 
     clips: list[dict[str, Any]] = []
     play_idx = 0
@@ -230,7 +244,7 @@ def _write_clips(
         clip.setdefault("boundary_model", boundary_model)
         clips.append(clip)
 
-    if not clips and review_fallback:
+    if not clips:
         # A short recording is still valid film for annotation. Preserve it as
         # an explicitly unconfirmed review window, not a detected football play.
         check_control()
@@ -238,6 +252,9 @@ def _write_clips(
             video_id, start_time=0., end_time=duration,
             boundary_source="synthetic_test" if boundary_model == "stub" else "heuristic",
             boundary_confidence=0., play_number=1, job_id=job_id, result_state=result_state,
+            extra={"label_data": {"logical_play_status": "unresolved",
+                                  "canonical_count_eligible": False,
+                                  "review_window": True}},
         )
         clip.setdefault("boundary_model", boundary_model)
         clip["review_window"] = True
@@ -268,7 +285,11 @@ def _write_spec_clips(
         check_control()
         start = max(0.0, float(spec["start_time"]))
         end = min(duration, float(spec["end_time"]))
-        if end - start < 1.0:
+        # Shot scans are resampled at30Hz; retain the true final source-frame
+        # tail rather than losing up to one resampling interval at EOF.
+        if 0 <= duration - end <= 1 / 30 + 1e-6:
+            end = duration
+        if not math.isfinite(start + end) or end <= start:
             continue
         board = spec.get("scoreboard") or {}
         view = spec.get("view") or "unknown"
@@ -276,6 +297,8 @@ def _write_spec_clips(
             "view": view,
             "view_confidence": spec.get("view_confidence"),
             "view_index": spec.get("view_index"),
+            "logical_play_status": spec.get("logical_play_status", "proposed"),
+            "canonical_count_eligible": spec.get("canonical_count_eligible", True),
         }
         if board:
             label_data["scoreboard"] = board
@@ -289,7 +312,8 @@ def _write_spec_clips(
             job_id=job_id,
             result_state=result_state,
             extra={
-                "play_call_id": f"{video_id[:8]}-p{int(spec['play_number']):03d}",
+                "play_call_id": (f"{video_id[:8]}-p{int(spec['play_number']):03d}"
+                                 if spec.get("canonical_count_eligible", True) else None),
                 "label_data": label_data,
                 "capture_regime": _VIEW_REGIMES.get(view),
                 "down": board.get("down"),

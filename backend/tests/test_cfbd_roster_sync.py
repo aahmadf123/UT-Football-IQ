@@ -157,9 +157,9 @@ async def test_first_sync_creates_roster_with_bio(session: AsyncSession) -> None
     assert qb.metadata_["class_year"] == "Jr."
     assert qb.metadata_["hometown"] == "Monroe, NC"
     assert qb.metadata_["height_in"] == 73
-    # #7 is taken in the DB group by Smith; the later athlete keeps no number.
+    # Duplicate numbers are retained as distinct identity candidates.
     assert players["Armorion Smith"].jersey_number == 7
-    assert players["Late Addition"].jersey_number is None
+    assert players["Late Addition"].jersey_number == 7
 
 
 async def test_resync_is_a_noop_and_keeps_coach_edits(session: AsyncSession) -> None:
@@ -226,7 +226,9 @@ def test_current_season_rolls_over_in_march() -> None:
     assert current_season(datetime(2027, 3, 1, tzinfo=UTC)) == 2027
 
 
-async def test_locked_jersey_is_reserved_regardless_of_row_order(session: AsyncSession) -> None:
+async def test_locked_jersey_is_preserved_without_erasing_duplicate_candidates(
+    session: AsyncSession,
+) -> None:
     async with _client(_ROSTER) as client:
         await sync_roster(session, client, season=2026)
     players = await _players(session)
@@ -244,7 +246,7 @@ async def test_locked_jersey_is_reserved_regardless_of_row_order(session: AsyncS
     assert result.status == m.CFBDSyncStatus.succeeded
     players = await _players(session)
     assert players["Late Addition"].jersey_number == 7
-    assert players["Armorion Smith"].jersey_number is None
+    assert players["Armorion Smith"].jersey_number == 7
 
 
 async def test_departing_jersey_is_released_for_incoming_player(session: AsyncSession) -> None:

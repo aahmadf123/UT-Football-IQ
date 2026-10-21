@@ -323,7 +323,7 @@ async def test_actual_holdout_eval_gates_promotion_and_counts_abstentions(
         training_body = "\n".join(json.dumps(record) for record in training_records) + "\n"
         training_path = local_object_path("artifacts", "datasets/fit.jsonl")
         training_path.parent.mkdir(parents=True, exist_ok=True)
-        training_path.write_text(training_body)
+        training_path.write_bytes(training_body.encode("utf-8"))
         training_dataset = TrainingDataset(
             id=uuid.uuid4(),
             model_scope="coverage",
@@ -410,10 +410,10 @@ async def test_actual_holdout_eval_gates_promotion_and_counts_abstentions(
         assert model.promoted_stage == ModelStage.production
         approved_sha = model.metrics["approved_artifact_sha256"]
         assert approved_sha == measured["artifact_sha256"]
-        training_path.write_text(training_body + "{}\n")
+        training_path.write_bytes((training_body + "{}\n").encode("utf-8"))
         with pytest.raises(HTTPException, match="422"):
             await promote_model(db, model=model, stage=ModelStage.production, actor=actor)
-        training_path.write_text(training_body)
+        training_path.write_bytes(training_body.encode("utf-8"))
         await evaluate_model(
             db,
             model_id=model.id,

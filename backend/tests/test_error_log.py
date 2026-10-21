@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from app import error_log
 from app.deps import get_current_user
-from app.main import app
+from app.error_log import unhandled_exception_handler
 from app.models import User, UserRole
-from fastapi import APIRouter
+from app.routers.system import router as system_router
+from fastapi import APIRouter, FastAPI
 from fastapi.testclient import TestClient
 
 boom = APIRouter()
@@ -16,6 +17,8 @@ async def explode() -> None:
 
 
 def test_unhandled_error_returns_json_with_an_id_admins_can_look_up():
+    app = FastAPI(exception_handlers={Exception: unhandled_exception_handler})
+    app.include_router(system_router)
     app.include_router(boom)
     try:
         client = TestClient(app, raise_server_exceptions=False)

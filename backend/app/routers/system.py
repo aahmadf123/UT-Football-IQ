@@ -14,7 +14,7 @@ import anyio
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.background import BackgroundTask
@@ -102,9 +102,73 @@ async def recent_errors(
     return recent()
 
 
+@router.get("/release-inventory")
+async def release_inventory(
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
+    _user: Annotated[User, Depends(require_any_staff)],
+) -> dict[str, Any]:
+    """Report observed versions; missing remote evidence stays unverified."""
+    from app.models import ProcessingJob
+    from app.services.metric_definitions import DEFINITION_VERSION
+
+    schema = list(
+        (await db.execute(text("SELECT version_num FROM alembic_version"))).scalars().all()
+    )
+    workers = (await db.execute(select(WorkerRuntime))).scalars().all()
+    jobs = (
+        (
+            await db.execute(
+                select(ProcessingJob).order_by(ProcessingJob.created_at.desc()).limit(25)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return {
+        "observed_at": datetime.now(UTC).isoformat(),
+        "backend": {"git_sha": os.environ.get("GIT_SHA", "unknown")},
+        "frontend": {
+            "state": "unverified",
+            "reason": "Compare the frontend build SHA at the deployed browser.",
+        },
+        "edge": {
+            "state": "unverified",
+            "reason": "Deployment connectivity and R2 bindings require a live trace.",
+        },
+        "database": {"schema_revisions": schema},
+        "storage_backend": active_storage_backend(),
+        "definition_version": DEFINITION_VERSION,
+        "cfbd": {"configured": bool(get_settings().cfbd_api_key), "invocation_verified": False},
+        "workers": [
+            {
+                "worker_id": worker.worker_id,
+                "device": worker.device,
+                "last_seen_at": worker.last_seen_at.isoformat(),
+                "online": worker.last_seen_at >= datetime.now(UTC) - timedelta(seconds=90),
+                "models": (worker.capabilities or {}).get("models", {}),
+                "version": ((worker.capabilities or {}).get("metadata") or {}).get(
+                    "git_sha", "unknown"
+                ),
+            }
+            for worker in workers
+        ],
+        "recent_artifacts": [
+            {
+                "job_id": str(job.id),
+                "status": str(job.status),
+                "provenance": job.provenance,
+                "generator_version": (job.output_artifacts or {}).get("generator_version"),
+            }
+            for job in jobs
+        ],
+        "production_verified": False,
+    }
+
+
 @router.get("/status")
 async def system_status(
-    db: Annotated[AsyncSession, Depends(get_db)], _user: Annotated[User, Depends(get_current_user)]
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
+    _user: Annotated[User, Depends(get_current_user)],
 ) -> dict[str, Any]:
     backend = active_storage_backend()
     root = local_storage_root()
@@ -211,7 +275,7 @@ async def system_status(
 @router.post("/workers/register")
 async def register_worker(
     body: WorkerRegistration,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     user: Annotated[User, Depends(require_any_staff)],
 ) -> dict[str, Any]:
     capabilities = body.model_dump(mode="json", exclude={"worker_id", "device"})
@@ -242,7 +306,7 @@ async def register_worker(
 async def worker_heartbeat(
     worker_id: str,
     body: WorkerHeartbeat,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _user: Annotated[User, Depends(require_any_staff)],
 ) -> dict[str, Any]:
     row = (

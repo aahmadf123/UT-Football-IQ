@@ -1,13 +1,12 @@
 """Tracklets router — player tracking data within clips."""
 
 import uuid
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 import structlog
 from fastapi import APIRouter, Depends, Header, HTTPException, status
-from pydantic import BaseModel
-from sqlalchemy import cast, func, select, update
-from sqlalchemy.dialects.postgresql import JSONB
+from pydantic import BaseModel, Field, field_validator
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -28,6 +27,8 @@ class TrackPointSchema(BaseModel):
     tracklet_id: uuid.UUID
     frame_number: int
     timestamp_seconds: float | None = None
+    shot_id: str | None = None
+    visibility_state: str | None = None
     field_x: float | None
     field_y: float | None
     bbox: list[float] | None
@@ -46,6 +47,8 @@ class TrackPointSchema(BaseModel):
             field_y=tp.field_y,
             bbox=tp.bbox,
             detection_confidence=tp.detection_confidence,
+            shot_id=tp.shot_id if isinstance(tp.shot_id, str) else None,
+            visibility_state=tp.visibility_state if isinstance(tp.visibility_state, str) else None,
         )
 
 
@@ -86,6 +89,29 @@ class TrackletResponse(BaseModel):
         )
 
 
+class TrackPointCreate(BaseModel):
+    frame_number: int = Field(ge=0)
+    timestamp_seconds: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    shot_id: str | None = Field(default=None, max_length=120)
+    visibility_state: (
+        Literal["visible", "observed", "occluded", "offscreen", "lost", "predicted", "unknown"]
+        | None
+    ) = None
+    field_x: float | None = Field(default=None, allow_inf_nan=False)
+    field_y: float | None = Field(default=None, allow_inf_nan=False)
+    bbox: list[float] | None = Field(default=None, min_length=4, max_length=4)
+    detection_confidence: float | None = Field(default=None, ge=0, le=1)
+
+    @field_validator("shot_id", mode="before")
+    @classmethod
+    def normalize_shot_id(cls, value: Any) -> str | None:
+        if isinstance(value, int) and not isinstance(value, bool):
+            return str(value)
+        if value is None or isinstance(value, str):
+            return value
+        raise ValueError("Shot ID must be a string or integer")
+
+
 class TrackletCreate(BaseModel):
     model_config = {"protected_namespaces": ()}
 
@@ -100,7 +126,7 @@ class TrackletCreate(BaseModel):
     team_label: str | None = None
     model_version_id: uuid.UUID | None = None
     job_id: uuid.UUID | None = None
-    track_points: list[dict[str, Any]] = []
+    track_points: list[TrackPointCreate] = Field(default_factory=list, max_length=200000)
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
@@ -109,7 +135,7 @@ class TrackletCreate(BaseModel):
 @router.get("/api/v1/clips/{clip_id}/tracklets", response_model=list[TrackletResponse])
 async def list_tracklets_for_clip(
     clip_id: uuid.UUID,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _current_user: Annotated[User, Depends(get_current_user)],
 ) -> list[TrackletResponse]:
     """List all tracklets for a clip (summary — no points)."""
@@ -122,6 +148,7 @@ async def list_tracklets_for_clip(
         .where(
             Tracklet.clip_id == clip_id,
             func.coalesce(Tracklet.provenance["state"].as_string(), "") != "superseded",
+            func.coalesce(Tracklet.provenance["publication_state"].as_string(), "") != "pending",
         )
         .order_by(Tracklet.start_frame)
     )
@@ -133,7 +160,7 @@ async def list_tracklets_for_clip(
 @router.get("/api/v1/tracklets/{tracklet_id}", response_model=TrackletResponse)
 async def get_tracklet(
     tracklet_id: uuid.UUID,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _current_user: Annotated[User, Depends(get_current_user)],
 ) -> TrackletResponse:
     """Get a single tracklet with all its track points."""
@@ -155,7 +182,7 @@ async def get_tracklet(
 )
 async def create_tracklet(
     body: TrackletCreate,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _current_user: Annotated[User, Depends(require_any_staff)],
 ) -> TrackletResponse:
     """Store a new tracklet (with optional inline track points)."""
@@ -163,20 +190,6 @@ async def create_tracklet(
     if clip_result.scalar_one_or_none() is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Clip not found")
 
-    if body.job_id is not None:
-        await db.execute(
-            update(Tracklet)
-            .where(
-                Tracklet.clip_id == body.clip_id,
-                Tracklet.job_id.is_not(None),
-                Tracklet.job_id != body.job_id,
-            )
-            .values(
-                provenance=func.coalesce(Tracklet.provenance, cast({}, JSONB)).op("||")(
-                    cast({"state": "superseded"}, JSONB)
-                )
-            )
-        )
     if body.id is not None:
         existing = (
             await db.execute(select(Tracklet).where(Tracklet.id == body.id))
@@ -185,14 +198,15 @@ async def create_tracklet(
             if existing.clip_id != body.clip_id:
                 raise HTTPException(409, "Operation ID belongs to another target")
             if body.job_id is not None and body.job_id != existing.job_id:
-                existing.job_id = body.job_id
-                existing.provenance = body.provenance
-                await db.flush()
+                raise HTTPException(409, "Output ID belongs to another result version")
             return TrackletResponse.from_orm_tracklet(existing)
 
     tracklet = Tracklet(
         id=body.id or uuid.uuid4(),
-        provenance=body.provenance,
+        provenance={
+            **(body.provenance or {}),
+            **({"publication_state": "pending"} if body.job_id else {}),
+        },
         clip_id=body.clip_id,
         player_id=body.player_id,
         start_frame=body.start_frame,
@@ -205,7 +219,8 @@ async def create_tracklet(
     db.add(tracklet)
     await db.flush()
 
-    for pt in body.track_points:
+    for point in body.track_points:
+        pt = point.model_dump()
         tp = TrackPoint(
             id=uuid.uuid4(),
             tracklet_id=tracklet.id,
@@ -215,6 +230,8 @@ async def create_tracklet(
             field_y=pt.get("field_y"),
             bbox=pt.get("bbox"),
             detection_confidence=pt.get("detection_confidence"),
+            shot_id=pt.get("shot_id"),
+            visibility_state=pt.get("visibility_state"),
         )
         db.add(tp)
 
@@ -237,13 +254,14 @@ class TrackletUpdate(BaseModel):
     player_id: uuid.UUID | None = None
     team_label: str | None = None
     track_confidence: float | None = None
+    provenance: dict[str, Any] | None = None
 
 
 @router.patch("/api/v1/tracklets/{tracklet_id}", response_model=TrackletResponse)
 async def update_tracklet(
     tracklet_id: uuid.UUID,
     body: TrackletUpdate,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _current_user: Annotated[User, Depends(require_any_staff)],
     worker_job_id: Annotated[str | None, Header(alias="X-Job-ID")] = None,
 ) -> TrackletResponse:
@@ -257,7 +275,9 @@ async def update_tracklet(
     if tracklet is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tracklet not found")
 
-    identity = body.model_dump(mode="json", exclude_unset=True, exclude={"track_confidence"})
+    identity = body.model_dump(
+        mode="json", exclude_unset=True, exclude={"track_confidence", "provenance"}
+    )
     if identity and worker_job_id is None:
         await submit_correction(
             db,
@@ -273,7 +293,7 @@ async def update_tracklet(
                 .where(
                     Label.tracklet_id == tracklet.id,
                     Label.label_type == "player_identity",
-                    Label.source.in_(["human", "manual"]),
+                    Label.source.in_(["human", "manual", "inherited_human"]),
                 )
                 .limit(1)
             )
@@ -285,6 +305,8 @@ async def update_tracklet(
                 tracklet.team_label = body.team_label
     if body.track_confidence is not None:
         tracklet.track_confidence = body.track_confidence
+    if body.provenance is not None:
+        tracklet.provenance = {**(tracklet.provenance or {}), **body.provenance}
 
     await db.flush()
     log.info("tracklet_updated", tracklet_id=str(tracklet_id))

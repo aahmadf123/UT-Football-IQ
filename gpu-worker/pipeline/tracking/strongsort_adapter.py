@@ -27,7 +27,7 @@ from typing import Any
 import numpy as np
 import structlog
 
-from pipeline.tracker_models import TrackResult, _greedy_assign
+from pipeline.tracker_models import TrackResult, _greedy_assign, track_expired
 from pipeline.tracking.botsort_adapter import BoTSORTTracker, _MotionTrack
 
 log = structlog.get_logger(__name__)
@@ -105,6 +105,11 @@ class StrongSORTTracker(BoTSORTTracker):
                 for d in detections_by_frame.get(str(frame_idx), [])
                 if d.get("class", "player") == "player"
             ]
+            expired = [t for t in active if track_expired(
+                t, frame_idx, frame_dets, self.max_lost_frames, self.max_lost_seconds
+            )]
+            closed.extend(expired)
+            active = [t for t in active if t not in expired]
 
             if active and frame_dets:
                 matched_tracks, matched_dets = self._cascade_assign(

@@ -30,6 +30,7 @@ from sqlalchemy.orm import selectinload
 from app.database import get_db
 from app.deps import get_current_user
 from app.models import Clip, Event, FieldCalibration, Label, Metric, Tracklet, User, Video
+from app.routers.events import effective_events
 from app.services.metric_policy import INVALID_SOURCES, metric_visibility
 
 log = structlog.get_logger(__name__)
@@ -98,6 +99,8 @@ class OverlayTrackPoint(BaseModel):
     bbox: list[float] | None
     detection_confidence: float | None
     timestamp_seconds: float | None = None
+    shot_id: str | None = None
+    visibility_state: str | None = None
 
 
 class OverlayTracklet(BaseModel):
@@ -189,7 +192,7 @@ class ClipOverlayResponse(BaseModel):
 @router.get("/api/v1/clips/{clip_id}/overlays", response_model=ClipOverlayResponse)
 async def get_clip_overlays(
     clip_id: uuid.UUID,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     current_user: Annotated[User, Depends(get_current_user)],
 ) -> ClipOverlayResponse:
     """Aggregate tracklets, events, labels, and metrics for a single clip.
@@ -197,7 +200,9 @@ async def get_clip_overlays(
     Player-role users never see suppressed or experimental metrics; staff see
     everything except metrics flagged ``is_suppressed=True``.
     """
-    clip_result = await db.execute(select(Clip).where(Clip.id == clip_id))
+    clip_result = await db.execute(
+        select(Clip).where(Clip.id == clip_id).with_for_update(read=True)
+    )
     clip = clip_result.scalar_one_or_none()
     if clip is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Clip not found")
@@ -238,6 +243,7 @@ async def get_clip_overlays(
             Tracklet.clip_id == clip_id,
             ~func.coalesce(Tracklet.provenance["source"].astext, "unknown").in_(INVALID_SOURCES),
             func.coalesce(Tracklet.provenance["state"].astext, "current") != "superseded",
+            func.coalesce(Tracklet.provenance["publication_state"].astext, "current") != "pending",
         )
         .order_by(Tracklet.start_frame)
     )
@@ -256,26 +262,7 @@ async def get_clip_overlays(
         )
         .order_by(Event.frame_number)
     )
-    events = events_result.scalars().all()
-    human_event_types = {
-        event.event_type
-        for event in events
-        if (
-            isinstance(event.attributes, dict)
-            and event.attributes.get("source") in {"human", "manual"}
-        )
-        or (isinstance(event.provenance, dict) and event.provenance.get("source") == "manual")
-    }
-    events = [
-        event
-        for event in events
-        if event.event_type not in human_event_types
-        or (
-            isinstance(event.attributes, dict)
-            and event.attributes.get("source") in {"human", "manual"}
-        )
-        or (isinstance(event.provenance, dict) and event.provenance.get("source") == "manual")
-    ]
+    events = effective_events(events_result.scalars().all())
 
     labels_result = await db.execute(
         select(Label)
@@ -284,6 +271,9 @@ async def get_clip_overlays(
             | (Label.tracklet_id.in_(select(Tracklet.id).where(Tracklet.clip_id == clip_id)))
         )
         .where(Label.source != "synthetic_test")
+        .where(
+            Label.tracklet_id.is_(None) | Label.tracklet_id.in_([track.id for track in tracklets])
+        )
         .order_by(Label.created_at)
     )
     labels = labels_result.scalars().all()
@@ -338,6 +328,10 @@ async def get_clip_overlays(
                         field_y=p.field_y,
                         bbox=p.bbox,
                         detection_confidence=p.detection_confidence,
+                        shot_id=p.shot_id if isinstance(p.shot_id, str) else None,
+                        visibility_state=p.visibility_state
+                        if isinstance(p.visibility_state, str)
+                        else None,
                         timestamp_seconds=getattr(p, "timestamp_seconds", None)
                         if isinstance(getattr(p, "timestamp_seconds", None), (float, int))
                         else None,

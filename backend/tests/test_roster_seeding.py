@@ -89,14 +89,13 @@ def test_duplicate_roster_key_rejected(tmp_path: Path) -> None:
         load_roster_file(path)
 
 
-def test_duplicate_jersey_within_group_rejected(tmp_path: Path) -> None:
+def test_duplicate_jersey_within_group_retains_candidates(tmp_path: Path) -> None:
     players = [
         _entry("Cam", "Jones", 1, "CB", "DB"),
         _entry("Rico", "Bond", 1, "S", "DB"),
     ]
     path = _write_roster(tmp_path / "r.json", players)
-    with pytest.raises(ValueError, match="jersey_number, position_group"):
-        load_roster_file(path)
+    assert len(load_roster_file(path).players) == 2
 
 
 def test_duplicate_jersey_across_groups_accepted(tmp_path: Path) -> None:

@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "status": "unreviewed_not_release_evidence",
+  "targets": {
+    "canonical_plays": 240,
+    "independent_groups": 12,
+    "plays_per_category": 80,
+    "independent_groups_per_category": 4,
+    "dense_track_plays": 48,
+    "dense_track_plays_per_category": 16,
+    "double_labeled_adjudicated_fraction": 0.2,
+    "accepted_identity_cases_target": 2000,
+    "identity_precision_minimum": 0.995,
+    "identity_wilson_95_lower_minimum": 0.99,
+    "readable_team_resolved_identity_coverage_minimum": 0.9
+  },
+  "source_count": 36,
+  "proposed_groups": 7,
+  "confirmed_groups": 0,
+  "proposed_categories": {
+    "unconfirmed_game_format": 6,
+    "practice": 30
+  },
+  "minimum_additional_groups_if_all_proposals_confirmed": 5,
+  "confirmed_groups_by_category": {
+    "practice": 0,
+    "coach_game": 0,
+    "television": 0
+  },
+  "missing_confirmed_groups_by_category": {
+    "practice": 4,
+    "coach_game": 4,
+    "television": 4
+  },
+  "limitations": [
+    "Thirty same-date practice extracts propose one session, not thirty independent groups.",
+    "Six game files do not establish six independent games or either game-film category until staff review.",
+    "No television category has been identified. Obtain independent television sources if these files do not supply them.",
+    "Targets refer to distinct canonical plays, source groups and athlete cases, not clip or alternate-view counts.",
+    "No annotation, model evaluation, split assignment or acceptance gate passes from this package."
+  ]
+}

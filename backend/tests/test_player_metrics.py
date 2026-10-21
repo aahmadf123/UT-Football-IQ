@@ -50,12 +50,16 @@ _TABLES = [
     Base.metadata.tables["players"],
     Base.metadata.tables["training_datasets"],
     Base.metadata.tables["model_versions"],
+    Base.metadata.tables["football_sessions"],
     Base.metadata.tables["videos"],
     Base.metadata.tables["field_calibrations"],
     Base.metadata.tables["clips"],
     Base.metadata.tables["processing_jobs"],
+    Base.metadata.tables["plays"],
+    Base.metadata.tables["play_views"],
     Base.metadata.tables["tracklets"],
     Base.metadata.tables["metrics"],
+    Base.metadata.tables["labels"],
     Base.metadata.tables["coach_corrections"],
 ]
 
@@ -133,6 +137,8 @@ def _metric(
         metric_value=value,
         is_suppressed=suppressed,
         experimental_flag=experimental,
+        analytics_safe=True,
+        provenance={"source": "real", "validated": True},
     )
 
 

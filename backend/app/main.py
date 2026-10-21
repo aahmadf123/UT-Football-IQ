@@ -17,9 +17,11 @@ from app.roster_seeding import seed_roster
 from app.routers import health
 from app.routers.alerts import router as alerts_router
 from app.routers.alerts_sse import router as alerts_sse_router
+from app.routers.analytics import router as analytics_router
 from app.routers.auth import router as auth_router
 from app.routers.calibrations import router as calibrations_router
 from app.routers.cfbd import router as cfbd_router
+from app.routers.clip_edits import router as clip_edits_router
 from app.routers.clips import router as clips_router
 from app.routers.concept_proposals import router as concept_proposals_router
 from app.routers.concept_search import router as concept_search_router
@@ -45,6 +47,7 @@ from app.routers.metrics import router as metrics_router
 from app.routers.mlops import router as mlops_router
 from app.routers.opponents import router as opponents_router
 from app.routers.overlays import router as overlays_router
+from app.routers.play_evidence import router as play_evidence_router
 from app.routers.play_prediction import router as play_prediction_router
 from app.routers.playbook import router as playbook_router
 from app.routers.player_metrics import router as player_metrics_router
@@ -53,6 +56,8 @@ from app.routers.players import router as players_router
 from app.routers.pose import router as pose_router
 from app.routers.practice_sessions import router as practice_sessions_router
 from app.routers.reports import router as reports_router
+from app.routers.roster_assignments import router as roster_assignments_router
+from app.routers.saved_views import router as saved_views_router
 from app.routers.search import router as search_router
 from app.routers.self_scout import router as self_scout_router
 from app.routers.sessions import router as sessions_router
@@ -130,6 +135,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     finally:
         if scheduler_task is not None:
             scheduler_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await scheduler_task
         if report_task is not None:
             report_task.cancel()
             with suppress(asyncio.CancelledError):
@@ -209,6 +216,7 @@ app.include_router(game_summary_router)
 app.include_router(team_dashboard_router)
 app.include_router(storage_router)
 app.include_router(clips_router, dependencies=[Depends(validate_worker_write)])
+app.include_router(clip_edits_router)
 app.include_router(practice_sessions_router)
 # player_metrics before players: its literal /players/metrics/summary path
 # must never be shadowed by the players router's dynamic /{player_id} route.
@@ -241,6 +249,10 @@ app.include_router(reports_router)
 app.include_router(cfbd_router)
 app.include_router(play_prediction_router)
 app.include_router(frontier_analytics_router)
+app.include_router(analytics_router)
+app.include_router(play_evidence_router)
+app.include_router(saved_views_router)
+app.include_router(roster_assignments_router)
 app.include_router(playbook_router)
 app.include_router(counterfactuals_router)
 app.include_router(library_transfer_router)

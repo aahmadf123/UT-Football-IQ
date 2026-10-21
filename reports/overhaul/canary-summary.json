@@ -1,0 +1,178 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-21",
+  "purpose": "Real-source media and GPU execution canaries plus engineering regression evidence; not an annotated football accuracy benchmark.",
+  "worker_regression": "1362 passed, 1 skipped, 1 deselected in 32.21s",
+  "worker_lint": "All checks passed!",
+  "cross_service_regression": {
+    "result": "1 passed in 20.24s",
+    "evidence": "reports/overhaul/cross-service-verification.json",
+    "input_source": "synthetic_test",
+    "purpose": "Actual API/queue/worker/derivative wiring and synthetic quarantine; no accuracy qualification"
+  },
+  "manual_boundary_shot_audit": {
+    "evidence": "reports/overhaul/manual-shot-audit-canary.json",
+    "actual_practice_cut_starts_seconds": [0.0],
+    "actual_game_extract_cut_starts_seconds": [0.0, 0.6, 25.2],
+    "staff_windows_preserved": true,
+    "cross_cut_merged_window_spatial_analysis": "suppressed",
+    "purpose": "Camera-cut reset contract and source-window preservation; no football accuracy evaluation"
+  },
+  "canaries": [
+    {
+      "category": "practice",
+      "summary": "reports\\overhaul\\canary\\practice-final\\Dji 20260416110000 0257 D\\summary.json",
+      "source_seconds": 10.3103,
+      "source_fps": 29.97002997002997,
+      "covered_source_seconds": 10.3103,
+      "covered_fraction": 1.0,
+      "pipeline_elapsed_seconds": 31.05,
+      "clip_windows": 2,
+      "tracklets": 95,
+      "playback_ready": true,
+      "trusted_analysis": false,
+      "format_strategy": "continuous_motion_baseline",
+      "proxies": [
+        {
+          "source_start_seconds": 0.0,
+          "source_end_seconds": 3.737067,
+          "encoded_seconds": 3.733008,
+          "duration_passed": true,
+          "alignment_passed": true,
+          "generator_version": "pts-proxy-v2",
+          "artifact_sha256": "76d2e9244886b461ebceaab681954ad92356a27fc37985c143fc33ef8ccdf183",
+          "audio": "absent_in_source"
+        },
+        {
+          "source_start_seconds": 3.737067,
+          "source_end_seconds": 10.3103,
+          "encoded_seconds": 6.566016,
+          "duration_passed": true,
+          "alignment_passed": true,
+          "generator_version": "pts-proxy-v2",
+          "artifact_sha256": "bf3ba093b39406540dd56d5bfe1ccaba9ea5b350961df3b3f19c7dfb8ca1a0ab",
+          "audio": "absent_in_source"
+        }
+      ],
+      "overlay_generator_versions": [
+        "pts-overlay-v3"
+      ],
+      "failed_video_stages": [],
+      "failed_clip_stages": []
+    },
+    {
+      "category": "game_extract",
+      "summary": "reports\\overhaul\\canary\\game-latest\\mist-accurate-120s\\summary.json",
+      "source_seconds": 30.013317,
+      "source_fps": 59.77346722204977,
+      "covered_source_seconds": 30.013317,
+      "covered_fraction": 1.0,
+      "pipeline_elapsed_seconds": 58.03,
+      "clip_windows": 3,
+      "tracklets": 226,
+      "playback_ready": true,
+      "trusted_analysis": false,
+      "format_strategy": "unresolved_multishot",
+      "proxies": [
+        {
+          "source_start_seconds": 0.0,
+          "source_end_seconds": 0.6,
+          "encoded_seconds": 0.6,
+          "duration_passed": true,
+          "alignment_passed": true,
+          "generator_version": "pts-proxy-v2",
+          "artifact_sha256": "73c09ad066505faacb76d59631d4c93b0265b04194378138e9e6a1dda05d6bdc",
+          "audio": "absent_in_source"
+        },
+        {
+          "source_start_seconds": 0.6,
+          "source_end_seconds": 25.2,
+          "encoded_seconds": 24.6,
+          "duration_passed": true,
+          "alignment_passed": true,
+          "generator_version": "pts-proxy-v2",
+          "artifact_sha256": "8c6dbcef5f586b80f120ce67dfb61051468d8ab778fd8f002e670f4f16fe7830",
+          "audio": "absent_in_source"
+        },
+        {
+          "source_start_seconds": 25.2,
+          "source_end_seconds": 30.013317,
+          "encoded_seconds": 4.8,
+          "duration_passed": true,
+          "alignment_passed": true,
+          "generator_version": "pts-proxy-v2",
+          "artifact_sha256": "e768f14be91ce4af2f36173262a41f31568578124c786fdea8a424af7c6e9077",
+          "audio": "absent_in_source"
+        }
+      ],
+      "overlay_generator_versions": [
+        "pts-overlay-v3"
+      ],
+      "failed_video_stages": [],
+      "failed_clip_stages": []
+    }
+  ],
+  "measured_optional_tracker_inputs": {
+    "source": "real",
+    "video": "C:\\Users\\firas\\UT-Football-IQ\\Drone Footage\\Dji 20260416110000 0257 D.mp4",
+    "seconds": 10.3103,
+    "elapsed_seconds": 14.015,
+    "model_routing": {
+      "track": "botsort"
+    },
+    "tracker_inputs": {
+      "appearance_method": "torso_hsv_histogram_baseline",
+      "camera_motion_method": "background_masked_ecc",
+      "appearance_observations": 2685,
+      "camera_pairs_measured": 308,
+      "camera_pairs_unavailable": 0,
+      "validated": false
+    },
+    "tracklet_count": 51,
+    "quality_evaluation": "not measured; real inputs and adapter execution only"
+  },
+  "minimap": {
+    "canonical_coordinates": "goal lines x0..100yd; y centered +/-26.665yd; endzones x-10..110yd",
+    "calibration_required": true,
+    "interpolation_gap_seconds": 0.2,
+    "endpoint_extrapolation_seconds": 0,
+    "live_calibrated_source_acceptance": "not established by these uncalibrated source smokes; renderer geometry and gating tested",
+    "default_style": {
+      "corner": "bottom_right",
+      "width_fraction": 0.22,
+      "opacity": 0.35,
+      "labels": false,
+      "current_generator": "pts-overlay-v4"
+    },
+    "style_verification": "Quiet v4 renderer tests and real-source v4 export smoke pass; actual calibration remains gated."
+  },
+  "remaining_quality_gates": [
+    "held-out annotated film categories and event timing",
+    "IDF1/HOTA/fragmentation/visible-player recall",
+    "team-resolved identity precision and coverage with confidence bounds",
+    "clear-lane/body-extent and football interaction validation",
+    "predictive models and calibration",
+    "production deployment and live staff-GPU queue journey beyond local smoke"
+  ],
+  "current_overlay_smoke": {
+    "generator_version": "pts-overlay-v4",
+    "duration_validation": {
+      "passed": true,
+      "expected_seconds": 3.737067,
+      "encoded_seconds": 3.733333,
+      "tolerance_seconds": 0.034333333333333334,
+      "codec": "h264"
+    },
+    "field_minimap": {
+      "enabled": false,
+      "max_interpolation_gap_seconds": 0.2,
+      "endpoint_freshness_seconds": 0,
+      "coordinates": "calibrated_ncaa_yards",
+      "corner": "bottom_right",
+      "opacity": 0.35,
+      "width_fraction": 0.22
+    },
+    "period_overlay_uri": "local://overlays/period_overlays/4c1c1469-95b2-58b3-bbc9-1274f5f4ebf4/pts-overlay-v4/5d74b23151f64e958302af38575e2643/period_overlay.mp4",
+    "source": "real"
+  }
+}

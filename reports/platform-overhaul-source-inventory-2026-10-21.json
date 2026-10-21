@@ -1,0 +1,1053 @@
+{
+  "schema_version": 1,
+  "observed_date": "2026-10-21",
+  "purpose": "source inventory; no labels or model accuracy implied",
+  "source_groups_note": "30 practice extracts appear to share one recorded session; game independence/film category require annotation confirmation.",
+  "reference_labels_found": [],
+  "items": [
+    {
+      "library": "practice",
+      "path": "C:\\Users\\firas\\UT-Football-IQ\\Drone Footage\\Dji 20260416110000 0257 D.mp4",
+      "name": "Dji 20260416110000 0257 D.mp4",
+      "bytes": 8666433,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "index": 0,
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 1280,
+            "height": 720,
+            "r_frame_rate": "30000/1001",
+            "avg_frame_rate": "30000/1001",
+            "time_base": "1/90000",
+            "start_time": "0.000000",
+            "duration": "10.310300",
+            "nb_frames": "309"
+          }
+        ],
+        "format": {
+          "duration": "10.310300",
+          "size": "8666433"
+        }
+      }
+    },
+    {
+      "library": "practice",
+      "path": "C:\\Users\\firas\\UT-Football-IQ\\Drone Footage\\Dji 20260416110028 0258 D.mp4",
+      "name": "Dji 20260416110028 0258 D.mp4",
+      "bytes": 8901173,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "index": 0,
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 1280,
+            "height": 720,
+            "r_frame_rate": "30000/1001",
+            "avg_frame_rate": "30000/1001",
+            "time_base": "1/90000",
+            "start_time": "0.000000",
+            "duration": "10.310300",
+            "nb_frames": "309"
+          }
+        ],
+        "format": {
+          "duration": "10.310300",
+          "size": "8901173"
+        }
+      }
+    },
+    {
+      "library": "practice",
+      "path": "C:\\Users\\firas\\UT-Football-IQ\\Drone Footage\\Dji 20260416110101 0259 D.mp4",
+      "name": "Dji 20260416110101 0259 D.mp4",
+      "bytes": 11468833,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "index": 0,
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 1280,
+            "height": 720,
+            "r_frame_rate": "30000/1001",
+            "avg_frame_rate": "30000/1001",
+            "time_base": "1/90000",
+            "start_time": "0.000000",
+            "duration": "13.380033",
+            "nb_frames": "401"
+          }
+        ],
+        "format": {
+          "duration": "13.380033",
+          "size": "11468833"
+        }
+      }
+    },
+    {
+      "library": "practice",
+      "path": "C:\\Users\\firas\\UT-Football-IQ\\Drone Footage\\Dji 20260416110140 0260 D.mp4",
+      "name": "Dji 20260416110140 0260 D.mp4",
+      "bytes": 9567244,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "index": 0,
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 1280,
+            "height": 720,
+            "r_frame_rate": "30000/1001",
+            "avg_frame_rate": "30000/1001",
+            "time_base": "1/90000",
+            "start_time": "0.000000",
+            "duration": "11.277933",
+            "nb_frames": "338"
+          }
+        ],
+        "format": {
+          "duration": "11.277933",
+          "size": "9567244"
+        }
+      }
+    },
+    {
+      "library": "practice",
+      "path": "C:\\Users\\firas\\UT-Football-IQ\\Drone Footage\\Dji 20260416110213 0261 D.mp4",
+      "name": "Dji 20260416110213 0261 D.mp4",
+      "bytes": 10525621,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "index": 0,
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 1280,
+            "height": 720,
+            "r_frame_rate": "30000/1001",
+            "avg_frame_rate": "30000/1001",
+            "time_base": "1/90000",
+            "start_time": "0.000000",
+            "duration": "12.712700",
+            "nb_frames": "381"
+          }
+        ],
+        "format": {
+          "duration": "12.712700",
+          "size": "10525621"
+        }
+      }
+    },
+    {
+      "library": "practice",
+      "path": "C:\\Users\\firas\\UT-Football-IQ\\Drone Footage\\Dji 20260416110254 0262 D.mp4",
+      "name": "Dji 20260416110254 0262 D.mp4",
+      "bytes": 9869029,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "index": 0,
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 1280,
+            "height": 720,
+            "r_frame_rate": "30000/1001",
+            "avg_frame_rate": "30000/1001",
+            "time_base": "1/90000",
+            "start_time": "0.000000",
+            "duration": "12.078733",
+            "nb_frames": "362"
+          }
+        ],
+        "format": {
+          "duration": "12.078733",
+          "size": "9869029"
+        }
+      }
+    },
+    {
+      "library": "practice",
+      "path": "C:\\Users\\firas\\UT-Football-IQ\\Drone Footage\\Dji 20260416110327 0263 D.mp4",
+      "name": "Dji 20260416110327 0263 D.mp4",
+      "bytes": 9365182,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "index": 0,
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 1280,
+            "height": 720,
+            "r_frame_rate": "30000/1001",
+            "avg_frame_rate": "30000/1001",
+            "time_base": "1/90000",
+            "start_time": "0.000000",
+            "duration": "11.878533",
+            "nb_frames": "356"
+          }
+        ],
+        "format": {
+          "duration": "11.878533",
+          "size": "9365182"
+        }
+      }
+    },
+    {
+      "library": "practice",
+      "path": "C:\\Users\\firas\\UT-Football-IQ\\Drone Footage\\Dji 20260416110358 0264 D.mp4",
+      "name": "Dji 20260416110358 0264 D.mp4",
+      "bytes": 8325382,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "index": 0,
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 1280,
+            "height": 720,
+            "r_frame_rate": "30000/1001",
+            "avg_frame_rate": "30000/1001",
+            "time_base": "1/90000",
+            "start_time": "0.000000",
+            "duration": "9.576233",
+            "nb_frames": "287"
+          }
+        ],
+        "format": {
+          "duration": "9.576233",
+          "size": "8325382"
+        }
+      }
+    },
+    {
+      "library": "practice",
+      "path": "C:\\Users\\firas\\UT-Football-IQ\\Drone Footage\\Dji 20260416110429 0265 D.mp4",
+      "name": "Dji 20260416110429 0265 D.mp4",
+      "bytes": 11290171,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "index": 0,
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 1280,
+            "height": 720,
+            "r_frame_rate": "30000/1001",
+            "avg_frame_rate": "30000/1001",
+            "time_base": "1/90000",
+            "start_time": "0.000000",
+            "duration": "12.979633",
+            "nb_frames": "389"
+          }
+        ],
+        "format": {
+          "duration": "12.979633",
+          "size": "11290171"
+        }
+      }
+    },
+    {
+      "library": "practice",
+      "path": "C:\\Users\\firas\\UT-Football-IQ\\Drone Footage\\Dji 20260416110504 0266 D.mp4",
+      "name": "Dji 20260416110504 0266 D.mp4",
+      "bytes": 10015146,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "index": 0,
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 1280,
+            "height": 720,
+            "r_frame_rate": "30000/1001",
+            "avg_frame_rate": "30000/1001",
+            "time_base": "1/90000",
+            "start_time": "0.000000",
+            "duration": "11.511500",
+            "nb_frames": "345"
+          }
+        ],
+        "format": {
+          "duration": "11.511500",
+          "size": "10015146"
+        }
+      }
+    },
+    {
+      "library": "practice",
+      "path": "C:\\Users\\firas\\UT-Football-IQ\\Drone Footage\\Dji 20260416110548 0267 D.mp4",
+      "name": "Dji 20260416110548 0267 D.mp4",
+      "bytes": 10844935,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "index": 0,
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 1280,
+            "height": 720,
+            "r_frame_rate": "30000/1001",
+            "avg_frame_rate": "30000/1001",
+            "time_base": "1/90000",
+            "start_time": "0.000000",
+            "duration": "14.014000",
+            "nb_frames": "420"
+          }
+        ],
+        "format": {
+          "duration": "14.014000",
+          "size": "10844935"
+        }
+      }
+    },
+    {
+      "library": "practice",
+      "path": "C:\\Users\\firas\\UT-Football-IQ\\Drone Footage\\Dji 20260416110621 0268 D.mp4",
+      "name": "Dji 20260416110621 0268 D.mp4",
+      "bytes": 14823229,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "index": 0,
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 1280,
+            "height": 720,
+            "r_frame_rate": "30000/1001",
+            "avg_frame_rate": "30000/1001",
+            "time_base": "1/90000",
+            "start_time": "0.000000",
+            "duration": "17.817800",
+            "nb_frames": "534"
+          }
+        ],
+        "format": {
+          "duration": "17.817800",
+          "size": "14823229"
+        }
+      }
+    },
+    {
+      "library": "practice",
+      "path": "C:\\Users\\firas\\UT-Football-IQ\\Drone Footage\\Dji 20260416110700 0269 D.mp4",
+      "name": "Dji 20260416110700 0269 D.mp4",
+      "bytes": 10539992,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "index": 0,
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 1280,
+            "height": 720,
+            "r_frame_rate": "30000/1001",
+            "avg_frame_rate": "30000/1001",
+            "time_base": "1/90000",
+            "start_time": "0.000000",
+            "duration": "13.179833",
+            "nb_frames": "395"
+          }
+        ],
+        "format": {
+          "duration": "13.179833",
+          "size": "10539992"
+        }
+      }
+    },
+    {
+      "library": "practice",
+      "path": "C:\\Users\\firas\\UT-Football-IQ\\Drone Footage\\Dji 20260416110733 0270 D.mp4",
+      "name": "Dji 20260416110733 0270 D.mp4",
+      "bytes": 9651917,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "index": 0,
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 1280,
+            "height": 720,
+            "r_frame_rate": "30000/1001",
+            "avg_frame_rate": "30000/1001",
+            "time_base": "1/90000",
+            "start_time": "0.000000",
+            "duration": "12.545867",
+            "nb_frames": "376"
+          }
+        ],
+        "format": {
+          "duration": "12.545867",
+          "size": "9651917"
+        }
+      }
+    },
+    {
+      "library": "practice",
+      "path": "C:\\Users\\firas\\UT-Football-IQ\\Drone Footage\\Dji 20260416110813 0271 D.mp4",
+      "name": "Dji 20260416110813 0271 D.mp4",
+      "bytes": 9425846,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "index": 0,
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 1280,
+            "height": 720,
+            "r_frame_rate": "30000/1001",
+            "avg_frame_rate": "30000/1001",
+            "time_base": "1/90000",
+            "start_time": "0.000000",
+            "duration": "11.344667",
+            "nb_frames": "340"
+          }
+        ],
+        "format": {
+          "duration": "11.344667",
+          "size": "9425846"
+        }
+      }
+    },
+    {
+      "library": "practice",
+      "path": "C:\\Users\\firas\\UT-Football-IQ\\Drone Footage\\Dji 20260416110857 0272 D.mp4",
+      "name": "Dji 20260416110857 0272 D.mp4",
+      "bytes": 8931764,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "index": 0,
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 1280,
+            "height": 720,
+            "r_frame_rate": "30000/1001",
+            "avg_frame_rate": "30000/1001",
+            "time_base": "1/90000",
+            "start_time": "0.000000",
+            "duration": "11.411400",
+            "nb_frames": "342"
+          }
+        ],
+        "format": {
+          "duration": "11.411400",
+          "size": "8931764"
+        }
+      }
+    },
+    {
+      "library": "practice",
+      "path": "C:\\Users\\firas\\UT-Football-IQ\\Drone Footage\\Dji 20260416110929 0273 D.mp4",
+      "name": "Dji 20260416110929 0273 D.mp4",
+      "bytes": 7876870,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "index": 0,
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 1280,
+            "height": 720,
+            "r_frame_rate": "30000/1001",
+            "avg_frame_rate": "30000/1001",
+            "time_base": "1/90000",
+            "start_time": "0.000000",
+            "duration": "9.609600",
+            "nb_frames": "288"
+          }
+        ],
+        "format": {
+          "duration": "9.609600",
+          "size": "7876870"
+        }
+      }
+    },
+    {
+      "library": "practice",
+      "path": "C:\\Users\\firas\\UT-Football-IQ\\Drone Footage\\Dji 20260416110958 0274 D.mp4",
+      "name": "Dji 20260416110958 0274 D.mp4",
+      "bytes": 5734873,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "index": 0,
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 1280,
+            "height": 720,
+            "r_frame_rate": "30000/1001",
+            "avg_frame_rate": "30000/1001",
+            "time_base": "1/90000",
+            "start_time": "0.000000",
+            "duration": "6.973633",
+            "nb_frames": "209"
+          }
+        ],
+        "format": {
+          "duration": "6.973633",
+          "size": "5734873"
+        }
+      }
+    },
+    {
+      "library": "practice",
+      "path": "C:\\Users\\firas\\UT-Football-IQ\\Drone Footage\\Dji 20260416111026 0275 D.mp4",
+      "name": "Dji 20260416111026 0275 D.mp4",
+      "bytes": 10379516,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "index": 0,
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 1280,
+            "height": 720,
+            "r_frame_rate": "30000/1001",
+            "avg_frame_rate": "30000/1001",
+            "time_base": "1/90000",
+            "start_time": "0.000000",
+            "duration": "12.412400",
+            "nb_frames": "372"
+          }
+        ],
+        "format": {
+          "duration": "12.412400",
+          "size": "10379516"
+        }
+      }
+    },
+    {
+      "library": "practice",
+      "path": "C:\\Users\\firas\\UT-Football-IQ\\Drone Footage\\Dji 20260416111101 0276 D.mp4",
+      "name": "Dji 20260416111101 0276 D.mp4",
+      "bytes": 8188220,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "index": 0,
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 1280,
+            "height": 720,
+            "r_frame_rate": "30000/1001",
+            "avg_frame_rate": "30000/1001",
+            "time_base": "1/90000",
+            "start_time": "0.000000",
+            "duration": "10.310300",
+            "nb_frames": "309"
+          }
+        ],
+        "format": {
+          "duration": "10.310300",
+          "size": "8188220"
+        }
+      }
+    },
+    {
+      "library": "practice",
+      "path": "C:\\Users\\firas\\UT-Football-IQ\\Drone Footage\\Dji 20260416111143 0277 D.mp4",
+      "name": "Dji 20260416111143 0277 D.mp4",
+      "bytes": 13732576,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "index": 0,
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 1280,
+            "height": 720,
+            "r_frame_rate": "30000/1001",
+            "avg_frame_rate": "30000/1001",
+            "time_base": "1/90000",
+            "start_time": "0.000000",
+            "duration": "17.083733",
+            "nb_frames": "512"
+          }
+        ],
+        "format": {
+          "duration": "17.083733",
+          "size": "13732576"
+        }
+      }
+    },
+    {
+      "library": "practice",
+      "path": "C:\\Users\\firas\\UT-Football-IQ\\Drone Footage\\Dji 20260416111218 0278 D.mp4",
+      "name": "Dji 20260416111218 0278 D.mp4",
+      "bytes": 12482801,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "index": 0,
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 1280,
+            "height": 720,
+            "r_frame_rate": "30000/1001",
+            "avg_frame_rate": "30000/1001",
+            "time_base": "1/90000",
+            "start_time": "0.000000",
+            "duration": "15.949267",
+            "nb_frames": "478"
+          }
+        ],
+        "format": {
+          "duration": "15.949267",
+          "size": "12482801"
+        }
+      }
+    },
+    {
+      "library": "practice",
+      "path": "C:\\Users\\firas\\UT-Football-IQ\\Drone Footage\\Dji 20260416111256 0279 D.mp4",
+      "name": "Dji 20260416111256 0279 D.mp4",
+      "bytes": 7395380,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "index": 0,
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 1280,
+            "height": 720,
+            "r_frame_rate": "30000/1001",
+            "avg_frame_rate": "30000/1001",
+            "time_base": "1/90000",
+            "start_time": "0.000000",
+            "duration": "9.542867",
+            "nb_frames": "286"
+          }
+        ],
+        "format": {
+          "duration": "9.542867",
+          "size": "7395380"
+        }
+      }
+    },
+    {
+      "library": "practice",
+      "path": "C:\\Users\\firas\\UT-Football-IQ\\Drone Footage\\Dji 20260416111327 0280 D.mp4",
+      "name": "Dji 20260416111327 0280 D.mp4",
+      "bytes": 10154508,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "index": 0,
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 1280,
+            "height": 720,
+            "r_frame_rate": "30000/1001",
+            "avg_frame_rate": "30000/1001",
+            "time_base": "1/90000",
+            "start_time": "0.000000",
+            "duration": "12.679333",
+            "nb_frames": "380"
+          }
+        ],
+        "format": {
+          "duration": "12.679333",
+          "size": "10154508"
+        }
+      }
+    },
+    {
+      "library": "practice",
+      "path": "C:\\Users\\firas\\UT-Football-IQ\\Drone Footage\\Dji 20260416111402 0281 D.mp4",
+      "name": "Dji 20260416111402 0281 D.mp4",
+      "bytes": 10449834,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "index": 0,
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 1280,
+            "height": 720,
+            "r_frame_rate": "30000/1001",
+            "avg_frame_rate": "30000/1001",
+            "time_base": "1/90000",
+            "start_time": "0.000000",
+            "duration": "12.579233",
+            "nb_frames": "377"
+          }
+        ],
+        "format": {
+          "duration": "12.579233",
+          "size": "10449834"
+        }
+      }
+    },
+    {
+      "library": "practice",
+      "path": "C:\\Users\\firas\\UT-Football-IQ\\Drone Footage\\Dji 20260416111445 0282 D.mp4",
+      "name": "Dji 20260416111445 0282 D.mp4",
+      "bytes": 18315841,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "index": 0,
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 1280,
+            "height": 720,
+            "r_frame_rate": "30000/1001",
+            "avg_frame_rate": "30000/1001",
+            "time_base": "1/90000",
+            "start_time": "0.000000",
+            "duration": "23.623600",
+            "nb_frames": "708"
+          }
+        ],
+        "format": {
+          "duration": "23.623600",
+          "size": "18315841"
+        }
+      }
+    },
+    {
+      "library": "practice",
+      "path": "C:\\Users\\firas\\UT-Football-IQ\\Drone Footage\\Dji 20260416111511 0283 D.mp4",
+      "name": "Dji 20260416111511 0283 D.mp4",
+      "bytes": 8822657,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "index": 0,
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 1280,
+            "height": 720,
+            "r_frame_rate": "30000/1001",
+            "avg_frame_rate": "30000/1001",
+            "time_base": "1/90000",
+            "start_time": "0.000000",
+            "duration": "11.111100",
+            "nb_frames": "333"
+          }
+        ],
+        "format": {
+          "duration": "11.111100",
+          "size": "8822657"
+        }
+      }
+    },
+    {
+      "library": "practice",
+      "path": "C:\\Users\\firas\\UT-Football-IQ\\Drone Footage\\Dji 20260416111539 0284 D.mp4",
+      "name": "Dji 20260416111539 0284 D.mp4",
+      "bytes": 7331490,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "index": 0,
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 1280,
+            "height": 720,
+            "r_frame_rate": "30000/1001",
+            "avg_frame_rate": "30000/1001",
+            "time_base": "1/90000",
+            "start_time": "0.000000",
+            "duration": "8.575233",
+            "nb_frames": "257"
+          }
+        ],
+        "format": {
+          "duration": "8.575233",
+          "size": "7331490"
+        }
+      }
+    },
+    {
+      "library": "practice",
+      "path": "C:\\Users\\firas\\UT-Football-IQ\\Drone Footage\\Dji 20260416111607 0285 D.mp4",
+      "name": "Dji 20260416111607 0285 D.mp4",
+      "bytes": 9457444,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "index": 0,
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 1280,
+            "height": 720,
+            "r_frame_rate": "30000/1001",
+            "avg_frame_rate": "30000/1001",
+            "time_base": "1/90000",
+            "start_time": "0.000000",
+            "duration": "12.412400",
+            "nb_frames": "372"
+          }
+        ],
+        "format": {
+          "duration": "12.412400",
+          "size": "9457444"
+        }
+      }
+    },
+    {
+      "library": "practice",
+      "path": "C:\\Users\\firas\\UT-Football-IQ\\Drone Footage\\Dji 20260416111644 0286 D.mp4",
+      "name": "Dji 20260416111644 0286 D.mp4",
+      "bytes": 7961639,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "index": 0,
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 1280,
+            "height": 720,
+            "r_frame_rate": "30000/1001",
+            "avg_frame_rate": "30000/1001",
+            "time_base": "1/90000",
+            "start_time": "0.000000",
+            "duration": "10.010000",
+            "nb_frames": "300"
+          }
+        ],
+        "format": {
+          "duration": "10.010000",
+          "size": "7961639"
+        }
+      }
+    },
+    {
+      "library": "game",
+      "path": "C:\\Users\\firas\\OneDrive - University of Toledo\\UT Game Film 2026\\26 01 OHTO FULL GAME @ MIST.mp4",
+      "name": "26 01 OHTO FULL GAME @ MIST.mp4",
+      "bytes": 3742691239,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "index": 0,
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 1280,
+            "height": 720,
+            "r_frame_rate": "60000/1001",
+            "avg_frame_rate": "60390000/1007507",
+            "time_base": "1/60000",
+            "start_time": "0.000000",
+            "duration": "5037.535000",
+            "nb_frames": "301950"
+          }
+        ],
+        "format": {
+          "duration": "5037.535000",
+          "size": "3742691239"
+        }
+      }
+    },
+    {
+      "library": "game",
+      "path": "C:\\Users\\firas\\OneDrive - University of Toledo\\UT Game Film 2026\\26 02 OHTO FULL GAME vs CTCE.mp4",
+      "name": "26 02 OHTO FULL GAME vs CTCE.mp4",
+      "bytes": 4143692321,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "index": 0,
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 1280,
+            "height": 720,
+            "r_frame_rate": "60000/1001",
+            "avg_frame_rate": "1320945263/22037781",
+            "time_base": "1/60000",
+            "start_time": "0.000000",
+            "duration": "5613.110267",
+            "nb_frames": "336450"
+          }
+        ],
+        "format": {
+          "duration": "5613.110267",
+          "size": "4143692321"
+        }
+      }
+    },
+    {
+      "library": "game",
+      "path": "C:\\Users\\firas\\OneDrive - University of Toledo\\UT Game Film 2026\\26 03 OHTO FULL GAME vs PATE.mp4",
+      "name": "26 03 OHTO FULL GAME vs PATE.mp4",
+      "bytes": 4549285620,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "index": 0,
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 1280,
+            "height": 720,
+            "r_frame_rate": "60000/1001",
+            "avg_frame_rate": "90875381/1516105",
+            "time_base": "1/60000",
+            "start_time": "0.000000",
+            "duration": "6152.148950",
+            "nb_frames": "368760"
+          }
+        ],
+        "format": {
+          "duration": "6152.148950",
+          "size": "4549285620"
+        }
+      }
+    },
+    {
+      "library": "game",
+      "path": "C:\\Users\\firas\\OneDrive - University of Toledo\\UT Game Film 2026\\26 04 OHTO FULL GAME vs CASS.mp4",
+      "name": "26 04 OHTO FULL GAME vs CASS.mp4",
+      "bytes": 4193532469,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "index": 0,
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 1280,
+            "height": 720,
+            "r_frame_rate": "60000/1001",
+            "avg_frame_rate": "1030574657/17193429",
+            "time_base": "1/60000",
+            "start_time": "0.000000",
+            "duration": "5682.179300",
+            "nb_frames": "340590"
+          }
+        ],
+        "format": {
+          "duration": "5682.179300",
+          "size": "4193532469"
+        }
+      }
+    },
+    {
+      "library": "game",
+      "path": "C:\\Users\\firas\\OneDrive - University of Toledo\\UT Game Film 2026\\26 05 OHTO @ INBS FULL GAME.mp4",
+      "name": "26 05 OHTO @ INBS FULL GAME.mp4",
+      "bytes": 4374633343,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "index": 0,
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 1280,
+            "height": 720,
+            "r_frame_rate": "60000/1001",
+            "avg_frame_rate": "1475801897/24621307",
+            "time_base": "1/60000",
+            "start_time": "0.000000",
+            "duration": "5906.903883",
+            "nb_frames": "354060"
+          }
+        ],
+        "format": {
+          "duration": "5906.903883",
+          "size": "4374633343"
+        }
+      }
+    },
+    {
+      "library": "game",
+      "path": "C:\\Users\\firas\\OneDrive - University of Toledo\\UT Game Film 2026\\26 06 OHTO FULL GAME vs NYBU .mp4",
+      "name": "26 06 OHTO FULL GAME vs NYBU .mp4",
+      "bytes": 3996542758,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "index": 0,
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 1280,
+            "height": 720,
+            "r_frame_rate": "60000/1001",
+            "avg_frame_rate": "50643750/844907",
+            "time_base": "1/60000",
+            "start_time": "0.000000",
+            "duration": "5407.404800",
+            "nb_frames": "324120"
+          }
+        ],
+        "format": {
+          "duration": "5407.404800",
+          "size": "3996542758"
+        }
+      }
+    }
+  ]
+}

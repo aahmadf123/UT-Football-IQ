@@ -33,10 +33,12 @@ log = structlog.get_logger("app.cfbd.roster_sync")
 #: CFBD position code → the coaching position group used across the app.
 POSITION_GROUPS: dict[str, str] = {
     "QB": "QB",
-    "RB": "Skill",
-    "FB": "Skill",
-    "WR": "Skill",
-    "TE": "Skill",
+    "RB": "RB",
+    "FB": "RB",
+    "HB": "RB",
+    "WR": "WR",
+    "SLOT": "WR",
+    "TE": "TE",
     "ATH": "Skill",
     "OL": "OL",
     "OT": "OL",
@@ -195,17 +197,6 @@ async def _apply_roster(
             player.is_active = False
             stats["deactivated"] += 1
 
-    # The partial unique index on active (jersey, position group) is checked
-    # row by row, so clear the numbers that are about to move first: two
-    # players swapping numbers must not collide halfway through the sync.
-    synced = {id(p) for _, p in planned if p is not None}
-    original_jersey: dict[int, int | None] = {}
-    for _fields, existing in planned:
-        if existing is not None and "jersey_number" not in _locked(existing):
-            original_jersey[id(existing)] = existing.jersey_number
-            existing.jersey_number = None
-    await session.flush()
-
     # [fields, existing, target, activate] per roster row.
     plans: list[list[Any]] = []
     for fields, existing in planned:
@@ -214,59 +205,8 @@ async def _apply_roster(
         activate = existing is None or "is_active" not in locked or existing.is_active
         plans.append([fields, existing, target, activate])
 
-    # Reserve the slots this sync never renumbers before allocating CFBD
-    # numbers, so the outcome does not depend on vendor row order: other
-    # active players, and coach-locked jerseys. A slot released by a player
-    # moving group is not reused in the same sync (the unique index is
-    # checked row by row and flush order is not the roster order).
-    owners: dict[tuple[int, str], int] = {}
-    for p in players:
-        if (
-            p.is_active
-            and p.jersey_number is not None
-            and p.position_group is not None
-            and (id(p) not in synced or "jersey_number" in _locked(p))
-        ):
-            owners.setdefault((p.jersey_number, p.position_group), id(p))
-    for plan in plans:
-        _fields, existing, target, activate = plan
-        if (
-            existing is None
-            or "jersey_number" not in _locked(existing)
-            or existing.jersey_number is None
-            or not activate
-        ):
-            continue
-        group = target.get("position_group", existing.position_group)
-        if group is None:
-            continue
-        slot = (existing.jersey_number, group)
-        if existing.is_active and group == existing.position_group:
-            continue
-        if owners.get(slot, id(existing)) == id(existing):
-            owners[slot] = id(existing)
-            continue
-        # The locked number cannot be cleared: keep the player's current
-        # group (and inactive status) rather than collide.
-        stats["jersey_conflicts"] += 1
-        target.pop("position", None)
-        target.pop("position_group", None)
-        if not existing.is_active:
-            plan[3] = False
-
+    # Duplicate numbers are retained; number, group and team are candidate evidence.
     for fields, existing, target, activate in plans:
-        owner = id(existing) if existing is not None else id(fields)
-        jersey = target.get("jersey_number")
-        group = target.get("position_group", existing.position_group if existing else None)
-        if activate and "jersey_number" in target and jersey is not None and group is not None:
-            if owners.get((jersey, group), owner) != owner:
-                # Two athletes share a number within a group (or a coach
-                # assigned it): keep the player, leave the number blank.
-                stats["jersey_conflicts"] += 1
-                target["jersey_number"] = None
-            else:
-                owners[(jersey, group)] = owner
-
         if existing is None:
             session.add(
                 Player(
@@ -284,11 +224,7 @@ async def _apply_roster(
 
         changed = False
         for name, value in target.items():
-            before = (
-                original_jersey.get(id(existing))
-                if name == "jersey_number"
-                else getattr(existing, name)
-            )
+            before = getattr(existing, name)
             if getattr(existing, name) != value:
                 setattr(existing, name, value)
             changed = changed or before != value

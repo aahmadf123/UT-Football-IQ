@@ -108,7 +108,8 @@ def stable_record_id(path: str, payload: dict[str, Any]) -> str | None:
             for key, value in values.items()
             if key in {"video_id", "start_time", "end_time", "play_number"}
         }
-    key = json.dumps([fingerprint, path, values], sort_keys=True, default=str)
+    key = json.dumps([fingerprint, path, None if is_clip else payload.get("job_id"), values],
+                     sort_keys=True, default=str)
     return str(uuid.uuid5(uuid.NAMESPACE_URL, key))
 
 

@@ -65,7 +65,9 @@ def _require_scheduler_token(authorization: Annotated[str | None, Header()] = No
 
 
 @router.get("/runtime/activity", dependencies=[Depends(_require_scheduler_token)])
-async def runtime_activity(db: Annotated[AsyncSession, Depends(get_db)]) -> dict[str, bool]:
+async def runtime_activity(
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
+) -> dict[str, bool]:
     """Keep the shared container awake only for its unexpired processing work.
 
     Loopback worker polls must not keep an idle deployment running all week.
@@ -86,14 +88,18 @@ async def runtime_activity(db: Annotated[AsyncSession, Depends(get_db)]) -> dict
 
 
 @router.post("/runtime/recover", dependencies=[Depends(_require_scheduler_token)])
-async def runtime_recover(db: Annotated[AsyncSession, Depends(get_db)]) -> dict[str, int]:
+async def runtime_recover(
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
+) -> dict[str, int]:
     """Resume only this hosted worker's interrupted jobs, preserving coach pauses."""
     recovered = await recover_shutdown_pauses(db, worker_id="cloudflare-cpu-primary")
     return {"recovered": recovered}
 
 
 @router.post("/scheduler/tick", dependencies=[Depends(_require_scheduler_token)])
-async def scheduler_tick(db: Annotated[AsyncSession, Depends(get_db)]) -> dict[str, object]:
+async def scheduler_tick(
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
+) -> dict[str, object]:
     """Run the nightly tick now.
 
     Safe to call repeatedly: a Postgres advisory lock admits one caller at a

@@ -25,6 +25,7 @@ from app.models import (
     Play,
     Player,
     PlayView,
+    RosterAssignment,
     Tracklet,
     TrackPoint,
     User,
@@ -263,3 +264,57 @@ async def test_http_export_stream_signature_preview_and_role_guard(archive_libra
             ).status_code == 403
     finally:
         app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_structural_history_and_roster_scope_survive_portable_archive(
+    archive_library,
+) -> None:
+    from app.routers.clip_edits import SplitClip, split_clip
+
+    maker, actor_id, session_id, clip_id, player_id = archive_library
+    async with maker() as db:
+        user = await db.get(User, actor_id)
+        edit = await split_clip(clip_id, SplitClip(at_seconds=2, expected_revision=2), db, user)
+        db.add(
+            RosterAssignment(
+                id=uuid.uuid4(),
+                player_id=player_id,
+                team="Toledo",
+                season=2026,
+                unit="offense",
+                session_id=session_id,
+                jersey_number=7,
+            )
+        )
+        await db.commit()
+        graph = await session_graph(db, session_id)
+    assert str(graph["clip_edits"][0]["id"]) == edit["operation_id"]
+    assert graph["roster_assignments"][0]["session_id"] == session_id
+    result = build_archive(graph, session_id)
+    path = local_object_path(ARTIFACTS, f"session-exports/{result['archive_id']}.zip")
+    with path.open("rb") as source:
+        manifest = validate_archive(source)
+        async with maker() as db:
+            replay = await import_archive(db, source, manifest, actor_id, True)
+            assert replay["created"] == 0 and not replay["conflicts"]
+
+
+@pytest.mark.asyncio
+async def test_portable_import_retains_duplicate_number_identity_candidates(
+    archive_library,
+) -> None:
+    maker, actor_id, session_id, _clip_id, player_id = archive_library
+    async with maker() as db:
+        person = await db.get(Player, player_id)
+        person.jersey_number = 7
+        await db.commit()
+        graph = await session_graph(db, session_id)
+    graph["players"].append({**graph["players"][0], "id": str(uuid.uuid4()), "first_name": "Other"})
+    result = build_archive(graph, session_id)
+    path = local_object_path(ARTIFACTS, f"session-exports/{result['archive_id']}.zip")
+    with path.open("rb") as source:
+        manifest = validate_archive(source)
+        async with maker() as db:
+            preview = await import_archive(db, source, manifest, actor_id, True)
+            assert preview["created"] == 1 and not preview["conflicts"]

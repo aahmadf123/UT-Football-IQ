@@ -14,6 +14,13 @@ export function viewLabel(view: ClipView): string {
   return VIEW_LABELS[view];
 }
 
+/** Alignment offsets map view-local time onto canonical time: canonical=local+offset. */
+export function alignedViewTime(local: number, currentOffset: number | null | undefined, targetOffset: number | null | undefined, duration: number): number {
+  const aligned = currentOffset != null && targetOffset != null && Number.isFinite(currentOffset) && Number.isFinite(targetOffset);
+  const target = aligned ? local + currentOffset! - targetOffset! : local;
+  return Math.min(Math.max(Number.isFinite(target) ? target : 0, 0), Math.max(duration - 0.01, 0));
+}
+
 /** The other camera angles of the same play, in segment order. */
 export function sameplayAngles(clip: ApiClip, siblings: ApiClip[]): ApiClip[] {
   if (clip.play_number == null || !clipView(clip)) return [];

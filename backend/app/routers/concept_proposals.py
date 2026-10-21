@@ -117,7 +117,7 @@ class ProposalResponse(BaseModel):
 
 @router.get("", response_model=list[ProposalResponse])
 async def list_proposals(
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _current_user: Annotated[User, Depends(require_coach_or_above)],
     status_filter: str | None = Query(default=None, alias="status"),
     limit: int = Query(default=50, ge=1, le=500),
@@ -142,7 +142,7 @@ async def list_proposals(
 @router.get("/{proposal_id}", response_model=ProposalResponse)
 async def get_proposal(
     proposal_id: uuid.UUID,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _current_user: Annotated[User, Depends(require_coach_or_above)],
 ) -> ProposalResponse:
     p = await _load_proposal(db, proposal_id)
@@ -156,7 +156,7 @@ async def get_proposal(
 )
 async def create_proposal(
     payload: ProposalCreate,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _current_user: Annotated[User, Depends(require_analyst_or_above)],
 ) -> ProposalResponse:
     """Emit a single cluster proposal — called by the nightly discovery job.
@@ -202,7 +202,7 @@ async def create_proposal(
 async def accept_proposal(
     proposal_id: uuid.UUID,
     payload: ProposalReview,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     current_user: Annotated[User, Depends(require_coach_or_above)],
 ) -> ProposalResponse:
     """Promote a cluster to a coach-confirmed concept.
@@ -261,7 +261,7 @@ async def accept_proposal(
 async def reject_proposal(
     proposal_id: uuid.UUID,
     payload: ProposalReview,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     current_user: Annotated[User, Depends(require_coach_or_above)],
 ) -> ProposalResponse:
     """Hide a cluster from further review. Embedding rows stay experimental."""

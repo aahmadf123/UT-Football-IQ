@@ -21,7 +21,7 @@ Tables:
 
 import enum
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
 from sqlalchemy import (
@@ -324,16 +324,13 @@ class User(Base):
 class Player(Base):
     __tablename__ = "players"
     __table_args__ = (
-        # Jersey numbers repeat across sides of the ball (two #7s: one CB, one
-        # QB is normal college practice), so identity resolution must key on
-        # (jersey_number, position_group). Enforce that pair's uniqueness for
-        # the active roster only — historical/inactive rows and unnumbered
-        # walk-ons never block a seed pass.
+        # Numbers identify candidates, never globally unique people. Scoped
+        # assignments retain season/team/unit context without deleting peers.
         Index(
-            "uq_players_jersey_posgroup_active",
+            "ix_players_jersey_posgroup_active",
             "jersey_number",
             "position_group",
-            unique=True,
+            unique=False,
             postgresql_where=text(
                 "is_active AND jersey_number IS NOT NULL AND position_group IS NOT NULL"
             ),
@@ -400,6 +397,85 @@ class FootballSession(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class RosterAssignment(Base):
+    """A season/team/unit assignment; duplicate jersey candidates are valid."""
+
+    __tablename__ = "roster_assignments"
+    __table_args__ = (
+        UniqueConstraint(
+            "player_id",
+            "team",
+            "season",
+            "unit",
+            "session_id",
+            name="uq_roster_assignment_scope",
+            postgresql_nulls_not_distinct=True,
+        ),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    player_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("players.id", ondelete="CASCADE"), index=True
+    )
+    team: Mapped[str] = mapped_column(String(120), nullable=False, index=True)
+    season: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    unit: Mapped[str] = mapped_column(String(30), nullable=False, default="unknown")
+    jersey_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    position: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    session_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("football_sessions.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
+    effective_from: Mapped[date | None] = mapped_column(Date, nullable=True)
+    effective_until: Mapped[date | None] = mapped_column(Date, nullable=True)
+    provenance: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class SavedView(Base):
+    """Private or shared staff filters in this deployment's team library."""
+
+    __tablename__ = "saved_views"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    owner_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    team_scope: Mapped[str] = mapped_column(String(120), nullable=False, default="toledo")
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    surface: Mapped[str] = mapped_column(String(30), nullable=False)
+    visibility: Mapped[str] = mapped_column(String(10), nullable=False, default="private")
+    filters: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class ClipEdit(Base):
+    """Audited structural edits; original and resulting clips remain readable."""
+
+    __tablename__ = "clip_edits"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    video_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("videos.id", ondelete="CASCADE"), index=True
+    )
+    actor_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    operation_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    state: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
+    original_clip_ids: Mapped[list[str]] = mapped_column(JSONB, nullable=False)
+    result_clip_ids: Mapped[list[str]] = mapped_column(JSONB, nullable=False)
+    before_state: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    after_revisions: Mapped[dict[str, int]] = mapped_column(JSONB, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    undone_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    undone_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
 
 
@@ -889,6 +965,8 @@ class TrackPoint(Base):
     )
     frame_number: Mapped[int] = mapped_column(Integer, nullable=False)
     timestamp_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
+    shot_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    visibility_state: Mapped[str | None] = mapped_column(String(30), nullable=True)
     # Field coordinates (yards) — null when calibration confidence is below threshold
     field_x: Mapped[float | None] = mapped_column(Float, nullable=True)
     field_y: Mapped[float | None] = mapped_column(Float, nullable=True)

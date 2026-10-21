@@ -81,6 +81,7 @@ def _run(tracklets: list[dict[str, Any]], priority: int) -> dict[str, Any]:
         backend_api_url="",
         variant="parseq-ocr" if priority <= NIGHTLY_PRIORITY else "jersey-ocr",
         priority=priority,
+        auto_identity_approved=True,  # This harness tests approved assignment mechanics.
     )
 
 

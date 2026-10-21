@@ -1,0 +1,19 @@
+{
+  "source": "real",
+  "video": "C:\\Users\\firas\\UT-Football-IQ\\Drone Footage\\Dji 20260416110000 0257 D.mp4",
+  "seconds": 10.3103,
+  "elapsed_seconds": 14.015,
+  "model_routing": {
+    "track": "botsort"
+  },
+  "tracker_inputs": {
+    "appearance_method": "torso_hsv_histogram_baseline",
+    "camera_motion_method": "background_masked_ecc",
+    "appearance_observations": 2685,
+    "camera_pairs_measured": 308,
+    "camera_pairs_unavailable": 0,
+    "validated": false
+  },
+  "tracklet_count": 51,
+  "quality_evaluation": "not measured; real inputs and adapter execution only"
+}

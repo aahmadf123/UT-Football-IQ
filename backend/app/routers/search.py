@@ -57,6 +57,7 @@ from app.models import (
     User,
     Video,
 )
+from app.services.clip_state import active_clip
 
 log = structlog.get_logger(__name__)
 router = APIRouter(prefix="/api/v1/search", tags=["search"])
@@ -192,7 +193,7 @@ async def _candidate_clip_ids(db: AsyncSession, filters: SearchFilters) -> list[
     ):
         return None
 
-    q = select(Clip.id).join(Video, Video.id == Clip.video_id)
+    q = select(Clip.id).join(Video, Video.id == Clip.video_id).where(active_clip())
     if filters.since is not None:
         q = q.where(Video.recorded_at >= filters.since)
     if filters.until is not None:
@@ -327,7 +328,7 @@ async def _run_vector_search(
 @router.post("/similar", response_model=SearchResponse)
 async def search_similar(
     payload: SimilarSearchRequest,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _current_user: Annotated[User, Depends(get_current_user)],
 ) -> SearchResponse:
     """Top-K plays whose embedding is closest to the anchor clip's.
@@ -394,7 +395,7 @@ async def search_similar(
 @router.post("/vector", response_model=SearchResponse)
 async def search_by_vector(
     payload: VectorSearchRequest,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _current_user: Annotated[User, Depends(get_current_user)],
 ) -> SearchResponse:
     """Top-K plays nearest a raw query vector.
@@ -496,7 +497,7 @@ def _text_envelope(
 async def search_by_text(
     payload: TextSearchRequest,
     request: Request,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _current_user: Annotated[User, Depends(get_current_user)],
 ) -> SearchResponse:
     """Genuine CLIP text-tower zero-shot search — *experimental* (Issue #195).

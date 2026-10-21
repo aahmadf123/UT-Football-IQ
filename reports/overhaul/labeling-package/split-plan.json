@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "state": "staff_group_confirmation_required",
+  "splits": {
+    "train": [],
+    "calibration": [],
+    "holdout": []
+  },
+  "proposed_group_ids": [
+    "practice-2026-04-16",
+    "proposed-game-2c87ac258329924d",
+    "proposed-game-2e20d3052280765f",
+    "proposed-game-596548e90861e952",
+    "proposed-game-959c4d7b116e6ca1",
+    "proposed-game-a5cc5810f0f8fc78",
+    "proposed-game-dba2f5661c9f399f"
+  ],
+  "notes": [
+    "Confirm independent session/game groups before choosing splits.",
+    "Keep all extracts, replays and alternate views from each group in one split.",
+    "Do not tune on the final held-out benchmark; reserve separate training/calibration groups."
+  ]
+}

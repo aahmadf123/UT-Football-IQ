@@ -61,6 +61,8 @@ export type ClipReviewState = "reviewed" | "low_confidence" | "needs_review";
 export interface ApiClip {
   id: string;
   video_id: string;
+  canonical_play_id?: string;
+  matched_views?: { clip_id: string; video_id: string; camera_label: string | null; start_time: number; end_time: number; alignment_offset_seconds: number | null; alignment_confidence: number | null; match_source: string }[];
   start_time: number;
   end_time: number;
   play_number?: number | null;
@@ -361,6 +363,8 @@ export interface PlayerSummary {
 export interface OverlayTrackPoint {
   frame_number: number;
   timestamp_seconds?: number | null;
+  shot_id?: string | null;
+  visibility_state?: string | null;
   field_x: number | null;
   field_y: number | null;
   bbox: [number, number, number, number] | null;
@@ -472,6 +476,8 @@ export interface SystemConfig {
   // (system default ON; the Film Room "Process Film" CTA remains for
   // manual/retry runs).
   auto_process_on_upload: boolean;
+  auto_processing_profile?: "review" | "quick" | "detailed";
+  auto_detailed_analysis?: boolean;
 }
 
 export interface ModelSensitivity {

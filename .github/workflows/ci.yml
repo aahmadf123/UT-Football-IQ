@@ -207,6 +207,9 @@ jobs:
       - name: Unit tests
         run: npm test -- --run
 
+      - name: Staff labeling tool core
+        run: node --test ../tools/football-labeler/annotations.test.mjs
+
       - name: Build
         run: npm run build
 

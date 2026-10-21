@@ -119,9 +119,13 @@ export function VideoTransport({
     const onPlay = () => setPlaying(true);
     const onPause = () => setPlaying(false);
     const onVolume = () => setMuted(el.muted);
+    const onRate = () => setRate(el.playbackRate);
     el.addEventListener("play", onPlay);
     el.addEventListener("pause", onPause);
     el.addEventListener("volumechange", onVolume);
+    el.addEventListener("ratechange", onRate);
+    el.addEventListener("loadedmetadata", onRate);
+    onRate();
     setMuted(el.muted);
     setFullscreenAvailable(Boolean(el.parentElement?.requestFullscreen && document.fullscreenEnabled));
     setPlaying(!el.paused);
@@ -129,6 +133,8 @@ export function VideoTransport({
       el.removeEventListener("play", onPlay);
       el.removeEventListener("pause", onPause);
       el.removeEventListener("volumechange", onVolume);
+      el.removeEventListener("ratechange", onRate);
+      el.removeEventListener("loadedmetadata", onRate);
     };
   }, [videoRef]);
 

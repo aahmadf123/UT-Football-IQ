@@ -1,0 +1,15 @@
+{
+  "scope": "qualified API contract rendering, not football accuracy",
+  "curve_source": "API censoring[].survival_curve; no client estimation",
+  "allowed_censored_durations": ["ball_holding_duration", "time_to_first_pressure", "tackle_box_residence"],
+  "time_to_throw_censoring": "rejected; requires observed release",
+  "all_censored_cohort": "retains actual lower bounds and supplied survival steps",
+  "missing_or_invalid_curve": "no visualization",
+  "finite_monotone_risk_count_validation": true,
+  "accessible_risk_tables_and_source_selection": true,
+  "component_tests": {"passed": 5, "fixture_source": "synthetic unit-test fixtures only"},
+  "typecheck": "passed",
+  "targeted_eslint": "passed",
+  "actual_installed_echarts_step_render": {"passed": true, "fixture_source": "synthetic unit-test curve only"},
+  "real_censored_duration_accuracy": "not_evaluated"
+}

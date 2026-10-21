@@ -57,11 +57,15 @@ For preview deployments, whose URL changes per commit, set `CORS_ORIGIN_REGEX`
 instead of listing them:
 
 ```jsonc
-"CORS_ORIGIN_REGEX": "https://ut-football-iq-[a-z0-9-]+\\.vercel\\.app"
+"CORS_ORIGIN_REGEX": "https://(?:ut-football-iq(?:-[a-z0-9-]+)?|ut-football-[a-z0-9]+)-aahmadf123-7151s-projects\\.vercel\\.app"
 ```
 
-It is anchored at both ends when compiled, so `https://evil.com/?x=...vercel.app`
-cannot satisfy it.
+Vercel currently shortens the unique deployment prefix to `ut-football-*`, while
+branch aliases retain `ut-football-iq-*`. Both are limited to the project's
+observed owning team suffix, `aahmadf123-7151s-projects`. If the project or team
+changes, inspect the actual deployment URLs and update this expression. Do not
+replace it with a wildcard for all Vercel projects. The expression is anchored at
+both ends when compiled, so a lookalike domain cannot satisfy it.
 
 ## 4. Custom domain
 

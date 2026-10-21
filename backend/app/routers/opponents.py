@@ -54,7 +54,7 @@ class OpponentSummary(BaseModel):
 
 @router.get("", response_model=list[OpponentSummary])
 async def list_opponents(
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _current_user: Annotated[User, Depends(get_current_user)],
 ) -> list[OpponentSummary]:
     """List opponents derived from ``session_kind=game`` videos.
@@ -115,7 +115,7 @@ async def list_opponents(
 @router.get("/{opponent_team}", response_model=OpponentSummary)
 async def get_opponent(
     opponent_team: str,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _current_user: Annotated[User, Depends(get_current_user)],
 ) -> OpponentSummary:
     """Return a single opponent and the game film tagged to them."""

@@ -183,7 +183,7 @@ def _audit_ingest(user: User, source: str, count: int) -> None:
 @router.post("/wellness", status_code=status.HTTP_201_CREATED)
 async def ingest_wellness(
     body: WellnessBatch,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     user: Annotated[User, Depends(_require_health_write)],
 ) -> dict[str, Any]:
     """Ingest daily wellness self-reports (workload tier)."""
@@ -195,7 +195,7 @@ async def ingest_wellness(
 @router.post("/gps", status_code=status.HTTP_201_CREATED)
 async def ingest_gps(
     body: GpsBatch,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     user: Annotated[User, Depends(_require_health_write)],
 ) -> dict[str, Any]:
     """Ingest GPS/wearable daily movement loads (workload tier)."""
@@ -209,7 +209,7 @@ async def ingest_gps(
 @router.post("/strength", status_code=status.HTTP_201_CREATED)
 async def ingest_strength(
     body: StrengthBatch,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     user: Annotated[User, Depends(_require_health_write)],
 ) -> dict[str, Any]:
     """Ingest strength & conditioning session loads (workload tier)."""
@@ -221,7 +221,7 @@ async def ingest_strength(
 @router.post("/academic", status_code=status.HTTP_201_CREATED)
 async def ingest_academic(
     body: AcademicBatch,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     user: Annotated[User, Depends(_require_health_write)],
 ) -> dict[str, Any]:
     """Ingest team-level academic-calendar events (no per-player data)."""
@@ -233,7 +233,7 @@ async def ingest_academic(
 @router.post("/injury-history", status_code=status.HTTP_201_CREATED)
 async def ingest_injury_history(
     body: InjuryHistoryBatch,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     user: Annotated[User, Depends(_require_health_write)],
 ) -> dict[str, Any]:
     """Ingest coarse injury-history rows (rehab tier — restricted)."""

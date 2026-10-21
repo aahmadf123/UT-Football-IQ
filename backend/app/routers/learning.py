@@ -72,7 +72,7 @@ class CandidateEvaluationCreate(BaseModel):
 @router.post("/feature-manifests/preview")
 async def manifest_preview(
     body: ManifestCreate,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _user: Annotated[User, Depends(require_analyst_or_above)],
 ) -> dict[str, Any]:
     from app.services.learning_manifests import preview_manifest
@@ -85,7 +85,7 @@ async def manifest_preview(
 @router.post("/feature-manifests", status_code=201)
 async def build_manifest(
     body: ManifestCreate,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     user: Annotated[User, Depends(require_analyst_or_above)],
 ) -> dict[str, Any]:
     from app.services.learning_manifests import create_manifest
@@ -97,7 +97,7 @@ async def build_manifest(
 
 @router.get("/feature-manifests")
 async def manifests(
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _user: Annotated[User, Depends(require_analyst_or_above)],
 ) -> list[dict[str, Any]]:
     rows = (
@@ -118,7 +118,7 @@ async def manifests(
 @router.get("/candidates")
 async def candidates(
     manifest_id: uuid.UUID,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _user: Annotated[User, Depends(require_analyst_or_above)],
 ) -> list[dict[str, Any]]:
     manifest = await db.get(SystemSetting, f"learning:manifest:{manifest_id}")
@@ -173,7 +173,7 @@ async def candidates(
 async def evaluate_candidate(
     model_id: uuid.UUID,
     body: CandidateEvaluationCreate,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     user: Annotated[User, Depends(require_analyst_or_above)],
 ) -> dict[str, Any]:
     benchmark = await db.get(SystemSetting, f"learning:benchmark:{body.benchmark_id}")
@@ -208,7 +208,7 @@ async def evaluate_candidate(
 @router.post("/train", status_code=201)
 async def train(
     body: TrainingCreate,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _user: Annotated[User, Depends(require_analyst_or_above)],
 ) -> dict[str, str]:
     dataset = (
@@ -281,7 +281,7 @@ async def train(
 @router.post("/benchmarks", status_code=201)
 async def benchmark(
     body: BenchmarkCreate,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     user: Annotated[User, Depends(require_analyst_or_above)],
 ) -> dict[str, Any]:
     return await create_benchmark(db, label_ids=body.truth_label_ids, name=body.name, actor=user)
@@ -289,7 +289,7 @@ async def benchmark(
 
 @router.get("/benchmarks")
 async def benchmarks(
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _user: Annotated[User, Depends(require_analyst_or_above)],
 ) -> list[dict[str, Any]]:
     rows = (
@@ -310,7 +310,7 @@ async def benchmarks(
 @router.post("/evaluations", status_code=201)
 async def evaluation(
     body: EvaluationCreate,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     user: Annotated[User, Depends(require_analyst_or_above)],
 ) -> dict[str, Any]:
     return await evaluate_model(
@@ -324,7 +324,7 @@ async def evaluation(
 
 @router.get("/evaluations")
 async def evaluations(
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _user: Annotated[User, Depends(require_analyst_or_above)],
 ) -> list[dict[str, Any]]:
     rows = (
@@ -345,7 +345,7 @@ async def evaluations(
 @router.post("/models/{model_id}/rollback")
 async def rollback(
     model_id: uuid.UUID,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     user: Annotated[User, Depends(require_admin)],
 ) -> dict[str, str]:
     model = (
@@ -361,7 +361,7 @@ async def rollback(
 async def dataset_download(
     dataset_id: uuid.UUID,
     request: Request,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _user: Annotated[User, Depends(require_analyst_or_above)],
 ) -> dict[str, str]:
     dataset = await db.get(TrainingDataset, dataset_id)
@@ -382,7 +382,7 @@ async def dataset_download(
 @router.get("/datasets/{dataset_id}/file", include_in_schema=False)
 async def dataset_file(
     dataset_id: uuid.UUID,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     exp: str = Query(...),
     sig: str = Query(...),
 ) -> FileResponse:

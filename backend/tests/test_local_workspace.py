@@ -345,12 +345,12 @@ async def test_roster_import_replays_and_edits_keep_tracklet_identity(workspace_
     )
     async with maker() as db:
         preview = await import_roster(RosterImport(csv=csv_body), db, user)
-        assert preview["created"] == 1 and len(preview["errors"]) == 2
+        assert preview["created"] == 2 and len(preview["errors"]) == 1
         imported = await import_roster(RosterImport(csv=csv_body, dry_run=False), db, user)
-        assert imported["created"] == 1 and imported["updated"] == 0
+        assert imported["created"] == 2 and imported["updated"] == 0
         player_id = uuid.UUID(imported["rows"][0]["player"]["id"])
         replay = await import_roster(RosterImport(csv=csv_body, dry_run=False), db, user)
-        assert replay["created"] == 0 and replay["skipped"] == 1
+        assert replay["created"] == 0 and replay["skipped"] == 2
         _, clip = await _recording(db, session, suffix, "roster")
         tracklet = Tracklet(clip_id=clip.id, player_id=player_id, start_frame=0, end_frame=30)
         db.add(tracklet)

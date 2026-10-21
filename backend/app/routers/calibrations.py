@@ -106,7 +106,7 @@ class CalibrationResponse(BaseModel):
 )
 async def create_calibration(
     body: CalibrationCreate,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _current_user: Annotated[User, Depends(require_any_staff)],
 ) -> CalibrationResponse:
     """Store a new field calibration result for a video."""
@@ -154,7 +154,7 @@ async def create_calibration(
 )
 async def list_calibrations_for_video(
     video_id: uuid.UUID,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _current_user: Annotated[User, Depends(get_current_user)],
 ) -> list[CalibrationResponse]:
     """List all calibrations for a video, newest first."""
@@ -173,7 +173,7 @@ async def list_calibrations_for_video(
 @router.get("/api/v1/calibrations/{calibration_id}", response_model=CalibrationResponse)
 async def get_calibration(
     calibration_id: uuid.UUID,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _current_user: Annotated[User, Depends(get_current_user)],
 ) -> CalibrationResponse:
     """Get a single calibration record."""

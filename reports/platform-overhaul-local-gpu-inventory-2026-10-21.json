@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "observed_date": "2026-10-21",
+  "scope": "Current execution computer; not yet matched to the hosted production worker registration",
+  "gpu": {"name": "NVIDIA GeForce RTX 5060 Laptop GPU", "memory_mib": 8151, "driver": "610.62"},
+  "runtime": {"environment": "gpu-worker/.venv-gpu", "torch": "2.8.0+cu128", "cuda_runtime": "12.8", "cuda_available": true, "gpu_count": 1},
+  "available_weights": [
+    {"path": "gpu-worker/yolov8n.pt", "bytes": 6549796, "sha256": "f59b3d833e2ff32e194b5bb8e08d211dc7c5bdf144b90d2c8412c47ccfc83b36"},
+    {"path": "gpu-worker/yolo11n.pt", "bytes": 5613764, "sha256": "0ebbc80d4a7680d14987a577cd21342b65ecfd94632bd9a8da63ae6417644ee1"},
+    {"path": "gpu-worker/yolo11s.pt", "bytes": 19313732, "sha256": "85a76fe86dd8afe384648546b56a7a78580c7cb7b404fc595f97969322d502d5"},
+    {"path": "gpu-worker/runs/field/numbers/weights/best.pt", "bytes": 19183258, "sha256": "27a6b7c51c633a067d1fa32204cb2bd52a97f5bef571864ed7ee8f9a88ad64db"}
+  ],
+  "limitations": ["Available model bytes do not establish model approval, training population or football accuracy.", "No weights were added to Git, downloaded or changed during this inventory."]
+}

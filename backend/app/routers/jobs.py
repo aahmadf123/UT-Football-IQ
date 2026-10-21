@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.deps import get_current_user, require_any_staff
 from app.models import (
+    Clip,
     JobStatus,
     JobType,
     PipelineMode,
@@ -161,7 +162,7 @@ class JobResponse(BaseModel):
 
 @router.get("", response_model=list[JobResponse])
 async def list_jobs(
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _current_user: Annotated[User, Depends(get_current_user)],
     status_filter: JobStatus | None = Query(default=None, alias="status"),
     job_type: JobType | None = Query(default=None),
@@ -188,7 +189,7 @@ async def list_jobs(
 async def create_job(
     body: JobCreate,
     response: Response,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _current_user: Annotated[User, Depends(require_any_staff)],
     _workload: Annotated[WorkloadSnapshot, Depends(require_workload_capacity("jobs.create"))],
 ) -> JobResponse:
@@ -264,7 +265,7 @@ async def create_job(
 async def claim_job(
     body: JobClaimRequest,
     response: Response,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _current_user: Annotated[User, Depends(require_any_staff)],
 ) -> JobResponse | None:
     """Atomically claim the next runnable job for a worker.
@@ -350,7 +351,7 @@ async def claim_job(
 async def heartbeat_job(
     job_id: uuid.UUID,
     body: JobHeartbeatRequest,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _current_user: Annotated[User, Depends(require_any_staff)],
     background: BackgroundTasks,
 ) -> JobResponse:
@@ -407,7 +408,7 @@ def _segment_succeeded(progress: dict[str, Any] | None) -> bool:
 @router.get("/{job_id}", response_model=JobResponse)
 async def get_job(
     job_id: uuid.UUID,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _current_user: Annotated[User, Depends(get_current_user)],
 ) -> JobResponse:
     """Get full job details including error reason, stage, and input file."""
@@ -424,7 +425,7 @@ async def get_job(
 async def update_job_status(
     job_id: uuid.UUID,
     body: JobStatusUpdate,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     current_user: Annotated[User, Depends(require_any_staff)],
     background: BackgroundTasks,
 ) -> JobResponse:
@@ -522,6 +523,30 @@ async def update_job_status(
         merged.update(body.progress)
         job.progress = merged
 
+    if body.status == JobStatus.succeeded:
+        from app.services.clip_state import lock_boundary_scope
+        from app.services.processing_intent import schedule_detailed_followup
+        from app.services.publication import (
+            publish_job_clip_tiers,
+            publish_job_events,
+            publish_job_metrics,
+            publish_job_tracks,
+        )
+
+        # Serialize staff corrections with promotion before rebinding labels.
+        if job.video_id:
+            await lock_boundary_scope(db, job.video_id)
+            await db.execute(
+                select(Clip.id)
+                .where(Clip.video_id == job.video_id)
+                .order_by(Clip.id)
+                .with_for_update()
+            )
+        await publish_job_tracks(db, job_id)
+        await publish_job_events(db, job_id)
+        await publish_job_metrics(db, job_id)
+        await publish_job_clip_tiers(db, job)
+        await schedule_detailed_followup(db, job)
     await db.flush()
     log.info("job_status_updated", job_id=str(job_id), status=body.status)
     if body.status == JobStatus.succeeded and job.job_type == JobType.pipeline and job.video_id:
@@ -568,7 +593,7 @@ async def link_game_film(video_id: uuid.UUID) -> None:
 @router.post("/{job_id}/retry", response_model=JobResponse, status_code=status.HTTP_201_CREATED)
 async def retry_job(
     job_id: uuid.UUID,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _current_user: Annotated[User, Depends(require_any_staff)],
     _workload: Annotated[WorkloadSnapshot, Depends(require_workload_capacity("jobs.retry"))],
 ) -> JobResponse:
@@ -696,7 +721,7 @@ async def _control_job(job_id: uuid.UUID, action: str, db: AsyncSession) -> JobR
 @router.post("/{job_id}/pause", response_model=JobResponse)
 async def pause_job(
     job_id: uuid.UUID,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _user: Annotated[User, Depends(require_any_staff)],
 ) -> JobResponse:
     return await _control_job(job_id, "pause", db)
@@ -705,7 +730,7 @@ async def pause_job(
 @router.post("/{job_id}/resume", response_model=JobResponse)
 async def resume_job(
     job_id: uuid.UUID,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _user: Annotated[User, Depends(require_any_staff)],
 ) -> JobResponse:
     return await _control_job(job_id, "resume", db)
@@ -714,7 +739,7 @@ async def resume_job(
 @router.post("/{job_id}/cancel", response_model=JobResponse)
 async def cancel_job(
     job_id: uuid.UUID,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _user: Annotated[User, Depends(require_any_staff)],
 ) -> JobResponse:
     return await _control_job(job_id, "cancel", db)

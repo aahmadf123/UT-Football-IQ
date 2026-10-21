@@ -52,6 +52,12 @@ from app.models import (
     UserRole,
     Video,
 )
+from app.services.metric_policy import (
+    aggregate_metric_ids,
+    canonical_play_eligible,
+    canonical_play_id,
+    selected_trajectory_ids,
+)
 
 router = APIRouter(tags=["player-metrics"])
 
@@ -140,7 +146,7 @@ def _tracklet_agg_stmt(
         select(
             Tracklet.player_id.label("pid"),
             func.count(Tracklet.id).label("tracklet_count"),
-            func.count(func.distinct(Tracklet.clip_id)).label("clip_count"),
+            func.count(func.distinct(canonical_play_id())).label("clip_count"),
             (
                 func.sum(func.coalesce(Tracklet.track_confidence, 0.0) * conf_weight)
                 / func.nullif(func.sum(conf_weight), 0)
@@ -149,7 +155,11 @@ def _tracklet_agg_stmt(
         )
         .join(Clip, Clip.id == Tracklet.clip_id)
         .join(Video, Video.id == Clip.video_id)
-        .where(Tracklet.player_id.is_not(None))
+        .where(
+            Tracklet.player_id.is_not(None),
+            canonical_play_eligible(),
+            Tracklet.id.in_(selected_trajectory_ids()),
+        )
         .group_by(Tracklet.player_id)
     )
     return _apply_film_filters(stmt, session_kind, since)
@@ -175,8 +185,7 @@ def _metric_agg_stmt(
         .join(Video, Video.id == Clip.video_id)
         .where(
             Tracklet.player_id.is_not(None),
-            Metric.is_suppressed.is_(False),
-            Metric.experimental_flag.is_(False),
+            Metric.id.in_(aggregate_metric_ids()),
             Metric.metric_name.in_((_MAX_SPEED, _DISTANCE)),
         )
         .group_by(Tracklet.player_id)
@@ -255,7 +264,7 @@ _SinceQuery = Annotated[
 
 @router.get("/api/v1/players/metrics/summary")
 async def list_player_metrics_summaries(
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     current_user: Annotated[User, Depends(require_policy(Resource.PLAYER_METRICS, Action.READ))],
     session_kind: _SessionKindQuery = None,
     since: _SinceQuery = None,
@@ -303,7 +312,7 @@ async def list_player_metrics_summaries(
 @router.get("/api/v1/players/{player_id}/metrics/summary")
 async def get_player_metrics_summary(
     player_id: uuid.UUID,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     current_user: Annotated[User, Depends(require_policy(Resource.PLAYER_METRICS, Action.READ))],
     session_kind: _SessionKindQuery = None,
     since: _SinceQuery = None,
@@ -332,7 +341,7 @@ async def get_player_metrics_summary(
     weekly_stmt = (
         select(
             week.label("week_start"),
-            func.count(func.distinct(Tracklet.clip_id)).label("clip_count"),
+            func.count(func.distinct(canonical_play_id())).label("clip_count"),
             (
                 func.sum(func.coalesce(Tracklet.track_confidence, 0.0) * conf_weight)
                 / func.nullif(func.sum(conf_weight), 0)
@@ -340,7 +349,11 @@ async def get_player_metrics_summary(
         )
         .join(Clip, Clip.id == Tracklet.clip_id)
         .join(Video, Video.id == Clip.video_id)
-        .where(Tracklet.player_id == player_id)
+        .where(
+            Tracklet.player_id == player_id,
+            canonical_play_eligible(),
+            Tracklet.id.in_(selected_trajectory_ids()),
+        )
         .group_by(week)
         .order_by(week)
     )
@@ -361,8 +374,7 @@ async def get_player_metrics_summary(
         .join(Video, Video.id == Clip.video_id)
         .where(
             Tracklet.player_id == player_id,
-            Metric.is_suppressed.is_(False),
-            Metric.experimental_flag.is_(False),
+            Metric.id.in_(aggregate_metric_ids()),
             Metric.metric_name.in_((_MAX_SPEED, _DISTANCE)),
         )
         .group_by(week)
@@ -498,8 +510,7 @@ def _physical_stmt(
         .where(
             Tracklet.player_id.is_not(None),
             Metric.metric_name == _PHYSICAL,
-            Metric.is_suppressed.is_(False),
-            Metric.experimental_flag.is_(False),
+            Metric.id.in_(aggregate_metric_ids()),
         )
     )
     return _apply_film_filters(stmt, session_kind, since)
@@ -532,7 +543,7 @@ def _physical_load(row: Any) -> PhysicalLoad:
 
 @router.get("/api/v1/players/metrics/physical")
 async def list_player_physical_load(
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     current_user: Annotated[User, Depends(require_policy(Resource.PLAYER_METRICS, Action.READ))],
     session_kind: _SessionKindQuery = None,
     since: _SinceQuery = None,
@@ -555,7 +566,7 @@ async def list_player_physical_load(
 @router.get("/api/v1/players/{player_id}/metrics/physical")
 async def get_player_physical_load(
     player_id: uuid.UUID,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     current_user: Annotated[User, Depends(require_policy(Resource.PLAYER_METRICS, Action.READ))],
     session_kind: _SessionKindQuery = None,
     since: _SinceQuery = None,

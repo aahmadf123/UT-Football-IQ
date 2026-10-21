@@ -234,7 +234,7 @@ async def _get_profile(db: AsyncSession, player_id: uuid.UUID, season: str) -> P
 @router.get("/api/v1/players/{player_id}/profile")
 async def get_profile(
     player_id: uuid.UUID,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     current_user: Annotated[User, Depends(require_policy(Resource.PLAYER_PROFILE, Action.READ))],
     season: Annotated[str, Query(min_length=1, max_length=16)],
     mode: Annotated[
@@ -278,7 +278,7 @@ async def get_profile(
 async def upsert_profile(
     player_id: uuid.UUID,
     body: ProfileUpsert,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     current_user: Annotated[
         User, Depends(require_policy(Resource.PLAYER_DEVELOPMENT, Action.WRITE))
     ],
@@ -324,7 +324,7 @@ async def upsert_profile(
 @router.get("/api/v1/players/{player_id}/profile/snapshots")
 async def list_snapshots(
     player_id: uuid.UUID,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     current_user: Annotated[User, Depends(require_policy(Resource.PLAYER_PROFILE, Action.READ))],
     season: Annotated[str | None, Query(max_length=16)] = None,
     mode: Annotated[VisibilityMode | None, Query()] = None,
@@ -377,7 +377,7 @@ async def list_snapshots(
 async def create_snapshot(
     player_id: uuid.UUID,
     body: SnapshotCreate,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     current_user: Annotated[
         User, Depends(require_policy(Resource.PLAYER_DEVELOPMENT, Action.WRITE))
     ],
@@ -441,7 +441,7 @@ async def update_snapshot_approval(
     player_id: uuid.UUID,
     snapshot_id: uuid.UUID,
     body: ApprovalUpdate,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     current_user: Annotated[
         User, Depends(require_policy(Resource.PLAYER_DEVELOPMENT, Action.APPROVE))
     ],

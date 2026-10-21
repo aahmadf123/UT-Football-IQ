@@ -1,0 +1,165 @@
+{
+  "source_url": "https://utrockets.com/sports/football/roster/2026",
+  "checked_date": "2026-10-21",
+  "source_sha256": "37acd2e03acb4239da8515607f4b8d1092b1bb2528bb1d91bd41b5a0908071a8",
+  "season": 2026,
+  "seed_players": 92,
+  "official_players_parsed": 106,
+  "changed": [
+    {
+      "name": "Langston Long",
+      "differences": {
+        "position": {
+          "seed": "LB",
+          "official": "DE"
+        }
+      }
+    },
+    {
+      "name": "Michael-Arinzé Ezirim",
+      "differences": {
+        "position": {
+          "seed": "S",
+          "official": "CB"
+        }
+      }
+    },
+    {
+      "name": "LaDavion Osborn",
+      "differences": {
+        "jersey_number": {
+          "seed": 21,
+          "official": 20
+        }
+      }
+    },
+    {
+      "name": "Connor Walendzak",
+      "differences": {
+        "jersey_number": {
+          "seed": 24,
+          "official": 8
+        }
+      }
+    },
+    {
+      "name": "Kadale Williams",
+      "differences": {
+        "jersey_number": {
+          "seed": 28,
+          "official": 26
+        }
+      }
+    },
+    {
+      "name": "Tanner Rubinstein",
+      "differences": {
+        "position": {
+          "seed": "FB",
+          "official": "TE"
+        }
+      }
+    },
+    {
+      "name": "Max Allen",
+      "differences": {
+        "jersey_number": {
+          "seed": 49,
+          "official": 59
+        }
+      }
+    }
+  ],
+  "seed_not_on_official_page": [
+    "Ameer Yasin",
+    "Thomas Zsiros"
+  ],
+  "official_not_in_seed": [
+    {
+      "name": "Ben Sahakian",
+      "jersey_number": 21,
+      "position": "DE"
+    },
+    {
+      "name": "Bo Jacobs",
+      "jersey_number": 24,
+      "position": "CB"
+    },
+    {
+      "name": "Ziiyahn Blair",
+      "jersey_number": 27,
+      "position": "S"
+    },
+    {
+      "name": "Jordan Fox",
+      "jersey_number": 29,
+      "position": "LB"
+    },
+    {
+      "name": "Nathan Gersh",
+      "jersey_number": 36,
+      "position": "LB"
+    },
+    {
+      "name": "Desmond Okantey",
+      "jersey_number": 37,
+      "position": "DE"
+    },
+    {
+      "name": "Clarence Tucker",
+      "jersey_number": 38,
+      "position": "CB"
+    },
+    {
+      "name": "Tyrell O'Neal",
+      "jersey_number": 43,
+      "position": "DT"
+    },
+    {
+      "name": "Zackery Samuel",
+      "jersey_number": 51,
+      "position": "DE"
+    },
+    {
+      "name": "Reece Strittmatter",
+      "jersey_number": 57,
+      "position": "LS"
+    },
+    {
+      "name": "Brian Mahoney III",
+      "jersey_number": 72,
+      "position": "OL"
+    },
+    {
+      "name": "Preston Dazey",
+      "jersey_number": 75,
+      "position": "OL"
+    },
+    {
+      "name": "Vincenzo Pizzo",
+      "jersey_number": 76,
+      "position": "OL"
+    },
+    {
+      "name": "Tucker Kelleher",
+      "jersey_number": 87,
+      "position": "TE"
+    },
+    {
+      "name": "Adrian Love Jr.",
+      "jersey_number": 94,
+      "position": "DT"
+    },
+    {
+      "name": "Micah Fils-Aime",
+      "jersey_number": 98,
+      "position": "DT"
+    }
+  ],
+  "database_writes": false,
+  "cfbd_athlete_ids_modified": false,
+  "seed_refreshed": true,
+  "refreshed_seed_players": 106,
+  "historical_seed_archive": "backend\\app\\data\\roster_2026_2026-07-25.json",
+  "effective_change_dates": "unknown; snapshot date is observation date, not inferred jersey change date"
+}

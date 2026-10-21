@@ -59,10 +59,10 @@ VIDEO_STAGES: tuple[str, ...] = ("ingest", "segment", "calibrate", "detect")
 CLIP_STAGES: tuple[str, ...] = (
     "playback_proxy",
     "track",
-    "reid",
     "events",
-    "pose",
     "labels",
+    "reid",
+    "pose",
     "metrics",
     "routes",
     "coverage",
@@ -346,6 +346,51 @@ def _offense_direction(labels: list[dict[str, Any]]) -> int | None:
 # ── Stage runners ─────────────────────────────────────────────────────────────
 
 
+def _staff_layout_artifacts(ctx: PipelineContext, clips: list[dict[str, Any]],
+                            boundary_model: str) -> dict[str, Any]:
+    """Audit camera cuts without changing authoritative staff play windows."""
+    from pipeline.game_film import detect_shots
+
+    shots = detect_shots(ctx.video_path) if ctx.video_path is not None else []
+    if ctx.video_path is not None and not shots:
+        raise ValueError("Staff boundary camera-shot audit decoded no source frames")
+    cuts = sorted({float(shot.start) for shot in shots})
+    unresolved = []
+    for clip in clips:
+        labels = clip.get("label_data") or {}
+        provenance = clip.get("provenance") or {}
+        view = clip.get("view") or labels.get("view")
+        # A mixed-view merge must not inherit a recording-wide fixed-camera
+        # transform. Even same-angle cuts need a new calibration after a cut.
+        unknown_merge = labels.get("logical_play_status") == "staff_merge" and (
+            clip.get("capture_regime") not in {"fixed_sideline", "fixed_endzone"}
+            or view not in {"sideline", "endzone"}
+        )
+        try:
+            start, end = float(clip["start_time"]), float(clip["end_time"])
+            crosses_cut = any(start + 1e-6 < cut < end - 1e-6 for cut in cuts)
+            # Without a known view the calibration stage cannot fit this
+            # window separately. The pre-cut recording transform is unrelated.
+            after_cut_without_view = view not in {"sideline", "endzone"} and any(
+                cut > 0 and cut <= start + 1e-6 for cut in cuts
+            )
+        except (KeyError, TypeError, ValueError):
+            crosses_cut = True
+            after_cut_without_view = True
+        if (not shots or crosses_cut or unknown_merge or after_cut_without_view
+                or provenance.get("spatial_calibration_requires_review") is True):
+            unresolved.append(str(clip["id"]))
+    ctx.clips = clips
+    ctx.spatial_analytics_disabled = _requires_angle_specific_calibration(clips, ctx.capture_regime)
+    return {"clips": clips, "clip_count": len(clips), "boundary_model": boundary_model,
+            "data_source": "manual", "spatial_analytics_disabled": ctx.spatial_analytics_disabled,
+            "spatially_unresolved_clip_ids": unresolved,
+            "game_film": {"shot_boundaries_seconds": cuts,
+                          "boundary_semantics": "camera_shots_are_not_football_events",
+                          "shot_audit": "decoded_source" if shots else "source_unavailable",
+                          "format_strategy": "staff_layout_camera_audit"}}
+
+
 def _run_video_stage(stage: str, ctx: PipelineContext) -> dict[str, Any]:
     """Run one video-scoped stage and fold its outputs into the context."""
     from pipeline import model_router
@@ -367,23 +412,17 @@ def _run_video_stage(stage: str, ctx: PipelineContext) -> dict[str, Any]:
         return artifacts
 
     if stage == "segment":
+        from pipeline import backend
+        override_clips = backend.fetch_boundary_overrides(ctx.video_id)
+        if override_clips is not None:
+            return _staff_layout_artifacts(ctx, override_clips, "staff-edited-layout")
         # Coach-edited cuts are authoritative. Reprocessing may refresh
         # analytics, but must not replace the reviewed play layout.
         existing = ctx.lineage.get("existing_clips") or []
         if existing and any(clip.get("boundary_source") == "manual" for clip in existing):
-            ctx.clips = [clip for clip in existing if clip.get("id")]
-            ctx.spatial_analytics_disabled = _requires_angle_specific_calibration(
-                existing, ctx.capture_regime
+            return _staff_layout_artifacts(
+                ctx, [clip for clip in existing if clip.get("id")], "coach-reviewed-layout"
             )
-            artifacts = {
-                "clips": existing,
-                "clip_count": len(existing),
-                "boundary_model": "coach-reviewed-layout",
-                "data_source": "manual",
-            }
-            if ctx.spatial_analytics_disabled:
-                artifacts["spatial_analytics_disabled"] = True
-            return artifacts
         from pipeline import stage_segment
 
         artifacts = stage_segment.run(
@@ -620,6 +659,9 @@ def _run_clip_stage(stage: str, ctx: PipelineContext, clip: dict[str, Any]) -> d
     from pipeline.lightweight_config import local_model_variant
 
     clip_id = str(clip["id"])
+    if ((clip.get("label_data") or {}).get("canonical_count_eligible") is False
+            and stage in {"metrics", "routes", "coverage", "oline", "pressure", "pose"}):
+        return {"skipped": True, "reason": "logical_play_unresolved"}
     per_clip = ctx.clip_artifacts.setdefault(clip_id, {})
     tracklets: list[dict[str, Any]] = per_clip.get("track", {}).get("tracklets", [])
     events_list: list[dict[str, Any]] = per_clip.get("events", {}).get("events", [])
@@ -634,12 +676,34 @@ def _run_clip_stage(stage: str, ctx: PipelineContext, clip: dict[str, Any]) -> d
     clip_calibration_series = calibration.get("calibration_series") or []
     clip_regime = clip.get("capture_regime") or calibration.get("capture_regime") or ctx.capture_regime
     analytics_safe = bool(calibration.get("analytics_safe", ctx.analytics_safe))
+    unresolved_spatial = (ctx.stage_artifacts.get("segment") or {}).get(
+        "spatially_unresolved_clip_ids", []
+    )
+    if clip_id in unresolved_spatial:
+        analytics_safe = False
+        clip_homography = None
+        clip_calibration_series = []
+        clip_regime = "unknown"
 
     if stage == "track":
         from pipeline import stage_track
 
         variant = local_model_variant("track", ctx.priority, ctx.processing_profile)
         clip_dets = _slice_detections(ctx.detections, start_frame, end_frame)
+        # Shot changes reset tracking independently of logical play boundaries.
+        # Television replays and angle switches can share a play, never a track.
+        from bisect import bisect_right
+        shots = ((ctx.stage_artifacts.get("segment") or {}).get("game_film") or {}).get(
+            "shot_boundaries_seconds", []
+        )
+        if shots:
+            clip_dets = {
+                frame: [{**d, "shot_id": bisect_right(
+                    shots, d.get("timestamp_seconds") if d.get("timestamp_seconds") is not None
+                    else int(frame) / ctx.fps
+                )} for d in detections]
+                for frame, detections in clip_dets.items()
+            }
         return stage_track.run(
             clip_id,
             clip_dets,
@@ -654,6 +718,8 @@ def _run_clip_stage(stage: str, ctx: PipelineContext, clip: dict[str, Any]) -> d
             calibration_series=clip_calibration_series or None,
             capture_regime=clip_regime,
             detector_provenance=ctx.model_provenance.get("detect"),
+            video_path=ctx.video_path,
+            timeline=ctx.timeline,
         )
 
     if stage == "reid":
@@ -747,6 +813,7 @@ def _run_clip_stage(stage: str, ctx: PipelineContext, clip: dict[str, Any]) -> d
             ctx.job_id,
             pose_metrics=pose_metrics or None,
             timeline=ctx.timeline,
+            attacking_direction=_offense_direction(labels_list),
         )
 
     if stage == "routes":
@@ -1059,6 +1126,7 @@ def run_pipeline(
         nonlocal playback_prepared
         if playback_prepared or "playback_proxy" not in stage_list or not ctx.clips:
             return
+        from pipeline.media_contract import current_playback
         from pipeline.playback_proxy import PlaybackProxySession
 
         playback_prepared = True
@@ -1071,7 +1139,10 @@ def run_pipeline(
                 clip_id = str(clip["id"])
                 stage = "playback_proxy"
                 cached = sink.load(stage, clip_id)
-                if cached is not None:
+                if cached is not None and current_playback(
+                    cached.get("playback") or {}, identity.get("source_sha256"),
+                    float(clip.get("start_time") or 0), float(clip["end_time"]),
+                ):
                     path = storage.resolve_readable_path(cached.get("playback_uri", ""))
                     if path is None or path.is_file():
                         accept(stage, clip_id, cached)
@@ -1091,10 +1162,8 @@ def run_pipeline(
                 existing_uri = previous.get("storage_uri")
                 if (
                     existing_uri
-                    and media.get("kind") == "clean_clip"
-                    and media.get("source_sha256") == identity.get("source_sha256")
-                    and media.get("source_start_seconds") == clip.get("start_time")
-                    and media.get("source_end_seconds") == clip.get("end_time")
+                    and current_playback(media, identity.get("source_sha256"),
+                                         float(clip.get("start_time") or 0), float(clip["end_time"]))
                 ):
                     path = storage.resolve_readable_path(existing_uri)
                     if path is None or path.is_file():

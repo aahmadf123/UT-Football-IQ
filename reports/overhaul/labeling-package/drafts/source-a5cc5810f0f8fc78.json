@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "evidence_kind": "annotation_draft",
+  "reviewed": false,
+  "source_id": "source-a5cc5810f0f8fc78",
+  "media_sha256": null,
+  "source_category": null,
+  "source_group_id": "proposed-game-a5cc5810f0f8fc78",
+  "source_context_confirmed": false,
+  "reviewer_id": "",
+  "review_pass": "primary",
+  "plays": [],
+  "notes": "Unreviewed empty template. Add only observations verified against original source time."
+}

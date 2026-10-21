@@ -1,0 +1,41 @@
+{
+  "purpose": "Actual source camera-cut audit and manual-window preservation; no football accuracy evaluation",
+  "runs": [
+    {
+      "category": "practice",
+      "source": "real",
+      "source_path": "..\\Drone Footage\\Dji 20260416110000 0257 D.mp4",
+      "elapsed_seconds": 1.887,
+      "windows_preserved": true,
+      "shot_audit": {
+        "shot_boundaries_seconds": [
+          0.0
+        ],
+        "boundary_semantics": "camera_shots_are_not_football_events",
+        "shot_audit": "decoded_source",
+        "format_strategy": "staff_layout_camera_audit"
+      },
+      "spatially_unresolved_clip_ids": []
+    },
+    {
+      "category": "game_extract",
+      "source": "real",
+      "source_path": "..\\reports\\overhaul\\canary\\inputs\\mist-accurate-120s.mp4",
+      "elapsed_seconds": 1.565,
+      "windows_preserved": true,
+      "shot_audit": {
+        "shot_boundaries_seconds": [
+          0.0,
+          0.6,
+          25.2
+        ],
+        "boundary_semantics": "camera_shots_are_not_football_events",
+        "shot_audit": "decoded_source",
+        "format_strategy": "staff_layout_camera_audit"
+      },
+      "spatially_unresolved_clip_ids": [
+        "staff-merged-window"
+      ]
+    }
+  ]
+}

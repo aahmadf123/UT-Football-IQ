@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Football-IQ · Staff film labeling</title><link rel="stylesheet" href="style.css"></head>
+<body>
+<header><div><p class="eyebrow">TOLEDO FOOTBALL · OFFLINE EVALUATION</p><h1>Staff film labeling</h1></div><p>Original-source timestamps. Manual observations. Draft exports.</p></header>
+<main>
+<section aria-label="Source and reviewer" class="setup">
+  <label>1. Open source catalog<input id="catalog-file" type="file" accept=".json,application/json"></label>
+  <label>Source<select id="source"><option value="">Load sources.json first</option></select></label>
+  <label>Reviewer ID<input id="reviewer" autocomplete="off" placeholder="Staff annotation ID"></label>
+  <label>Pass<select id="pass"><option value="primary">Primary · independent</option><option value="secondary">Secondary · independent</option><option value="adjudication">Adjudication</option></select></label>
+  <label>2. Open original film<input id="media-file" type="file" accept="video/*"></label>
+  <label>Category<select id="category"><option value="">Unconfirmed</option><option value="practice">Practice</option><option value="coach_game">Coach game film</option><option value="television">Television</option></select></label>
+  <label>Session/game group ID<input id="group" placeholder="All related angles and extracts share one group"></label>
+  <label class="check"><input id="confirmed" type="checkbox">I verified this category and independent session/game group.</label>
+  <div class="actions"><button id="export-catalog">Export updated catalog</button><label class="file-button">Import annotation draft<input id="draft-file" type="file" accept=".json,application/json"></label><button id="export-draft" class="primary">Export draft JSON</button></div>
+</section>
+<p id="status" role="status">Load the source catalog from the prepared labeling package. Film stays on this computer.</p>
+<p id="error" role="alert" hidden></p>
+<div class="workspace">
+<section aria-label="Original film" class="film">
+  <div class="stage" id="stage"><video id="video" controls preload="metadata" playsinline></video><canvas id="boxes" aria-label="Draw a visible player bounding box on the paused source frame"></canvas></div>
+  <div class="transport"><button id="back-frame" aria-label="Previous source frame">− frame</button><button id="toggle-play">Play / pause</button><button id="next-frame" aria-label="Next source frame">+ frame</button><output id="clock">0.000 s</output><label>Source time (s)<input id="seek" type="number" min="0" step="0.001" value="0"></label><button id="seek-button">Seek</button></div>
+  <p class="hint">Space: play/pause · ← / →: step by nominal frame interval · S / N / E: capture start / snap / end. For variable-rate film, inspect the displayed presented-frame timestamp after every seek.</p>
+  <p id="media-detail" class="hint">No original film selected.</p>
+  <label>Dense assignment: load actual frame PTS index<input id="frame-index" type="file" accept=".json,application/json"></label>
+  <p id="frame-detail" class="hint">Without a frame index, arrow controls step nominal intervals and can repeat or skip frames in variable-rate film. A dense assignment requires the actual frame index.</p>
+</section>
+<section aria-label="Play boundaries" class="editor">
+  <h2>Play boundaries</h2><p class="hint">Include setup and terminal action. Leave snap blank when it is not visible. Preserve no-play and aborted sequences in notes.</p>
+  <label>Source-local play ID<input id="play-id" placeholder="Choose New play"></label>
+  <label>Canonical play ID<input id="canonical-id" placeholder="Shared across alternate views and replays"></label>
+  <div class="times"><label>Start (s)<input id="start" type="number" min="0" step="0.001"></label><button id="capture-start">Set start here</button><label>Snap (s) · optional<input id="snap" type="number" min="0" step="0.001"></label><button id="capture-snap">Set snap here</button><label>End (s)<input id="end" type="number" min="0" step="0.001"></label><button id="capture-end">Set end here</button></div>
+  <label>Notes<textarea id="notes" rows="2" placeholder="Visibility limits, penalties, uncertain events, source relationship"></textarea></label>
+  <div class="actions"><button id="new-play">New play</button><button id="save-play" class="primary">Save play boundaries</button><button id="delete-play">Delete selected draft play</button></div>
+  <label>Draft plays<select id="plays" size="5" aria-label="Select draft play"></select></label>
+</section>
+</div>
+<div class="annotations">
+<section aria-label="Dense tracks and identity">
+  <h2>Dense tracks and identity</h2><p class="hint">Pause and draw the visible body box. Each drag records one actual source-frame observation. No boxes are generated or interpolated. Dense-track assignments require all visible players and the assigned native frames, including occlusion records.</p>
+  <div class="grid"><label>Target ID<input id="target" placeholder="e.g. track-01"></label><label>Shot/view ID<input id="shot" value="shot-1" placeholder="Change this at each camera cut"></label><label>Roster player ID · if known<input id="player-id" placeholder="Exact roster ID; otherwise blank"></label><label>Canonical entity ID<input id="entity-id" placeholder="Same athlete across views of this play"></label><label class="check"><input id="readable" type="checkbox">Jersey evidence is readable</label><label class="check"><input id="team-resolved" type="checkbox">Team is resolved</label><button id="save-identity">Save identity evidence</button></div>
+  <div class="actions"><label>Visibility state<select id="visibility"><option value="visible">Visible / partially visible</option><option value="occluded">Fully occluded · no box</option><option value="offscreen">Offscreen · no box</option></select></label><button id="record-visibility">Record visibility state here</button><button id="remove-point">Remove box at this exact frame</button><button id="delete-track">Delete selected draft track</button></div>
+  <div class="scroll"><table><caption>Manually recorded tracks</caption><thead><tr><th>Target</th><th>Boxes</th><th>Visibility changes</th><th>Roster identity</th></tr></thead><tbody id="track-rows"></tbody></table></div>
+  <ul id="visibility-events" aria-label="Recorded visibility changes"></ul>
+</section>
+<section aria-label="Events and second review">
+  <h2>Events and independent review</h2><div class="actions"><label>Observed event<select id="event-type"><option value="release">Forward-pass release</option><option value="handoff">Handoff</option><option value="catch">Catch</option><option value="first_contact">First contact</option><option value="pressure_onset">Pressure onset · contextual review required</option><option value="sack">Sack</option><option value="scramble_start">Scramble initiation</option><option value="kick">Kick / punt</option><option value="dead_ball">Dead ball</option><option value="false_start">False start / aborted snap</option></select></label><button id="add-event">Record event here</button></div>
+  <ul id="events"></ul><label class="file-button">Compare independent draft<input id="comparison-file" type="file" accept=".json,application/json"></label>
+  <p class="hint">Secondary reviewers annotate independently before viewing another pass. Comparison never marks labels adjudicated. An adjudicator must resolve boundaries, boxes and identity disagreements, then use the separate freeze command.</p><pre id="comparison" class="scroll"></pre>
+</section>
+</div>
+<footer><strong>Drafts are not release evidence.</strong> This tool never marks observations human-reviewed or qualified. Export backups regularly. Confirm the exact media hash, independent sources, reviewer assignments and adjudication through the package instructions.</footer>
+</main><script type="module" src="app.mjs"></script></body></html>

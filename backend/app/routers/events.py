@@ -1,7 +1,7 @@
 """Events router — game events detected within clips (Stage 7 output).
 
 Supported event_type values (not enforced by the DB, but documented here):
-    snap, motion_start, motion_end, handoff, mesh_point, throw,
+    snap, motion_start, motion_end, handoff, mesh_point, throw (forward-pass release),
     catch, target, contact, tackle, end_of_play
 """
 
@@ -12,8 +12,7 @@ from typing import Annotated, Any
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
-from sqlalchemy import cast, func, select, update
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -83,6 +82,13 @@ class EventResponse(BaseModel):
 
 
 def effective_events(events: Sequence[Event]) -> list[Event]:
+    events = [
+        event
+        for event in events
+        if (event.provenance or {}).get("state") != "superseded"
+        and (event.provenance or {}).get("publication_state") != "pending"
+    ]
+
     def is_manual(event: Event) -> bool:
         return (
             isinstance(event.provenance, dict)
@@ -102,7 +108,7 @@ def effective_events(events: Sequence[Event]) -> list[Event]:
 @router.get("/api/v1/clips/{clip_id}/events", response_model=list[EventResponse])
 async def list_events_for_clip(
     clip_id: uuid.UUID,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _current_user: Annotated[User, Depends(get_current_user)],
     event_type: str | None = Query(default=None),
     limit: int = Query(default=200, ge=1, le=1000),
@@ -137,7 +143,7 @@ async def list_events_for_clip(
 )
 async def create_event(
     body: EventCreate,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     current_user: Annotated[User, Depends(require_any_staff)],
 ) -> EventResponse:
     """Record a new game event (model-detected or manually tagged)."""
@@ -150,15 +156,11 @@ async def create_event(
         if existing is not None:
             if existing.clip_id != body.clip_id:
                 raise HTTPException(409, "Operation ID belongs to another target")
-            if (body.job_id or body.provenance) and not (
-                isinstance(existing.provenance, dict)
-                and existing.provenance.get("source") in {"manual", "human"}
+            incoming_job = body.job_id or (body.provenance or {}).get("job_id")
+            if incoming_job is not None and (existing.provenance or {}).get("job_id") != str(
+                incoming_job
             ):
-                existing.provenance = {
-                    **(body.provenance or {}),
-                    **({"job_id": str(body.job_id)} if body.job_id else {}),
-                }
-                await db.flush()
+                raise HTTPException(409, "Output ID belongs to another result version")
             return EventResponse.from_orm_event(existing)
 
     provenance = dict(body.provenance or {})
@@ -166,23 +168,7 @@ async def create_event(
         provenance["job_id"] = str(body.job_id)
     job_id = provenance.get("job_id")
     if job_id and provenance.get("source") not in {"manual", "human"}:
-        await db.execute(
-            update(Event)
-            .where(
-                Event.clip_id == body.clip_id,
-                Event.event_type == body.event_type,
-                Event.provenance["job_id"].as_string().is_not(None),
-                Event.provenance["job_id"].as_string() != str(job_id),
-                ~func.coalesce(Event.provenance["source"].as_string(), "unknown").in_(
-                    {"manual", "human"}
-                ),
-            )
-            .values(
-                provenance=func.coalesce(Event.provenance, cast({}, JSONB)).op("||")(
-                    cast({"state": "superseded"}, JSONB)
-                )
-            )
-        )
+        provenance["publication_state"] = "pending"
     event = Event(
         id=body.id or uuid.uuid4(),
         provenance=provenance or None,
@@ -208,7 +194,7 @@ async def create_event(
 @router.get("/api/v1/events/{event_id}", response_model=EventResponse)
 async def get_event(
     event_id: uuid.UUID,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _current_user: Annotated[User, Depends(get_current_user)],
 ) -> EventResponse:
     """Get a single event record."""
@@ -223,7 +209,7 @@ async def get_event(
 async def update_event(
     event_id: uuid.UUID,
     body: EventUpdate,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _current_user: Annotated[User, Depends(require_coach_or_above)],
 ) -> EventResponse:
     """Manually correct a game event (coach/analyst override)."""
@@ -247,7 +233,7 @@ async def update_event(
 @router.delete("/api/v1/events/{event_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_event(
     event_id: uuid.UUID,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _current_user: Annotated[User, Depends(require_coach_or_above)],
 ) -> None:
     """Delete a game event (e.g. false positive from model detection)."""

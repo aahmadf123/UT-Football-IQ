@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-21",
+  "purpose": "Actual local CI cross-service wiring regression; synthetic test input, not football accuracy evidence",
+  "database": {
+    "host": "127.0.0.1",
+    "port": 55432,
+    "name": "footiq_overhaul_cross",
+    "schema": "0010_clip_edits",
+    "async_driver": "asyncpg",
+    "migration_driver": "psycopg2"
+  },
+  "working_directory": "gpu-worker",
+  "command": ".venv/Scripts/python.exe -m pytest -m integration tests/integration/test_pipeline_roundtrip.py -q",
+  "environment": {
+    "DATABASE_URL": "postgresql+asyncpg://postgres@127.0.0.1:55432/footiq_overhaul_cross",
+    "DATABASE_SYNC_URL": "postgresql+psycopg2://postgres@127.0.0.1:55432/footiq_overhaul_cross",
+    "ENVIRONMENT": "test"
+  },
+  "result": "1 passed in 20.24s",
+  "log": "reports/overhaul/cross-service-final.log",
+  "checks": [
+    "Actual backend migrations and seeded staff login",
+    "API upload and video registration",
+    "Durable automatic queue and actual worker claim",
+    "Successful pipeline with per-stage progress",
+    "Clip and source-window persistence",
+    "Synthetic observation persistence verified through individual API reads",
+    "Synthetic pending results excluded from normal clip tracklets and overlays",
+    "Clean H.264 yuv420p derivative probing"
+  ],
+  "fixture_fixes": [
+    "Prefer backend Windows Scripts/python.exe before POSIX or current interpreter fallback",
+    "Verify intentionally pending synthetic rows without publishing them",
+    "Unique static synthetic pixel nonce avoids prior temporary-source deduplication across repeated scratch runs"
+  ],
+  "limitations": [
+    "Synthetic detector/segmenter variants test wiring only",
+    "No model accuracy, calibrated field measurement, production deployment or representative GPU throughput qualification"
+  ]
+}

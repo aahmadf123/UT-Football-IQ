@@ -22,13 +22,14 @@ from pathlib import Path, PurePosixPath
 from typing import Any, BinaryIO
 
 from fastapi import HTTPException
-from sqlalchemy import Date, DateTime, Enum, inspect, select, text
+from sqlalchemy import Date, DateTime, Enum, inspect, or_, select, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import Base
 from app.models import (
     Clip,
+    ClipEdit,
     ClipPlayer,
     CoachCorrection,
     Event,
@@ -42,6 +43,7 @@ from app.models import (
     PlayerVisibilityState,
     PlayView,
     PoseKeypoints,
+    RosterAssignment,
     Tracklet,
     TrackPoint,
     Video,
@@ -80,8 +82,11 @@ MODELS: list[type[Base]] = [
     PoseKeypoints,
     HeadOrientationReview,
     ClipPlayer,
+    ClipEdit,
+    RosterAssignment,
 ]
 TABLES = {model.__tablename__: model for model in MODELS}
+OPTIONAL_TABLES = {"clip_edits", "roster_assignments"}
 MEDIA_FIELDS = {"storage_uri", "evidence_uri"}
 EXTERNAL_TABLES = {"users", "processing_jobs", "model_versions", "training_datasets"}
 PRIVATE_KEY = re.compile(r"password|secret|token|credential|authorization|access_key", re.I)
@@ -164,6 +169,20 @@ async def session_graph(db: AsyncSession, session_id: uuid.UUID) -> dict[str, li
         "head_orientation_reviews": await rows_for(
             db, HeadOrientationReview, "metric_id", [row.id for row in metrics]
         ),
+        "clip_edits": await rows_for(db, ClipEdit, "video_id", video_ids),
+        "roster_assignments": (
+            await db.execute(
+                select(RosterAssignment).where(
+                    RosterAssignment.player_id.in_(player_ids),
+                    or_(
+                        RosterAssignment.session_id.is_(None),
+                        RosterAssignment.session_id == session_id,
+                    ),
+                )
+            )
+        )
+        .scalars()
+        .all(),
     }
     if sum(len(rows) for rows in graph.values()) > MAX_RECORDS:
         raise HTTPException(413, "This session exceeds the portable archive record limit.")
@@ -301,7 +320,11 @@ def validate_archive(file: BinaryIO) -> dict[str, Any]:
                 raise ValueError("Unsupported Football-IQ archive version")
             session_id = str(uuid.UUID(manifest["session_id"]))
             entities = manifest["entities"]
-            if not isinstance(entities, dict) or set(entities) != set(TABLES):
+            if (
+                not isinstance(entities, dict)
+                or set(entities) - set(TABLES)
+                or (set(TABLES) - set(entities)) - OPTIONAL_TABLES
+            ):
                 raise ValueError("Archive entity tables do not match its version")
             if (
                 len(entities["football_sessions"]) != 1
@@ -403,7 +426,14 @@ def imported_record(
             elif isinstance(column.type, Enum) and column.type.enum_class:
                 values[attr.key] = column.type.enum_class(value)
     if lineage:
-        for field in ("provenance", "original_value", "label_value", "attributes", "metadata_"):
+        for field in (
+            "provenance",
+            "original_value",
+            "label_value",
+            "attributes",
+            "metadata_",
+            "before_state",
+        ):
             if field in values:
                 values[field] = {**(values[field] or {}), "_archive_lineage": lineage}
                 break
@@ -418,7 +448,14 @@ def comparable(model: type[Base], row: dict[str, Any]) -> dict[str, Any]:
     for attr in inspect(model).column_attrs:
         if any(fk.column.table.name in EXTERNAL_TABLES for fk in attr.columns[0].foreign_keys):
             values.pop(attr.key, None)
-    for field in ("provenance", "original_value", "label_value", "attributes", "metadata_"):
+    for field in (
+        "provenance",
+        "original_value",
+        "label_value",
+        "attributes",
+        "metadata_",
+        "before_state",
+    ):
         if isinstance(values.get(field), dict):
             values[field] = {
                 key: item for key, item in values[field].items() if key != "_archive_lineage"
@@ -490,15 +527,10 @@ async def import_archive(
     existing_count = 0
     media_hashes = {item["member"]: item["sha256"] for item in manifest["media"]}
     source_hashes: dict[str, str] = {}
-    occupied_players = {
-        (player.jersey_number, player.position_group): player.id
-        for player in (await db.execute(select(Player).where(Player.is_active.is_(True)))).scalars()
-        if player.jersey_number is not None and player.position_group
-    }
     for model in MODELS:
         table = model.__tablename__
         primary = [attr.key for attr in inspect(model).column_attrs if attr.columns[0].primary_key]
-        incoming = manifest["entities"][table]
+        incoming = manifest["entities"].get(table, [])
         existing_rows = await rows_for(
             db, model, primary[0], list({uuid.UUID(raw[primary[0]]) for raw in incoming}), lock=True
         )
@@ -540,24 +572,6 @@ async def import_archive(
                 else:
                     existing_count += 1
             else:
-                if (
-                    model is Player
-                    and values.get("is_active")
-                    and values.get("jersey_number") is not None
-                    and values.get("position_group")
-                ):
-                    slot = (values["jersey_number"], values["position_group"])
-                    occupied = occupied_players.get(slot)
-                    if occupied:
-                        conflicts.append(
-                            {
-                                "table": table,
-                                "id": str(values["id"]),
-                                "reason": "An active player uses this jersey and position group.",
-                            }
-                        )
-                        continue
-                    occupied_players[slot] = values["id"]
                 additions.append((model, values))
     result = {
         "dry_run": dry_run,

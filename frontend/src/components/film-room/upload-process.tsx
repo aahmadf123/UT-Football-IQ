@@ -182,8 +182,8 @@ export function UploadProcessFilm({ onUploadClick }: { onUploadClick: () => void
           <Label htmlFor="processing-profile">Processing profile</Label>
           <NativeSelect id="processing-profile" value={profile} onChange={(event) => setProfile(event.target.value as ProcessingProfile)}>
             <option value="review" disabled={status?.profiles?.find((item) => item.id === "review")?.available === false}>Film review — segment and play video</option>
-            <option value="quick" disabled={status?.profiles?.find((item) => item.id === "quick")?.available === false}>Quick CPU tracking</option>
-            <option value="detailed" disabled={status?.profiles?.find((item) => item.id === "detailed")?.available === false}>Detailed CPU analysis</option>
+            <option value="quick" disabled={status?.profiles?.find((item) => item.id === "quick")?.available === false}>Fast feedback</option>
+            <option value="detailed" disabled={status?.profiles?.find((item) => item.id === "detailed")?.available === false}>Detailed analysis</option>
           </NativeSelect>
           <p className="text-xs text-muted-foreground">{selectedProfile?.description ?? "Quick tracking uses lighter models. Detailed analysis takes longer. Processing speed depends on the connected processor and recording."}</p>
           {status?.processing_limits?.message ? <p className="rounded-lg border border-border-soft bg-secondary/30 p-3 text-xs leading-relaxed text-muted-foreground">{status.processing_limits.message}</p> : null}

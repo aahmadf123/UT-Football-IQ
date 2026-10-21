@@ -29,7 +29,11 @@ class Base(DeclarativeBase):
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
-    """FastAPI dependency that yields a database session."""
+    """Transaction dependency; callers use scope="function" to commit before response.
+
+    Request-scope teardown runs after response/background dispatch and can
+    acknowledge data that a following request or worker cannot read yet.
+    """
     async with AsyncSessionLocal() as session:
         try:
             yield session

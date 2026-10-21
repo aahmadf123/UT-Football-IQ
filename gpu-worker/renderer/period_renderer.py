@@ -22,6 +22,7 @@ from __future__ import annotations
 import os
 import subprocess
 import tempfile
+import uuid
 from collections import Counter
 from pathlib import Path
 from typing import Any
@@ -30,8 +31,11 @@ import cv2
 import structlog
 
 from pipeline import object_store
+from pipeline.media_contract import OVERLAY_GENERATOR_VERSION, validate_duration
+from pipeline.observations import bounded_frame_observations
 from pipeline.runtime import check_control
 from pipeline.video_timeline import VideoTimeline, iter_frames
+from renderer.field_minimap import draw_field_minimap
 
 log = structlog.get_logger(__name__)
 
@@ -95,12 +99,24 @@ def run(
             end_seconds=end_seconds,
         )
 
-        object_key = f"period_overlays/{clip_id}/period_overlay.mp4"
+        validation = None
+        if proxy_timeline:
+            validation = validate_duration(
+                out_path, proxy_timeline["source_end_seconds"] - proxy_timeline["source_start_seconds"], fps
+            )
+        generation = f"{OVERLAY_GENERATOR_VERSION}/{uuid.uuid4().hex}"
+        object_key = f"period_overlays/{clip_id}/{generation}/period_overlay.mp4"
         overlay_uri = object_store.upload_file(out_path, object_key, content_type="video/mp4")
 
     log.info("period_render_done", clip_id=clip_id, overlay_uri=overlay_uri)
     return {
         "period_overlay_uri": overlay_uri,
+        "generator_version": OVERLAY_GENERATOR_VERSION,
+        "field_minimap": {"enabled": analytics_safe, "max_interpolation_gap_seconds": 0.2,
+                          "endpoint_freshness_seconds": 0, "coordinates": "calibrated_ncaa_yards",
+                          "corner": "bottom_right", "opacity": 0.35, "width_fraction": 0.22},
+        "generation_id": generation,
+        "duration_validation": validation,
         "source_start_frame": frame_start,
         "overlay_start_time_seconds": 0,
         "source_start_time_seconds": (proxy_timeline or {}).get(
@@ -153,11 +169,19 @@ def _render_reduced(
         writer.release()
         raise ValueError(f"Unable to create output video for period render: {out_path}")
 
+    if timeline is None and video_path.is_file():
+        timeline = VideoTimeline.from_path(
+            video_path,
+            fps_fallback=fps,
+            frame_count_fallback=int(cap.get(cv2.CAP_PROP_FRAME_COUNT)),
+        )
+
     # Pre-build track lookup scaled to output resolution
     frame_tracks: dict[int, list[tuple[list[float], tuple[int, int, int], int]]] = {}
+    field_positions: dict[int, list[dict[str, Any]]] = {}
     for i, t in enumerate(tracklets):
         color = TRACK_COLORS[i % len(TRACK_COLORS)]
-        for pt in t.get("track_points", []):
+        for pt in bounded_frame_observations(t, timeline, fps):
             fn = pt.get("frame_number", 0)
             bbox = pt.get("bbox")
             if bbox:
@@ -168,13 +192,9 @@ def _render_reduced(
                     bbox[3] * scale,
                 ]
                 frame_tracks.setdefault(fn, []).append((scaled, color, i))
+                if analytics_safe and pt.get("field_x") is not None and pt.get("field_y") is not None:
+                    field_positions.setdefault(fn, []).append({**pt, "team_label": t.get("team_label", "unknown")})
 
-    if timeline is None and video_path.is_file():
-        timeline = VideoTimeline.from_path(
-            video_path,
-            fps_fallback=fps,
-            frame_count_fallback=int(cap.get(cv2.CAP_PROP_FRAME_COUNT)),
-        )
     proxy_timeline = None
     repetitions = None
     if timeline is not None and timeline.timestamps:
@@ -222,6 +242,8 @@ def _render_reduced(
                 x1, y1, x2, y2 = [int(v) for v in bbox]
                 cv2.rectangle(frame, (x1, y1), (x2, y2), color, 1)
                 cv2.putText(frame, f"T{tid}", (x1, max(0, y1 - 3)), FONT, 0.3, color, 1)
+            if analytics_safe:
+                draw_field_minimap(frame, field_positions.get(frame_idx, []))
 
             for _ in range(repetitions.get(frame_idx, 0) if repetitions is not None else 1):
                 writer.write(frame)

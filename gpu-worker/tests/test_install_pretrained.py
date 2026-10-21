@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import os
 from pathlib import Path
 
 import pytest
@@ -38,5 +39,8 @@ def test_verified_asset_installs_atomically(
     output = tmp_path / "models" / "model.pt"
     install_pretrained.install(output)
     assert output.read_bytes() == fixture
-    assert output.stat().st_mode & 0o777 == 0o644
+    if os.name == "nt":
+        assert output.stat().st_mode & 0o200  # Windows chmod exposes the writable bit.
+    else:
+        assert output.stat().st_mode & 0o777 == 0o644
     assert list(output.parent.iterdir()) == [output]
