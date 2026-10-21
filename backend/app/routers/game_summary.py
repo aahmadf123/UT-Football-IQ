@@ -72,6 +72,26 @@ class DownSummary(BaseModel):
     clip_ids: list[uuid.UUID]
 
 
+class PlayDetail(BaseModel):
+    """One counted play, in game order, for play-by-play charts."""
+
+    clip_id: uuid.UUID
+    #: The film's play number: one order across both sides of the ball.
+    play_number: int | None = None
+    period: int | None
+    down: int | None
+    distance: int | None
+    yards_gained: int
+    #: ``rush``, ``pass`` or ``other`` (a fumble that can't be classified).
+    kind: str
+    epa: float | None
+    success: bool | None
+    explosive: bool
+    turnover: bool
+    scoring: bool
+    text: str | None
+
+
 class SideSummary(BaseModel):
     plays: int
     yards: int
@@ -92,6 +112,7 @@ class SideSummary(BaseModel):
     turnovers: int
     by_down: list[DownSummary]
     groups: list[PlayGroup]
+    play_log: list[PlayDetail] = []
 
 
 class GameSummary(BaseModel):
@@ -165,6 +186,7 @@ def summarize_side(plays: list[tuple[dict[str, Any], uuid.UUID]]) -> SideSummary
     epa_count = 0
     successes = {"all": [0, 0], "rush": [0, 0], "pass": [0, 0]}
     downs: dict[int, dict[str, Any]] = {}
+    log: list[PlayDetail] = []
     for play, clip_id in plays:
         kind = play_kind(play)
         if kind is None and play.get("play_type") not in FUMBLE_TYPES:
@@ -198,6 +220,23 @@ def summarize_side(plays: list[tuple[dict[str, Any], uuid.UUID]]) -> SideSummary
             groups["negative"].append(clip_id)
         if play.get("scoring"):
             groups["scoring"].append(clip_id)
+        log.append(
+            PlayDetail(
+                clip_id=clip_id,
+                play_number=play.get("_play_number"),
+                period=play.get("period"),
+                down=play.get("down") if play.get("down") in (1, 2, 3, 4) else None,
+                distance=play.get("distance"),
+                yards_gained=gained,
+                kind=kind or "other",
+                epa=round(float(play["ppa"]), 3) if play.get("ppa") is not None else None,
+                success=success,
+                explosive=kind is not None and is_explosive(play, kind),
+                turnover=play.get("play_type") in TURNOVER_TYPES,
+                scoring=bool(play.get("scoring")),
+                text=play.get("play_text"),
+            )
+        )
         down = play.get("down")
         if down in (1, 2, 3, 4):
             row = downs.setdefault(
@@ -263,6 +302,7 @@ def summarize_side(plays: list[tuple[dict[str, Any], uuid.UUID]]) -> SideSummary
             for key, ids in groups.items()
             if ids
         ],
+        play_log=log,
     )
 
 
@@ -300,7 +340,10 @@ async def build_game_summary(db: AsyncSession, video: Video) -> GameSummary:
     clips = list((await db.execute(select(Clip).where(Clip.video_id == video_id))).scalars())
     film_plays = len({c.play_number for c in clips if c.play_number is not None})
     linked = _play_clips(clips)
-    ordered = [linked[number] for number in sorted(linked)]
+    ordered = [
+        ({**linked[number][0], "_play_number": number}, linked[number][1])
+        for number in sorted(linked)
+    ]
     offense = [(p, c) for p, c in ordered if p.get("offense") == TOLEDO]
     defense = [(p, c) for p, c in ordered if p.get("offense") and p.get("offense") != TOLEDO]
     opponent = next(
