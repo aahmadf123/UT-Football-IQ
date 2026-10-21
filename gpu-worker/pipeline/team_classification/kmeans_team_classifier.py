@@ -219,11 +219,13 @@ def classify_tracklet_frames(
     tracklets: list[dict[str, Any]],
     *,
     initial_frame: int | None = None,
+    classifier: KMeansTeamClassifier | None = None,
 ) -> list[FrameClassification]:
     """Classify tracklets across bounded sampled frames.
 
     The first frame with at least three usable tracklet samples initializes
     centroids.  Later frames use nearest-centroid assignment plus EMA updates.
+    Pass ``classifier`` to read its fitted centroids afterwards.
     """
     if not frames_by_number:
         return []
@@ -240,7 +242,7 @@ def classify_tracklet_frames(
             before = [f for f in frame_numbers if f < initial_frame]
             frame_numbers = [*after, *before]
 
-    classifier = KMeansTeamClassifier()
+    classifier = classifier or KMeansTeamClassifier()
     frame_results: list[FrameClassification] = []
     for frame_number in frame_numbers:
         frame = frames_by_number[frame_number]

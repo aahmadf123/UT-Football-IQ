@@ -175,8 +175,9 @@ export function LineChart({
               {segments.filter((seg) => seg.length > 1).map((seg, i) => (
                 <polyline key={i} points={seg.join(" ")} fill="none" stroke={s.color} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
               ))}
-              {s.points.map((p) =>
-                p.y == null ? null : (
+              {s.points.map((p, i) =>
+                // Dense series show only the latest point and the hovered one.
+                p.y == null || (s.points.length > 24 && i !== s.points.length - 1 && activeX !== p.x) ? null : (
                   <circle
                     key={p.x}
                     cx={xFor(p.x)}

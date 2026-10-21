@@ -987,6 +987,16 @@ def fetch_video_context(video_id: str) -> dict[str, Any]:
         return dict(response.json())
 
 
+def fetch_clip(clip_id: str) -> dict[str, Any]:
+    """One clip record (possession and the linked official play live here)."""
+    if not BACKEND_API_URL:
+        return {}
+    with _client() as client:
+        response = client.get(f"/api/v1/clips/{clip_id}")
+        response.raise_for_status()
+        return dict(response.json())
+
+
 def fetch_annotation_snapshot(video_id: str) -> list[dict[str, Any]]:
     """Read effective cut/annotation revisions before resuming derived output."""
     if not BACKEND_API_URL:

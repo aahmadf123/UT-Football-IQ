@@ -196,37 +196,22 @@ def test_stripe_detector_scores_official_pattern_above_plain_jersey() -> None:
     assert detect_stripe_score(striped_crop) >= DEFAULT_STRIPE_THRESHOLD
 
 
-def test_stage_labels_writes_team_labels_and_patches_tracklets() -> None:
+def _run_stage_labels(side_context: Any = None) -> tuple[dict[str, Any], list[dict[str, Any]], list[tuple[str, str]]]:
     frames = {0: _frame()}
     tracklets = [
-        _tracklet("offense", [20, 30, 60, 130], range(0, 1)),
-        _tracklet("defense", [100, 30, 140, 130], range(0, 1)),
+        _tracklet("red", [20, 30, 60, 130], range(0, 1)),
+        _tracklet("blue", [100, 30, 140, 130], range(0, 1)),
         _tracklet("official", [180, 30, 220, 130], range(0, 1)),
     ]
     events = [{"event_type": "snap", "frame_number": 0}]
-
     created_labels: list[dict[str, Any]] = []
     patched: list[tuple[str, str]] = []
 
-    def fake_create_label(
-        label_type: str,
-        label_value: dict[str, Any],
-        **kwargs: Any,
-    ) -> dict[str, str]:
-        created_labels.append(
-            {
-                "label_type": label_type,
-                "label_value": label_value,
-                **kwargs,
-            }
-        )
+    def fake_create_label(label_type: str, label_value: dict[str, Any], **kwargs: Any) -> dict[str, str]:
+        created_labels.append({"label_type": label_type, "label_value": label_value, **kwargs})
         return {"id": f"label-{len(created_labels)}"}
 
-    def fake_patch_tracklet_team_label(
-        tracklet_id: str,
-        team_label: str,
-        **_kwargs: Any,
-    ) -> dict[str, str]:
+    def fake_patch_tracklet_team_label(tracklet_id: str, team_label: str, **_kwargs: Any) -> dict[str, str]:
         patched.append((tracklet_id, team_label))
         return {"id": tracklet_id}
 
@@ -238,19 +223,32 @@ def test_stage_labels_writes_team_labels_and_patches_tracklets() -> None:
         ),
     ):
         result = run_labels(
-            "clip-1",
-            tracklets,
-            events,
-            fps=30.0,
-            frames_by_number=frames,
+            "clip-1", tracklets, events, fps=30.0, frames_by_number=frames, side_context=side_context
         )
+    team_labels = [label for label in created_labels if label["label_type"] == "team_classification"]
+    return result, team_labels, patched
 
-    team_labels = [
-        label for label in created_labels if label["label_type"] == "team_classification"
-    ]
+
+def test_stage_labels_names_sides_from_possession_and_jerseys() -> None:
+    from pipeline.team_classification.sides import SideContext
+
+    # Toledo in the lighter kit (red here) with the ball: red is the offense.
+    result, team_labels, patched = _run_stage_labels(SideContext(toledo_on="offense", toledo_light=True))
     assert len(team_labels) == 3
-    assert ("official", TEAM_OFFICIAL) in patched
-    assert result["team_classification"]["classified_tracklets"] == 3
+    assert {("red", TEAM_OFFENSE), ("blue", TEAM_DEFENSE), ("official", TEAM_OFFICIAL)} <= set(patched)
+    assert result["team_classification"]["sides"] == "possession_jersey"
+
+    # Same colours, Toledo on defense: the sides swap with possession.
+    _, _, patched = _run_stage_labels(SideContext(toledo_on="defense", toledo_light=True))
+    assert {("red", TEAM_DEFENSE), ("blue", TEAM_OFFENSE)} <= set(patched)
+
+
+def test_stage_labels_leaves_sides_unknown_without_evidence() -> None:
+    # Colours alone cannot say who has the ball; never a coin flip.
+    result, team_labels, patched = _run_stage_labels()
+    assert patched == [("official", TEAM_OFFICIAL)]
+    assert len(team_labels) == 1
+    assert result["team_classification"]["sides"].startswith("formation_unresolved")
 
 
 def test_no_frames_falls_back_without_team_classification() -> None:
