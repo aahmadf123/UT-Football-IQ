@@ -667,6 +667,22 @@ export interface ApiDownSummary {
   clip_ids: string[];
 }
 
+export interface ApiPlayDetail {
+  clip_id: string;
+  play_number: number | null;
+  period: number | null;
+  down: number | null;
+  distance: number | null;
+  yards_gained: number;
+  kind: "rush" | "pass" | "other";
+  epa: number | null;
+  success: boolean | null;
+  explosive: boolean;
+  turnover: boolean;
+  scoring: boolean;
+  text: string | null;
+}
+
 export interface ApiSideSummary {
   plays: number;
   yards: number;
@@ -687,6 +703,8 @@ export interface ApiSideSummary {
   turnovers: number;
   by_down: ApiDownSummary[];
   groups: ApiPlayGroup[];
+  /** Every counted play in game order (older API builds omit it). */
+  play_log?: ApiPlayDetail[];
 }
 
 export interface ApiGameSummary {

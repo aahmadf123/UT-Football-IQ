@@ -17,22 +17,19 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/composite/empty-state";
-import { StatChip } from "@/components/composite/stat-chip";
 import { cn } from "@/lib/utils";
+import { StatTile } from "@/components/charts/stat-tile";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+  ByDown,
+  ByQuarter,
+  GameFlow,
+  PlayByPlay,
+  RunVsPass,
+  YardsDistribution,
+  playlistHref,
+} from "@/components/team-stats/game-charts";
 
-/** Clip review URL that steps through exactly these plays. */
-export function playlistHref(clipIds: string[]): string {
-  const params = new URLSearchParams({ clipId: clipIds[0], playlist: clipIds.join(",") });
-  return `/clip-review/?${params.toString()}`;
-}
+export { playlistHref } from "@/components/team-stats/game-charts";
 
 function pct(value: number | null): string {
   return value == null ? "—" : `${Math.round(value * 100)}%`;
@@ -69,88 +66,27 @@ function PlayGroupLinks({ groups }: { groups: ApiPlayGroup[] }) {
   );
 }
 
-function SideBreakdown({ side }: { side: ApiSideSummary }) {
+function SideBreakdown({ side, offense, defense }: { side: ApiSideSummary; offense: ApiSideSummary | null; defense: ApiSideSummary | null }) {
+  const log = side.play_log ?? [];
+  const thirdRate = side.third_down_attempts ? side.third_down_conversions / side.third_down_attempts : null;
   return (
-    <div className="flex flex-col gap-5">
-      <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
-        <StatChip label="Plays" value={side.plays} />
-        <StatChip label="Yards / play" value={num(side.yards_per_play)} hint={`${side.yards} YDS`} />
-        <StatChip label="Success rate" value={pct(side.success_rate)} />
-        <StatChip label="EPA / play" value={num(side.epa_per_play, 2)} />
-        <StatChip
-          label="3rd down"
-          value={`${side.third_down_conversions}/${side.third_down_attempts}`}
-          hint="CONVERTED"
-        />
-        <StatChip label="Explosive" value={side.explosive_plays} hint="RUN 10+ · PASS 20+" />
-        <StatChip label="Turnovers" value={side.turnovers} />
-        <StatChip
-          label="Run / pass"
-          value={`${side.rush_plays} / ${side.pass_plays}`}
-          hint={side.plays ? `${Math.round((side.rush_plays / side.plays) * 100)}% RUN` : undefined}
-        />
+    <div className="flex flex-col gap-4">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+        <StatTile label="Yards per play" value={num(side.yards_per_play)} hint={`${side.yards} yards on ${side.plays} plays`} />
+        <StatTile label="Success rate" value={pct(side.success_rate)} hint="50% / 70% / 100% of the distance by down" />
+        <StatTile label="EPA per play" value={side.epa_per_play == null ? "—" : `${side.epa_per_play > 0 ? "+" : ""}${side.epa_per_play.toFixed(2)}`} hint="Expected points added" />
+        <StatTile label="3rd down" value={`${side.third_down_conversions}/${side.third_down_attempts}`} hint={thirdRate == null ? "No 3rd downs" : `${Math.round(thirdRate * 100)}% converted`} />
+        <StatTile label="Explosive plays" value={String(side.explosive_plays)} hint="Run 10+ · pass 20+" />
+        <StatTile label="Turnovers" value={String(side.turnovers)} hint={`${side.rush_plays} runs · ${side.pass_plays} passes`} />
       </div>
-
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead />
-            <TableHead className="text-right">Plays</TableHead>
-            <TableHead className="text-right">Yards / play</TableHead>
-            <TableHead className="text-right">Success</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          <TableRow>
-            <TableCell className="font-medium">Runs</TableCell>
-            <TableCell data-numeric className="text-right font-mono">{side.rush_plays}</TableCell>
-            <TableCell data-numeric className="text-right font-mono">
-              {num(side.rush_yards_per_play)}
-            </TableCell>
-            <TableCell data-numeric className="text-right font-mono">
-              {pct(side.rush_success_rate)}
-            </TableCell>
-          </TableRow>
-          <TableRow>
-            <TableCell className="font-medium">Passes</TableCell>
-            <TableCell data-numeric className="text-right font-mono">{side.pass_plays}</TableCell>
-            <TableCell data-numeric className="text-right font-mono">
-              {num(side.pass_yards_per_play)}
-            </TableCell>
-            <TableCell data-numeric className="text-right font-mono">
-              {pct(side.pass_success_rate)}
-            </TableCell>
-          </TableRow>
-          {side.by_down.map((down) => (
-            <TableRow key={down.down}>
-              <TableCell className="font-medium">
-                <Link href={playlistHref(down.clip_ids)} className="hover:text-primary">
-                  {["1st", "2nd", "3rd", "4th"][down.down - 1]} down
-                  <span className="ml-2 text-xs text-muted-foreground">
-                    {pct(down.rush_share)} run
-                  </span>
-                </Link>
-              </TableCell>
-              <TableCell data-numeric className="text-right font-mono">
-                <Link
-                  href={playlistHref(down.clip_ids)}
-                  aria-label={`${["1st", "2nd", "3rd", "4th"][down.down - 1]} down plays`}
-                  className="hover:text-primary"
-                >
-                  {down.plays}
-                </Link>
-              </TableCell>
-              <TableCell data-numeric className="text-right font-mono">
-                {num(down.yards_per_play)}
-              </TableCell>
-              <TableCell data-numeric className="text-right font-mono">
-                {pct(down.success_rate)}
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-
+      {log.length ? <PlayByPlay log={log} /> : null}
+      <div className="grid gap-4 lg:grid-cols-2">
+        <GameFlow offense={offense?.play_log ?? []} defense={defense?.play_log ?? []} />
+        {log.length ? <YardsDistribution log={log} /> : null}
+        <ByDown side={side} />
+        <RunVsPass side={side} />
+        {log.length ? <ByQuarter log={log} /> : null}
+      </div>
       <div>
         <h3 className="mb-2 font-display text-xs font-semibold uppercase tracking-widest text-muted-foreground">
           Watch the plays
@@ -297,7 +233,7 @@ export function GameSummaryView() {
               {summary.linked_plays} of {summary.film_plays} film plays matched to the official
               play-by-play.
             </p>
-            <SideBreakdown side={shown} />
+            <SideBreakdown side={shown} offense={summary.offense} defense={summary.defense} />
           </>
         )}
       </CardContent>
