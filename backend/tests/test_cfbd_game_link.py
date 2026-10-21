@@ -224,6 +224,7 @@ async def test_link_video_writes_official_results(db: async_sessionmaker[AsyncSe
     for clip in clips:
         assert clip.label_data["cfbd"]["play_type"] == "Rush"
         assert clip.label_data["cfbd"]["yards_gained"] == 5
+        assert clip.label_data["cfbd"]["home_team"] == "Michigan State"  # jersey-colour hint
         assert clip.down == 1 and clip.distance == 10
     sideline = next(clip for clip in clips if clip.our_possession == SideOfBall.defense)
     endzone = next(clip for clip in clips if clip.our_possession == SideOfBall.offense)

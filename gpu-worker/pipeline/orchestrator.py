@@ -248,6 +248,33 @@ class PipelineContext:
 # ── Per-clip helpers ──────────────────────────────────────────────────────────
 
 
+def _side_context(clip_id: str) -> Any:
+    """What the official record says about this play, for naming team sides.
+
+    Game clips learn their possession and the official play (with the home
+    team) right after segmentation. Practice and unlinked clips return an
+    empty context, and the labels stage then relies on the formation alone.
+    """
+    from pipeline import backend
+    from pipeline.team_classification.sides import SideContext
+
+    try:
+        clip = backend.fetch_clip(clip_id)
+    except PipelineInterrupted:
+        raise
+    except Exception as exc:  # noqa: BLE001 - the context only sharpens labels
+        log.warning("side_context_unavailable", clip_id=clip_id, error=str(exc))
+        return SideContext()
+    cfbd = (clip.get("label_data") or {}).get("cfbd") or {}
+    home = cfbd.get("home_team")
+    possession = clip.get("our_possession")
+    return SideContext(
+        toledo_on=possession if possession in ("offense", "defense") else None,
+        # College teams wear dark at home and white on the road by default.
+        toledo_light=None if not home else home != "Toledo",
+    )
+
+
 def _clip_frame_window(clip: dict[str, Any], fps: float, timeline: Any = None) -> tuple[int, int]:
     start_t = float(clip.get("start_time") or 0.0)
     end_t = float(clip.get("end_time") or 0.0)
@@ -684,7 +711,14 @@ def _run_clip_stage(stage: str, ctx: PipelineContext, clip: dict[str, Any]) -> d
         from pipeline import stage_labels
 
         local_uri = f"file://{ctx.video_path}" if ctx.video_path else ctx.input_uri
-        return stage_labels.run(clip_id, tracklets, events_list, ctx.fps, local_uri)
+        return stage_labels.run(
+            clip_id,
+            tracklets,
+            events_list,
+            ctx.fps,
+            local_uri,
+            side_context=_side_context(clip_id),
+        )
 
     if stage == "metrics":
         from pipeline import stage_metrics

@@ -240,6 +240,9 @@ async def link_video(db: AsyncSession, video_id: uuid.UUID) -> dict[str, Any]:
             "game_id": play.cfbd_game_id,
             "offense": play.offense,
             "defense": play.defense,
+            # Home teams wear dark jerseys by default; the worker uses this
+            # to tell which colour is Toledo when it labels teams.
+            "home_team": game.home_team,
             "period": play.period,
             "down": play.down,
             "distance": play.distance,

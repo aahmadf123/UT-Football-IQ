@@ -34,6 +34,7 @@ Output: `labels` rows written to the backend.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -46,12 +47,26 @@ from pipeline.homography import field_orientation as fo
 from pipeline.runtime import PipelineInterrupted, check_control
 from pipeline.team_classification import (
     ClassificationResult,
+    KMeansTeamClassifier,
     classify_tracklet_frames,
+)
+from pipeline.team_classification.sides import (
+    TEAM_DEFENSE,
+    TEAM_OFFENSE,
+    SideContext,
+    SideDecision,
+    resolve_offense_cluster,
 )
 
 log = structlog.get_logger(__name__)
 
-TEAM_CLASSIFICATION_MAX_FRAMES = 30
+#: Frames read for jersey colours. They are spread so every track gets
+#: looks across its own life: thirty consecutive frames from the snap (half a
+#: second) left most post-snap fragments without a single sample, and 59% of
+#: a game's tracks unlabelled.
+TEAM_CLASSIFICATION_MAX_FRAMES = 90
+#: Looks per track, spread over its life, before frames are capped.
+TEAM_SAMPLES_PER_TRACK = 4
 
 # Frames voted over when resolving which way the offence attacks. Per frame the
 # estimator sorts the players twice, so the cost is small and the cap is about
@@ -67,8 +82,15 @@ def run(
     fps: float,
     input_uri: str | None = None,
     frames_by_number: dict[int, Any] | None = None,
+    side_context: SideContext | None = None,
 ) -> dict[str, Any]:
-    """Generate formation and coverage labels for a clip."""
+    """Generate formation and coverage labels for a clip.
+
+    ``side_context`` is what the official play-by-play says about the play
+    (Toledo's side of the ball, and whether Toledo wears the lighter kit);
+    with it, team colours become offense and defense even when the formation
+    is not visible on a calibrated field.
+    """
     log.info("stage_labels_start", clip_id=clip_id)
     synthetic = any(
         (track.get("provenance") or {}).get("source") == "synthetic_test"
@@ -99,11 +121,16 @@ def run(
     snap_event = next((e for e in events if e.get("event_type") == "snap"), None)
     snap_frame = snap_event.get("frame_number", 0) if snap_event else 0
 
+    classifier = KMeansTeamClassifier()
     team_results = _classify_team_colors(
         tracklets,
         snap_frame=snap_frame,
         input_uri=input_uri,
         frames_by_number=frames_by_number,
+        classifier=classifier,
+    )
+    team_results, sides = _name_team_sides(
+        team_results, tracklets, classifier, side_context or SideContext()
     )
     team_by_tracklet = _aggregate_team_results(team_results)
     # DB patches alone do not update the observation bundle used by subsequent
@@ -135,7 +162,8 @@ def run(
             "label_count": len(ids), "label_ids": ids, "labels": [], "tracklets": tracklets,
             "skipped": True, "reason": "snap_not_observed",
             "team_classification": {"classified_tracklets": len(team_by_tracklet),
-                                    "fallback": "no_visual_samples" if not team_by_tracklet else None},
+                                    "fallback": "no_visual_samples" if not team_by_tracklet else None,
+                                    "sides": sides.evidence},
         }
 
     # ── Offensive formation (enhanced) ────────────────────────────────────
@@ -291,6 +319,7 @@ def run(
         "team_classification": {
             "classified_tracklets": len(team_by_tracklet),
             "official_tracklets": len(official_tracklet_ids),
+            "sides": sides.evidence,
             "fallback": "no_visual_samples" if not team_by_tracklet else None,
             "limitations": [
                 "requires bbox track_points and readable source frames",
@@ -309,6 +338,7 @@ def _classify_team_colors(
     snap_frame: int,
     input_uri: str | None,
     frames_by_number: dict[int, Any] | None,
+    classifier: KMeansTeamClassifier | None = None,
 ) -> list[ClassificationResult]:
     """Run bounded k=3 CIELab classification when visual samples exist."""
     frames = frames_by_number or _load_team_frames(input_uri, tracklets, snap_frame)
@@ -320,6 +350,7 @@ def _classify_team_colors(
         frames,
         tracklets,
         initial_frame=snap_frame,
+        classifier=classifier,
     )
     return [
         result
@@ -327,6 +358,63 @@ def _classify_team_colors(
         for result in frame_result.results
         if result.label != "unknown"
     ]
+
+
+def _name_team_sides(
+    results: list[ClassificationResult],
+    tracklets: list[dict[str, Any]],
+    classifier: KMeansTeamClassifier,
+    context: SideContext,
+) -> tuple[list[ClassificationResult], SideDecision]:
+    """Turn the two team colour clusters into offense and defense.
+
+    The classifier's own offense/defense names only say which colour is
+    further from the grass. :mod:`pipeline.team_classification.sides`
+    decides from the formation or the play-by-play; when neither can, both
+    colours become unknown rather than a coin flip.
+    """
+    team_clusters = tuple(
+        sorted(
+            i
+            for i, label in classifier.cluster_labels.items()
+            if label in (TEAM_OFFENSE, TEAM_DEFENSE)
+        )
+    )
+    if classifier.centroids is None or len(team_clusters) != 2:
+        decision = SideDecision(None, "fewer_than_two_team_colours")
+    else:
+        votes: dict[str, dict[int, int]] = {}
+        for result in results:
+            if result.cluster_index in team_clusters:
+                tally = votes.setdefault(result.tracklet_id, {})
+                tally[result.cluster_index] = tally.get(result.cluster_index, 0) + 1
+        cluster_by_tracklet = {tid: max(t, key=lambda c: t[c]) for tid, t in votes.items()}
+        frames = sorted({r.frame_number for r in results})
+        decision = resolve_offense_cluster(
+            tracklets,
+            cluster_by_tracklet,
+            classifier.centroids,
+            (team_clusters[0], team_clusters[1]),
+            frames,
+            context,
+        )
+    log.info(
+        "team_sides_resolved",
+        evidence=decision.evidence,
+        resolved=decision.offense_cluster is not None,
+        frames=decision.frames_resolved,
+    )
+
+    def side(result: ClassificationResult) -> ClassificationResult:
+        if result.cluster_index not in team_clusters:
+            return result
+        if decision.offense_cluster is None:
+            return replace(result, label="unknown", reason=f"{result.reason}:side_unresolved")
+        label = TEAM_OFFENSE if result.cluster_index == decision.offense_cluster else TEAM_DEFENSE
+        return replace(result, label=label, reason=f"{result.reason}:{decision.evidence}")
+
+    named = [side(result) for result in results]
+    return [r for r in named if r.label != "unknown"], decision
 
 
 def _load_team_frames(
@@ -373,23 +461,46 @@ def _load_team_frames(
 
 
 def _wanted_team_frames(tracklets: list[dict[str, Any]], snap_frame: int) -> list[int]:
-    frame_numbers: set[int] = set()
-    for tracklet in tracklets:
-        for point in tracklet.get("track_points", []):
-            bbox = point.get("bbox")
-            if isinstance(bbox, list) and len(bbox) == 4:
-                frame_numbers.add(int(point.get("frame_number", 0)))
+    """Frames to read for jersey colours: the snap first, then every track's own.
 
-    ordered = sorted(frame_numbers)
-    if not ordered:
+    Each track contributes up to :data:`TEAM_SAMPLES_PER_TRACK` frames spread
+    over its life, so a fragment that starts after the snap still gets looks.
+    Over the cap, every track keeps at least one frame (its busiest) and the
+    frames that serve the most tracks fill the rest.
+    """
+    per_track: list[list[int]] = []
+    on_screen: dict[int, int] = {}
+    for tracklet in tracklets:
+        frames = sorted(
+            {
+                int(point.get("frame_number", 0))
+                for point in tracklet.get("track_points", [])
+                if isinstance(point.get("bbox"), list) and len(point["bbox"]) == 4
+            }
+        )
+        for frame in frames:
+            on_screen[frame] = on_screen.get(frame, 0) + 1
+        if frames:
+            steps = min(TEAM_SAMPLES_PER_TRACK, len(frames))
+            per_track.append(
+                sorted({frames[round(i * (len(frames) - 1) / max(1, steps - 1))] for i in range(steps)})
+            )
+    if not per_track:
         return []
-    if snap_frame in frame_numbers:
-        ordered = [snap_frame, *[f for f in ordered if f != snap_frame]]
-    else:
-        after_snap = [f for f in ordered if f >= snap_frame]
-        before_snap = [f for f in ordered if f < snap_frame]
-        ordered = [*after_snap, *before_snap]
-    return ordered[:TEAM_CLASSIFICATION_MAX_FRAMES]
+
+    chosen: list[int] = [snap_frame] if snap_frame in on_screen else []
+    for frames in sorted(per_track, key=len):
+        if len(chosen) >= TEAM_CLASSIFICATION_MAX_FRAMES:
+            break
+        if not any(frame in chosen for frame in frames):
+            chosen.append(max(frames, key=lambda f: on_screen[f]))
+    candidates = {frame for frames in per_track for frame in frames} - set(chosen)
+    for frame in sorted(candidates, key=lambda f: (-on_screen[f], f)):
+        if len(chosen) >= TEAM_CLASSIFICATION_MAX_FRAMES:
+            break
+        chosen.append(frame)
+    head = chosen[:1] if chosen and chosen[0] == snap_frame else []
+    return head + sorted(frame for frame in chosen if frame not in head)
 
 
 def _aggregate_team_results(
