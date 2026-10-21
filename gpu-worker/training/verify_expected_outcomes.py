@@ -143,7 +143,13 @@ def verify_local(
             recomputed.append(output)
         if len(recomputed) != len(supplied):
             raise DataError("Verification must cover the complete immutable holdout")
-        actual_report = evaluate(model, rows)
+        actual_report = evaluate(
+            model,
+            rows,
+            source_groups=(json.loads(manifest_text).get("release_population") or {}).get(
+                "source_groups", []
+            ),
+        )
         for key in (
             "task",
             "split",
@@ -156,6 +162,10 @@ def verify_local(
         ):
             if not _close(actual_report[key], report[key]):
                 raise DataError("Submitted report differs from independent forward evaluation")
+        if "heldout_diagnostics" in report and not _close(
+            actual_report["heldout_diagnostics"], report["heldout_diagnostics"]
+        ):
+            raise DataError("Submitted heldout cases differ from independent evaluation")
         return {
             "verifier_version": VERIFIER_VERSION,
             "forward_outputs_matched": True,

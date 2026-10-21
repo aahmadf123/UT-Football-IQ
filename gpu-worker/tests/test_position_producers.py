@@ -397,11 +397,12 @@ def test_entry_can_be_observed_without_known_terminal_gain():
 
 def test_generic_contact_is_not_first_contact_without_explicit_evidence():
     tracks, snap = front()
+    snap["attributes"]["shot_id"] = "shot-1"
     runner = {"id": "rb", "track_points": [point(i / 10, 49 + i / 10, 1) for i in range(31)]}
-    contact = event("contact", 1.5, carrier_id="rb")
+    contact = event("contact", 1.5, carrier_id="rb", shot_id="shot-1")
     events = [
         snap,
-        event("handoff", 0.2, carrier_id="rb"),
+        event("handoff", 0.2, carrier_id="rb", shot_id="shot-1"),
         contact,
         event("end_of_play", 2, carrier_id="rb"),
     ]
@@ -533,3 +534,194 @@ def test_unclocked_lost_marker_cannot_be_discarded_to_bridge_a_trajectory():
         observed_qb_durations([quarterback(points)], [event("snap", 0), event("throw", 2)], 10)
         == []
     )
+
+
+def test_run_drilldown_emits_source_bound_contact_and_original_front_geometry():
+    from pipeline.run_observations import observed_runs
+
+    tracks, snap = front()
+    snap["attributes"]["shot_id"] = "shot-1"
+    runner = {"id": "rb", "track_points": [point(i / 10, 49 + i / 10, 1) for i in range(31)]}
+    events = [
+        snap,
+        event("handoff", 0.2, carrier_id="rb", shot_id="shot-1"),
+        event("first_contact", 1.2, carrier_id="rb", shot_id="shot-1"),
+        event("end_of_play", 2, carrier_id="rb", shot_id="shot-1"),
+    ]
+    rows = observed_runs([*tracks, runner], events, timeline=_run_timeline(), attacking_direction=1)
+    packet = metric(rows, "signed_forward_gain")
+    assert packet["run_path"]["measurement_complete"] is True
+    assert packet["run_path"]["possession_event_id"] == "handoff-0.2"
+    assert packet["run_path"]["actor_id"] == "rb"
+    assert packet["first_contact"]["event_id"] == "first_contact-1.2"
+    assert packet["first_contact"]["field_x"] == pytest.approx(50.2)
+    assert packet["first_contact"]["actor_id"] == "rb"
+    assert packet["original_front"]["roles"]["C"]["track_id"] == "c"
+    assert packet["original_front"]["gaps"][0]["gap_label"] == "left_A"
+    assert packet["original_front"]["definition_basis"] == "original_named_snap_centers"
+
+
+def test_run_drilldown_contact_unknown_clock_or_ambiguous_stays_unavailable():
+    from pipeline.run_observations import observed_runs
+
+    tracks, snap = front()
+    snap["attributes"]["shot_id"] = "shot-1"
+    runner = {"id": "rb", "track_points": [point(i / 10, 49 + i / 10, 1) for i in range(31)]}
+    base = [
+        snap,
+        event("handoff", 0.2, carrier_id="rb", shot_id="shot-1"),
+        event("end_of_play", 2, carrier_id="rb", shot_id="shot-1"),
+    ]
+    for contacts in [
+        [event("first_contact", 1.2, carrier_id="rb", shot_id="other")],
+        [event("first_contact", 1.2, carrier_id="rb")],
+        [
+            event("first_contact", 1.2, carrier_id="rb", shot_id="shot-1"),
+            event("first_contact", 1.3, carrier_id="rb", shot_id="shot-1"),
+        ],
+    ]:
+        rows = observed_runs(
+            [*tracks, runner], [*base, *contacts], timeline=_run_timeline(), attacking_direction=1
+        )
+        packet = metric(rows, "signed_forward_gain")
+        assert packet.get("first_contact") is None
+        assert not any(
+            r["metric_name"] in {"pre_contact_yards", "post_contact_yards"} for r in rows
+        )
+
+
+def test_run_drilldown_partial_prefix_is_evidence_without_complete_outcome():
+    from pipeline.run_observations import observed_runs
+
+    tracks, snap = front()
+    snap["attributes"]["shot_id"] = "shot-1"
+    runner = {
+        "id": "rb",
+        "track_points": [
+            point(i / 10, 49 + i / 10, 1, visibility_state="lost" if i >= 9 else "observed")
+            for i in range(31)
+        ],
+    }
+    events = [
+        snap,
+        event("handoff", 0.2, carrier_id="rb", shot_id="shot-1"),
+        event("first_contact", 0.6, carrier_id="rb", shot_id="shot-1"),
+    ]
+    rows = observed_runs([*tracks, runner], events, timeline=_run_timeline(), attacking_direction=1)
+    assert all(r["metric_name"] != "signed_forward_gain" for r in rows)
+    packet = metric(rows, "pre_contact_yards")
+    assert packet["run_path"]["partial_observation"] is True
+    assert packet["run_path"]["measurement_complete"] is False
+    assert packet["run_path"]["trajectory"][-1]["timestamp_seconds"] == 0.8
+
+
+def test_run_prefix_without_scalar_endpoint_is_a_partial_composite():
+    from pipeline.run_observations import observed_runs
+
+    tracks, snap = front()
+    snap["attributes"]["shot_id"] = "shot-1"
+    runner = {
+        "id": "rb",
+        "track_points": [
+            point(i / 10, 49 + i / 10, 1, visibility_state="lost" if i >= 9 else "observed")
+            for i in range(31)
+        ],
+    }
+    rows = observed_runs(
+        [*tracks, runner],
+        [snap, event("handoff", 0.2, carrier_id="rb", shot_id="shot-1")],
+        timeline=_run_timeline(),
+        attacking_direction=1,
+    )
+    assert [r["metric_name"] for r in rows] == ["observed_run_path"]
+    packet = rows[0]["metric_value"]
+    assert packet["partial_observation"] and not packet["measurement_complete"]
+    assert "yards" not in packet and "value" not in packet
+    assert packet["run_path"]["trajectory"][-1]["timestamp_seconds"] == 0.8
+
+
+def test_run_conflicting_carrier_aliases_block_possession_and_terminal_attribution():
+    from pipeline.run_observations import observed_runs
+
+    tracks, snap = front()
+    snap["attributes"]["shot_id"] = "shot-1"
+    runner = {"id": "rb", "track_points": [point(i / 10, 49 + i / 10, 1) for i in range(31)]}
+    handoff = event("handoff", 0.2, carrier_id="rb", shot_id="shot-1")
+    conflict = event("handoff", 0.3, carrier_id="rb", runner_id="different", shot_id="shot-1")
+    assert (
+        observed_runs(
+            [*tracks, runner],
+            [snap, handoff, conflict],
+            timeline=_run_timeline(),
+            attacking_direction=1,
+        )
+        == []
+    )
+    terminal = event(
+        "end_of_play", 2, carrier_id="rb", ball_carrier_id="different", shot_id="shot-1"
+    )
+    rows = observed_runs(
+        [*tracks, runner],
+        [snap, handoff, terminal],
+        timeline=_run_timeline(),
+        attacking_direction=1,
+    )
+    assert rows == []
+
+
+def _run_timeline():
+    from pipeline.video_timeline import VideoTimeline
+
+    return VideoTimeline(tuple(i / 10 for i in range(31)), 3.1, 10)
+
+
+def test_new_native_run_geometry_requires_verified_exact_source_frame_clock():
+    from pipeline.run_observations import observed_runs
+    from pipeline.video_timeline import VideoTimeline
+
+    tracks, snap = front()
+    snap["attributes"]["shot_id"] = "shot-1"
+    runner = {"id": "rb", "track_points": [point(i / 10, 49 + i / 10, 1) for i in range(31)]}
+    events = [
+        snap,
+        event("handoff", 0.2, carrier_id="rb", shot_id="shot-1"),
+        event("end_of_play", 2, carrier_id="rb", shot_id="shot-1"),
+    ]
+    for timeline in [
+        None,
+        VideoTimeline(tuple(i / 10 for i in range(31)), 3.1, 10, verified=False),
+    ]:
+        rows = observed_runs([*tracks, runner], events, timeline, 1)
+        assert all(r["metric_name"] != "observed_run_path" for r in rows)
+        assert "run_path" not in metric(rows, "signed_forward_gain")
+    runner["track_points"][4]["frame_number"] = 999
+    rows = observed_runs([*tracks, runner], events, _run_timeline(), 1)
+    assert all(r["metric_name"] != "observed_run_path" for r in rows)
+
+
+@pytest.mark.parametrize("direction", [1, -1])
+@pytest.mark.parametrize(
+    "te_y,entry_y,expected",
+    [(3, 3.5, "left_B"), (3, 4.5, "left_edge"), (6, 5, "left_C"), (6, 6.5, "left_edge")],
+)
+def test_run_entry_uses_actual_outermost_named_center(direction, te_y, entry_y, expected):
+    from pipeline.position_evidence import named_gaps, original_front
+    from pipeline.run_observations import _entry_label
+
+    tracks, snap = front()
+    snap["attributes"]["attacking_direction"] = direction
+    for track in tracks:
+        for p in track["track_points"]:
+            p["field_y"] *= direction
+    tracks.append(
+        {
+            "id": "te",
+            "observed_role": "LTE",
+            "role_resolved": True,
+            "track_points": [point(i / 10, 50, te_y * direction) for i in range(31)],
+        }
+    )
+    geometry = original_front(tracks, snap, _run_timeline(), direction)
+    assert _entry_label(geometry, entry_y * direction) == expected
+    if te_y == 3:
+        assert not any(g["gap_label"] == "left_C" for g in named_gaps(geometry))

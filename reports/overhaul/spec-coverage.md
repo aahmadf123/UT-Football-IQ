@@ -1,11 +1,20 @@
 # Twenty-page specification coverage audit
 
-Independent review updated for the continuation after PR57 (`7bb3793`), on
-`codex/overhaul-completion-20261021`. **The twenty-page overhaul is incomplete.**
-The merged baseline recovered in production; the current continuation is local,
-unmerged and undeployed. This ledger distinguishes executable code, work still
-being implemented/reviewed, and evidence that has not been supplied. Passing
-fixtures do not establish football accuracy or production readiness.
+Independent review now covers the local continuation after the user's main-branch
+push `549e8cf`, on `codex/overhaul-completion-20261021`.
+**The twenty-page overhaul is incomplete.** New fixes and views after that commit
+remain uncommitted and undeployed. The pushed commit's CI failed; the latest
+source-bound public observation is a mixed release: frontend `549e8cf`, API
+`7bb3793`, and a separately inspected processor checkout at `d1f4317`.
+This ledger separates executable code, remaining implementation and missing
+acceptance evidence. Passing fixtures do not establish football accuracy or a
+compatible production release.
+
+The latest local source-bound verification is
+`post-push-verification-20261021.md` and its machine record. The reviewer verified
+all 48 changed source files, seven final logs and the complete 487-file Linux
+copy. Its accepted local regression scope still excludes full-plan and production
+acceptance; final counts and hashes are recorded at the end of this ledger.
 
 | Page | Current executable implementation / inspected evidence | Remaining implementation | Missing acceptance evidence |
 | --- | --- | --- | --- |
@@ -22,26 +31,27 @@ fixtures do not establish football accuracy or production readiness.
 | 11 — Specialists | One stage/registry/definition/publication system; new event-backed duration, lane, carrier, interaction, movement and candidate outcome modules reuse existing stages. | Qualified automatic pressure-coverage, body-footprint/occupancy, possession/contact, role, engagement, route/coverage/responsibility and related specialist producers are not supplied by the new geometry helpers. | Task-specific annotation, actual trained bytes/evaluations, supported film populations and approval. |
 | 12 — Statistics | Qualified canonical summaries, chosen trajectories, definitions/units/versions, censor-aware durations; actual participation opportunities deduplicated per canonical/player/kind/version independently of measured outcomes; composite spatial evidence. Explicit opportunities now include rushes, targets, pass protection, tackle opportunities and returns. Broad roster tabs include declared subpositions without assigning observed roles. | Complete automatic participation coverage; staff references now bind exact source observations across new job UUIDs and expose unmatched evidence for review. Anonymous cohort products remain excluded by deliberate resolved-player policy; anonymous geometry remains in overlays. | Populated real qualified cohorts and count/rate reconciliation against actual staff annotations. |
 | 13 — QB | Unique explicit same-shot reviewed-clock TTT (including unknown/conflicting/zero refusal), signed dropback, ball holding, coverage-aware censored first pressure, snap-defined 200ms tackle residence, actual-rusher proximity; paired scatter, supplied survival curves, actual event timeline/release map and rusher curve. Explicit measured polygons provide native-PTS envelope width/depth/area and signed compression with discrete field inspection. | Pressure-to-sack and receiver/passing-outcome comparisons, designed-rollout/concept analysis and qualified automatic required observation producers. Exact staff source-observation rebinding is implemented; trained automatic inputs remain missing. | Actual reviewed pressure coverage, snap/release/exit/corridor/polygon geometry and representative QB comparisons; a measured polygon is not a protection-success grade. |
-| 14 — OL | Pre-snap splits versus center spacing; measured width series, original A/B and observed-TE C gaps, actual LOS clear intervals using explicit body footprints/complete defenders; engagement/chip timing, gap heatmap, explicit blocker-defender endpoint matrix; original named first-second displacement and signed pass-set paths; measured polygon envelope/compression; discrete LOS opening/closure bounds and exact handoff/entry width views; five-original-lineman small multiples plus synchronized exact-native-frame front geometry and film links. | Combo/pull/penetration/stunt/shed specialists and full trench interaction replay. Qualified automatic observation coverage remains missing. | Human body/LOS occupancy, polygon and interaction truth; separate lane-width error gate and accepted interaction precision. |
-| 15 — RB/WR/TE | Separate positions; signed terminal gain, handoff-to-LOS and actual original-gap entry, explicit first-contact pre/post yards; calibrated paths; measured separation/pairs; TE state transitions/chip delay. New source-linked signed LOS route depth, original-center snap split, explicit receiver release/break point maps and expanded participation evidence. | Contact-marked run-density/gap views and route atlas expansion; route-by-coverage/press-release/contested-target products and event-aligned trends. Automatic possession/contact/interaction classifiers remain missing. Reviewed target/catch/YAC/cut/tackle producers and forms are implemented with conflict/possession guards; full position products remain partial. | Actual complete carrier/contact/route/target labels, calibrated trajectories, class truth and drill/game comparisons. |
+| 14 — OL | Pre-snap splits versus center spacing; measured width series, original A/B and observed-TE C gaps, actual LOS clear intervals using explicit body footprints/complete defenders; engagement/chip timing, gap heatmap, explicit blocker-defender endpoint matrix; original named first-second displacement and signed pass-set paths; measured polygon envelope/compression; discrete LOS opening/closure bounds and exact handoff/entry width views; five-original-lineman small multiples plus synchronized exact-native-frame front geometry and film links. New paired trench replay uses actual safe calibrated native samples, absent-actor barriers and discrete source-film seeking; conflicting actor aliases/endpoints abstain. | Combo/pull/penetration/stunt/shed specialists and broader trench interpretation. Qualified automatic observation coverage remains missing; replay does not infer assignment or blocking success. | Human body/LOS occupancy, polygon and interaction truth; separate lane-width error gate and accepted interaction precision. |
+| 15 — RB/WR/TE | Separate positions; signed terminal gain, handoff-to-LOS and actual original-gap entry, explicit first-contact pre/post yards; calibrated paths; measured separation/pairs; TE state transitions/chip delay. New source-linked signed LOS route depth, original-center snap split, explicit receiver release/break point maps and expanded participation evidence. RB views now show measured native paths, distinct-play two-yard density, original named gaps and explicit contact, including partial path-only composites with no scalar outcome. Coherent carrier aliases, unique same-shot contact and actual outermost tackle/TE edge guards are implemented. | Route atlas expansion; route-by-coverage/press-release/contested-target products and event-aligned trends. Automatic possession/contact/interaction classifiers remain missing. Reviewed target/catch/YAC/cut/tackle producers and forms are implemented with conflict/possession guards; full position products remain partial. | Actual complete carrier/contact/route/target labels, calibrated trajectories, class truth and drill/game comparisons. Density sample coverage is not an opportunity rate or open-lane measure. |
 | 16 — Defense/ST | Explicit role/team/participation paths, first movement, pursuit/rush paths, signed closing and paired separation; snap-to-kick, ball-flight hang time and qualified ground landing; movement curves, landing map and explicit tackle/return opportunity counts. | Technique/situation and matchup matrices, coverage/fit/target responsibility, coverage-front/arrival/return/block/tackle specialists and interfaces. Reviewed responsibility/tackle outcomes and paired evidence are implemented; automatic specialist coverage remains missing. | Actual defensive/ST event/ball-visibility/role/landing evidence and task performance. Temporal timings correctly do not require a field calibration; spatial landings do. |
-| 17 — Analytical depth | Distributions, percentiles/sample flags, exclusions, film-linked measured paths, QB scatter and censoring. Four candidate outcome heads have as-of-clock features v2, disjoint splits, typed evidence hashes, calibrated fitting/baseline reports, blank-target CSV/frozen manifest preparation, separately fenced actual-weight/media verification and human promotion gates. Completion/rushing/YAC retain actual QB/rusher/receiver tracks; contextual pressure is explicitly team scoped with known original roles/calls. Structured context, authenticated current feature export, reliability diagnostics and blank-target/freeze handoff are implemented. Generic classification now requires trusted actual-artifact/source/attempt producer proof, completed receipt, recomputed frozen training baseline and known passing capture slices; coverage additionally requires its current safe calibration. Coach labels require the actual current selected publication, approval and proof. | Remaining conditioned comparisons and heldout-case drilldown beyond stored aggregate diagnostics. Final combined local verification passed. Generic classification's current 20-case-per-supported-regime contract does not establish the full plan's benchmark population or specialist coverage. | No real expected-outcome or generic classifier is qualified by these protocol fixtures. Actual release populations, baseline/calibration comparisons, real-candidate verification and model approval remain unmet. |
+| 17 — Analytical depth | Distributions, percentiles/sample flags, exclusions, film-linked measured paths, QB scatter and censoring. Four candidate outcome heads have as-of-clock features v2, disjoint splits, typed evidence hashes, calibrated fitting/baseline reports, blank-target CSV/frozen manifest preparation, separately fenced actual-weight/media verification and human promotion gates. Completion/rushing/YAC retain actual QB/rusher/receiver tracks; contextual pressure is explicitly team scoped with known original roles/calls. Structured context, authenticated current feature export, reliability diagnostics and blank-target/freeze handoff are implemented. New four-head heldout-case/category drilldown binds exact immutable predictions/targets/clocks/hashes, frozen training baseline, authenticated pagination/export and current exact-film links; small slices are descriptive, with no inherited approval. Generic classification requires trusted actual-artifact/source/attempt producer proof, completed receipt, recomputed frozen training baseline and known passing capture slices; coverage additionally requires its current safe calibration. Coach labels require current selected publication, approval and proof. | Remaining conditioned coaching comparisons and generic-classifier source-case reconstruction. Historical reports without frozen cases remain unavailable. Generic classification's 20-case-per-supported-regime policy is distinct from full-plan benchmark population and specialist coverage. | No real expected-outcome or generic classifier is qualified by these protocol fixtures. Actual release populations, baseline/calibration comparisons, real-candidate verification and model approval remain unmet. |
 | 18 — Processing | Durable intent, thermal/lease/checkpoint behavior, fast/detailed actor-quality holds, preserved staff/published layouts, separate cut/result readiness; source/SHA+DB release gates and conservative image retention. | Local queue/verification transport and final combined checks pass; compatible production release remains. Investigate DB capacity only if evidence supports a change; do not guess pool limits. | Actual production GPU/network/storage/thermal 5min1080p p95 and 90-source-minute overnight tests. Short real canaries do not meet these targets. |
 | 19 — Validation | Forty machine-readable full-plan gates with real hash/split/dense/identity/error checks; staff catalog/viewer/native-frame index/freezer/archive with explicit unreviewed templates. Structured correction forms now author roles, pressure coverage, original front, measured bodies/occupancy, carrier/contact, interactions, polygons and point events. P5 stage-export-to-blank-target-CSV/frozen-manifest preparation and actual local verifier transport are implemented. | Final local combined intake checks pass; source-bound production acceptance remains. Production-writer principal/runtime/lease fencing is implemented. Exact safe observation rebinding and fenced independent release intake are implemented. | Current release report is not_ready. No completed staff benchmark labels, 240 held-out plays/12 confirmed independent groups balanced across categories, dense48/adjudication or task accuracy/performance gates. |
 | 20 — Completion | Independent reviewer remained active, reproduced material defects and verified corrections. Owners retain explicit code/evidence limitations. | Continue the concrete slices below; current continuation is not full-plan acceptance. | A green regression suite cannot replace football annotation, actual staff task acceptance or production end-to-end evidence. |
 
 ## Current verification boundaries
 
-- The deployed merged baseline is distinct from the uncommitted continuation.
-  Recovery evidence is in `production-recovery-review.md`; no reviewer restart,
-  deployment, database mutation or credential reuse occurred.
+- The user's pushed `549e8cf` is distinct from the subsequent uncommitted fixes.
+  Its failed CI and the observed frontend/API/processor mismatch are recorded
+  below and in `worker-release-compatibility-review.md`. No reviewer production
+  restart, deployment, database mutation or credential reuse occurred.
 - `cross-service-completion-20261021.json` records an actual local API/queue/worker
   run on the new disposable completion database, real atomic publication and
   H.264 proxy. Its source is explicitly `synthetic_test`, eight tracks remained
   quarantined and all four unavailable outcome predictions were suppressed.
   It proves wiring, not real-football accuracy or a production deployment.
-- Root reports 541 frontend tests, all 22 browser checks, build and global ESLint
-  on the final frontend snapshot. These include actual SVG/chart/context and
+- The previous frozen `549e8cf` snapshot had 541 frontend tests, 22 browser checks,
+  build and global ESLint passing locally. These include actual SVG/chart/context and
   authenticated reliability download mechanics against explicit protocol routes.
   The producer snapshot passed
   1,430 worker tests before later movement/P5 edits. Earlier 796 backend,
@@ -92,10 +102,11 @@ and CPU-fit/HTTP/evaluation/promotion trace is a numerical protocol fixture.
    verification from the available 720p sources, preserving original media and
    review history. Final local regressions and the bounded fixed game rerun
    passed; they do not establish whole-game compatibility or performance.
-2. Continue source-case/category-conditioned diagnostic drilldown, full trench
-   interaction replay and contact-marked RB/gap/coverage views from actual
-   qualified evidence. Original-five small multiples and exact-frame front
-   geometry are implemented and reviewed.
+2. Continue generic-classifier source-case reconstruction, route atlas and
+   conditioned coaching comparisons, and missing trench/defense/ST specialists.
+   The four-head case/category drilldown, measured paired trench replay and
+   contact-marked RB density/original-gap views are now implemented and reviewed
+   locally. They still need real qualified football populations.
 3. Complete the actual staff benchmark and task-specific model work, then the
    native-1080p speed/overnight gates and compatible production staff trace.
    These evidence obligations cannot be replaced by protocol tests.
@@ -215,10 +226,10 @@ newest combined run. The final whole-worker gate and fixed bounded game rerun
 subsequently passed as recorded below. No complete original game, football
 identity or qualified analysis was accepted.
 
-## Final frozen continuation evidence
+## Historical frozen continuation evidence before the user's 549e8cf push
 
-The current local source snapshot is based on `7bb3793` and remains uncommitted,
-unmerged and undeployed. The reviewer independently checked all 209 file digests
+That earlier local source snapshot was based on `7bb3793`; it was subsequently
+included in the user's `549e8cf` main-branch push. The reviewer independently checked all 209 file digests
 and reproduced aggregate SHA-256
 `9c76d4d7d8f634a8c69508367d5c14fecede36157874c680f66b943040416f43`
 from `runs/final-code-snapshot.json` using compact sorted-key JSON of its file
@@ -252,3 +263,123 @@ list. No source mismatch was found.
 No known blocker remains in the reviewed local continuation scope. This does
 not close the remaining implementation rows, staff benchmark/model gates,
 full-game/overnight/native-1080p requirements or compatible production release.
+
+## Local continuation after the user's 549e8cf main push
+
+GitHub CI run `39676607970` for `549e8cf` completed with worker-unit and
+cross-service-integration failures; seven other jobs succeeded. The reviewer
+independently refreshed that metadata at 21:35:08 UTC. Both failures traced to
+the registered-source stat check: Linux hard-link lifecycle changes inode ctime
+without changing film bytes. The local fix preserves dev/inode/size/mtime
+checks and rehashes the actual complete source on ctime-only change, comparing
+both full SHA and registration fingerprint without refreshing the original proof.
+The unchanged-stat path avoids a redundant full read. The reviewer independently
+passed 31 media-identity/orchestrator cases; the parent reports the corresponding
+Linux-container cases and all three actual local transports passing. These
+results do not turn the pushed run into green CI.
+
+The 21:23:46 UTC read-only production check observed frontend `549e8cf` at Vercel
+deployment `dpl_EkjHxmNNKzQDkw6hjLJt9CauKHxu`, while API version remained
+`7bb3793`. Health and database readiness returned 200; protected release
+inventory returned 401 and no staff credentials were used. The separate live
+processor PID remains unchanged, with its inspected checkout at `d1f4317`.
+This is an actual mixed release, not a compatible production acceptance.
+
+The new local scope reviewed after that push is:
+
+- Paired trench replay from exact observed native positions, safe calibration,
+  unique explicit endpoints and coherent actor aliases. Missing/predicted/
+  interpolated actors become barriers; temporal endpoints remain usable when
+  spatial replay is absent. No assignment or success grade is inferred.
+- RB path-only partial composites, measured two-yard distinct-play density,
+  source-linked explicit first contact and original-gap entry views. New paths
+  require verified native frame/time identity. Unknown clocks, carrier conflicts,
+  ambiguous contact and invalid gap labels abstain; actual outermost tackle/TE
+  centers determine edge labels in both attack directions. Density omits
+  interpolated/predicted support and is not an opportunity rate.
+- Four-head heldout-case/category diagnostics with exact recomputed case hashes,
+  frozen training baseline, confirmed category/canonical deduplication,
+  authenticated pagination/full-filter export and descriptive sample warnings.
+  Film links require exact current trusted export identity/revision, with
+  nonzero source-to-clip offset verified. Raw candidate and missing historical
+  cases have no active drilldown; generic classifier reconstruction remains open.
+
+Independent final scoped checks passed 72 worker position/trench cases in 1.71s,
+18 RB/trench/matrix UI cases in 2.97s, 12 backend case-integrity/actual-four-head
+CPU-fit parity cases in 15.85s (one actual database API case deselected), and
+16 case/reliability frontend cases in 5.00s. The owner separately exercised the
+actual case API/current-export film positive and revision/media/canonical
+revocations. These are different runs, not a combined full-suite total, and the
+producer fixtures remain explicitly synthetic protocol evidence.
+
+A concrete processor compatibility defect was found: old workers advertise
+`train` but dispatch only `local_coverage`, so the pre-correction API can let
+them claim unsupported new outcome-training jobs. The reviewed local correction
+adds an explicit protocol/supported-variant claim guard and cached source/dirty
+inventory. The reviewer independently passed 21 worker capability/dispatch cases
+in 1.07s and read the actual database claim/principal regressions. Broad current
+verification remains pending. Read-only diagnosis and coordinated worker/API
+handoff steps are in `worker-release-compatibility-review.md`. Updating hosted
+API/frontend code does not update the staff processor. No real benchmark,
+full-game/performance or compatible production gate is satisfied by this slice.
+
+The final training-adapter review additionally closed a historical-artifact
+alias: equal model weights with different report/evidence bytes no longer reuse
+mutable weights-only report paths or an earlier candidate binding. Reports and
+evidence use their own full content hashes; registry ID/version bind all three
+hashes with task scope, while exact retries remain idempotent. Independent
+artifact/training tests passed 58 cases in 11.16s. Earlier broad results precede
+this final delta and await a fresh source-bound verification record.
+
+The 21:48:20 UTC read-only refresh still observes frontend `549e8cf`, backend
+`7bb3793`, health/readiness/version 200 using httpx and protected inventory 401.
+An initial urllib request was denied by Cloudflare's browser-signature rule;
+that client-specific failure is preserved in the evidence and is not an API
+outage claim. Source: `runs/readonly-cross-release-549e8cf-final.json`.
+
+The final model/report Back-context correction also preserves a nondefault
+selection when staff leave All cases/page zero untouched. The independent final
+case/reliability frontend run passed 17 cases in 5.80s. The new full-browser
+model/evaluation roundtrip and final broad source-bound checks remain pending.
+
+Review then reproduced a queued-training Retry defect: the API reuses input
+artifacts, including output_dir, while direct fitting correctly refuses an
+existing directory. A failed registry write after fitting therefore made Retry
+fail on its own retained artifacts. The queued adapter now writes an exclusive
+UUID5-job/lease-attempt child under the configured root; new-job and reclaimed
+attempt retries preserve previous bytes. Direct CLI fitting keeps its strict
+no-overwrite behavior. The reviewer independently passed all 60 expected-outcome
+and artifact-identity tests in 5.05s, including actual numerical fits that fail
+after artifact creation and then recover. Broad source/log hashes are being
+refreshed after this final correction.
+
+## Final reviewed post-push snapshot
+
+The final results supersede earlier pending-verification notices above. All
+48 changed implementation/test/fixture files against `549e8cf` match their
+recorded bytes and reproduce aggregate SHA-256
+`ccda8e1a5f008c450a0002881316bc2ecba8308d17e2b0f5d8d06f344f71e6a1`.
+No changed source file was omitted. The reviewer independently verified all
+seven final log hashes. All 487 files in the clean Linux snapshot match both
+the copy and current workspace, with manifest SHA-256
+`d848972b6c2cd6000fa121eb9d44e123f287fb86b29a6c883eb537aa071ad5aa`.
+The older incomplete `post-push-linux-source` attempt remains historical.
+
+- Backend: 1,046 cases passed in 176.32s, with nine deprecation/coroutine warnings.
+  Parent reports Ruff, 236-file formatting and 123-app-file typing clean.
+- Worker: 1,810 passed on Windows in 65.35s and on clean Linux in 44.76s.
+  One optional joblib custom-artifact test skipped; three integrations ran
+  separately. Linux uses Python 3.12.15, FFmpeg 7.1.5 and CI dependencies.
+- Frontend: 566 cases across 79 files and all 28 browser flows passed; global
+  ESLint and production build passed with 17 static routes.
+- The three actual local HTTP transports passed together in 62.33s after the
+  queued-Retry correction. Their evidence remains explicit synthetic protocol
+  data on disposable services. Browser endpoints are mocked. Neither is real
+  football model or staff-production acceptance.
+
+The final master records are independently accepted for this bounded local
+regression/source scope. No known blocker remains in the reviewed new slices.
+The complete twenty-page overhaul remains incomplete, with remaining code,
+actual staff/model/benchmark/workload obligations and coordinated production
+rollout still open. The new source is uncommitted and undeployed after `549e8cf`;
+the remote failed CI and observed mixed release remain separate facts.

@@ -3,15 +3,18 @@
 import { useMemo } from "react";
 import type { AnalyticsGroup, FilmEvidence, MetricEvidence } from "@/lib/analytics-api";
 import { canonicalShotId } from "@/lib/shot-id";
+import { TrenchInteractionReplay } from "@/components/trench-interaction-replay";
 
 const finite = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value);
 const object = (value: unknown): Record<string, unknown> | null => value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
-type Interaction = { row: MetricEvidence; blocker: string; defender: string; seconds: number; duration: number; definition: string; interactionId: string };
+export type Interaction = { row: MetricEvidence; blocker: string; defender: string; seconds: number; duration: number; definition: string; interactionId: string; shot: string };
 
 /** Explicit endpoint evidence supplies interactions; distance supplies none. */
 export function qualifiedInteractions(groups: AnalyticsGroup[]): Interaction[] {
-  const seen = new Set<string>();
-  return groups.filter((group) => group.metric_name === "engagement_duration" && group.unit === "s" && group.definition_version)
+  const seen = new Map<string, string>();
+  const conflicts = new Set<string>();
+  const keys = new Map<Interaction, string>();
+  const observations = groups.filter((group) => group.metric_name === "engagement_duration" && group.unit === "s" && group.definition_version)
     .flatMap((group) => group.evidence.flatMap((row) => {
       const packet = row.metric_packet;
       if (!row.tracklet_id || !row.result_version || row.right_censored || !packet || packet.track_id !== row.tracklet_id
@@ -29,12 +32,16 @@ export function qualifiedInteractions(groups: AnalyticsGroup[]): Interaction[] {
       const starts = events.filter((event) => event.event_type === "engagement_start" && event.timestamp_seconds === packet.source_start_seconds);
       const ends = events.filter((event) => event.event_type === "engagement_end" && event.timestamp_seconds === packet.source_end_seconds);
       if (starts.length !== 1 || ends.length !== 1 || starts[0].shot_id !== ends[0].shot_id) return [];
-      const key = JSON.stringify([row.play_id, row.clip_id, row.tracklet_id, packet.defender_id, packet.interaction_id, row.result_version, group.definition_version]);
-      if (seen.has(key)) return [];
-      seen.add(key);
-      return [{ row, blocker: row.tracklet_id, defender: packet.defender_id, seconds: packet.source_start_seconds,
-        duration: row.value, definition: group.definition_version!, interactionId: packet.interaction_id }];
+      const key = JSON.stringify([row.play_id, row.video_id, row.clip_id, row.tracklet_id, packet.defender_id, packet.interaction_id, row.result_version, group.definition_version]);
+      const signature = JSON.stringify([row.value, row.start_seconds, row.end_seconds, packet]);
+      if (seen.has(key)) { if (seen.get(key) !== signature) conflicts.add(key); return []; }
+      seen.set(key, signature);
+      const item = { row, blocker: row.tracklet_id, defender: packet.defender_id, seconds: packet.source_start_seconds,
+        duration: row.value, definition: group.definition_version!, interactionId: packet.interaction_id, shot: starts[0].shot_id as string };
+      keys.set(item, key);
+      return [item];
     }));
+  return observations.filter((item) => !conflicts.has(keys.get(item)!));
 }
 
 export function InteractionPositionVisuals({ groups, position = "", onSelect }: {
@@ -48,5 +55,5 @@ export function InteractionPositionVisuals({ groups, position = "", onSelect }: 
     const blockers = [...new Set(rows.map((item) => item.blocker))];
     const defenders = [...new Set(rows.map((item) => item.defender))];
     return <section key={play} className="min-w-0 overflow-x-auto"><h3 className="mb-2 text-sm font-medium">Contributing play {index + 1}</h3><table className="w-full text-left text-xs tabular-nums"><caption className="sr-only">Observed interaction endpoints for contributing play {index + 1}</caption><thead><tr><th className="p-2">Observed pair</th>{defenders.map((id, i) => <th className="p-2" key={id}>Defender {i + 1}</th>)}</tr></thead><tbody>{blockers.map((blocker, b) => <tr key={blocker} className="border-t border-border-soft"><th className="p-2">Blocker {b + 1}</th>{defenders.map((defender) => { const matched = rows.filter((item) => item.blocker === blocker && item.defender === defender); return <td className="p-2 align-top" key={defender}>{matched.length ? <div className="flex flex-col gap-2">{matched.map((item) => <div key={item.row.metric_id} className="rounded border border-primary/25 bg-primary/5 p-2"><span className="block">{item.duration.toFixed(2)} s</span><button type="button" className="mt-1 text-primary underline" onClick={() => onSelect({ ...item.row, focus_seconds: item.seconds })}>Inspect interaction at {item.seconds.toFixed(2)}s</button><details className="mt-1 text-muted-foreground"><summary className="cursor-pointer">Source and definition</summary><p className="mt-1 break-all">Definition {item.definition} · interaction {item.interactionId} · blocker track {item.blocker} · defender track {item.defender}</p></details></div>)}</div> : <span className="text-muted-foreground">Unobserved</span>}</td>; })}</tr>)}</tbody></table></section>;
-  })}</div></section>;
+  })}</div><TrenchInteractionReplay observations={observations} onSelect={onSelect} /></section>;
 }

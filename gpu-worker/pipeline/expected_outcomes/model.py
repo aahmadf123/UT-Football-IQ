@@ -233,6 +233,7 @@ def predict(model: dict[str, Any], snapshot: Snapshot) -> dict[str, Any]:
 
 def _metrics(y: np.ndarray, prediction: np.ndarray, binary: bool) -> dict[str, Any]:
     from pipeline.expected_outcomes.diagnostics import outcome_diagnostics
+
     bins = []
     if binary:
         prediction = np.clip(prediction, 1e-12, 1 - 1e-12)
@@ -283,7 +284,12 @@ def _metrics(y: np.ndarray, prediction: np.ndarray, binary: bool) -> dict[str, A
     }
 
 
-def evaluate(model: dict[str, Any], rows: list[Snapshot]) -> dict[str, Any]:
+def evaluate(
+    model: dict[str, Any],
+    rows: list[Snapshot],
+    *,
+    source_groups: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     task = model["task"]
     heldout = [r for r in rows if r.task == task and r.split == "holdout"]
     if not heldout or not model.get("weights_sha256"):
@@ -303,12 +309,40 @@ def evaluate(model: dict[str, Any], rows: list[Snapshot]) -> dict[str, Any]:
                     raise DataError("Evaluation leakage into a fitting group")
     x, y = _arrays(heldout)
     binary = definitions(task).binary
-    metrics = _metrics(y, _values(model, x), binary)
+    values = _values(model, x)
+    metrics = _metrics(y, values, binary)
     baseline = _metrics(y, np.full(len(y), model["baseline_mean"]), binary)
     losses = (
         ("brier", "log_loss", "ece")
         if binary
         else ("mae", "rmse", "mean_absolute_calibration_error")
+    )
+    from pipeline.expected_outcomes.diagnostics import heldout_cases
+
+    cases = heldout_cases(
+        [
+            {
+                "task": r.task,
+                "split": "holdout",
+                "feature_version": r.feature_version,
+                "lineage": dict(r.lineage),
+                "subject": dict(r.subject),
+                "capture_regime": r.capture_regime,
+                "observation_clock": {
+                    "event": definitions(task).clock,
+                    "timestamp_seconds": r.timestamp,
+                },
+                "target": {"value": r.target, "annotation_sha256": r.annotation_sha256},
+                "features": {
+                    str(i): {"evidence_sha256": digest}
+                    for i, digest in enumerate(r.evidence_hashes)
+                },
+            }
+            for r in heldout
+        ],
+        values.tolist(),
+        model["baseline_mean"],
+        source_groups=source_groups,
     )
     return {
         "task": task,
@@ -322,6 +356,7 @@ def evaluate(model: dict[str, Any], rows: list[Snapshot]) -> dict[str, Any]:
             for key in ("session_id", "game_id", "canonical_play_id")
         },
         "metrics": metrics,
+        "heldout_diagnostics": cases,
         "baseline": {
             "definition": "empirical_training_population_mean",
             "training_mean": model["baseline_mean"],

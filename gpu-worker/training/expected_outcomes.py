@@ -27,7 +27,7 @@ from pipeline.expected_outcomes.data import (
     validate_dataset,
 )
 from pipeline.expected_outcomes.model import evaluate, fit, load_model, predict, save_model
-from pipeline.runtime import check_control
+from pipeline.runtime import check_control, lease_payload
 
 
 def file_sha256(path: Path) -> str:
@@ -163,7 +163,13 @@ def train_manifest(
         path = output_dir / f"{name}.checkpoint.json"
         digest = save_model(candidate, path)
         model = load_model(path, digest)
-        report = evaluate(model, rows)
+        report = evaluate(
+            model,
+            rows,
+            source_groups=(
+                json.loads(identity["_release_inputs"]["manifest"]).get("release_population") or {}
+            ).get("source_groups", []),
+        )
         report["dataset_identity"] = candidate["dataset_identity"]
         report_path = output_dir / f"{name}.evaluation.json"
         _write_json(report_path, report)
@@ -214,7 +220,13 @@ def evaluate_manifest(
         k: v for k, v in identity.items() if k != "evidence_paths" and not k.startswith("_")
     }:
         raise DataError("Evaluation dataset hash differs from immutable fitting manifest")
-    report = evaluate(model, rows)
+    report = evaluate(
+        model,
+        rows,
+        source_groups=(
+            json.loads(identity["_release_inputs"]["manifest"]).get("release_population") or {}
+        ).get("source_groups", []),
+    )
     output = output.expanduser().resolve()
     if output.exists():
         raise DataError("Output already exists; cannot overwrite evidence or candidates")
@@ -231,31 +243,72 @@ def train_expected_outcomes_job(inputs: dict[str, Any], job_id: str) -> dict[str
         raise DataError(
             "Expected-outcomes training requires manifest_path, manifest_sha256 and new output_dir"
         )
+    # Queue retries retain the staff's output root. Each fenced execution gets a
+    # distinct exclusive-create child, preserving failed-after-fit evidence.
+    # Direct CLI fitting continues to use its exact requested directory.
+    fence = lease_payload(job_id)
+    if fence:
+        attempt = fence.get("attempt_count")
+        if type(attempt) is not int or attempt < 1:
+            raise DataError("Queued fitting requires a positive integer lease attempt")
+        execution = f"attempt-{attempt}"
+    else:
+        execution = f"unleased-{uuid.uuid4().hex}"
+    output_dir = (
+        Path(inputs["output_dir"]).expanduser().resolve()
+        / f"job-{uuid.uuid5(uuid.NAMESPACE_URL, str(job_id)).hex}"
+        / execution
+    )
     result = train_manifest(
         Path(inputs["manifest_path"]),
         inputs["manifest_sha256"],
-        Path(inputs["output_dir"]),
+        output_dir,
         task=inputs.get("task"),
     )
     registered = {}
     for task, artifact in result["models"].items():
         check_control()
         digest = artifact["artifact_sha256"]
-        root = f"models/expected_outcomes/{task}/{digest}"
+        root = f"models/expected_outcomes/{task}"
         artifact_uri = storage.upload_file(
-            Path(artifact["checkpoint_path"]), f"{root}/checkpoint.json"
+            Path(artifact["checkpoint_path"]), f"{root}/{digest}/checkpoint.json"
         )
-        report_uri = storage.upload_file(Path(artifact["report_path"]), f"{root}/evaluation.json")
+        report_uri = storage.upload_file(
+            Path(artifact["report_path"]), f"{root}/reports/{artifact['report_sha256']}.json"
+        )
         release_uri = storage.upload_file(
-            Path(artifact["release_evidence_path"]), f"{root}/release-evidence.json"
+            Path(artifact["release_evidence_path"]),
+            f"{root}/evidence/{artifact['release_evidence_sha256']}.json",
         )
+        # Equal weights can have different immutable evaluations. Reusing a weights-only
+        # registry ID would silently return the earlier report/evidence binding.
+        binding = hashlib.sha256(
+            json.dumps(
+                {
+                    "artifact_sha256": digest,
+                    "report_sha256": artifact["report_sha256"],
+                    "release_evidence_sha256": artifact["release_evidence_sha256"],
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()
         version = backend.register_model_version(
             model_name=f"expected-{task}-linear-v1",
-            version=digest[:16],
+            version=f"{digest[:16]}-{binding}",
             model_type=MODEL_TYPES[task],
             artifact_uri=artifact_uri,
             metrics={
-                **artifact["report"],
+                **{
+                    key: value
+                    for key, value in artifact["report"].items()
+                    if key != "heldout_diagnostics"
+                },
+                "heldout_diagnostics": {
+                    key: value
+                    for key, value in artifact["report"]["heldout_diagnostics"].items()
+                    if key != "cases"
+                },
                 "artifact_sha256": digest,
                 "report_uri": report_uri,
                 "report_sha256": artifact["report_sha256"],
@@ -266,7 +319,7 @@ def train_expected_outcomes_job(inputs: dict[str, Any], job_id: str) -> dict[str
             },
             training_dataset_id=inputs.get("training_dataset_id"),
             model_version_id=str(
-                uuid.uuid5(uuid.NAMESPACE_URL, f"expected-outcomes:{task}:{digest}")
+                uuid.uuid5(uuid.NAMESPACE_URL, f"expected-outcomes:{task}:{binding}")
             ),
         )
         if backend.BACKEND_API_URL and version is None:

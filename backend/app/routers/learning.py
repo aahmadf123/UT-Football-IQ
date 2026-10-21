@@ -442,6 +442,41 @@ async def evaluations(
     return [row.value for row in rows]
 
 
+@router.get("/evaluations/{evaluation_id}/cases")
+async def heldout_case_page(
+    evaluation_id: uuid.UUID,
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
+    _user: Annotated[User, Depends(require_analyst_or_above)],
+    dimension: str | None = None,
+    category: str | None = Query(default=None, max_length=2048),
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=25, ge=1, le=100),
+    download: bool = False,
+) -> Any:
+    from app.services.model_cases import evaluation_cases
+
+    result = await evaluation_cases(
+        db,
+        evaluation_id,
+        dimension=dimension,
+        category=category,
+        offset=offset,
+        limit=limit,
+        download=download,
+    )
+    if download:
+        import json
+
+        return Response(
+            json.dumps(result, sort_keys=True, allow_nan=False),
+            media_type="application/json",
+            headers={
+                "Content-Disposition": f'attachment; filename="heldout-cases-{evaluation_id}.json"'
+            },
+        )
+    return result
+
+
 @router.post("/models/{model_id}/rollback")
 async def rollback(
     model_id: uuid.UUID,

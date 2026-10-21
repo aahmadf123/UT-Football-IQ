@@ -159,6 +159,7 @@ def _claim_payload() -> dict[str, Any]:
                 key for key, value in capabilities["models"].items() if value.get("ready")
             ],
             "profiles": capabilities["profiles"],
+            "metadata": capabilities["metadata"],
         },
     }
 
@@ -202,6 +203,8 @@ def worker_capabilities() -> dict[str, Any]:
     import importlib.util
     from pathlib import Path
 
+    from pipeline.producer_contract import PRODUCER_PROTOCOL, TRAINING_VARIANTS, source_revision
+
     device = os.environ.get("PIPELINE_DEVICE", "cpu").strip().lower()
     if device not in {"cpu", "cuda", "mps"}:
         device = "cpu"
@@ -241,6 +244,9 @@ def worker_capabilities() -> dict[str, Any]:
         "job_types": job_types,
         "metadata": {
             **hosted_metadata,
+            **source_revision(),
+            "producer_protocol": PRODUCER_PROTOCOL,
+            "training_variants": list(TRAINING_VARIANTS) if "train" in job_types else [],
             "storage_transport": os.environ.get("PIPELINE_STORAGE_TRANSPORT", "direct"),
             "checkpoint_root": os.environ.get("PIPELINE_CHECKPOINT_ROOT", "data/checkpoints"),
         },

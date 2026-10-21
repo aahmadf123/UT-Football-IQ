@@ -313,6 +313,29 @@ async def claim_job(
         variant = ProcessingJob.input_artifacts["training_variant"].astext
         candidate = candidate.where(or_(variant.is_(None), variant != "verify_expected_outcomes"))
     capabilities = body.capabilities or (runtime.capabilities if runtime else None)
+    runtime_metadata = ((runtime.capabilities or {}).get("metadata") or {}) if runtime else {}
+    metadata = (capabilities or {}).get("metadata", runtime_metadata)
+    protocol = metadata.get("producer_protocol") if isinstance(metadata, dict) else None
+    supported = metadata.get("training_variants") if isinstance(metadata, dict) else None
+    # Older processors advertise generic "train" but dispatch only local_coverage.
+    # Leave new tasks queued instead of leasing work they necessarily fail.
+    unsupported = [
+        variant
+        for variant in ("expected_outcomes", "verify_expected_outcomes")
+        if type(protocol) is not int
+        or protocol < 1
+        or not isinstance(supported, list)
+        or variant not in supported
+    ]
+    if unsupported:
+        training_variant = ProcessingJob.input_artifacts["training_variant"].astext
+        candidate = candidate.where(
+            or_(
+                ProcessingJob.job_type != JobType.train,
+                training_variant.is_(None),
+                training_variant.not_in(unsupported),
+            )
+        )
     if capabilities:
         advertised_types = capabilities.get("job_types")
         if advertised_types:

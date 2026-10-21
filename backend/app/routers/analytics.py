@@ -143,6 +143,7 @@ PARTIAL_GEOMETRY_NAMES = {
     "lineman_first_second_displacement",
     "observed_pass_set_geometry",
     "observed_route_depth",
+    "observed_run_path",
 }
 
 

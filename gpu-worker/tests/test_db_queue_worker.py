@@ -164,6 +164,17 @@ def test_hosted_and_review_only_workers_claim_pipeline_jobs_only(
     assert worker_main.worker_capabilities()["job_types"] == ["pipeline"]
 
 
+def test_new_training_dispatch_support_reaches_registration_and_claim(monkeypatch):
+    monkeypatch.delenv("PIPELINE_HOSTED", raising=False)
+    monkeypatch.setenv("WORKER_PROFILES", "review,quick,detailed")
+    metadata = worker_main.worker_capabilities()["metadata"]
+    assert metadata["producer_protocol"] == 1
+    assert set(metadata["training_variants"]) == {"local_coverage", "expected_outcomes", "verify_expected_outcomes"}
+    assert worker_main._claim_payload()["capabilities"]["metadata"] == metadata
+    monkeypatch.setenv("WORKER_PROFILES", "review")
+    assert worker_main.worker_capabilities()["metadata"]["training_variants"] == []
+
+
 def test_only_hosted_worker_advertises_shared_processing_limits(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

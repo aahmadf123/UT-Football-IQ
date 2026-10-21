@@ -23,7 +23,7 @@ async def test_normal_features_download_and_blank_target_handoff(
     monkeypatch,
 ):
     client, db, session = workspace
-    video, (clip,) = await film(db, session, [(0, 3)])
+    video, (clip,) = await film(db, session, [(1, 3)])
     video.content_sha256, video.size_bytes = "a" * 64, 1024
     from app.deps import get_current_user
     from app.main import app
@@ -115,6 +115,41 @@ print(json.dumps(result))
         == f'attachment; filename="expected-features-{job.id}.json"'
     )
     assert (await client.get(info["download_url"].replace("sig=", "sig=bad"))).status_code == 403
+    # New diagnostic film links reuse the actual qualified normal producer export,
+    # not a nearest clock or guessed canonical recording.
+    from app.services.model_cases import current_case_films
+    from app.services.model_diagnostics import heldout_cases
+
+    packet = next(iter(json.loads(downloaded.content)["feature_snapshots"].values()))
+    diagnostic = heldout_cases(
+        [{**packet, "split": "holdout", "target": {"value": 0, "annotation_sha256": "b" * 64}}],
+        [0.25],
+        0.5,
+    )["cases"][0]
+    linked = await current_case_films(db, [diagnostic])
+    assert linked[diagnostic["case_id"]]["clip_id"] == str(clip.id)
+    assert linked[diagnostic["case_id"]]["focus_seconds"] == 1.0
+    assert linked[diagnostic["case_id"]]["source_export_sha256"] == info["sha256"]
+    clip.label_data = {"_annotation_revision": 1}
+    await db.flush()
+    assert await current_case_films(db, [diagnostic]) == {}
+    clip.label_data = {}
+    await db.flush()
+    video.content_sha256 = "c" * 64
+    await db.flush()
+    assert await current_case_films(db, [diagnostic]) == {}
+    video.content_sha256 = "a" * 64
+    from app.models import Play, PlayView
+
+    alternate = Play(id=uuid.uuid4(), session_id=session.id)
+    db.add(alternate)
+    await db.flush()
+    view = PlayView(id=uuid.uuid4(), clip_id=clip.id, play_id=alternate.id)
+    db.add(view)
+    await db.flush()
+    assert await current_case_films(db, [diagnostic]) == {}
+    await db.delete(view)
+    await db.flush()
     path = tmp_path / "downloaded-features.json"
     path.write_bytes(downloaded.content)
     csv = tmp_path / "staff-targets.csv"

@@ -1,0 +1,2001 @@
+{
+  "fixture_notice": "Synthetic protocol fixture, not real football validation. Producer -> stored record -> actual authenticated API response.",
+  "evaluation": {
+    "kind": "expected_outcomes",
+    "task": "completion",
+    "model_id": "65f7ccd7-1443-4c65-a35d-719f4fafb12e",
+    "artifact_sha256": "5ddfa7c793db9cdba5804ae6f5f78bbeeda16efe9e219992115381fdaf3fea98",
+    "report_sha256": "f755764e2d373307d401b0cbf75fb9ccb2b95cdc5c51da2fbeecc69aad2ba9ee",
+    "release_evidence_sha256": "44274a5f2c482db937d13bd1bc363a65a64d755b3e924d7fad2090e1d07808e0",
+    "dataset_identity": {
+      "dataset_sha256": "451c2f07703348716fd167f714d15429246cb884a4d6cee99b4f31e9228b34e8",
+      "manifest_sha256": "c027dc2f00305107137c38ce22b060aad54c30390046796720e29e99b752e206"
+    },
+    "source": "measured_human_holdout",
+    "sample_count": 20,
+    "metrics": {
+      "brier": 0.00040000000000000034,
+      "diagnostics_version": 1,
+      "error_distribution": {
+        "definition": "prediction_minus_observation",
+        "unit": "probability",
+        "interval": "lower_inclusive_upper_exclusive",
+        "bins": [
+          {
+            "lower": null,
+            "upper": -0.5,
+            "count": 0
+          },
+          {
+            "lower": -0.5,
+            "upper": -0.1,
+            "count": 0
+          },
+          {
+            "lower": -0.1,
+            "upper": 0,
+            "count": 10
+          },
+          {
+            "lower": 0,
+            "upper": 0.1,
+            "count": 10
+          },
+          {
+            "lower": 0.1,
+            "upper": 0.5,
+            "count": 0
+          },
+          {
+            "lower": 0.5,
+            "upper": null,
+            "count": 0
+          }
+        ]
+      },
+      "confusion_matrix": {
+        "labels": [
+          "0",
+          "1"
+        ],
+        "counts": [
+          [
+            10,
+            0
+          ],
+          [
+            0,
+            10
+          ]
+        ],
+        "rows": "observed",
+        "columns": "predicted",
+        "decision_threshold": 0.5
+      },
+      "log_loss": 0.020202707317519466,
+      "ece": 0.019999999999999955,
+      "calibration_bins": [
+        {
+          "lower": 0.0,
+          "upper": 0.1,
+          "count": 10,
+          "predicted_mean": 0.02,
+          "observed_mean": 0.0
+        },
+        {
+          "lower": 0.9,
+          "upper": 1.0,
+          "count": 10,
+          "predicted_mean": 0.9800000000000001,
+          "observed_mean": 1.0
+        }
+      ]
+    },
+    "heldout_diagnostics": {
+      "case_count": 20,
+      "groups": {
+        "capture_regime": [
+          {
+            "case_count": 20,
+            "value": "fixed_sideline"
+          }
+        ],
+        "error_bin": [
+          {
+            "case_count": 10,
+            "value": "[-0.1,0)"
+          },
+          {
+            "case_count": 10,
+            "value": "[0,0.1)"
+          }
+        ],
+        "film_category": [
+          {
+            "case_count": 20,
+            "value": "unknown"
+          }
+        ],
+        "observed_outcome": [
+          {
+            "case_count": 10,
+            "value": "0"
+          },
+          {
+            "case_count": 10,
+            "value": "1"
+          }
+        ],
+        "outcome_pair": [
+          {
+            "case_count": 10,
+            "value": "0 \u2192 0"
+          },
+          {
+            "case_count": 10,
+            "value": "1 \u2192 1"
+          }
+        ],
+        "source_group": [
+          {
+            "case_count": 20,
+            "value": "holdout-0"
+          }
+        ]
+      },
+      "schema_version": 1,
+      "sha256": "30afbb531bfae70bc5a16f6294d7a380aebe08219f437658fd3a3dc5a5f756d9",
+      "split": "holdout"
+    },
+    "baseline": {
+      "definition": "empirical_training_population_mean",
+      "training_mean": 0.5,
+      "metrics": {
+        "brier": 0.25,
+        "diagnostics_version": 1,
+        "error_distribution": {
+          "definition": "prediction_minus_observation",
+          "unit": "probability",
+          "interval": "lower_inclusive_upper_exclusive",
+          "bins": [
+            {
+              "lower": null,
+              "upper": -0.5,
+              "count": 0
+            },
+            {
+              "lower": -0.5,
+              "upper": -0.1,
+              "count": 10
+            },
+            {
+              "lower": -0.1,
+              "upper": 0,
+              "count": 0
+            },
+            {
+              "lower": 0,
+              "upper": 0.1,
+              "count": 0
+            },
+            {
+              "lower": 0.1,
+              "upper": 0.5,
+              "count": 0
+            },
+            {
+              "lower": 0.5,
+              "upper": null,
+              "count": 10
+            }
+          ]
+        },
+        "confusion_matrix": {
+          "labels": [
+            "0",
+            "1"
+          ],
+          "counts": [
+            [
+              0,
+              10
+            ],
+            [
+              0,
+              10
+            ]
+          ],
+          "rows": "observed",
+          "columns": "predicted",
+          "decision_threshold": 0.5
+        },
+        "log_loss": 0.6931471805599453,
+        "ece": 0.0,
+        "calibration_bins": [
+          {
+            "lower": 0.5,
+            "upper": 0.6,
+            "count": 20,
+            "predicted_mean": 0.5,
+            "observed_mean": 0.5
+          }
+        ]
+      }
+    },
+    "capture_regimes": [
+      "fixed_sideline"
+    ],
+    "feature_version": "expected-outcomes-2",
+    "slices": {
+      "fixed_sideline": {
+        "metrics": {
+          "brier": 0.00040000000000000034,
+          "diagnostics_version": 1,
+          "error_distribution": {
+            "definition": "prediction_minus_observation",
+            "unit": "probability",
+            "interval": "lower_inclusive_upper_exclusive",
+            "bins": [
+              {
+                "lower": null,
+                "upper": -0.5,
+                "count": 0
+              },
+              {
+                "lower": -0.5,
+                "upper": -0.1,
+                "count": 0
+              },
+              {
+                "lower": -0.1,
+                "upper": 0,
+                "count": 10
+              },
+              {
+                "lower": 0,
+                "upper": 0.1,
+                "count": 10
+              },
+              {
+                "lower": 0.1,
+                "upper": 0.5,
+                "count": 0
+              },
+              {
+                "lower": 0.5,
+                "upper": null,
+                "count": 0
+              }
+            ]
+          },
+          "confusion_matrix": {
+            "labels": [
+              "0",
+              "1"
+            ],
+            "counts": [
+              [
+                10,
+                0
+              ],
+              [
+                0,
+                10
+              ]
+            ],
+            "rows": "observed",
+            "columns": "predicted",
+            "decision_threshold": 0.5
+          },
+          "log_loss": 0.020202707317519466,
+          "ece": 0.019999999999999955,
+          "calibration_bins": [
+            {
+              "lower": 0.0,
+              "upper": 0.1,
+              "count": 10,
+              "predicted_mean": 0.02,
+              "observed_mean": 0.0
+            },
+            {
+              "lower": 0.9,
+              "upper": 1.0,
+              "count": 10,
+              "predicted_mean": 0.9800000000000001,
+              "observed_mean": 1.0
+            }
+          ]
+        },
+        "baseline_metrics": {
+          "brier": 0.25,
+          "diagnostics_version": 1,
+          "error_distribution": {
+            "definition": "prediction_minus_observation",
+            "unit": "probability",
+            "interval": "lower_inclusive_upper_exclusive",
+            "bins": [
+              {
+                "lower": null,
+                "upper": -0.5,
+                "count": 0
+              },
+              {
+                "lower": -0.5,
+                "upper": -0.1,
+                "count": 10
+              },
+              {
+                "lower": -0.1,
+                "upper": 0,
+                "count": 0
+              },
+              {
+                "lower": 0,
+                "upper": 0.1,
+                "count": 0
+              },
+              {
+                "lower": 0.1,
+                "upper": 0.5,
+                "count": 0
+              },
+              {
+                "lower": 0.5,
+                "upper": null,
+                "count": 10
+              }
+            ]
+          },
+          "confusion_matrix": {
+            "labels": [
+              "0",
+              "1"
+            ],
+            "counts": [
+              [
+                0,
+                10
+              ],
+              [
+                0,
+                10
+              ]
+            ],
+            "rows": "observed",
+            "columns": "predicted",
+            "decision_threshold": 0.5
+          },
+          "log_loss": 0.6931471805599453,
+          "ece": 0.0,
+          "calibration_bins": [
+            {
+              "lower": 0.5,
+              "upper": 0.6,
+              "count": 20,
+              "predicted_mean": 0.5,
+              "observed_mean": 0.5
+            }
+          ]
+        },
+        "passed": false
+      }
+    },
+    "population": {
+      "passed": false,
+      "missing_data_reasons": [
+        "independently_confirmed_source_groups_missing",
+        "requires_240_distinct_heldout_canonical_plays",
+        "requires_12_independent_heldout_groups",
+        "requires_80_plays_and_four_groups_practice",
+        "requires_80_plays_and_four_groups_coach_game",
+        "requires_80_plays_and_four_groups_television",
+        "requires_20_percent_double_labeled_adjudicated_outcomes"
+      ],
+      "canonical_plays": 20,
+      "independent_groups": 0,
+      "plays_by_category": {
+        "practice": 0,
+        "coach_game": 0,
+        "television": 0
+      },
+      "groups_by_category": {
+        "practice": 0,
+        "coach_game": 0,
+        "television": 0
+      },
+      "double_labeled_adjudicated_plays": 0
+    },
+    "missing_data_reasons": [
+      "independently_confirmed_source_groups_missing",
+      "requires_240_distinct_heldout_canonical_plays",
+      "requires_12_independent_heldout_groups",
+      "requires_80_plays_and_four_groups_practice",
+      "requires_80_plays_and_four_groups_coach_game",
+      "requires_80_plays_and_four_groups_television",
+      "requires_20_percent_double_labeled_adjudicated_outcomes"
+    ],
+    "passed": false,
+    "thresholds": {
+      "split_counts_per_film_category": {
+        "train": 30,
+        "calibration": 10,
+        "holdout": 20
+      },
+      "max_binary_ece": 0.1,
+      "binary_losses": "brier_and_log_loss_strictly_below_training_mean_baseline",
+      "yardage_losses": "mae_and_rmse_strictly_below_baseline_with_calibration_error_no_worse"
+    },
+    "id": "caf02eaa-81c7-4685-92b6-123305779780"
+  },
+  "page": {
+    "evaluation_id": "caf02eaa-81c7-4685-92b6-123305779780",
+    "model_id": "65f7ccd7-1443-4c65-a35d-719f4fafb12e",
+    "artifact_sha256": "5ddfa7c793db9cdba5804ae6f5f78bbeeda16efe9e219992115381fdaf3fea98",
+    "report_sha256": "f755764e2d373307d401b0cbf75fb9ccb2b95cdc5c51da2fbeecc69aad2ba9ee",
+    "case_sha256": "30afbb531bfae70bc5a16f6294d7a380aebe08219f437658fd3a3dc5a5f756d9",
+    "schema_version": 1,
+    "split": "holdout",
+    "case_count": 20,
+    "selected_count": 20,
+    "offset": 0,
+    "groups": {
+      "error_bin": [
+        {
+          "value": "[-0.1,0)",
+          "case_count": 10
+        },
+        {
+          "value": "[0,0.1)",
+          "case_count": 10
+        }
+      ],
+      "outcome_pair": [
+        {
+          "value": "0 \u2192 0",
+          "case_count": 10
+        },
+        {
+          "value": "1 \u2192 1",
+          "case_count": 10
+        }
+      ],
+      "source_group": [
+        {
+          "value": "holdout-0",
+          "case_count": 20
+        }
+      ],
+      "film_category": [
+        {
+          "value": "unknown",
+          "case_count": 20
+        }
+      ],
+      "capture_regime": [
+        {
+          "value": "fixed_sideline",
+          "case_count": 20
+        }
+      ],
+      "observed_outcome": [
+        {
+          "value": "0",
+          "case_count": 10
+        },
+        {
+          "value": "1",
+          "case_count": 10
+        }
+      ]
+    },
+    "filter": {
+      "dimension": null,
+      "category": null
+    },
+    "known_source_group_count": 1,
+    "canonical_play_count": 20,
+    "minimum_sample_count": 20,
+    "small_sample": false,
+    "descriptive_only": true,
+    "release_qualification_inherited": false,
+    "metrics": {
+      "brier": 0.00040000000000000034,
+      "diagnostics_version": 1,
+      "error_distribution": {
+        "definition": "prediction_minus_observation",
+        "unit": "probability",
+        "interval": "lower_inclusive_upper_exclusive",
+        "bins": [
+          {
+            "lower": null,
+            "upper": -0.5,
+            "count": 0
+          },
+          {
+            "lower": -0.5,
+            "upper": -0.1,
+            "count": 0
+          },
+          {
+            "lower": -0.1,
+            "upper": 0,
+            "count": 10
+          },
+          {
+            "lower": 0,
+            "upper": 0.1,
+            "count": 10
+          },
+          {
+            "lower": 0.1,
+            "upper": 0.5,
+            "count": 0
+          },
+          {
+            "lower": 0.5,
+            "upper": null,
+            "count": 0
+          }
+        ]
+      },
+      "confusion_matrix": {
+        "labels": [
+          "0",
+          "1"
+        ],
+        "counts": [
+          [
+            10,
+            0
+          ],
+          [
+            0,
+            10
+          ]
+        ],
+        "rows": "observed",
+        "columns": "predicted",
+        "decision_threshold": 0.5
+      },
+      "log_loss": 0.020202707317519466,
+      "ece": 0.019999999999999955,
+      "calibration_bins": [
+        {
+          "lower": 0.0,
+          "upper": 0.1,
+          "count": 10,
+          "predicted_mean": 0.02,
+          "observed_mean": 0.0
+        },
+        {
+          "lower": 0.9,
+          "upper": 1.0,
+          "count": 10,
+          "predicted_mean": 0.9800000000000001,
+          "observed_mean": 1.0
+        }
+      ]
+    },
+    "baseline_metrics": {
+      "brier": 0.25,
+      "diagnostics_version": 1,
+      "error_distribution": {
+        "definition": "prediction_minus_observation",
+        "unit": "probability",
+        "interval": "lower_inclusive_upper_exclusive",
+        "bins": [
+          {
+            "lower": null,
+            "upper": -0.5,
+            "count": 0
+          },
+          {
+            "lower": -0.5,
+            "upper": -0.1,
+            "count": 10
+          },
+          {
+            "lower": -0.1,
+            "upper": 0,
+            "count": 0
+          },
+          {
+            "lower": 0,
+            "upper": 0.1,
+            "count": 0
+          },
+          {
+            "lower": 0.1,
+            "upper": 0.5,
+            "count": 0
+          },
+          {
+            "lower": 0.5,
+            "upper": null,
+            "count": 10
+          }
+        ]
+      },
+      "confusion_matrix": {
+        "labels": [
+          "0",
+          "1"
+        ],
+        "counts": [
+          [
+            0,
+            10
+          ],
+          [
+            0,
+            10
+          ]
+        ],
+        "rows": "observed",
+        "columns": "predicted",
+        "decision_threshold": 0.5
+      },
+      "log_loss": 0.6931471805599453,
+      "ece": 0.0,
+      "calibration_bins": [
+        {
+          "lower": 0.5,
+          "upper": 0.6,
+          "count": 20,
+          "predicted_mean": 0.5,
+          "observed_mean": 0.5
+        }
+      ]
+    },
+    "binary": true,
+    "baseline_definition": "empirical_training_population_mean",
+    "cases": [
+      {
+        "task": "completion",
+        "error": -0.020000000000000018,
+        "split": "holdout",
+        "case_id": "1df541fd1b431b695bb26d4a004493feb96ab14897c2438e5ba3fac62849c3b2",
+        "lineage": {
+          "session_id": "holdout-0",
+          "media_sha256": "cdfe8c7b883c815c95337b2ef591d44b4e5cd501fdee8fa80b2b0913fc89f13b",
+          "recording_id": "holdout-0",
+          "canonical_play_id": "holdout-0-17"
+        },
+        "subject": {
+          "role": "QB",
+          "scope": "player",
+          "tracklet_id": "fixture-holdout-0-17-actor"
+        },
+        "baseline": 0.5,
+        "observed": 1.0,
+        "error_bin": "[-0.1,0)",
+        "predicted": 0.98,
+        "outcome_pair": "1 \u2192 1",
+        "source_group": "holdout-0",
+        "film_category": "unknown",
+        "baseline_error": -0.5,
+        "capture_regime": "fixed_sideline",
+        "feature_version": "expected-outcomes-2",
+        "observed_outcome": "1",
+        "annotation_sha256": "f748adeebbab85147984bc866f8bc1d63b3886ad4da569be9595e5828b32c49a",
+        "observation_clock": {
+          "event": "pass_release",
+          "timestamp_seconds": 2.0
+        },
+        "feature_evidence_sha256": [
+          "4132817a1ca305b5f8998dd4ce3ba3e036aa7d4f9649e31683fe13e3121a99af"
+        ],
+        "film": null,
+        "film_unavailable_reason": "No exact current trusted export matches the source, clock and review revision."
+      },
+      {
+        "task": "completion",
+        "error": -0.020000000000000018,
+        "split": "holdout",
+        "case_id": "5987c06b812f9cd4fdac3855853a27e436cc35c13ba74f5231bc93ae708543b7",
+        "lineage": {
+          "session_id": "holdout-0",
+          "media_sha256": "cdfe8c7b883c815c95337b2ef591d44b4e5cd501fdee8fa80b2b0913fc89f13b",
+          "recording_id": "holdout-0",
+          "canonical_play_id": "holdout-0-19"
+        },
+        "subject": {
+          "role": "QB",
+          "scope": "player",
+          "tracklet_id": "fixture-holdout-0-19-actor"
+        },
+        "baseline": 0.5,
+        "observed": 1.0,
+        "error_bin": "[-0.1,0)",
+        "predicted": 0.98,
+        "outcome_pair": "1 \u2192 1",
+        "source_group": "holdout-0",
+        "film_category": "unknown",
+        "baseline_error": -0.5,
+        "capture_regime": "fixed_sideline",
+        "feature_version": "expected-outcomes-2",
+        "observed_outcome": "1",
+        "annotation_sha256": "dd39e1765f665d846ab349409c3992cd73850ef304e1a7892e6f0e8850112584",
+        "observation_clock": {
+          "event": "pass_release",
+          "timestamp_seconds": 2.0
+        },
+        "feature_evidence_sha256": [
+          "6e8e34d16bbd8cf984fe3461d6025de4724c42b0c637f74fc63de0666c494e43"
+        ],
+        "film": null,
+        "film_unavailable_reason": "No exact current trusted export matches the source, clock and review revision."
+      },
+      {
+        "task": "completion",
+        "error": 0.02,
+        "split": "holdout",
+        "case_id": "5adce73fd1b432057e69c3936e7fd1a32aee042dba712de5acfbe4355046cc06",
+        "lineage": {
+          "session_id": "holdout-0",
+          "media_sha256": "cdfe8c7b883c815c95337b2ef591d44b4e5cd501fdee8fa80b2b0913fc89f13b",
+          "recording_id": "holdout-0",
+          "canonical_play_id": "holdout-0-8"
+        },
+        "subject": {
+          "role": "QB",
+          "scope": "player",
+          "tracklet_id": "fixture-holdout-0-8-actor"
+        },
+        "baseline": 0.5,
+        "observed": 0.0,
+        "error_bin": "[0,0.1)",
+        "predicted": 0.02,
+        "outcome_pair": "0 \u2192 0",
+        "source_group": "holdout-0",
+        "film_category": "unknown",
+        "baseline_error": 0.5,
+        "capture_regime": "fixed_sideline",
+        "feature_version": "expected-outcomes-2",
+        "observed_outcome": "0",
+        "annotation_sha256": "7b35d783671f5924e35dac616013112f47657d1a084334cbaf8484df91313b2f",
+        "observation_clock": {
+          "event": "pass_release",
+          "timestamp_seconds": 2.0
+        },
+        "feature_evidence_sha256": [
+          "af58bb482184e8e8802a3aafe74fa1f8b28aabb34347a6a4f26d188fcb21d244"
+        ],
+        "film": null,
+        "film_unavailable_reason": "No exact current trusted export matches the source, clock and review revision."
+      },
+      {
+        "task": "completion",
+        "error": 0.02,
+        "split": "holdout",
+        "case_id": "6a23c1093083d1483eb495c132bab1015e65a66cc286c273e044c826af144521",
+        "lineage": {
+          "session_id": "holdout-0",
+          "media_sha256": "cdfe8c7b883c815c95337b2ef591d44b4e5cd501fdee8fa80b2b0913fc89f13b",
+          "recording_id": "holdout-0",
+          "canonical_play_id": "holdout-0-0"
+        },
+        "subject": {
+          "role": "QB",
+          "scope": "player",
+          "tracklet_id": "fixture-holdout-0-0-actor"
+        },
+        "baseline": 0.5,
+        "observed": 0.0,
+        "error_bin": "[0,0.1)",
+        "predicted": 0.02,
+        "outcome_pair": "0 \u2192 0",
+        "source_group": "holdout-0",
+        "film_category": "unknown",
+        "baseline_error": 0.5,
+        "capture_regime": "fixed_sideline",
+        "feature_version": "expected-outcomes-2",
+        "observed_outcome": "0",
+        "annotation_sha256": "bd2d3f617c6239701d4b9867ff61852c5899b2c7ee9a640e39c4378ecb491283",
+        "observation_clock": {
+          "event": "pass_release",
+          "timestamp_seconds": 2.0
+        },
+        "feature_evidence_sha256": [
+          "691f4420dfbad72fb1eb526f807aa832b73b5a67a9d0aae0a5c895905ac25ae1"
+        ],
+        "film": null,
+        "film_unavailable_reason": "No exact current trusted export matches the source, clock and review revision."
+      },
+      {
+        "task": "completion",
+        "error": 0.02,
+        "split": "holdout",
+        "case_id": "6b237e678612e1366629c67ef9d0b57689a6381051d16e268909c47432bab58e",
+        "lineage": {
+          "session_id": "holdout-0",
+          "media_sha256": "cdfe8c7b883c815c95337b2ef591d44b4e5cd501fdee8fa80b2b0913fc89f13b",
+          "recording_id": "holdout-0",
+          "canonical_play_id": "holdout-0-6"
+        },
+        "subject": {
+          "role": "QB",
+          "scope": "player",
+          "tracklet_id": "fixture-holdout-0-6-actor"
+        },
+        "baseline": 0.5,
+        "observed": 0.0,
+        "error_bin": "[0,0.1)",
+        "predicted": 0.02,
+        "outcome_pair": "0 \u2192 0",
+        "source_group": "holdout-0",
+        "film_category": "unknown",
+        "baseline_error": 0.5,
+        "capture_regime": "fixed_sideline",
+        "feature_version": "expected-outcomes-2",
+        "observed_outcome": "0",
+        "annotation_sha256": "93ee8075a7ac87a0651bf3c559e5191accb6c691f8b801290d44bf7cd5181db0",
+        "observation_clock": {
+          "event": "pass_release",
+          "timestamp_seconds": 2.0
+        },
+        "feature_evidence_sha256": [
+          "a785acfc657938a552de92140dba5fcfe5baf2b6e34802cfa076cc4a96b51645"
+        ],
+        "film": null,
+        "film_unavailable_reason": "No exact current trusted export matches the source, clock and review revision."
+      },
+      {
+        "task": "completion",
+        "error": -0.020000000000000018,
+        "split": "holdout",
+        "case_id": "701b0b589c59deceb74be0083b44605a05701b3629d9e69a6e10762b0939d294",
+        "lineage": {
+          "session_id": "holdout-0",
+          "media_sha256": "cdfe8c7b883c815c95337b2ef591d44b4e5cd501fdee8fa80b2b0913fc89f13b",
+          "recording_id": "holdout-0",
+          "canonical_play_id": "holdout-0-1"
+        },
+        "subject": {
+          "role": "QB",
+          "scope": "player",
+          "tracklet_id": "fixture-holdout-0-1-actor"
+        },
+        "baseline": 0.5,
+        "observed": 1.0,
+        "error_bin": "[-0.1,0)",
+        "predicted": 0.98,
+        "outcome_pair": "1 \u2192 1",
+        "source_group": "holdout-0",
+        "film_category": "unknown",
+        "baseline_error": -0.5,
+        "capture_regime": "fixed_sideline",
+        "feature_version": "expected-outcomes-2",
+        "observed_outcome": "1",
+        "annotation_sha256": "3fbff3e7ff9b22372d4873b4bd1938958d099442df1b27d0ddf05dc4ef81828e",
+        "observation_clock": {
+          "event": "pass_release",
+          "timestamp_seconds": 2.0
+        },
+        "feature_evidence_sha256": [
+          "5e006f92d342e2ccae233bc3e0674172b97e689ff73af2bdd5ce01ccbeaaeed0"
+        ],
+        "film": null,
+        "film_unavailable_reason": "No exact current trusted export matches the source, clock and review revision."
+      },
+      {
+        "task": "completion",
+        "error": -0.020000000000000018,
+        "split": "holdout",
+        "case_id": "705b0c6e68a3f84ccda7abbbdbb78b402009341674bc4ce27e00595d8aa9ca85",
+        "lineage": {
+          "session_id": "holdout-0",
+          "media_sha256": "cdfe8c7b883c815c95337b2ef591d44b4e5cd501fdee8fa80b2b0913fc89f13b",
+          "recording_id": "holdout-0",
+          "canonical_play_id": "holdout-0-11"
+        },
+        "subject": {
+          "role": "QB",
+          "scope": "player",
+          "tracklet_id": "fixture-holdout-0-11-actor"
+        },
+        "baseline": 0.5,
+        "observed": 1.0,
+        "error_bin": "[-0.1,0)",
+        "predicted": 0.98,
+        "outcome_pair": "1 \u2192 1",
+        "source_group": "holdout-0",
+        "film_category": "unknown",
+        "baseline_error": -0.5,
+        "capture_regime": "fixed_sideline",
+        "feature_version": "expected-outcomes-2",
+        "observed_outcome": "1",
+        "annotation_sha256": "86de9f878f693b5ed2c7ef41f406f7cae138fcbe26d7f6beb0e40a879d6bcf06",
+        "observation_clock": {
+          "event": "pass_release",
+          "timestamp_seconds": 2.0
+        },
+        "feature_evidence_sha256": [
+          "293b743e33000689e81e80a299814503e13e623ce7bb8510d03e212b343298f0"
+        ],
+        "film": null,
+        "film_unavailable_reason": "No exact current trusted export matches the source, clock and review revision."
+      },
+      {
+        "task": "completion",
+        "error": 0.02,
+        "split": "holdout",
+        "case_id": "724c791e15130d3619f4a0c2c4eb3dbe36eeadf986250d505da45dacb6124c8f",
+        "lineage": {
+          "session_id": "holdout-0",
+          "media_sha256": "cdfe8c7b883c815c95337b2ef591d44b4e5cd501fdee8fa80b2b0913fc89f13b",
+          "recording_id": "holdout-0",
+          "canonical_play_id": "holdout-0-14"
+        },
+        "subject": {
+          "role": "QB",
+          "scope": "player",
+          "tracklet_id": "fixture-holdout-0-14-actor"
+        },
+        "baseline": 0.5,
+        "observed": 0.0,
+        "error_bin": "[0,0.1)",
+        "predicted": 0.02,
+        "outcome_pair": "0 \u2192 0",
+        "source_group": "holdout-0",
+        "film_category": "unknown",
+        "baseline_error": 0.5,
+        "capture_regime": "fixed_sideline",
+        "feature_version": "expected-outcomes-2",
+        "observed_outcome": "0",
+        "annotation_sha256": "7043a58f4f29e8d1c6f862109d6547e89e3db0b86f26056e05791af3b7581572",
+        "observation_clock": {
+          "event": "pass_release",
+          "timestamp_seconds": 2.0
+        },
+        "feature_evidence_sha256": [
+          "78ad83a17e8762117a385a200accbfc8d1b5019ed24029af309050756a49874b"
+        ],
+        "film": null,
+        "film_unavailable_reason": "No exact current trusted export matches the source, clock and review revision."
+      },
+      {
+        "task": "completion",
+        "error": -0.020000000000000018,
+        "split": "holdout",
+        "case_id": "81998a2ecfae425a88b11a69ad3e9e656ea90531ecc12b5e0ff41d0c4f3be24b",
+        "lineage": {
+          "session_id": "holdout-0",
+          "media_sha256": "cdfe8c7b883c815c95337b2ef591d44b4e5cd501fdee8fa80b2b0913fc89f13b",
+          "recording_id": "holdout-0",
+          "canonical_play_id": "holdout-0-5"
+        },
+        "subject": {
+          "role": "QB",
+          "scope": "player",
+          "tracklet_id": "fixture-holdout-0-5-actor"
+        },
+        "baseline": 0.5,
+        "observed": 1.0,
+        "error_bin": "[-0.1,0)",
+        "predicted": 0.98,
+        "outcome_pair": "1 \u2192 1",
+        "source_group": "holdout-0",
+        "film_category": "unknown",
+        "baseline_error": -0.5,
+        "capture_regime": "fixed_sideline",
+        "feature_version": "expected-outcomes-2",
+        "observed_outcome": "1",
+        "annotation_sha256": "0d9fa93fd8949c48fb0e2bfb4b5f0aa65f48ffc0d901daf52c6aef47f7fce2e4",
+        "observation_clock": {
+          "event": "pass_release",
+          "timestamp_seconds": 2.0
+        },
+        "feature_evidence_sha256": [
+          "87a7945b83c08c0e8a7ee1da81ab7f653ba799a5cd49b58068e204f47e41c93e"
+        ],
+        "film": null,
+        "film_unavailable_reason": "No exact current trusted export matches the source, clock and review revision."
+      },
+      {
+        "task": "completion",
+        "error": 0.02,
+        "split": "holdout",
+        "case_id": "8a9d9d0ae577f1411f2d419fca4b43560bb5d85726b7335d003be9918b23cf0d",
+        "lineage": {
+          "session_id": "holdout-0",
+          "media_sha256": "cdfe8c7b883c815c95337b2ef591d44b4e5cd501fdee8fa80b2b0913fc89f13b",
+          "recording_id": "holdout-0",
+          "canonical_play_id": "holdout-0-12"
+        },
+        "subject": {
+          "role": "QB",
+          "scope": "player",
+          "tracklet_id": "fixture-holdout-0-12-actor"
+        },
+        "baseline": 0.5,
+        "observed": 0.0,
+        "error_bin": "[0,0.1)",
+        "predicted": 0.02,
+        "outcome_pair": "0 \u2192 0",
+        "source_group": "holdout-0",
+        "film_category": "unknown",
+        "baseline_error": 0.5,
+        "capture_regime": "fixed_sideline",
+        "feature_version": "expected-outcomes-2",
+        "observed_outcome": "0",
+        "annotation_sha256": "f00aeb449d83fffbdc55c2724eb87b3cf149b851a1cf06dfb613f2ae77204ff6",
+        "observation_clock": {
+          "event": "pass_release",
+          "timestamp_seconds": 2.0
+        },
+        "feature_evidence_sha256": [
+          "5f38ed6988e427a46a1405cf6f1476c710f40f4bb92bfd3228987d5802a2aafd"
+        ],
+        "film": null,
+        "film_unavailable_reason": "No exact current trusted export matches the source, clock and review revision."
+      },
+      {
+        "task": "completion",
+        "error": 0.02,
+        "split": "holdout",
+        "case_id": "925a18e2ed8b9c2f74b8592abf03fa1df846440dcc3d446b570cf86449aa8fe4",
+        "lineage": {
+          "session_id": "holdout-0",
+          "media_sha256": "cdfe8c7b883c815c95337b2ef591d44b4e5cd501fdee8fa80b2b0913fc89f13b",
+          "recording_id": "holdout-0",
+          "canonical_play_id": "holdout-0-4"
+        },
+        "subject": {
+          "role": "QB",
+          "scope": "player",
+          "tracklet_id": "fixture-holdout-0-4-actor"
+        },
+        "baseline": 0.5,
+        "observed": 0.0,
+        "error_bin": "[0,0.1)",
+        "predicted": 0.02,
+        "outcome_pair": "0 \u2192 0",
+        "source_group": "holdout-0",
+        "film_category": "unknown",
+        "baseline_error": 0.5,
+        "capture_regime": "fixed_sideline",
+        "feature_version": "expected-outcomes-2",
+        "observed_outcome": "0",
+        "annotation_sha256": "1521625fc3ef8fe2b02ea9aa520cf9918147a17fc34eaeb207b5bb020a479393",
+        "observation_clock": {
+          "event": "pass_release",
+          "timestamp_seconds": 2.0
+        },
+        "feature_evidence_sha256": [
+          "dd3a663e46c18f4f590e9df6489128c7f582ad03e6112a190d83cf19b3425afc"
+        ],
+        "film": null,
+        "film_unavailable_reason": "No exact current trusted export matches the source, clock and review revision."
+      },
+      {
+        "task": "completion",
+        "error": -0.020000000000000018,
+        "split": "holdout",
+        "case_id": "ace7977388d7c74a4fba0aea467428893b702e1753adbf98994b7e17a0735f7f",
+        "lineage": {
+          "session_id": "holdout-0",
+          "media_sha256": "cdfe8c7b883c815c95337b2ef591d44b4e5cd501fdee8fa80b2b0913fc89f13b",
+          "recording_id": "holdout-0",
+          "canonical_play_id": "holdout-0-15"
+        },
+        "subject": {
+          "role": "QB",
+          "scope": "player",
+          "tracklet_id": "fixture-holdout-0-15-actor"
+        },
+        "baseline": 0.5,
+        "observed": 1.0,
+        "error_bin": "[-0.1,0)",
+        "predicted": 0.98,
+        "outcome_pair": "1 \u2192 1",
+        "source_group": "holdout-0",
+        "film_category": "unknown",
+        "baseline_error": -0.5,
+        "capture_regime": "fixed_sideline",
+        "feature_version": "expected-outcomes-2",
+        "observed_outcome": "1",
+        "annotation_sha256": "5470fc3b8d2d1bbe4a5b3cc63c27846e4a41ba52f40481324580ce5312610fa1",
+        "observation_clock": {
+          "event": "pass_release",
+          "timestamp_seconds": 2.0
+        },
+        "feature_evidence_sha256": [
+          "b6dbfcea943b9e1122bd1a2ec5ba922d9985fada56bd4a0fc6adaaee22ca56e0"
+        ],
+        "film": null,
+        "film_unavailable_reason": "No exact current trusted export matches the source, clock and review revision."
+      },
+      {
+        "task": "completion",
+        "error": -0.020000000000000018,
+        "split": "holdout",
+        "case_id": "b1066994cc061af17605f6f97671048653773ff2d56d99937e3ee86b46f42021",
+        "lineage": {
+          "session_id": "holdout-0",
+          "media_sha256": "cdfe8c7b883c815c95337b2ef591d44b4e5cd501fdee8fa80b2b0913fc89f13b",
+          "recording_id": "holdout-0",
+          "canonical_play_id": "holdout-0-3"
+        },
+        "subject": {
+          "role": "QB",
+          "scope": "player",
+          "tracklet_id": "fixture-holdout-0-3-actor"
+        },
+        "baseline": 0.5,
+        "observed": 1.0,
+        "error_bin": "[-0.1,0)",
+        "predicted": 0.98,
+        "outcome_pair": "1 \u2192 1",
+        "source_group": "holdout-0",
+        "film_category": "unknown",
+        "baseline_error": -0.5,
+        "capture_regime": "fixed_sideline",
+        "feature_version": "expected-outcomes-2",
+        "observed_outcome": "1",
+        "annotation_sha256": "811eb04db791534c960411157dc8aebf86335419695b58b2af34bbce2eb3e1a9",
+        "observation_clock": {
+          "event": "pass_release",
+          "timestamp_seconds": 2.0
+        },
+        "feature_evidence_sha256": [
+          "e58c78927dc0e16d9f2233982676a1486260763c48409b9bbc78710375845ca1"
+        ],
+        "film": null,
+        "film_unavailable_reason": "No exact current trusted export matches the source, clock and review revision."
+      },
+      {
+        "task": "completion",
+        "error": -0.020000000000000018,
+        "split": "holdout",
+        "case_id": "b76c9b4173ddc67627841ef7becd5c0d89220234b72185ea4fb758ae8ec8f0c1",
+        "lineage": {
+          "session_id": "holdout-0",
+          "media_sha256": "cdfe8c7b883c815c95337b2ef591d44b4e5cd501fdee8fa80b2b0913fc89f13b",
+          "recording_id": "holdout-0",
+          "canonical_play_id": "holdout-0-9"
+        },
+        "subject": {
+          "role": "QB",
+          "scope": "player",
+          "tracklet_id": "fixture-holdout-0-9-actor"
+        },
+        "baseline": 0.5,
+        "observed": 1.0,
+        "error_bin": "[-0.1,0)",
+        "predicted": 0.98,
+        "outcome_pair": "1 \u2192 1",
+        "source_group": "holdout-0",
+        "film_category": "unknown",
+        "baseline_error": -0.5,
+        "capture_regime": "fixed_sideline",
+        "feature_version": "expected-outcomes-2",
+        "observed_outcome": "1",
+        "annotation_sha256": "290e3a49e4a65ae3d337fec3c3a64bce9731e57d4eb53b46a29bbc9a6845b27d",
+        "observation_clock": {
+          "event": "pass_release",
+          "timestamp_seconds": 2.0
+        },
+        "feature_evidence_sha256": [
+          "c21eaa7a0c500eb626cc56da4499407625babb71bae2c9f0b18e566c89a0a7e5"
+        ],
+        "film": null,
+        "film_unavailable_reason": "No exact current trusted export matches the source, clock and review revision."
+      },
+      {
+        "task": "completion",
+        "error": 0.02,
+        "split": "holdout",
+        "case_id": "c32dc4d375db2ca0ee6e99a7b5436c686144c1913dfebd292dd0e2a7ac086f60",
+        "lineage": {
+          "session_id": "holdout-0",
+          "media_sha256": "cdfe8c7b883c815c95337b2ef591d44b4e5cd501fdee8fa80b2b0913fc89f13b",
+          "recording_id": "holdout-0",
+          "canonical_play_id": "holdout-0-16"
+        },
+        "subject": {
+          "role": "QB",
+          "scope": "player",
+          "tracklet_id": "fixture-holdout-0-16-actor"
+        },
+        "baseline": 0.5,
+        "observed": 0.0,
+        "error_bin": "[0,0.1)",
+        "predicted": 0.02,
+        "outcome_pair": "0 \u2192 0",
+        "source_group": "holdout-0",
+        "film_category": "unknown",
+        "baseline_error": 0.5,
+        "capture_regime": "fixed_sideline",
+        "feature_version": "expected-outcomes-2",
+        "observed_outcome": "0",
+        "annotation_sha256": "9f54edc84a456726b983b8b8a2bc54c359acacc615b854a72f3548266544173e",
+        "observation_clock": {
+          "event": "pass_release",
+          "timestamp_seconds": 2.0
+        },
+        "feature_evidence_sha256": [
+          "1d98e71a757ba3720d9829b1f201ea7ee2734dbabbbcda7922d02466278e13eb"
+        ],
+        "film": null,
+        "film_unavailable_reason": "No exact current trusted export matches the source, clock and review revision."
+      },
+      {
+        "task": "completion",
+        "error": -0.020000000000000018,
+        "split": "holdout",
+        "case_id": "d3cf4bc2639de8cda58f0579b77a25bcf843e253649f3e5354b586e9e1c38221",
+        "lineage": {
+          "session_id": "holdout-0",
+          "media_sha256": "cdfe8c7b883c815c95337b2ef591d44b4e5cd501fdee8fa80b2b0913fc89f13b",
+          "recording_id": "holdout-0",
+          "canonical_play_id": "holdout-0-7"
+        },
+        "subject": {
+          "role": "QB",
+          "scope": "player",
+          "tracklet_id": "fixture-holdout-0-7-actor"
+        },
+        "baseline": 0.5,
+        "observed": 1.0,
+        "error_bin": "[-0.1,0)",
+        "predicted": 0.98,
+        "outcome_pair": "1 \u2192 1",
+        "source_group": "holdout-0",
+        "film_category": "unknown",
+        "baseline_error": -0.5,
+        "capture_regime": "fixed_sideline",
+        "feature_version": "expected-outcomes-2",
+        "observed_outcome": "1",
+        "annotation_sha256": "2eb6032a0f77886f3af661777c3decdbda98c76bc4cce6823b051c1f0d25e9f5",
+        "observation_clock": {
+          "event": "pass_release",
+          "timestamp_seconds": 2.0
+        },
+        "feature_evidence_sha256": [
+          "e088607511c0a59cb5bd76c206c8dace8e680e960b128e576d42871660246e35"
+        ],
+        "film": null,
+        "film_unavailable_reason": "No exact current trusted export matches the source, clock and review revision."
+      },
+      {
+        "task": "completion",
+        "error": -0.020000000000000018,
+        "split": "holdout",
+        "case_id": "e1ff3b9649df12c12fbd9a7ee940c4a430d2f070590c4f7f649fd074acf94aef",
+        "lineage": {
+          "session_id": "holdout-0",
+          "media_sha256": "cdfe8c7b883c815c95337b2ef591d44b4e5cd501fdee8fa80b2b0913fc89f13b",
+          "recording_id": "holdout-0",
+          "canonical_play_id": "holdout-0-13"
+        },
+        "subject": {
+          "role": "QB",
+          "scope": "player",
+          "tracklet_id": "fixture-holdout-0-13-actor"
+        },
+        "baseline": 0.5,
+        "observed": 1.0,
+        "error_bin": "[-0.1,0)",
+        "predicted": 0.98,
+        "outcome_pair": "1 \u2192 1",
+        "source_group": "holdout-0",
+        "film_category": "unknown",
+        "baseline_error": -0.5,
+        "capture_regime": "fixed_sideline",
+        "feature_version": "expected-outcomes-2",
+        "observed_outcome": "1",
+        "annotation_sha256": "6ed5c08e6cb9d772932fe6f18f7a45bbfdfead8433a4113a14c885f7e2e72d41",
+        "observation_clock": {
+          "event": "pass_release",
+          "timestamp_seconds": 2.0
+        },
+        "feature_evidence_sha256": [
+          "f310ae7602fd476714ecff45cf0b35aaa264180a76db8bec9e9b78dccd9aeade"
+        ],
+        "film": null,
+        "film_unavailable_reason": "No exact current trusted export matches the source, clock and review revision."
+      },
+      {
+        "task": "completion",
+        "error": 0.02,
+        "split": "holdout",
+        "case_id": "eb37f4f8d2245d5798c503cd5481da76d4d761510f2bf43edf45d2cc2f5780db",
+        "lineage": {
+          "session_id": "holdout-0",
+          "media_sha256": "cdfe8c7b883c815c95337b2ef591d44b4e5cd501fdee8fa80b2b0913fc89f13b",
+          "recording_id": "holdout-0",
+          "canonical_play_id": "holdout-0-2"
+        },
+        "subject": {
+          "role": "QB",
+          "scope": "player",
+          "tracklet_id": "fixture-holdout-0-2-actor"
+        },
+        "baseline": 0.5,
+        "observed": 0.0,
+        "error_bin": "[0,0.1)",
+        "predicted": 0.02,
+        "outcome_pair": "0 \u2192 0",
+        "source_group": "holdout-0",
+        "film_category": "unknown",
+        "baseline_error": 0.5,
+        "capture_regime": "fixed_sideline",
+        "feature_version": "expected-outcomes-2",
+        "observed_outcome": "0",
+        "annotation_sha256": "c2d25b48e18603e4f7d0a16ade1c13f57dd940f8665a2812148366746fb326f5",
+        "observation_clock": {
+          "event": "pass_release",
+          "timestamp_seconds": 2.0
+        },
+        "feature_evidence_sha256": [
+          "19abf67e4e1b8842e90d9ece69350894d7f91d8ab887f18b50dc71a215d6bf53"
+        ],
+        "film": null,
+        "film_unavailable_reason": "No exact current trusted export matches the source, clock and review revision."
+      },
+      {
+        "task": "completion",
+        "error": 0.02,
+        "split": "holdout",
+        "case_id": "ebdfa863de7e602f5cd4a42fc62bc85b7499cc25f42daf9d6564955859054d18",
+        "lineage": {
+          "session_id": "holdout-0",
+          "media_sha256": "cdfe8c7b883c815c95337b2ef591d44b4e5cd501fdee8fa80b2b0913fc89f13b",
+          "recording_id": "holdout-0",
+          "canonical_play_id": "holdout-0-18"
+        },
+        "subject": {
+          "role": "QB",
+          "scope": "player",
+          "tracklet_id": "fixture-holdout-0-18-actor"
+        },
+        "baseline": 0.5,
+        "observed": 0.0,
+        "error_bin": "[0,0.1)",
+        "predicted": 0.02,
+        "outcome_pair": "0 \u2192 0",
+        "source_group": "holdout-0",
+        "film_category": "unknown",
+        "baseline_error": 0.5,
+        "capture_regime": "fixed_sideline",
+        "feature_version": "expected-outcomes-2",
+        "observed_outcome": "0",
+        "annotation_sha256": "7f16af74231fde3cf4fa70712ddbfa921f8fd397ebc9c3c39a73677af5eba560",
+        "observation_clock": {
+          "event": "pass_release",
+          "timestamp_seconds": 2.0
+        },
+        "feature_evidence_sha256": [
+          "77c68bb8e383eb55965e141136a2caba9b6ab614f6a54aaeda2d7491cfba20a3"
+        ],
+        "film": null,
+        "film_unavailable_reason": "No exact current trusted export matches the source, clock and review revision."
+      },
+      {
+        "task": "completion",
+        "error": 0.02,
+        "split": "holdout",
+        "case_id": "ff3c1a65d25a57e56d6f4d456b1753a509d15032b00ae7f91be506b0fa6cb816",
+        "lineage": {
+          "session_id": "holdout-0",
+          "media_sha256": "cdfe8c7b883c815c95337b2ef591d44b4e5cd501fdee8fa80b2b0913fc89f13b",
+          "recording_id": "holdout-0",
+          "canonical_play_id": "holdout-0-10"
+        },
+        "subject": {
+          "role": "QB",
+          "scope": "player",
+          "tracklet_id": "fixture-holdout-0-10-actor"
+        },
+        "baseline": 0.5,
+        "observed": 0.0,
+        "error_bin": "[0,0.1)",
+        "predicted": 0.02,
+        "outcome_pair": "0 \u2192 0",
+        "source_group": "holdout-0",
+        "film_category": "unknown",
+        "baseline_error": 0.5,
+        "capture_regime": "fixed_sideline",
+        "feature_version": "expected-outcomes-2",
+        "observed_outcome": "0",
+        "annotation_sha256": "a0da0568486490a219a09a2be08c68c39636d4a9ace21f43381ca4f0eb64320b",
+        "observation_clock": {
+          "event": "pass_release",
+          "timestamp_seconds": 2.0
+        },
+        "feature_evidence_sha256": [
+          "bb42c6237839d1ce0ec7ebcc3ac1a39cf81dcd643d1595068c6d73276232c243"
+        ],
+        "film": null,
+        "film_unavailable_reason": "No exact current trusted export matches the source, clock and review revision."
+      }
+    ]
+  },
+  "selected": {
+    "evaluation_id": "caf02eaa-81c7-4685-92b6-123305779780",
+    "model_id": "65f7ccd7-1443-4c65-a35d-719f4fafb12e",
+    "artifact_sha256": "5ddfa7c793db9cdba5804ae6f5f78bbeeda16efe9e219992115381fdaf3fea98",
+    "report_sha256": "f755764e2d373307d401b0cbf75fb9ccb2b95cdc5c51da2fbeecc69aad2ba9ee",
+    "case_sha256": "30afbb531bfae70bc5a16f6294d7a380aebe08219f437658fd3a3dc5a5f756d9",
+    "schema_version": 1,
+    "split": "holdout",
+    "case_count": 20,
+    "selected_count": 10,
+    "offset": 0,
+    "groups": {
+      "error_bin": [
+        {
+          "value": "[-0.1,0)",
+          "case_count": 10
+        },
+        {
+          "value": "[0,0.1)",
+          "case_count": 10
+        }
+      ],
+      "outcome_pair": [
+        {
+          "value": "0 \u2192 0",
+          "case_count": 10
+        },
+        {
+          "value": "1 \u2192 1",
+          "case_count": 10
+        }
+      ],
+      "source_group": [
+        {
+          "value": "holdout-0",
+          "case_count": 20
+        }
+      ],
+      "film_category": [
+        {
+          "value": "unknown",
+          "case_count": 20
+        }
+      ],
+      "capture_regime": [
+        {
+          "value": "fixed_sideline",
+          "case_count": 20
+        }
+      ],
+      "observed_outcome": [
+        {
+          "value": "0",
+          "case_count": 10
+        },
+        {
+          "value": "1",
+          "case_count": 10
+        }
+      ]
+    },
+    "filter": {
+      "dimension": "observed_outcome",
+      "category": "1"
+    },
+    "known_source_group_count": 1,
+    "canonical_play_count": 10,
+    "minimum_sample_count": 20,
+    "small_sample": true,
+    "descriptive_only": true,
+    "release_qualification_inherited": false,
+    "metrics": {
+      "brier": 0.0004000000000000007,
+      "diagnostics_version": 1,
+      "error_distribution": {
+        "definition": "prediction_minus_observation",
+        "unit": "probability",
+        "interval": "lower_inclusive_upper_exclusive",
+        "bins": [
+          {
+            "lower": null,
+            "upper": -0.5,
+            "count": 0
+          },
+          {
+            "lower": -0.5,
+            "upper": -0.1,
+            "count": 0
+          },
+          {
+            "lower": -0.1,
+            "upper": 0,
+            "count": 10
+          },
+          {
+            "lower": 0,
+            "upper": 0.1,
+            "count": 0
+          },
+          {
+            "lower": 0.1,
+            "upper": 0.5,
+            "count": 0
+          },
+          {
+            "lower": 0.5,
+            "upper": null,
+            "count": 0
+          }
+        ]
+      },
+      "confusion_matrix": {
+        "labels": [
+          "1"
+        ],
+        "counts": [
+          [
+            10
+          ]
+        ],
+        "rows": "observed",
+        "columns": "predicted",
+        "decision_threshold": 0.5
+      },
+      "log_loss": 0.020202707317519466,
+      "ece": 0.019999999999999907,
+      "calibration_bins": [
+        {
+          "lower": 0.9,
+          "upper": 1.0,
+          "count": 10,
+          "predicted_mean": 0.9800000000000001,
+          "observed_mean": 1.0
+        }
+      ]
+    },
+    "baseline_metrics": {
+      "brier": 0.25,
+      "diagnostics_version": 1,
+      "error_distribution": {
+        "definition": "prediction_minus_observation",
+        "unit": "probability",
+        "interval": "lower_inclusive_upper_exclusive",
+        "bins": [
+          {
+            "lower": null,
+            "upper": -0.5,
+            "count": 0
+          },
+          {
+            "lower": -0.5,
+            "upper": -0.1,
+            "count": 10
+          },
+          {
+            "lower": -0.1,
+            "upper": 0,
+            "count": 0
+          },
+          {
+            "lower": 0,
+            "upper": 0.1,
+            "count": 0
+          },
+          {
+            "lower": 0.1,
+            "upper": 0.5,
+            "count": 0
+          },
+          {
+            "lower": 0.5,
+            "upper": null,
+            "count": 0
+          }
+        ]
+      },
+      "confusion_matrix": {
+        "labels": [
+          "1"
+        ],
+        "counts": [
+          [
+            10
+          ]
+        ],
+        "rows": "observed",
+        "columns": "predicted",
+        "decision_threshold": 0.5
+      },
+      "log_loss": 0.6931471805599453,
+      "ece": 0.5,
+      "calibration_bins": [
+        {
+          "lower": 0.5,
+          "upper": 0.6,
+          "count": 10,
+          "predicted_mean": 0.5,
+          "observed_mean": 1.0
+        }
+      ]
+    },
+    "binary": true,
+    "baseline_definition": "empirical_training_population_mean",
+    "cases": [
+      {
+        "task": "completion",
+        "error": -0.020000000000000018,
+        "split": "holdout",
+        "case_id": "1df541fd1b431b695bb26d4a004493feb96ab14897c2438e5ba3fac62849c3b2",
+        "lineage": {
+          "session_id": "holdout-0",
+          "media_sha256": "cdfe8c7b883c815c95337b2ef591d44b4e5cd501fdee8fa80b2b0913fc89f13b",
+          "recording_id": "holdout-0",
+          "canonical_play_id": "holdout-0-17"
+        },
+        "subject": {
+          "role": "QB",
+          "scope": "player",
+          "tracklet_id": "fixture-holdout-0-17-actor"
+        },
+        "baseline": 0.5,
+        "observed": 1.0,
+        "error_bin": "[-0.1,0)",
+        "predicted": 0.98,
+        "outcome_pair": "1 \u2192 1",
+        "source_group": "holdout-0",
+        "film_category": "unknown",
+        "baseline_error": -0.5,
+        "capture_regime": "fixed_sideline",
+        "feature_version": "expected-outcomes-2",
+        "observed_outcome": "1",
+        "annotation_sha256": "f748adeebbab85147984bc866f8bc1d63b3886ad4da569be9595e5828b32c49a",
+        "observation_clock": {
+          "event": "pass_release",
+          "timestamp_seconds": 2.0
+        },
+        "feature_evidence_sha256": [
+          "4132817a1ca305b5f8998dd4ce3ba3e036aa7d4f9649e31683fe13e3121a99af"
+        ],
+        "film": null,
+        "film_unavailable_reason": "No exact current trusted export matches the source, clock and review revision."
+      },
+      {
+        "task": "completion",
+        "error": -0.020000000000000018,
+        "split": "holdout",
+        "case_id": "5987c06b812f9cd4fdac3855853a27e436cc35c13ba74f5231bc93ae708543b7",
+        "lineage": {
+          "session_id": "holdout-0",
+          "media_sha256": "cdfe8c7b883c815c95337b2ef591d44b4e5cd501fdee8fa80b2b0913fc89f13b",
+          "recording_id": "holdout-0",
+          "canonical_play_id": "holdout-0-19"
+        },
+        "subject": {
+          "role": "QB",
+          "scope": "player",
+          "tracklet_id": "fixture-holdout-0-19-actor"
+        },
+        "baseline": 0.5,
+        "observed": 1.0,
+        "error_bin": "[-0.1,0)",
+        "predicted": 0.98,
+        "outcome_pair": "1 \u2192 1",
+        "source_group": "holdout-0",
+        "film_category": "unknown",
+        "baseline_error": -0.5,
+        "capture_regime": "fixed_sideline",
+        "feature_version": "expected-outcomes-2",
+        "observed_outcome": "1",
+        "annotation_sha256": "dd39e1765f665d846ab349409c3992cd73850ef304e1a7892e6f0e8850112584",
+        "observation_clock": {
+          "event": "pass_release",
+          "timestamp_seconds": 2.0
+        },
+        "feature_evidence_sha256": [
+          "6e8e34d16bbd8cf984fe3461d6025de4724c42b0c637f74fc63de0666c494e43"
+        ],
+        "film": null,
+        "film_unavailable_reason": "No exact current trusted export matches the source, clock and review revision."
+      },
+      {
+        "task": "completion",
+        "error": -0.020000000000000018,
+        "split": "holdout",
+        "case_id": "701b0b589c59deceb74be0083b44605a05701b3629d9e69a6e10762b0939d294",
+        "lineage": {
+          "session_id": "holdout-0",
+          "media_sha256": "cdfe8c7b883c815c95337b2ef591d44b4e5cd501fdee8fa80b2b0913fc89f13b",
+          "recording_id": "holdout-0",
+          "canonical_play_id": "holdout-0-1"
+        },
+        "subject": {
+          "role": "QB",
+          "scope": "player",
+          "tracklet_id": "fixture-holdout-0-1-actor"
+        },
+        "baseline": 0.5,
+        "observed": 1.0,
+        "error_bin": "[-0.1,0)",
+        "predicted": 0.98,
+        "outcome_pair": "1 \u2192 1",
+        "source_group": "holdout-0",
+        "film_category": "unknown",
+        "baseline_error": -0.5,
+        "capture_regime": "fixed_sideline",
+        "feature_version": "expected-outcomes-2",
+        "observed_outcome": "1",
+        "annotation_sha256": "3fbff3e7ff9b22372d4873b4bd1938958d099442df1b27d0ddf05dc4ef81828e",
+        "observation_clock": {
+          "event": "pass_release",
+          "timestamp_seconds": 2.0
+        },
+        "feature_evidence_sha256": [
+          "5e006f92d342e2ccae233bc3e0674172b97e689ff73af2bdd5ce01ccbeaaeed0"
+        ],
+        "film": null,
+        "film_unavailable_reason": "No exact current trusted export matches the source, clock and review revision."
+      },
+      {
+        "task": "completion",
+        "error": -0.020000000000000018,
+        "split": "holdout",
+        "case_id": "705b0c6e68a3f84ccda7abbbdbb78b402009341674bc4ce27e00595d8aa9ca85",
+        "lineage": {
+          "session_id": "holdout-0",
+          "media_sha256": "cdfe8c7b883c815c95337b2ef591d44b4e5cd501fdee8fa80b2b0913fc89f13b",
+          "recording_id": "holdout-0",
+          "canonical_play_id": "holdout-0-11"
+        },
+        "subject": {
+          "role": "QB",
+          "scope": "player",
+          "tracklet_id": "fixture-holdout-0-11-actor"
+        },
+        "baseline": 0.5,
+        "observed": 1.0,
+        "error_bin": "[-0.1,0)",
+        "predicted": 0.98,
+        "outcome_pair": "1 \u2192 1",
+        "source_group": "holdout-0",
+        "film_category": "unknown",
+        "baseline_error": -0.5,
+        "capture_regime": "fixed_sideline",
+        "feature_version": "expected-outcomes-2",
+        "observed_outcome": "1",
+        "annotation_sha256": "86de9f878f693b5ed2c7ef41f406f7cae138fcbe26d7f6beb0e40a879d6bcf06",
+        "observation_clock": {
+          "event": "pass_release",
+          "timestamp_seconds": 2.0
+        },
+        "feature_evidence_sha256": [
+          "293b743e33000689e81e80a299814503e13e623ce7bb8510d03e212b343298f0"
+        ],
+        "film": null,
+        "film_unavailable_reason": "No exact current trusted export matches the source, clock and review revision."
+      },
+      {
+        "task": "completion",
+        "error": -0.020000000000000018,
+        "split": "holdout",
+        "case_id": "81998a2ecfae425a88b11a69ad3e9e656ea90531ecc12b5e0ff41d0c4f3be24b",
+        "lineage": {
+          "session_id": "holdout-0",
+          "media_sha256": "cdfe8c7b883c815c95337b2ef591d44b4e5cd501fdee8fa80b2b0913fc89f13b",
+          "recording_id": "holdout-0",
+          "canonical_play_id": "holdout-0-5"
+        },
+        "subject": {
+          "role": "QB",
+          "scope": "player",
+          "tracklet_id": "fixture-holdout-0-5-actor"
+        },
+        "baseline": 0.5,
+        "observed": 1.0,
+        "error_bin": "[-0.1,0)",
+        "predicted": 0.98,
+        "outcome_pair": "1 \u2192 1",
+        "source_group": "holdout-0",
+        "film_category": "unknown",
+        "baseline_error": -0.5,
+        "capture_regime": "fixed_sideline",
+        "feature_version": "expected-outcomes-2",
+        "observed_outcome": "1",
+        "annotation_sha256": "0d9fa93fd8949c48fb0e2bfb4b5f0aa65f48ffc0d901daf52c6aef47f7fce2e4",
+        "observation_clock": {
+          "event": "pass_release",
+          "timestamp_seconds": 2.0
+        },
+        "feature_evidence_sha256": [
+          "87a7945b83c08c0e8a7ee1da81ab7f653ba799a5cd49b58068e204f47e41c93e"
+        ],
+        "film": null,
+        "film_unavailable_reason": "No exact current trusted export matches the source, clock and review revision."
+      },
+      {
+        "task": "completion",
+        "error": -0.020000000000000018,
+        "split": "holdout",
+        "case_id": "ace7977388d7c74a4fba0aea467428893b702e1753adbf98994b7e17a0735f7f",
+        "lineage": {
+          "session_id": "holdout-0",
+          "media_sha256": "cdfe8c7b883c815c95337b2ef591d44b4e5cd501fdee8fa80b2b0913fc89f13b",
+          "recording_id": "holdout-0",
+          "canonical_play_id": "holdout-0-15"
+        },
+        "subject": {
+          "role": "QB",
+          "scope": "player",
+          "tracklet_id": "fixture-holdout-0-15-actor"
+        },
+        "baseline": 0.5,
+        "observed": 1.0,
+        "error_bin": "[-0.1,0)",
+        "predicted": 0.98,
+        "outcome_pair": "1 \u2192 1",
+        "source_group": "holdout-0",
+        "film_category": "unknown",
+        "baseline_error": -0.5,
+        "capture_regime": "fixed_sideline",
+        "feature_version": "expected-outcomes-2",
+        "observed_outcome": "1",
+        "annotation_sha256": "5470fc3b8d2d1bbe4a5b3cc63c27846e4a41ba52f40481324580ce5312610fa1",
+        "observation_clock": {
+          "event": "pass_release",
+          "timestamp_seconds": 2.0
+        },
+        "feature_evidence_sha256": [
+          "b6dbfcea943b9e1122bd1a2ec5ba922d9985fada56bd4a0fc6adaaee22ca56e0"
+        ],
+        "film": null,
+        "film_unavailable_reason": "No exact current trusted export matches the source, clock and review revision."
+      },
+      {
+        "task": "completion",
+        "error": -0.020000000000000018,
+        "split": "holdout",
+        "case_id": "b1066994cc061af17605f6f97671048653773ff2d56d99937e3ee86b46f42021",
+        "lineage": {
+          "session_id": "holdout-0",
+          "media_sha256": "cdfe8c7b883c815c95337b2ef591d44b4e5cd501fdee8fa80b2b0913fc89f13b",
+          "recording_id": "holdout-0",
+          "canonical_play_id": "holdout-0-3"
+        },
+        "subject": {
+          "role": "QB",
+          "scope": "player",
+          "tracklet_id": "fixture-holdout-0-3-actor"
+        },
+        "baseline": 0.5,
+        "observed": 1.0,
+        "error_bin": "[-0.1,0)",
+        "predicted": 0.98,
+        "outcome_pair": "1 \u2192 1",
+        "source_group": "holdout-0",
+        "film_category": "unknown",
+        "baseline_error": -0.5,
+        "capture_regime": "fixed_sideline",
+        "feature_version": "expected-outcomes-2",
+        "observed_outcome": "1",
+        "annotation_sha256": "811eb04db791534c960411157dc8aebf86335419695b58b2af34bbce2eb3e1a9",
+        "observation_clock": {
+          "event": "pass_release",
+          "timestamp_seconds": 2.0
+        },
+        "feature_evidence_sha256": [
+          "e58c78927dc0e16d9f2233982676a1486260763c48409b9bbc78710375845ca1"
+        ],
+        "film": null,
+        "film_unavailable_reason": "No exact current trusted export matches the source, clock and review revision."
+      },
+      {
+        "task": "completion",
+        "error": -0.020000000000000018,
+        "split": "holdout",
+        "case_id": "b76c9b4173ddc67627841ef7becd5c0d89220234b72185ea4fb758ae8ec8f0c1",
+        "lineage": {
+          "session_id": "holdout-0",
+          "media_sha256": "cdfe8c7b883c815c95337b2ef591d44b4e5cd501fdee8fa80b2b0913fc89f13b",
+          "recording_id": "holdout-0",
+          "canonical_play_id": "holdout-0-9"
+        },
+        "subject": {
+          "role": "QB",
+          "scope": "player",
+          "tracklet_id": "fixture-holdout-0-9-actor"
+        },
+        "baseline": 0.5,
+        "observed": 1.0,
+        "error_bin": "[-0.1,0)",
+        "predicted": 0.98,
+        "outcome_pair": "1 \u2192 1",
+        "source_group": "holdout-0",
+        "film_category": "unknown",
+        "baseline_error": -0.5,
+        "capture_regime": "fixed_sideline",
+        "feature_version": "expected-outcomes-2",
+        "observed_outcome": "1",
+        "annotation_sha256": "290e3a49e4a65ae3d337fec3c3a64bce9731e57d4eb53b46a29bbc9a6845b27d",
+        "observation_clock": {
+          "event": "pass_release",
+          "timestamp_seconds": 2.0
+        },
+        "feature_evidence_sha256": [
+          "c21eaa7a0c500eb626cc56da4499407625babb71bae2c9f0b18e566c89a0a7e5"
+        ],
+        "film": null,
+        "film_unavailable_reason": "No exact current trusted export matches the source, clock and review revision."
+      },
+      {
+        "task": "completion",
+        "error": -0.020000000000000018,
+        "split": "holdout",
+        "case_id": "d3cf4bc2639de8cda58f0579b77a25bcf843e253649f3e5354b586e9e1c38221",
+        "lineage": {
+          "session_id": "holdout-0",
+          "media_sha256": "cdfe8c7b883c815c95337b2ef591d44b4e5cd501fdee8fa80b2b0913fc89f13b",
+          "recording_id": "holdout-0",
+          "canonical_play_id": "holdout-0-7"
+        },
+        "subject": {
+          "role": "QB",
+          "scope": "player",
+          "tracklet_id": "fixture-holdout-0-7-actor"
+        },
+        "baseline": 0.5,
+        "observed": 1.0,
+        "error_bin": "[-0.1,0)",
+        "predicted": 0.98,
+        "outcome_pair": "1 \u2192 1",
+        "source_group": "holdout-0",
+        "film_category": "unknown",
+        "baseline_error": -0.5,
+        "capture_regime": "fixed_sideline",
+        "feature_version": "expected-outcomes-2",
+        "observed_outcome": "1",
+        "annotation_sha256": "2eb6032a0f77886f3af661777c3decdbda98c76bc4cce6823b051c1f0d25e9f5",
+        "observation_clock": {
+          "event": "pass_release",
+          "timestamp_seconds": 2.0
+        },
+        "feature_evidence_sha256": [
+          "e088607511c0a59cb5bd76c206c8dace8e680e960b128e576d42871660246e35"
+        ],
+        "film": null,
+        "film_unavailable_reason": "No exact current trusted export matches the source, clock and review revision."
+      },
+      {
+        "task": "completion",
+        "error": -0.020000000000000018,
+        "split": "holdout",
+        "case_id": "e1ff3b9649df12c12fbd9a7ee940c4a430d2f070590c4f7f649fd074acf94aef",
+        "lineage": {
+          "session_id": "holdout-0",
+          "media_sha256": "cdfe8c7b883c815c95337b2ef591d44b4e5cd501fdee8fa80b2b0913fc89f13b",
+          "recording_id": "holdout-0",
+          "canonical_play_id": "holdout-0-13"
+        },
+        "subject": {
+          "role": "QB",
+          "scope": "player",
+          "tracklet_id": "fixture-holdout-0-13-actor"
+        },
+        "baseline": 0.5,
+        "observed": 1.0,
+        "error_bin": "[-0.1,0)",
+        "predicted": 0.98,
+        "outcome_pair": "1 \u2192 1",
+        "source_group": "holdout-0",
+        "film_category": "unknown",
+        "baseline_error": -0.5,
+        "capture_regime": "fixed_sideline",
+        "feature_version": "expected-outcomes-2",
+        "observed_outcome": "1",
+        "annotation_sha256": "6ed5c08e6cb9d772932fe6f18f7a45bbfdfead8433a4113a14c885f7e2e72d41",
+        "observation_clock": {
+          "event": "pass_release",
+          "timestamp_seconds": 2.0
+        },
+        "feature_evidence_sha256": [
+          "f310ae7602fd476714ecff45cf0b35aaa264180a76db8bec9e9b78dccd9aeade"
+        ],
+        "film": null,
+        "film_unavailable_reason": "No exact current trusted export matches the source, clock and review revision."
+      }
+    ]
+  }
+}

@@ -149,6 +149,13 @@ async def release_inventory(
                 "version": ((worker.capabilities or {}).get("metadata") or {}).get(
                     "git_sha", "unknown"
                 ),
+                "git_dirty": ((worker.capabilities or {}).get("metadata") or {}).get("git_dirty"),
+                "producer_protocol": ((worker.capabilities or {}).get("metadata") or {}).get(
+                    "producer_protocol"
+                ),
+                "training_variants": ((worker.capabilities or {}).get("metadata") or {}).get(
+                    "training_variants", []
+                ),
             }
             for worker in workers
         ],

@@ -1,0 +1,365 @@
+{
+  "schema_version": 1,
+  "observed_at_utc": "2026-10-21T22:01:18.781328+00:00",
+  "status": "local_regression_verified_full_overhaul_incomplete",
+  "scope": "uncommitted_source_after_549e8cf_no_production_deployment_or_football_accuracy_claim",
+  "source": {
+    "base_commit": "549e8cf30ced3f4ed6f914f2a21263a0baf226d3",
+    "branch": "codex/overhaul-completion-20261021",
+    "files": [
+      {
+        "path": "backend/app/routers/analytics.py",
+        "bytes": 24480,
+        "sha256": "f19ee9b307b735810604885a6724ade7c243978b1da7e06d9b0b240dfac423c0"
+      },
+      {
+        "path": "backend/app/routers/jobs.py",
+        "bytes": 33721,
+        "sha256": "b23dfef85dc6bda60f41b6e6c22a5aba724576967deb4d6096ff570cbd67b933"
+      },
+      {
+        "path": "backend/app/routers/learning.py",
+        "bytes": 21507,
+        "sha256": "48aa546b1a1c861b0d4f80795234eed666531054508ab09b1a33c553544b052f"
+      },
+      {
+        "path": "backend/app/routers/system.py",
+        "bytes": 18883,
+        "sha256": "3b40e81fa7ff1b14ee505b4e54919c727c302fb5eedb20e5fa12b6356ff96221"
+      },
+      {
+        "path": "backend/app/services/expected_outcomes.py",
+        "bytes": 43905,
+        "sha256": "8046364bff0e2e218148a10ad99a0615e8bc1d2d39a88c69d364db69720c21ec"
+      },
+      {
+        "path": "backend/app/services/metric_definitions.py",
+        "bytes": 30268,
+        "sha256": "80a6659f2f8b957f06a92cf2028daad3adc5a57ccb3a8ff3026a908dc4f7fc69"
+      },
+      {
+        "path": "backend/app/services/model_cases.py",
+        "bytes": 9074,
+        "sha256": "fae4381a224ac90f3670fd951b60a6f3374410bd9131683afd478281adf5571c"
+      },
+      {
+        "path": "backend/app/services/model_diagnostics.py",
+        "bytes": 8021,
+        "sha256": "744730780f270ace24dd37d1605fa119a16c43f8fcb08a62d26c9d339c3cda16"
+      },
+      {
+        "path": "backend/tests/test_expected_feature_export.py",
+        "bytes": 9712,
+        "sha256": "f4346f37a4d87cdcce0766c6346c27d7a19377175774f709c1cf76687f12a2ec"
+      },
+      {
+        "path": "backend/tests/test_jobs_claim.py",
+        "bytes": 17428,
+        "sha256": "d650355a3bce7ae8fe0c73cabdb7bf2da576b746564974cde158d62e890ac89f"
+      },
+      {
+        "path": "backend/tests/test_model_cases.py",
+        "bytes": 9461,
+        "sha256": "5c26dcf663798b2fa2c5100d27b7956534a5435ae0ea570e6b7b1916dabf4040"
+      },
+      {
+        "path": "backend/tests/test_platform_overhaul.py",
+        "bytes": 62291,
+        "sha256": "a8587a27a082ffaa4cf322b8c89bf0f63feb2abc2728ee3947afa8c9fa0dab25"
+      },
+      {
+        "path": "frontend/e2e/analytics.spec.ts",
+        "bytes": 16447,
+        "sha256": "6013da66556330718aa4b8197f633020bb7fb83ac12695c7c661c52fc926fa60"
+      },
+      {
+        "path": "frontend/e2e/model-reliability-cases.spec.ts",
+        "bytes": 9110,
+        "sha256": "cd5037c4921aae1c4da3eedb3eb426742d7de311766206f9401f23d8c9484d15"
+      },
+      {
+        "path": "frontend/e2e/run-evidence.spec.ts",
+        "bytes": 5727,
+        "sha256": "9cf856a819915e75d99cf7ca26a3a7c710359dfc5e24bb2fec426c5e74048679"
+      },
+      {
+        "path": "frontend/src/components/__fixtures__/model-reliability-cases-producer.json",
+        "bytes": 65666,
+        "sha256": "d8bea1ac6317c2e36703956436cb49c65a90e96924a9f819ea1707a12dee8016"
+      },
+      {
+        "path": "frontend/src/components/__fixtures__/run-evidence-producer.json",
+        "bytes": 104612,
+        "sha256": "1900436b9fd0a2c36ed03e3e8d438fe8ac0149b542fd7406c4d5e6d2d2220a7f"
+      },
+      {
+        "path": "frontend/src/components/__fixtures__/trench-interaction-producer.json",
+        "bytes": 2759,
+        "sha256": "266a35ef4bfa57bc7ffbde13210b28d0077bff1b117e4134d6cb76d3c195ba36"
+      },
+      {
+        "path": "frontend/src/components/interaction-position-visuals.tsx",
+        "bytes": 6644,
+        "sha256": "30717e690604f23ccb55a468dc3fa022cfdb8711769b288c789894bf0bdbb365"
+      },
+      {
+        "path": "frontend/src/components/model-reliability-cases.test.tsx",
+        "bytes": 8840,
+        "sha256": "7bca54c0da80074c3f5f950f9c450fdca34daca625e72fa9b26f89b12172487d"
+      },
+      {
+        "path": "frontend/src/components/model-reliability-cases.tsx",
+        "bytes": 12299,
+        "sha256": "a04f0248c62529fdd8d9bc6725365b71e2a4fe25b8ea35d003abd3f5570fb6d4"
+      },
+      {
+        "path": "frontend/src/components/model-reliability.tsx",
+        "bytes": 16346,
+        "sha256": "ed0728da389a458221dca6594f9f3d15f3d370fb6cb71d5c0c2e3bb04a2eeca9"
+      },
+      {
+        "path": "frontend/src/components/run-evidence-visuals.test.tsx",
+        "bytes": 7204,
+        "sha256": "753b94b4616fb2ab65b5d266f359d6e957f998c4bbb23b9f16db8a374e2e7677"
+      },
+      {
+        "path": "frontend/src/components/run-evidence-visuals.tsx",
+        "bytes": 17951,
+        "sha256": "24232cd3de41447a6a0ec9ad25168136ec267a030a9740d0f32cfee5c925b60f"
+      },
+      {
+        "path": "frontend/src/components/team-analytics.tsx",
+        "bytes": 24020,
+        "sha256": "c411ab60151bcb13a45c80a1d3bb6dd8110cbdae5b8cf17577eff1c25230bda5"
+      },
+      {
+        "path": "frontend/src/components/trench-interaction-replay.test.tsx",
+        "bytes": 5252,
+        "sha256": "8b48f1a730a2728c8420f49c826f161ec8a0398ef7a849980e376eb7efb974a4"
+      },
+      {
+        "path": "frontend/src/components/trench-interaction-replay.tsx",
+        "bytes": 8431,
+        "sha256": "23731417ddf7e2a8c5310fbdddaf4b6f192df31d299d069994659bd3b9ef6f9f"
+      },
+      {
+        "path": "frontend/src/lib/model-reliability-cases.test.ts",
+        "bytes": 2130,
+        "sha256": "66765b741cbab00c97bb2eb4841b59bfbf0b1df4664e5254309c1ada000af305"
+      },
+      {
+        "path": "frontend/src/lib/model-reliability-cases.ts",
+        "bytes": 6829,
+        "sha256": "d2235b30d251170c80174d9da73ac3bdd40dbfd0c4d6467d65d151776ec9b6a7"
+      },
+      {
+        "path": "gpu-worker/__main__.py",
+        "bytes": 64165,
+        "sha256": "f76f2f7ffd4de83944abb97a750e10264df6cecef811a14e97fc7d8d1e83fe7a"
+      },
+      {
+        "path": "gpu-worker/pipeline/checkpoints.py",
+        "bytes": 5470,
+        "sha256": "400fef7531de9d0043d7625d84465c40553a5ef5294406e886f7ad81f6f81444"
+      },
+      {
+        "path": "gpu-worker/pipeline/expected_outcomes/diagnostics.py",
+        "bytes": 8021,
+        "sha256": "744730780f270ace24dd37d1605fa119a16c43f8fcb08a62d26c9d339c3cda16"
+      },
+      {
+        "path": "gpu-worker/pipeline/expected_outcomes/model.py",
+        "bytes": 15359,
+        "sha256": "f18945b29b9730b81381e274421e80c1fe8f32303469d34751832a665d4b5bd4"
+      },
+      {
+        "path": "gpu-worker/pipeline/media_identity.py",
+        "bytes": 4106,
+        "sha256": "f88a6b1e0e4bd7c371303c4ccdbff0d1570692653fbd170b3479aef9a998b3a6"
+      },
+      {
+        "path": "gpu-worker/pipeline/producer_contract.py",
+        "bytes": 1202,
+        "sha256": "963c654e35a2d72b74a508c5b66518cf790090cc9a79a835d7e07a183c5b2072"
+      },
+      {
+        "path": "gpu-worker/pipeline/run_observations.py",
+        "bytes": 22415,
+        "sha256": "87de24c33aa1167cf194642e5076f434a3cfe0fb524bc60f3a78de3e2f21543b"
+      },
+      {
+        "path": "gpu-worker/pipeline/stage_metrics.py",
+        "bytes": 45196,
+        "sha256": "8677f67e613ff48f59bc6d85ec76c32eefb06b31df533db838e9598b635d76e3"
+      },
+      {
+        "path": "gpu-worker/pipeline/trench_observations.py",
+        "bytes": 3421,
+        "sha256": "4bfc49422f265fe4210f62651084c5581342b40afd44868cda3df92fd4cba3e4"
+      },
+      {
+        "path": "gpu-worker/tests/integration/test_expected_outcomes_http.py",
+        "bytes": 8295,
+        "sha256": "9569e488bdb2e72ac3a0d743dc7eb98d58c274aa1e32c36473d4ae9b097443aa"
+      },
+      {
+        "path": "gpu-worker/tests/test_db_queue_worker.py",
+        "bytes": 11085,
+        "sha256": "4462d7cb88781c0e704e0b44869a3a09af4b24128ec1acf1964b58ab73f7dd56"
+      },
+      {
+        "path": "gpu-worker/tests/test_expected_outcome_artifact_identity.py",
+        "bytes": 4130,
+        "sha256": "b8e36fc962a50053658af90201cb8aa32c09d861d868a11a814c06c43f68b6cb"
+      },
+      {
+        "path": "gpu-worker/tests/test_expected_outcomes.py",
+        "bytes": 44209,
+        "sha256": "aa5264d53b4cfa7ab4ea3fa9f1e6626213e934b2f0103ad0e080181470e3d6b1"
+      },
+      {
+        "path": "gpu-worker/tests/test_media_identity.py",
+        "bytes": 5647,
+        "sha256": "560b54db6c299a46b1321307585786f3004d0dc76131fc30036ea0be40df34b7"
+      },
+      {
+        "path": "gpu-worker/tests/test_position_producers.py",
+        "bytes": 29175,
+        "sha256": "bf8566faf1dab264001d4028cfebf000d69cf8894fcaccca5e55e3e48c23db48"
+      },
+      {
+        "path": "gpu-worker/tests/test_producer_contract.py",
+        "bytes": 1218,
+        "sha256": "b1a2e20119264823c62950a3a569049d86727f019efc444f5cc2f5c0eab2a88d"
+      },
+      {
+        "path": "gpu-worker/tests/test_trench_observations.py",
+        "bytes": 5589,
+        "sha256": "4f9e2c4ef87303598dd9fef4056204e7077ef1a67fcac2cbb3cc9cacf6626123"
+      },
+      {
+        "path": "gpu-worker/training/expected_outcomes.py",
+        "bytes": 17488,
+        "sha256": "a2b763bf8baed0cf4d03d1a0d1e6c2eebf938d7176556a1958df14376d454924"
+      },
+      {
+        "path": "gpu-worker/training/verify_expected_outcomes.py",
+        "bytes": 10807,
+        "sha256": "e59fb99a0ba466bc5cff61b0af12db1aecf066b31017ed34613f673ecb2d50d0"
+      }
+    ],
+    "modified_source_files": 48,
+    "working_source_sha256": "ccda8e1a5f008c450a0002881316bc2ecba8308d17e2b0f5d8d06f344f71e6a1"
+  },
+  "checks": [
+    {
+      "name": "backend",
+      "result": "passed",
+      "count": 1046,
+      "skipped": 0,
+      "log": "runs/post-push-backend-final-snapshot.log",
+      "sha256": "ae36219648e3baf22f5d32d20925d1e4d59a28c3daa0ed8af517515f0da97100"
+    },
+    {
+      "name": "worker_windows",
+      "result": "passed",
+      "count": 1810,
+      "skipped": 1,
+      "log": "runs/post-push-worker-retry-final.log",
+      "sha256": "43c811d58d11f3bef96652e7ae94f9d0b2ecc588797ef59550e404418a47f153"
+    },
+    {
+      "name": "worker_linux_python312",
+      "result": "passed",
+      "count": 1810,
+      "skipped": 1,
+      "log": "runs/post-push-linux-worker-retry-final.log",
+      "sha256": "ecf67f995e479009af37ff5c73053361f91569c3802c5d194e8c7ece1b97a8fe"
+    },
+    {
+      "name": "frontend_unit",
+      "result": "passed",
+      "count": 566,
+      "skipped": 0,
+      "log": "runs/post-push-frontend-frozen-final.log",
+      "sha256": "2ffdf503e49372131c6a037ed0faaa481f3ffc3c4286a25b9639c645464614ac"
+    },
+    {
+      "name": "frontend_browser",
+      "result": "passed",
+      "count": 28,
+      "skipped": 0,
+      "log": "runs/post-push-browser-frozen-final.log",
+      "sha256": "dc9a55729b536600716ccf3a36dab4791e589daae623ca7a7d18229986b125d0"
+    },
+    {
+      "name": "real_http_integrations",
+      "result": "passed",
+      "count": 3,
+      "skipped": 0,
+      "log": "runs/post-push-integrations-retry-final.log",
+      "sha256": "c8f349e08741b4e33753f687b6bc977a1a0ca0a38555ef76179fa1e5ae785576"
+    },
+    {
+      "name": "frontend_production",
+      "result": "passed",
+      "count": 17,
+      "skipped": 0,
+      "log": "runs/post-push-frontend-frozen-production.log",
+      "sha256": "1a1e8418e1fd9f07493608bfe960c001ea0c43e1a7e28eae2ecebe4736432290"
+    }
+  ],
+  "quality_checks": {
+    "backend_ruff": "passed",
+    "backend_format_files": 236,
+    "backend_mypy_app_files": 123,
+    "worker_global_ruff": "passed",
+    "frontend_global_eslint": "passed",
+    "git_diff_check": "passed",
+    "frontend_next_env": "production .next/types/routes.d.ts"
+  },
+  "linux_snapshot": {
+    "files": 487,
+    "current_source_mismatches": [],
+    "python": "3.12.15",
+    "ffmpeg": "7.1.5",
+    "dependencies": "gpu-worker/requirements-ci.txt",
+    "first_partial_harness": "runs/post-push-linux-worker.log had missing source assets/read-only paths/old ffmpeg; superseded by clean CI-style container run",
+    "root": "runs/post-push-ci-source",
+    "manifest": "runs/post-push-ci-source/source-manifest.json",
+    "manifest_sha256": "d848972b6c2cd6000fa121eb9d44e123f287fb86b29a6c883eb537aa071ad5aa"
+  },
+  "remote_ci": {
+    "commit": "549e8cf30ced3f4ed6f914f2a21263a0baf226d3",
+    "run_id": 39676607970,
+    "conclusion": "failure",
+    "failed_jobs": [
+      "GPU worker (Python)",
+      "Cross-service integration"
+    ],
+    "deployment_workflow": "skipped"
+  },
+  "production_observation": "runs/readonly-cross-release-549e8cf-final.json",
+  "independent_review": [
+    "reports/overhaul/continuation-review.md",
+    "reports/overhaul/rb-run-evidence-continuation.md",
+    "reports/overhaul/model-reliability-cases-continuation.md",
+    "reports/overhaul/worker-release-compatibility-review.md"
+  ],
+  "limits": [
+    "No latest changes committed, pushed or deployed by this run.",
+    "Current remote CI has not passed these uncommitted fixes.",
+    "No qualified football model, real labels, full-game workload or staff acceptance established.",
+    "Generic classifier case drilldown and further position/specialist products remain incomplete.",
+    "Backend warning count is 9; worker optional joblib custom-artifact test skipped and integration tests run separately."
+  ],
+  "independent_master_review": "accepted",
+  "independent_master_review_evidence": {
+    "observed_at_utc": "2026-10-21T22:02:58.618607+00:00",
+    "source_file_hashes_verified": 48,
+    "final_log_hashes_verified": 7,
+    "linux_copy_file_hashes_verified": 487,
+    "verification_record": "runs/reviewer-post-push-final-verification.json",
+    "scope": "Accepted bounded local source/regression record only; full overhaul, football accuracy, remote CI and compatible production release remain unaccepted."
+  }
+}

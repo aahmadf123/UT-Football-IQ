@@ -88,6 +88,7 @@ def test_real_http_candidate_and_independent_verifier(backend, tmp_path, monkeyp
             "device": "cpu",
             "profiles": ["review", "quick", "detailed"],
             "job_types": ["train"],
+            "metadata": {"producer_protocol": 1, "training_variants": ["expected_outcomes", "verify_expected_outcomes"]},
         },
     )
     registered.raise_for_status()

@@ -16,7 +16,7 @@ from pipeline.media_identity import content_identity
 # Schema 6 invalidates pre-versioned derivatives, sampled-frame tracking and
 # cut proposals that discarded short source intervals or skipped shot structure.
 CHECKPOINT_SCHEMA = 6
-OBSERVED_METRICS_VERSION = "unique-reviewed-source-clocks-2026-10-21.2"
+OBSERVED_METRICS_VERSION = "observed-run-and-trench-2026-10-21.3"
 
 
 def file_digest(path: Path) -> str:

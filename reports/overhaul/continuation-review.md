@@ -1,7 +1,9 @@
 # Overhaul continuation review — 2026-10-21
 
-Scope: local follow-up work on `codex/overhaul-completion-20261021`, after PR57
-merged as `7bb3793`. This is an active review ledger, not full-plan acceptance.
+Scope: follow-up work on `codex/overhaul-completion-20261021`, initially after
+PR57 (`7bb3793`), then after the user's `549e8cf` main push. Earlier sections
+are historical snapshots; the newest section records the subsequent local,
+uncommitted fixes. This is an active review ledger, not full-plan acceptance.
 Implementation fixes go to their owners except the explicitly assigned narrow
 frontend shot-normalization fix below. Production checks remain read-only.
 
@@ -728,3 +730,177 @@ paths and hashes instead. No additional source or bounded-evidence blocker was
 found in this final review.
 The parent removed that command-string claim; the corrected master wording was
 confirmed and the final review documents pass `git diff --check`.
+
+## Review after the user's 549e8cf push
+
+The reviewer independently refreshed GitHub run `39676607970` at 21:35:08 UTC:
+worker unit and cross-service integration jobs failed; seven other jobs
+succeeded. Its source is `549e8cf30ced3f4ed6f914f2a21263a0baf226d3`. The new
+local passes below do not change that failed remote run. Read-only production
+evidence at 21:23:46 UTC proves an actual mixed release: canonical Vercel
+frontend `549e8cf` (`dpl_EkjHxmNNKzQDkw6hjLJt9CauKHxu`), API `7bb3793`, health
+and database readiness 200, protected inventory 401. The long-lived processor
+remains unchanged, with the inspected separate checkout at `d1f4317`.
+
+### Linux source identity
+
+Review traced both reported CI failures to inode ctime changing when stages
+borrow/release hard links. The corrected source check preserves dev/inode/size/
+mtime guards and rehashes actual full bytes on ctime-only change, requiring
+the original full SHA and registration fingerprint and stable before/after
+stat. It does not refresh proof to changed bytes or add a redundant hash for
+unchanged metadata. Independent media-identity/orchestrator rerun passed 31
+cases in 16.81s. The parent additionally reports the actual Linux-container
+failure case passing and three actual local HTTP transports passing in 60.46s.
+This addresses the reproduced portability failure locally; remote CI remains red.
+
+### Paired trench replay
+
+Independent adversarial review reproduced an interpolated actor position being
+advertised as an exact observed sample. The worker now emits an absent-actor
+barrier for explicit interpolation/prediction. Distinct same-pair start events
+formerly produced duplicate duration rows; unique qualified endpoints are now
+required. Conflicting supplied `blocker_id`/`player_track_id` aliases also
+formerly chose one actor. The corrected resolver rejects them, including an
+extra ambiguous endpoint beside otherwise valid endpoints, rather than using a
+fallback. Exact native frame/time, safe calibration, source/shot/pair/result
+binding and no extrapolation are required for spatial replay. Missing geometry
+does not erase an otherwise valid temporal observation. The frontend preserves
+barriers, discrete source samples and exact film focus, without success grades.
+
+### RB run/contact/gap views
+
+Review reproduced contradictory carrier aliases choosing one athlete, native
+sample claims without verified frame/time support, an unreachable no-endpoint
+path prefix, and conflicting first-contact rows choosing an arbitrary scalar
+endpoint. Those cases now abstain or remain explicit partial composite evidence.
+Unknown/cross-shot/multiple first contacts cannot produce contact marks or
+pre/post-contact scalars. Density counts distinct canonical plays per observed
+two-yard cell, omits predicted/interpolated points and does not imply exposure
+rates. Frame/clock conflicts, losses and unknown shots break paths. Original gap
+labels must match actual bounds; an inward TE no longer makes an inside-tackle
+point an edge. Both attack directions use the actual outermost supplied side
+tackle/TE center. No intended gap, clear opening or blocking assignment is inferred.
+
+The final independent combined position/trench run passed 72 cases in 1.71s;
+RB/trench/matrix frontend run passed 18 cases in 2.97s. These accepted producer
+and UI fixtures remain synthetic protocol evidence. The owner/parent's real
+browser checks are additional UI mechanics, not real-football validation.
+
+### Heldout source-case/category diagnostics
+
+Review found that a self-consistent supplied case hash plus tolerant numeric
+comparison could accept a small alteration to an immutable case. The corrected
+server requires exact independently reconstructed case SHA/document, including
+sub-tolerance prediction/baseline changes. Four actual CPU-fitted candidate
+reports reproduce server case bytes for completion, pressure, rushing and YAC.
+Category comparisons preserve the artifact/training-population baseline without
+fitting the selected outcomes. Category/source counts deduplicate canonical
+plays; confirmed film categories require matching recorded source attestations.
+
+Authenticated bounded pages/full-filter exports bind evaluation/model/artifact/
+case identities. The UI reconciles count/category/page identities, marks small
+slices descriptive, shows outcome units and rejects stale responses. Raw
+candidate reports cannot request a non-UUID stored-evaluation endpoint.
+Category/model/evaluation and unfiltered pagination context restore on return
+from film. Exact current film links reuse the trusted normal feature export:
+source time 2 with clip start 1 resolves to focus 1, while changed review
+revision, media identity or canonical association removes the link. Historical
+numeric evidence remains readable without claiming a current film match.
+
+Independent backend checks passed 12 cases in 15.85s, including actual four-head
+CPU-fit parity, with one actual database API case deliberately deselected.
+Independent frontend case/reliability checks passed 16 cases in 5.00s. The owner
+separately passed the actual database API/filter/download and current-export
+link/revocation cases. Generic-classifier case reconstruction remains missing;
+old reports are not reconstructed from aggregate scores. No actual football
+candidate or benchmark is qualified by these numerical fixtures.
+
+### Processor compatibility and remaining gates
+
+Read-only source review found that the old running worker advertises `train`
+but implements only `local_coverage`; existing job-type/profile claim filters
+can let it consume new outcome-training tasks. Legacy pipeline completion can
+also succeed without granting any current source proof, so heartbeat and job
+success cannot substitute for a compatible release. The corrected local claim
+guard requires explicit producer protocol/task support for the two new training
+variants, handles registered-runtime fallback and rejects boolean protocol
+values. Trusted verifier principal/lease boundaries remain authoritative.
+Cached source/dirty metadata reaches registration, heartbeat, claims and staff
+inventory. The reviewer independently passed 21 worker capability/dispatch cases
+in 1.07s and read the actual database compatibility/principal regressions.
+Broad current verification remains pending; no live processor update occurred.
+See `worker-release-compatibility-review.md` for evidence and a concrete future
+coordinated update handoff. This reviewer has made no production writes,
+restarts, credential reuse or deployment changes.
+
+The new scope remains local/uncommitted after `549e8cf`. It closes these
+particular implementation gaps, while generic-classifier cases, conditioned
+coaching products, route/trench/defense/ST specialists, staff benchmark labels,
+actual model fitting/quality, full original-game and speed/overnight evidence,
+and a compatible deployed staff journey remain separate work.
+
+The owner subsequently found a weights-only artifact alias in the P5 training
+adapter. Final review confirms report/evidence object keys now use their own
+full SHA values, candidate UUID/version bind the exact three artifact hashes
+with task scope, and equal binding retries remain idempotent. Equal weights
+with different reports/evidence retain historical bytes and distinct registry
+bindings. Independent new-plus-existing artifact/training tests passed 58
+cases in 11.16s. No coefficients, features, split policy or promotion thresholds
+changed. Broad final source-bound checks remain pending after this delta.
+
+The final read-only public refresh at 21:48:20 UTC still found canonical
+frontend `549e8cf` and API `7bb3793`, with httpx health/readiness/version 200,
+database okay and protected inventory 401. An initial urllib attempt received
+Cloudflare error 1010 (`browser_signature_banned`); both attempts are retained
+in `runs/readonly-cross-release-549e8cf-final.json`. That client-specific denial
+is not inferred to be an application outage. No authenticated writes occurred.
+
+The last UI context read reproduced an additional Back edge: selecting a
+nondefault model/evaluation without changing All-cases/page-zero filters did
+not persist that selection into the film return URL. The corrected successful
+load writes the actual model/evaluation plus untouched filter/offset before
+capturing the return path. The reviewer independently passed all 17 case/
+reliability UI tests in 5.80s and read the new real-browser regression selecting
+both nondefault controls, opening film and checking the restored controls,
+cohort and zero offset. Final broad browser/build verification remains pending.
+
+The final Retry read identified an actual recovery defect beyond artifact
+binding idempotency: the API preserves the original output_dir, but fitting
+refuses that now-existing directory after a failed registry publication. Two
+red-first real-fit regressions reproduced it. The queued adapter now derives
+an exclusive UUID5-job/positive-lease-attempt child beneath the configured root.
+A new retry job or reclaimed attempt writes fresh files while all prior files
+remain byte-identical; same-attempt replay still refuses overwrite. Unleased
+adapter calls get a distinct child; direct CLI fitting remains unchanged and
+exclusive. Independent expected-outcome/artifact tests passed 60 cases in 5.05s.
+The full worker/transport source-bound record is being refreshed after this fix.
+
+## Final post-push master acceptance
+
+The reviewer independently verified all 48 changed source/test/fixture hashes
+and sizes, with no omitted changed source files, and reproduced aggregate SHA
+`ccda8e1a5f008c450a0002881316bc2ecba8308d17e2b0f5d8d06f344f71e6a1`.
+All seven final log hashes match. The correct clean Linux copy is
+`runs/post-push-ci-source/source-manifest.json`: all 487 entries match both copy
+and current files, manifest SHA
+`d848972b6c2cd6000fa121eb9d44e123f287fb86b29a6c883eb537aa071ad5aa`.
+The earlier incomplete 384-entry copy was identified explicitly and was not
+mistaken for this final tested snapshot.
+
+Final separate results are backend 1,046 passing with nine warnings; worker
+1,810 on Windows (65.35s) and clean Linux (44.76s), one optional skip and three
+integrations deselected; frontend 566/79 files and all 28 browser flows; all
+three actual HTTP transports after the Retry fix in 62.33s; frontend lint/build
+with 17 static routes. Parent's global Ruff/format/mypy checks also passed.
+Counts from separate runs are not added together.
+
+The master Markdown and JSON accurately distinguish reviewed local code and
+protocol checks from real-label/model, full-game/performance, staff and
+production obligations. A wording correction narrows idempotency to identical
+artifact re-registration; same-attempt fitting still refuses overwrite, while
+new-job/reclaimed-attempt Retry preserves failed evidence and succeeds.
+The independent master review is accepted for that bounded scope, superseding
+the earlier pending notices. This is not full-plan completion, a green remote
+CI result or production deployment. No production writes or processor restart
+occurred during this review.

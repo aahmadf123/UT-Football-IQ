@@ -1,0 +1,104 @@
+{
+  "source": "synthetic_test",
+  "metric": {
+    "metric_name": "engagement_duration",
+    "tracklet_id": "ol",
+    "unit": "s",
+    "is_suppressed": false,
+    "experimental_flag": true,
+    "metric_value": {
+      "definition_version": "2026-10-21.1",
+      "seconds": 0.3,
+      "right_censored": false,
+      "source_start_seconds": 0.0,
+      "source_end_seconds": 0.3,
+      "track_id": "ol",
+      "interaction_id": "pair",
+      "defender_id": "dl",
+      "subject_id": "pair",
+      "interaction_geometry": {
+        "schema_version": 1,
+        "coordinate_space": "field_yards",
+        "clock_basis": "verified_native_pts",
+        "calibration_safe": true,
+        "series_interpolation": "none",
+        "shot_id": "one",
+        "blocker_id": "ol",
+        "defender_id": "dl",
+        "source_start_seconds": 0.0,
+        "source_end_seconds": 0.3,
+        "samples": [
+          {
+            "frame_number": 0,
+            "timestamp_seconds": 0,
+            "blocker": {
+              "field_x": 49,
+              "field_y": 2
+            },
+            "defender": {
+              "field_x": 51,
+              "field_y": 2
+            }
+          },
+          {
+            "frame_number": 1,
+            "timestamp_seconds": 0.1,
+            "blocker": {
+              "field_x": 49.1,
+              "field_y": 2
+            },
+            "defender": null
+          },
+          {
+            "frame_number": 2,
+            "timestamp_seconds": 0.2,
+            "blocker": {
+              "field_x": 49.2,
+              "field_y": 2
+            },
+            "defender": {
+              "field_x": 51.2,
+              "field_y": 2
+            }
+          },
+          {
+            "frame_number": 3,
+            "timestamp_seconds": 0.3,
+            "blocker": {
+              "field_x": 49.3,
+              "field_y": 2
+            },
+            "defender": {
+              "field_x": 51.3,
+              "field_y": 2
+            }
+          }
+        ]
+      },
+      "event_evidence": [
+        {
+          "event_id": "engagement_start",
+          "event_type": "engagement_start",
+          "timestamp_seconds": 0.0,
+          "source": "human",
+          "shot_id": "one"
+        },
+        {
+          "event_id": "engagement_end",
+          "event_type": "engagement_end",
+          "timestamp_seconds": 0.3,
+          "source": "human",
+          "shot_id": "one"
+        }
+      ],
+      "required_evidence": [
+        "qualified_interaction_start",
+        "qualified_interaction_end",
+        "same_interaction_id",
+        "resolved_actor",
+        "source_timestamps",
+        "same_known_shot"
+      ]
+    }
+  }
+}

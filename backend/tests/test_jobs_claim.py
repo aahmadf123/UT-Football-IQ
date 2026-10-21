@@ -25,6 +25,7 @@ from app.models import (
     UserRole,
     Video,
     VideoStatus,
+    WorkerRuntime,
 )
 from fastapi import BackgroundTasks
 from sqlalchemy import select
@@ -173,6 +174,105 @@ async def test_claim_orders_by_priority_then_age(db: async_sessionmaker[AsyncSes
 
 async def test_claim_returns_none_when_empty(db: async_sessionmaker[AsyncSession]) -> None:
     assert await _claim(db) is None
+
+
+@pytest.mark.parametrize(
+    "metadata_source",
+    ["legacy", "claim", "runtime", "runtime_with_claim", "missing_task", "bool_protocol"],
+)
+async def test_new_training_tasks_wait_for_compatible_dispatch(db, metadata_source):
+    from app.routers.jobs import JobClaimRequest, claim_job
+    from fastapi import Response
+
+    video_id = await _seed_video(db)
+    worker_id = f"protocol-{uuid.uuid4()}"
+    metadata = {"producer_protocol": 1, "training_variants": ["expected_outcomes"]}
+    if metadata_source == "missing_task":
+        metadata["training_variants"] = ["local_coverage"]
+    if metadata_source == "bool_protocol":
+        metadata["producer_protocol"] = True
+    async with db() as session:
+        video = await session.get(Video, video_id)
+        user = await session.get(User, video.uploaded_by)
+        candidate = ProcessingJob(
+            id=uuid.uuid4(),
+            video_id=video_id,
+            job_type=JobType.train,
+            priority=50,
+            input_artifacts={"training_variant": "expected_outcomes"},
+        )
+        legacy = ProcessingJob(
+            id=uuid.uuid4(),
+            video_id=video_id,
+            job_type=JobType.train,
+            priority=10,
+            input_artifacts={"training_variant": "local_coverage"},
+        )
+        session.add_all([candidate, legacy])
+        if metadata_source in {"runtime", "runtime_with_claim"}:
+            session.add(
+                WorkerRuntime(
+                    worker_id=worker_id,
+                    device="cpu",
+                    registered_by=user.id,
+                    capabilities={"metadata": metadata},
+                )
+            )
+        await session.flush()
+        capabilities = (
+            {"metadata": metadata}
+            if metadata_source in {"claim", "missing_task", "bool_protocol"}
+            else None
+        )
+        if metadata_source == "runtime_with_claim":
+            capabilities = {"profiles": ["detailed"]}
+        claimed = await claim_job(
+            JobClaimRequest(worker_id=worker_id, capabilities=capabilities),
+            Response(),
+            session,
+            user,
+        )
+        supported = metadata_source in {"claim", "runtime", "runtime_with_claim"}
+        assert claimed.id == (candidate.id if supported else legacy.id)
+        await session.refresh(candidate)
+        assert candidate.attempt_count == (1 if supported else 0)
+        assert candidate.status == (JobStatus.running if supported else JobStatus.queued)
+
+
+async def test_advertised_verifier_support_does_not_replace_trusted_principal(db, monkeypatch):
+    from app.routers.jobs import JobClaimRequest, claim_job
+    from fastapi import Response
+
+    monkeypatch.setattr(get_settings(), "seed_worker_email", "trusted-protocol@test.local")
+    video_id = await _seed_video(db)
+    async with db() as session:
+        video = await session.get(Video, video_id)
+        user = await session.get(User, video.uploaded_by)
+        worker_id = f"verifier-{uuid.uuid4()}"
+        metadata = {"producer_protocol": 1, "training_variants": ["verify_expected_outcomes"]}
+        session.add(
+            WorkerRuntime(
+                worker_id=worker_id,
+                device="cpu",
+                registered_by=user.id,
+                capabilities={"metadata": metadata},
+            )
+        )
+        candidate = ProcessingJob(
+            id=uuid.uuid4(),
+            video_id=video_id,
+            job_type=JobType.train,
+            priority=50,
+            input_artifacts={"training_variant": "verify_expected_outcomes"},
+        )
+        session.add(candidate)
+        await session.flush()
+        request = JobClaimRequest(worker_id=worker_id, capabilities={"metadata": metadata})
+        assert await claim_job(request, Response(), session, user) is None
+        user.email = "trusted-protocol@test.local"
+        await session.flush()
+        claimed = await claim_job(request, Response(), session, user)
+        assert claimed.id == candidate.id
 
 
 async def test_concurrent_claims_never_double_claim(

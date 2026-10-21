@@ -2,6 +2,7 @@ import hashlib
 
 import pytest
 
+from pipeline import media_identity
 from pipeline.media_identity import FULL_HASH_BYTES, content_identity, registered_source_receipt
 
 
@@ -74,3 +75,61 @@ def test_foreign_source_cannot_receive_registration_proof(tmp_path, field):
     registration[field] = "foreign"
     with pytest.raises(ValueError):
         registered_source_receipt(path, identity, "video", "local://raw-video/film", registration)
+
+
+@pytest.mark.parametrize("mutated", [False, True])
+def test_ctime_only_change_rechecks_actual_bytes(tmp_path, monkeypatch, mutated):
+    """POSIX hard links alter ctime; restored mtime must not hide new bytes."""
+    path = tmp_path / "film"
+    path.write_bytes(b"original film")
+    identity = content_identity(path)
+    registration = {
+        "content_sha256": identity["source_sha256"],
+        "size_bytes": identity["source_bytes"],
+        "storage_uri": path.as_uri(),
+    }
+    if mutated:
+        path.write_bytes(b"modified film")
+    # Exercise the Linux link metadata change on every test platform. The
+    # content read remains real, including the same-length mutation case.
+    updated_stat = [*identity["source_stat"][:4], identity["source_stat"][4] + 1]
+    monkeypatch.setattr(media_identity, "source_stat", lambda _: updated_stat)
+    if mutated:
+        with pytest.raises(ValueError, match="registered source"):
+            registered_source_receipt(path, identity, "video", path.as_uri(), registration)
+    else:
+        receipt = registered_source_receipt(path, identity, "video", path.as_uri(), registration)
+        assert receipt["full_sha256"] == hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def test_link_lifecycle_preserves_registered_source_receipt(tmp_path):
+    """Use actual hard links to cover the substage lifecycle used in Linux CI."""
+    path = tmp_path / "film"
+    path.write_bytes(b"original film")
+    identity = content_identity(path)
+    alias = tmp_path / "stage-film"
+    alias.hardlink_to(path)
+    alias.unlink()
+    receipt = registered_source_receipt(path, identity, "video", path.as_uri(), {
+        "content_sha256": identity["source_sha256"],
+        "size_bytes": identity["source_bytes"],
+        "storage_uri": path.as_uri(),
+    })
+    assert receipt["full_sha256"] == identity["source_sha256"]
+
+
+def test_unchanged_metadata_does_not_read_full_source_again(tmp_path, monkeypatch):
+    path = tmp_path / "film"
+    path.write_bytes(b"original film")
+    identity = content_identity(path)
+
+    def unexpected_read(_):
+        raise AssertionError("An unchanged source should use its original verified hash")
+
+    monkeypatch.setattr(media_identity, "content_identity", unexpected_read)
+    receipt = registered_source_receipt(path, identity, "video", path.as_uri(), {
+        "content_sha256": identity["source_sha256"],
+        "size_bytes": identity["source_bytes"],
+        "storage_uri": path.as_uri(),
+    })
+    assert receipt["full_sha256"] == identity["source_sha256"]

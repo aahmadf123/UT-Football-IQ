@@ -72,7 +72,7 @@ def registered_source_receipt(
         or registration["size_bytes"] != identity["source_bytes"]
         or registration.get("content_sha256") != identity["source_registration_fingerprint"]
         or registration.get("storage_uri") != input_uri
-        or source_stat(path) != identity["source_stat"]
+        or not _unchanged_source(path, identity)
     ):
         raise ValueError("Processed media does not match the registered source")
     return {
@@ -86,3 +86,23 @@ def registered_source_receipt(
         else "sampled-sha256-v1",
         "full_sha256": identity["source_sha256"],
     }
+
+
+def _unchanged_source(path: Path, identity: dict[str, Any]) -> bool:
+    current = source_stat(path)
+    original = identity["source_stat"]
+    if current == original:
+        return True
+    # Local stages borrow caller-owned hard links. On POSIX, adding/removing a
+    # link updates the inode's ctime even though the source bytes do not change.
+    # Keep the cheap identity/size/mtime guard; a ctime-only change requires a
+    # fresh full read rather than accepting metadata as proof of the contents.
+    if current[:4] != original[:4]:
+        return False
+    verified = content_identity(path)
+    return (
+        verified["source_sha256"] == identity["source_sha256"]
+        and verified["source_registration_fingerprint"]
+        == identity["source_registration_fingerprint"]
+        and verified["source_stat"] == current
+    )

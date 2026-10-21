@@ -847,6 +847,28 @@ _SPECS.extend(
 )
 
 
+_SPECS.append(
+    (
+        "observed_run_path",
+        "Observed carrier path",
+        "Calibrated visible carrier path during explicit possession, including a partial "
+        "prefix when contact, LOS entry or a terminal event is unavailable. Original gaps "
+        "and contact marks require separate source evidence; no complete outcome is inferred.",
+        "field_trajectory",
+        None,
+        [
+            "qualified_snap_los_direction",
+            "identified_carrier_possession",
+            "calibrated_positions",
+            "native_source_timestamps",
+            "same_known_shot",
+            "continuous_visible_prefix",
+        ],
+        "practice_game",
+    )
+)
+
+
 def metric_definitions() -> list[dict[str, Any]]:
     return [
         {

@@ -12,6 +12,7 @@ import { GameSummaryView } from "@/components/game-summary-view";
 import { LearningPanel } from "@/components/learning-panel";
 import { QualifiedPositionVisuals } from "@/components/qualified-position-visuals";
 import { InteractionPositionVisuals } from "@/components/interaction-position-visuals";
+import { RunEvidenceVisuals } from "@/components/run-evidence-visuals";
 import { GeometryPositionVisuals } from "@/components/geometry-position-visuals";
 import { MovementPositionVisuals, OpportunityEvidence } from "@/components/movement-position-visuals";
 import { SpecialistPositionVisuals } from "@/components/specialist-position-visuals";
@@ -142,6 +143,7 @@ export function TeamAnalytics() {
         <QualifiedPositionVisuals groups={result.groups} products={result.products} position={context.position} onSelect={setSelected} />
         <SpecialistPositionVisuals groups={result.groups} position={context.position} onSelect={setSelected} />
         <LaneWindowVisuals groups={result.groups} products={result.products} position={context.position} onSelect={setSelected} />
+        <RunEvidenceVisuals groups={result.groups} products={result.products} position={context.position} onSelect={setSelected} />
         <OriginalFrontVisuals groups={result.groups} products={result.products} position={context.position} onSelect={setSelected} />
         <CensoringVisuals groups={result.censoring} onSelect={setSelected} />
         {!result.groups.length && !result.products?.length && !suppliedCensoringGroups(result.censoring).length ? <div className="border-y border-border-soft py-10"><h2 className="text-lg font-semibold">No qualified measurements in this cohort</h2><p className="mt-2 max-w-2xl text-sm text-muted-foreground">Film remains available while analysis runs. Change the filters or inspect processing status in Film Room. Unknown identity, missing calibration, or unqualified models do not become zero-valued statistics.</p><Button asChild className="mt-4" variant="outline"><Link href="/film-room/">Open Film Room</Link></Button></div> : <div className="grid items-start gap-6 xl:grid-cols-2">{result.groups.map((group) => <MeasurementGroup key={`${group.key}-${group.metric_name}-${group.definition_version}-${group.unit}`} group={group} population={result.cohort} definition={definitions.find((item) => item.name === group.metric_name)} onSelect={setSelected} filmHref={filmHref} />)}</div>}

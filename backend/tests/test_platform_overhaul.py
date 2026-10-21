@@ -1297,6 +1297,64 @@ async def test_partial_movement_stays_film_evidence_without_complete_scalar(
     assert result["products"][0]["evidence"][0]["metric_packet"]["partial_observation"] is True
 
 
+async def test_partial_run_prefix_remains_composite_without_terminal_gain(db: AsyncSession) -> None:
+    from app.routers.analytics import summarize_rows
+
+    video, clip = await recording(db)
+    person = Player(id=uuid.uuid4(), first_name="Partial", last_name=f"Run{uuid.uuid4()}")
+    db.add(person)
+    await db.flush()
+    track = await player_track(db, clip, person)
+    metric = measurement(clip, track, 9)
+    metric.metric_name, metric.unit = "observed_run_path", "field_trajectory"
+    metric.metric_value = {
+        "partial_observation": True,
+        "measurement_complete": False,
+        "right_censored": True,
+        "run_path": {
+            "actor_id": str(track.id),
+            "source_start_seconds": 0.1,
+            "source_end_seconds": 0.2,
+            "trajectory": [
+                {
+                    "timestamp_seconds": 0.1,
+                    "frame_number": 1,
+                    "field_x": 49,
+                    "field_y": 0,
+                    "shot_id": "one",
+                    "visibility_state": "observed",
+                },
+                {
+                    "timestamp_seconds": 0.2,
+                    "frame_number": 2,
+                    "field_x": 49.5,
+                    "field_y": 0,
+                    "shot_id": "one",
+                    "visibility_state": "observed",
+                },
+            ],
+        },
+    }
+    db.add(metric)
+    await db.flush()
+    result = summarize_rows([(metric, clip, video, track, person, clip.id)], AnalyticsQuery())
+    assert result["groups"] == [] and result["censoring"] == []
+    assert result["opportunities"] == []
+    assert result["products"][0]["metric_name"] == "observed_run_path"
+    assert result["products"][0]["evidence"][0]["value"] is None
+    assert (
+        result["products"][0]["evidence"][0]["metric_packet"]["run_path"]["source_end_seconds"]
+        == 0.2
+    )
+    metric.experimental_flag = True
+    assert (
+        summarize_rows([(metric, clip, video, track, person, clip.id)], AnalyticsQuery())[
+            "products"
+        ]
+        == []
+    )
+
+
 @pytest.mark.parametrize(
     ("listed", "declared", "cohort", "included"),
     [

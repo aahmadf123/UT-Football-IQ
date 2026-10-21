@@ -209,7 +209,7 @@ def run(
 
     if analytics_safe:
         metrics.extend(observed_runs(tracklets, events, timeline, attacking_direction))
-    metrics.extend(observed_interactions(tracklets, events, timeline))
+    metrics.extend(observed_interactions(tracklets, events, timeline, analytics_safe=analytics_safe))
 
     from pipeline.observed_position_products import observed_position_products
 

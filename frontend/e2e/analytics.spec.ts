@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { mockBackend, sampleClip, sampleOverlays, sampleVideo, type Route } from "./helpers";
 import originalFront from "../src/components/__fixtures__/original-front-producer.json";
+import trenchPair from "../src/components/__fixtures__/trench-interaction-producer.json";
 
 test("cohort chart, saved layout and film drilldown retain context through Back", async ({ page }) => {
   const queries: Record<string, unknown>[] = [];
@@ -149,5 +150,29 @@ test("original five-lineman charts and exact source-frame trench inspection work
   const link = page.getByRole("link", { name: /^Drone/ });
   await expect(link).toBeVisible();
   expect(new URL((await link.getAttribute("href"))!, "https://film.test").searchParams.get("t")).toBe("1");
+  expect(errors).toEqual([]);
+});
+
+test("paired trench replay uses native frames and seeks film without filling an absent defender", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await mockBackend(page, {
+    "GET /api/v1/*": [], "GET /api/v1/metrics/definitions": { definitions: [] },
+    "POST /api/v1/analytics/query": { dataset_version: "synthetic-producer-browser-contract", cohort: { plays: 1, player_reps: 1, eligible_measurements: 1, excluded_measurements: 0 }, exclusions: [], groups: [{
+      key: "OL", metric_name: "engagement_duration", unit: "s", definition_version: "contract", n: 1, mean: .3, median: .3, p10: .3, p90: .3, min: .3, max: .3, low_sample: true,
+      evidence: [{ metric_id: "interaction", play_id: "p-1", clip_id: "c-1", video_id: "v-1", start_seconds: 0, end_seconds: 1, value: .3, tracklet_id: "ol", result_version: "run", metric_packet: trenchPair.metric.metric_value }],
+    }] },
+    "GET /api/v1/plays/p-1/evidence": { play_id: "p-1", views: [{ clip_id: "c-1", video_id: "v-1", start_seconds: 0, end_seconds: 1, camera_label: "Trench source" }], metrics: [] },
+  });
+  await page.goto("/team-stats/?position=OL&session_kind=practice");
+  await expect(page.getByRole("heading", { name: "Trench frame replay" })).toBeVisible();
+  await page.getByRole("button", { name: "Next observed frame" }).click();
+  await expect(page.getByText("Native frame 1 · 0.100s")).toBeVisible();
+  await expect(page.getByRole("img", { name: "Paired trench positions at native frame 1" }).locator("circle")).toHaveCount(1);
+  await expect(page.getByRole("region", { name: "Observed trench interaction replay" }).getByText("Unobserved")).toBeVisible();
+  await page.getByRole("button", { name: "Inspect paired film at 0.100s" }).click();
+  const link = page.getByRole("link", { name: /^Trench source/ });
+  await expect(link).toBeVisible();
+  expect(new URL((await link.getAttribute("href"))!, "https://film.test").searchParams.get("t")).toBe("0.1");
   expect(errors).toEqual([]);
 });

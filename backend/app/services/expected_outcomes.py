@@ -600,6 +600,32 @@ def review_release(model: ModelVersion) -> dict[str, Any]:
             or not _close(report["baseline"], baseline)
         ):
             raise ValueError("Heldout report losses/calibration do not match immutable predictions")
+        case_document = None
+        if "heldout_diagnostics" in report:
+            from app.services.model_diagnostics import case_document as bind_cases
+            from app.services.model_diagnostics import heldout_cases
+
+            supplied = report["heldout_diagnostics"]
+            artifact = _read(model.artifact_uri or "", weights)
+            frozen_baseline = _number(artifact.get("baseline_mean", train_mean))
+            if not _close(frozen_baseline, train_mean):
+                raise ValueError("Case baseline differs from frozen training population")
+            expected_cases = heldout_cases(
+                ordered,
+                predicted,
+                frozen_baseline,
+                source_groups=(
+                    json.loads(audit["inputs"]["manifest"]).get("release_population") or {}
+                ).get("source_groups", []),
+            )
+            if (
+                not isinstance(supplied, dict)
+                or supplied.get("sha256") != bind_cases(supplied.get("cases", []))["sha256"]
+                or supplied.get("sha256") != expected_cases["sha256"]
+                or not _same(supplied, expected_cases)
+            ):
+                raise ValueError("Heldout case diagnostics do not match frozen source predictions")
+            case_document = supplied
         regimes = sorted({r.get("capture_regime", "unknown") for r in rows})
         missing_reasons = []
         if not regimes or not set(regimes) <= KNOWN_REGIMES:
@@ -661,6 +687,14 @@ def review_release(model: ModelVersion) -> dict[str, Any]:
             "source": "measured_human_holdout",
             "sample_count": len(truth),
             "metrics": metrics,
+            **(
+                {
+                    "heldout_diagnostics": {k: v for k, v in case_document.items() if k != "cases"},
+                    "_case_document": case_document,
+                }
+                if case_document
+                else {}
+            ),
             "baseline": baseline,
             "capture_regimes": regimes,
             "feature_version": FEATURE_VERSION,
@@ -884,6 +918,7 @@ async def evaluate_expected_outcomes(
         if job is not None and job.status == JobStatus.succeeded:
             receipt = await _completed_verification(db, model, previous, binding)
             evaluation_id = uuid.uuid4()
+            case_document = result.pop("_case_document", None)
             result.update(
                 **receipt,
                 id=str(evaluation_id),
@@ -895,6 +930,17 @@ async def evaluate_expected_outcomes(
                     key=f"learning:evaluation:{evaluation_id}", value=result, updated_by=actor.id
                 )
             )
+            if case_document is not None:
+                from app.services.model_cases import store_cases
+
+                store_cases(
+                    db,
+                    str(evaluation_id),
+                    str(model.id),
+                    result["artifact_sha256"],
+                    case_document,
+                    actor.id,
+                )
             model.metrics = {
                 **(model.metrics or {}),
                 "evaluation_id": str(evaluation_id),

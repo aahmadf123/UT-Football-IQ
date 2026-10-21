@@ -518,6 +518,62 @@ def test_manually_queued_training_adapter_registers_candidate_only(tmp_path, mon
     )
 
 
+@pytest.mark.parametrize("retry_kind", ["new_job", "reclaimed_attempt"])
+def test_real_queued_fit_retries_preserve_failed_execution(tmp_path, monkeypatch, retry_kind):
+    """Actual numerical fit on protocol data; no football qualification is claimed."""
+    from pipeline import backend, storage
+    from pipeline.runtime import job_context
+    from training.expected_outcomes import train_expected_outcomes_job
+
+    manifest, digest = _manifest(tmp_path)
+    inputs = {
+        "manifest_path": str(manifest),
+        "manifest_sha256": digest,
+        "output_dir": str(tmp_path / "queued-candidates"),
+    }
+    registrations = []
+    monkeypatch.setattr(backend, "BACKEND_API_URL", "http://backend.test")
+    monkeypatch.setattr(storage, "upload_file", lambda path, key: f"local://models/{key}")
+
+    def register(**kwargs):
+        registrations.append(kwargs)
+        return None if len(registrations) == 1 else {"id": kwargs["model_version_id"]}
+
+    monkeypatch.setattr(backend, "register_model_version", register)
+    first_lease = {
+        "job_id": "first-job",
+        "worker_id": "protocol-worker",
+        "lease_token": "protocol-lease-one",
+        "attempt_count": 1,
+    }
+    with job_context(lease=first_lease), pytest.raises(RuntimeError, match="registry publication"):
+        train_expected_outcomes_job(inputs, "first-job")
+    root = Path(inputs["output_dir"])
+    original = {path: path.read_bytes() for path in root.rglob("*") if path.is_file()}
+    assert len(list(root.rglob("completion.checkpoint.json"))) == 1
+    assert len(list(root.rglob("result.json"))) == 1
+    assert registrations[0]["metrics"]["release_gate_passed"] is False
+    retry_job = "retry-job" if retry_kind == "new_job" else "first-job"
+    retry_lease = {
+        **first_lease,
+        "job_id": retry_job,
+        "lease_token": "protocol-lease-two",
+        "attempt_count": 1 if retry_kind == "new_job" else 2,
+    }
+    with job_context(lease=retry_lease):
+        result = train_expected_outcomes_job(inputs, retry_job)
+        with pytest.raises(DataError, match="already exists"):
+            train_expected_outcomes_job(inputs, retry_job)
+    assert result["trained"] and result["experimental"] and not result["promoted"]
+    assert result["registered"]["completion"]["model_version_id"]
+    assert len(list(root.rglob("completion.checkpoint.json"))) == 2
+    assert len(list(root.rglob("result.json"))) == 2
+    assert all(path.read_bytes() == content for path, content in original.items())
+    assert Path(result["models"]["completion"]["checkpoint_path"]) not in original
+    assert registrations[0]["model_version_id"] == registrations[1]["model_version_id"]
+    assert len(registrations) == 2
+
+
 def test_existing_worker_dispatch_reaches_expected_outcome_training(monkeypatch):
     import importlib.util
     from pathlib import Path
