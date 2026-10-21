@@ -32,7 +32,7 @@ import structlog
 
 from pipeline import object_store
 from pipeline.runtime import PipelineInterrupted, check_control
-from pipeline.video_timeline import VideoTimeline, seek_source_frame
+from pipeline.video_timeline import VideoTimeline, iter_frames
 
 log = structlog.get_logger(__name__)
 
@@ -148,7 +148,6 @@ def _render(
         video_path, fps_fallback=fps,
         frame_count_fallback=int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0),
     )
-    seek_source_frame(cap, frame_start, timeline)
     mapping = None
     copies = None
     if timeline.verified and timeline.timestamps:
@@ -197,12 +196,11 @@ def _render(
     direction = _label_value(labels, "play_direction", "direction", "—")
 
     try:
-        frame_idx = frame_start
-        while frame_end is None or frame_idx < frame_end:
+        # Frames by timestamp, never by counting (see video_timeline); an
+        # undecodable frame is drawn on the next good picture.
+        for frame_idx, source in iter_frames(cap, timeline, frame_start, frame_end):
             check_control()
-            ret, frame = cap.read()
-            if not ret:
-                break
+            frame = source.copy()
 
             # ── Analytics-safe warning ────────────────────────────────────────
             if not analytics_safe:
@@ -234,7 +232,6 @@ def _render(
             for _ in range(copies.get(frame_idx, 0) if copies is not None else 1):
                 check_control()
                 writer.write(frame)
-            frame_idx += 1
 
     finally:
         cap.release()

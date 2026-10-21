@@ -184,8 +184,137 @@ def point_interval(previous: dict[str, Any], current: dict[str, Any], fps: float
     return (int(current.get("frame_number", 0)) - int(previous.get("frame_number", 0))) / max(fps, 1.)
 
 
+# ── Reading frames by their place on the timeline ────────────────────────────
+#
+# Frame indices everywhere in the pipeline are positions on the PTS timeline
+# (one per packet, from ffprobe). Counting decoded frames is NOT the same
+# thing: decoders silently drop frames they cannot reconstruct. The Michigan
+# State recording loses ~110 frames in its first 400 s, so by 25 minutes in a
+# counted index ran 410 frames (6.8 s) behind the picture -- every box from
+# detection, every play video and every calibration drifted with it.
+# These helpers identify each decoded frame by its own timestamp instead.
+
+#: How far before a target to land a seek, so decoding forward reaches it.
+SEEK_MARGIN_S = 2.0
+
+
+def current_index(cap: Any, timeline: VideoTimeline) -> int:
+    """Timeline index of the frame the capture last grabbed, from its PTS."""
+    import cv2
+
+    seconds = float(cap.get(cv2.CAP_PROP_POS_MSEC)) / 1000.0
+    # Millisecond rounding must not drop a frame onto its predecessor.
+    return timeline.frame_for_time(seconds + 0.25 / max(timeline.fps, 1.0))
+
+
+def seek_to(cap: Any, timeline: VideoTimeline, frame: int) -> int | None:
+    """Grab up to ``frame`` and return the index actually grabbed.
+
+    That is ``frame`` itself, or the first decodable frame after it when
+    ``frame`` cannot be decoded; ``None`` past the end. The caller reads the
+    picture with ``cap.retrieve()``.
+    """
+    import cv2
+
+    target = timeline.timestamp(frame) if frame <= len(timeline.timestamps) else frame / timeline.fps
+    index: int | None = None
+    margin = SEEK_MARGIN_S
+    for _ in range(4):
+        check_control()
+        cap.set(cv2.CAP_PROP_POS_MSEC, max(0.0, target - margin) * 1000.0)
+        if not cap.grab():
+            return None
+        index = current_index(cap, timeline)
+        if index <= frame or target - margin <= 0:
+            break
+        margin *= 4  # landed past the target: back off further
+    steps = 0
+    while index is not None and index < frame:
+        check_control()
+        if not cap.grab():
+            return None
+        following = current_index(cap, timeline)
+        steps += 1
+        if following <= index and steps > 4 * max(timeline.fps, 1.0) * (SEEK_MARGIN_S + 1):
+            return None  # the capture is not advancing in time
+        index = max(following, index + 1) if following <= index else following
+    return index
+
+
+def iter_frames(
+    cap: Any,
+    timeline: VideoTimeline,
+    start: int = 0,
+    end: int | None = None,
+    *,
+    wanted: Any = None,
+    fill_gaps: bool = True,
+) -> Any:
+    """Yield ``(index, frame)`` in timeline order from ``start`` to ``end``.
+
+    ``wanted(index)`` limits which frames are retrieved; the rest are only
+    decoded. With ``fill_gaps`` an index the decoder could not produce gets
+    the next good picture, so a rendered video keeps the timeline's length;
+    without it (detection, sampling) missing frames are simply absent.
+    """
+    index = seek_to(cap, timeline, start)
+    expected = start
+    # A capture that never reports its end must not run on forever.
+    if end is None and timeline.timestamps:
+        end = len(timeline.timestamps)
+    while index is not None and (end is None or expected < end):
+        check_control()
+        last = index if end is None else min(index, end - 1)
+        span = range(expected, last + 1) if fill_gaps else ([index] if index <= last else [])
+        need = [i for i in span if wanted is None or wanted(i)]
+        if need:
+            ok, frame = cap.retrieve()
+            if ok and frame is not None:
+                for i in need:
+                    yield i, frame
+        expected = index + 1
+        if end is not None and index >= end - 1:
+            return
+        if not cap.grab():
+            return
+        following = current_index(cap, timeline)
+        # Equal timestamps (rare muxing glitches) still advance one place.
+        index = following if following > index else index + 1
+
+
+def read_frames(cap: Any, timeline: VideoTimeline, indices: Any) -> dict[int, Any]:
+    """Exactly these frames, keyed by index; undecodable ones are left out.
+
+    Nearby targets are reached by decoding forward, distant ones by seeking.
+    """
+    frames: dict[int, Any] = {}
+    index: int | None = None
+    for target in sorted(set(int(i) for i in indices)):
+        check_control()
+        far = index is None or target < index or (
+            timeline.timestamp(min(target, len(timeline.timestamps)))
+            - timeline.timestamp(min(index, len(timeline.timestamps)))
+            > 2 * SEEK_MARGIN_S
+        )
+        if far:
+            index = seek_to(cap, timeline, target)
+        while index is not None and index < target:
+            if not cap.grab():
+                index = None
+                break
+            index = current_index(cap, timeline)
+        if index is None:
+            break
+        if index == target:
+            ok, frame = cap.retrieve()
+            if ok and frame is not None:
+                frames[target] = frame
+    return frames
+
+
 def seek_source_frame(cap: Any, frame_start: int, timeline: VideoTimeline) -> None:
-    """Avoid OpenCV's average-FPS seeking approximation on actual VFR media."""
+    """Deprecated: counts frames, so it drifts on recordings with undecodable
+    frames. Use :func:`seek_to` / :func:`iter_frames` / :func:`read_frames`."""
     import cv2
 
     cap.set(cv2.CAP_PROP_POS_FRAMES, 0 if timeline.is_vfr else frame_start)

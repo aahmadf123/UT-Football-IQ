@@ -167,15 +167,13 @@ class LocalFileVideoSource(VideoSource):
         if not cap.isOpened():
             log.error("video_source_open_failed", path=str(self._path))
             return
+        from pipeline.video_timeline import iter_frames
+
         try:
-            frame_num = 0
-            while True:
-                ok, frame = cap.read()
-                if not ok:
-                    break
-                if frame_num % stride == 0:
-                    yield frame_num, frame
-                frame_num += 1
+            # Numbered by timestamp, never by counting (see video_timeline).
+            yield from iter_frames(
+                cap, self.timeline, 0, None, wanted=lambda i: i % stride == 0, fill_gaps=False
+            )
         finally:
             cap.release()
 

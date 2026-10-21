@@ -57,19 +57,10 @@ class TestPeriodRendererLabelValue:
 
 
 class TestPeriodRendererRun:
-    def _make_mock_cap(self, width: int = 1920, height: int = 1080, frames: int = 3) -> MagicMock:
-        cap = MagicMock()
-        cap.isOpened.return_value = True
-        cap.get.side_effect = lambda prop: {
-            3: float(width),  # CAP_PROP_FRAME_WIDTH
-            4: float(height),  # CAP_PROP_FRAME_HEIGHT
-        }.get(prop, 0.0)
-        import numpy as np
+    def _make_mock_cap(self, width: int = 1920, height: int = 1080, frames: int = 3) -> Any:
+        from tests.fake_capture import FakeCapture
 
-        blank = np.zeros((height, width, 3), dtype="uint8")
-        side_effects = [(True, blank)] * frames + [(False, blank)]
-        cap.read.side_effect = side_effects
-        return cap
+        return FakeCapture(frames, width=width, height=height)
 
     def test_happy_path_returns_period_overlay_uri(self) -> None:
         """run() returns dict with period_overlay_uri from object upload."""

@@ -15,7 +15,7 @@ import numpy as np
 from pipeline.homography import camera_motion_ecc as ecc
 from pipeline.homography import confidence_scorer as cs
 from pipeline.runtime import check_control
-from pipeline.video_timeline import VideoTimeline
+from pipeline.video_timeline import VideoTimeline, iter_frames
 
 
 def calibration_timeline(
@@ -57,25 +57,15 @@ def calibration_timeline(
     previous_gray = None
     matrix = None
     confidence = 0.0
-    frame_number = 0
-    if start_frame > 0:
-        from pipeline.video_timeline import seek_source_frame
-
-        seek_source_frame(cap, start_frame, timeline)
-        frame_number = start_frame
-    anchor_frame = frame_number - interval
+    anchor_frame = start_frame - interval
     previous_seconds = None
     try:
-        while True:
+        # Frames by timestamp at the detector's stride, never by counting
+        # (see video_timeline), so each transform pairs with its detections.
+        for frame_number, frame in iter_frames(
+            cap, timeline, start_frame, end_frame, wanted=lambda i: i % stride == 0, fill_gaps=False
+        ):
             check_control()
-            if end_frame is not None and frame_number >= end_frame:
-                break
-            ok, frame = cap.read()
-            if not ok:
-                break
-            if frame_number % stride:
-                frame_number += 1
-                continue
             h, w = frame.shape[:2]
             scale = min(1.0, 384 / w)
             small = cv2.resize(frame, (max(1, round(w * scale)), max(1, round(h * scale))))
@@ -180,7 +170,6 @@ def calibration_timeline(
             calibrations.append(point)
             previous_gray = gray
             previous_seconds = timeline.timestamp(frame_number)
-            frame_number += 1
     finally:
         cap.release()
     return calibrations

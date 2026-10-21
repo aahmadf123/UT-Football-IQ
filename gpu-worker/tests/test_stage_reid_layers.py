@@ -32,6 +32,15 @@ class _NoFrameCapture:
     def set(self, *_a: Any) -> None:
         pass
 
+    def get(self, *_a: Any) -> float:
+        return 0.0
+
+    def grab(self) -> bool:
+        return False
+
+    def retrieve(self) -> tuple[bool, None]:
+        return False, None
+
     def read(self) -> tuple[bool, None]:
         return False, None
 

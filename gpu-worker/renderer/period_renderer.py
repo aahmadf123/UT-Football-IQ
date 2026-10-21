@@ -31,7 +31,7 @@ import structlog
 
 from pipeline import object_store
 from pipeline.runtime import check_control
-from pipeline.video_timeline import VideoTimeline, seek_source_frame
+from pipeline.video_timeline import VideoTimeline, iter_frames
 
 log = structlog.get_logger(__name__)
 
@@ -196,16 +196,10 @@ def _render_reduced(
     direction = _label_value(labels, "play_direction", "direction", "—")
 
     try:
-        if timeline is not None:
-            seek_source_frame(cap, frame_start, timeline)
-        else:
-            cap.set(cv2.CAP_PROP_POS_FRAMES, frame_start)
-        frame_idx = frame_start
-        while frame_end is None or frame_idx < frame_end:
+        # Frames by timestamp, never by counting (see video_timeline).
+        timeline = timeline or VideoTimeline.from_path(video_path)
+        for frame_idx, frame in iter_frames(cap, timeline, frame_start, frame_end):
             check_control()
-            ret, frame = cap.read()
-            if not ret:
-                break
 
             # Downscale frame
             frame = cv2.resize(frame, (out_w, out_h), interpolation=cv2.INTER_LINEAR)
@@ -231,7 +225,6 @@ def _render_reduced(
 
             for _ in range(repetitions.get(frame_idx, 0) if repetitions is not None else 1):
                 writer.write(frame)
-            frame_idx += 1
 
     finally:
         cap.release()

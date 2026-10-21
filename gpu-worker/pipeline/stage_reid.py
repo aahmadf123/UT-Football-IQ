@@ -42,7 +42,7 @@ from pipeline.tracking.trajectory_prior_reid import (
     TrajectoryPriorReID,
     UnknownTrack,
 )
-from pipeline.video_timeline import VideoTimeline, seek_source_frame
+from pipeline.video_timeline import VideoTimeline, read_frames
 
 log = structlog.get_logger(__name__)
 
@@ -311,6 +311,15 @@ def _stitch_and_propagate(
     return count
 
 
+def _frame_at(cap: Any, frame_number: int, timeline: VideoTimeline | None) -> Any:
+    """The picture for a track point's frame, found by timestamp when known."""
+    if timeline is None:
+        cap.set(cv2.CAP_PROP_POS_FRAMES, frame_number)
+        ok, frame = cap.read()
+        return frame if ok else None
+    return read_frames(cap, timeline, [frame_number]).get(frame_number)
+
+
 def _extract_tracklet_embedding(
     tracklet: dict[str, Any],
     cap: Any,
@@ -330,12 +339,8 @@ def _extract_tracklet_embedding(
         bbox = pt.get("bbox")
         if not bbox:
             continue
-        if timeline is None:
-            cap.set(cv2.CAP_PROP_POS_FRAMES, pt.get("frame_number", 0))
-        else:
-            seek_source_frame(cap, int(pt.get("frame_number", 0)), timeline)
-        ret, frame = cap.read()
-        if not ret:
+        frame = _frame_at(cap, int(pt.get("frame_number", 0)), timeline)
+        if frame is None:
             continue
         x1, y1, x2, y2 = [int(v) for v in bbox]
         h, w = frame.shape[:2]
@@ -382,12 +387,8 @@ def _identify_tracklet(
     votes: dict[int, int] = {}
     for pt in sightings:
         frame_number = pt.get("frame_number", 0)
-        if timeline is None:
-            cap.set(cv2.CAP_PROP_POS_FRAMES, frame_number)
-        else:
-            seek_source_frame(cap, int(frame_number), timeline)
-        ret, frame = cap.read()
-        if not ret:
+        frame = _frame_at(cap, int(frame_number), timeline)
+        if frame is None:
             continue
         number = _read_jersey(frame, pt["bbox"], ocr_adapter)
         if number is not None:

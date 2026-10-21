@@ -61,8 +61,8 @@ from pipeline.detector_models import (
 from pipeline.homography.field_boundary import FieldBoundary, boundary_from_diagnostics
 from pipeline.homography.project import ground_anchor
 from pipeline.model_router import select_model
-from pipeline.runtime import adapter_provenance, check_control
-from pipeline.video_timeline import VideoTimeline
+from pipeline.runtime import adapter_provenance
+from pipeline.video_timeline import VideoTimeline, iter_frames
 
 log = structlog.get_logger(__name__)
 
@@ -349,22 +349,19 @@ def _detect(
         pending.clear()
 
     try:
-        while True:
-            check_control()
-            if frame_idx % frame_step == 0:
-                ret, frame = cap.read()
-                if not ret:
-                    break
-                pending.append((frame_idx, frame))
-                if len(pending) >= batch_size:
-                    flush()
-            # Frames between detections are decoded (the stream depends on
-            # them) but never copied out or colour-converted.
-            elif not cap.grab():
-                break
-            frame_idx += 1
+        # Frames are numbered by their timestamp, never by counting: decoders
+        # drop frames they cannot reconstruct (see video_timeline). Frames
+        # between detections are decoded but never copied out.
+        for index, frame in iter_frames(
+            cap, timeline, 0, None, wanted=lambda i: i % frame_step == 0, fill_gaps=False
+        ):
+            pending.append((index, frame))
+            frame_idx = index + 1
+            if len(pending) >= batch_size:
+                flush()
         if pending:
             flush()
+        frame_idx = max(frame_idx, len(timeline.timestamps))
 
     finally:
         cap.release()

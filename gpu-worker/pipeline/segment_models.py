@@ -118,13 +118,12 @@ def _quiet_frames_and_fps(video_path: Path, timeline: VideoTimeline | None = Non
     step = max(1, int(fps / SAMPLE_FPS))
     quiet: list[tuple[int, float]] = []
     prev_gray = None
-    frame_idx = 0
     next_sample_seconds = 0.
-    while True:
+    from pipeline.video_timeline import iter_frames
+
+    # Numbered by timestamp, never by counting (see video_timeline).
+    for frame_idx, frame in iter_frames(cap, timeline, 0, None, fill_gaps=False):
         check_control()
-        ret, frame = cap.read()
-        if not ret:
-            break
         if (timeline.verified and timeline.timestamp(frame_idx) >= next_sample_seconds) or (
             not timeline.verified and frame_idx % step == 0
         ):
@@ -138,7 +137,6 @@ def _quiet_frames_and_fps(video_path: Path, timeline: VideoTimeline | None = Non
                 if mag < QUIET_THRESHOLD:
                     quiet.append((frame_idx, mag))
             prev_gray = gray
-        frame_idx += 1
     cap.release()
     return quiet, fps, duration
 

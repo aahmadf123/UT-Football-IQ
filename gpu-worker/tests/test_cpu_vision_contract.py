@@ -101,25 +101,10 @@ def test_pose_is_cropped_attributed_and_remapped_for_each_player(monkeypatch):
     assert result["metric_count"] == 0  # raw pose is not a validated mechanics score
 
 
-class Capture:
-    def __init__(self, fps=30):
-        self.index = 0
-        self.fps = fps
+def Capture(fps=30):  # noqa: N802 - stands in for cv2.VideoCapture
+    from tests.fake_capture import FakeCapture
 
-    def get(self, property):
-        return self.fps
-
-    def isOpened(self):
-        return True
-
-    def read(self):
-        if self.index >= 7:
-            return False, None
-        self.index += 1
-        return True, np.zeros((100, 100, 3), np.uint8)
-
-    def release(self):
-        pass
+    return FakeCapture(7, fps=fps)
 
 
 def _fit(_frames):

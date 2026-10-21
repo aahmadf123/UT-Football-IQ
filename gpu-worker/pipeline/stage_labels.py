@@ -38,7 +38,6 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
-import cv2
 import structlog
 
 from pipeline import backend, object_store
@@ -440,16 +439,15 @@ def _load_team_frames(
             delete_after = True
 
         from pipeline.hwaccel import nvdec_video_capture
+        from pipeline.video_timeline import VideoTimeline, read_frames
 
         cap = nvdec_video_capture(video_path)
-        frames: dict[int, Any] = {}
-        for frame_number in wanted_frames:
-            cap.set(cv2.CAP_PROP_POS_FRAMES, frame_number)
-            ok, frame = cap.read()
-            if ok:
-                frames[frame_number] = frame
-        cap.release()
-        return frames
+        try:
+            # By timestamp: a frame seek lands several frames off on long
+            # films, and colour samples must come from the box's own frame.
+            return read_frames(cap, VideoTimeline.from_path(video_path), wanted_frames)
+        finally:
+            cap.release()
     except PipelineInterrupted:
         raise
     except Exception as exc:
