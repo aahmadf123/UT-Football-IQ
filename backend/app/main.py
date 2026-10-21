@@ -59,6 +59,7 @@ from app.routers.sessions import router as sessions_router
 from app.routers.settings import router as settings_router
 from app.routers.storage import router as storage_router
 from app.routers.system import router as system_router
+from app.routers.team_dashboard import router as team_dashboard_router
 from app.routers.tracklets import router as tracklets_router
 from app.routers.uploads import router as uploads_router
 from app.routers.videos import router as videos_router
@@ -205,6 +206,7 @@ app.include_router(auth_router)
 app.include_router(uploads_router)
 app.include_router(videos_router)
 app.include_router(game_summary_router)
+app.include_router(team_dashboard_router)
 app.include_router(storage_router)
 app.include_router(clips_router, dependencies=[Depends(validate_worker_write)])
 app.include_router(practice_sessions_router)

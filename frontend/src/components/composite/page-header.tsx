@@ -26,7 +26,7 @@ export function PageHeader({
   const workspace = useWorkspaceContext();
   const entry = page ? pageTitles[page] : undefined;
   const productTitles: Partial<Record<PageKey, { title: string; subtitle: string }>> = {
-    dashboard: { title: "Today", subtitle: "Your film, processing progress, and next plays to review." },
+    dashboard: { title: "Home", subtitle: "How the team is performing, from your film and the official play-by-play." },
     "film-room": { title: "Film Room", subtitle: "Organize sessions, work with every camera angle, and review plays." },
     "clip-review": { title: "Clip Review", subtitle: "Watch the play, inspect player tracking, and verify your coaching labels." },
     settings: { title: workspace.settingsLabel, subtitle: "Processing connections, available features, and library settings." },

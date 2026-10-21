@@ -158,6 +158,13 @@ test.describe("deployed platform", () => {
         });
       }
       await expect(page.locator("h1, h2").first(), `${route} renders a heading`).toBeVisible();
+      if (route === "/") {
+        // Home is the team dashboard: its sections render (with data or an
+        // honest empty state), never the "didn't load" fallback.
+        for (const section of ["Performance trend", "Position groups", "Games", "Readiness"]) {
+          await expect(page.getByRole("heading", { name: section }), `Home shows ${section}`).toBeVisible();
+        }
+      }
     }
 
     expect(problems, JSON.stringify(problems, null, 1)).toEqual([]);

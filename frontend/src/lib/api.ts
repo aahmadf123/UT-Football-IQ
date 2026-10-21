@@ -705,6 +705,98 @@ export async function fetchGameSummary(videoId: string, token?: string): Promise
   );
 }
 
+// ── Team dashboard (Home) ───────────────────────────────────────────────────
+
+export interface ApiTeamWeek {
+  week_start: string;
+  session_kind: "practice" | "game" | string;
+  reps: number;
+  players: number;
+  yards_per_rep: number | null;
+  high_speed_yards_per_rep: number | null;
+  sprints_per_rep: number | null;
+  top_speed_p90_yps: number | null;
+  get_off_yards: number | null;
+}
+
+export interface ApiGroupWeek {
+  week_start: string;
+  reps: number;
+  top_speed_p90_yps: number | null;
+  high_speed_yards_per_rep: number | null;
+  get_off_yards: number | null;
+}
+
+export interface ApiPositionGroupTrend {
+  position_group: string;
+  weekly: ApiGroupWeek[];
+  change: Record<string, number | null>;
+}
+
+export interface ApiGameSideSummary {
+  plays: number;
+  yards_per_play: number | null;
+  success_rate: number | null;
+  epa_per_play: number | null;
+  third_down_rate: number | null;
+  explosive_plays: number;
+  turnovers: number;
+}
+
+export interface ApiDashboardGame {
+  video_id: string;
+  date: string | null;
+  opponent: string | null;
+  linked_plays: number;
+  offense: ApiGameSideSummary | null;
+  defense: ApiGameSideSummary | null;
+}
+
+export interface ApiReadinessGroup {
+  position_group: string;
+  player_count: number;
+  mean_acwr: number | null;
+  mean_injury_risk_score: number | null;
+  max_injury_risk_score: number | null;
+}
+
+export interface ApiFlaggedPlayer {
+  player_id: string;
+  name: string;
+  jersey_number: number | null;
+  position_group: string | null;
+  injury_risk_score: number;
+  acwr: number | null;
+}
+
+export interface ApiTeamDashboard {
+  weekly: ApiTeamWeek[];
+  position_groups: ApiPositionGroupTrend[];
+  games: ApiDashboardGame[];
+  readiness: {
+    visible: boolean;
+    player_level: boolean;
+    as_of: string | null;
+    groups: ApiReadinessGroup[];
+    flagged: ApiFlaggedPlayer[];
+  };
+  activity: {
+    sessions_this_week: number;
+    plays_this_week: number;
+    film_processing: number;
+    film_uploaded: number;
+  };
+}
+
+export async function fetchTeamDashboard(
+  options: { weeks: number; sessionKind?: "practice" | "game" | null },
+  token?: string,
+): Promise<ApiTeamDashboard> {
+  const params = new URLSearchParams({ weeks: String(options.weeks) });
+  if (options.sessionKind) params.set("session_kind", options.sessionKind);
+  return getJSON<ApiTeamDashboard>(`${apiBase()}/api/v1/team/dashboard?${params.toString()}`, token);
+}
+
 // ── Physical load ────────────────────────────────────────────────────────────
 
 /** Physical load summed over a player's tracked reps (``physical_profile``). */

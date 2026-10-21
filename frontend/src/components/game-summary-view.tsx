@@ -190,7 +190,10 @@ export function GameSummaryView() {
         (b.recorded_at ?? b.created_at ?? "").localeCompare(a.recorded_at ?? a.created_at ?? ""),
       );
       setGames(sorted);
-      setVideoId((current) => current || sorted[0]?.id || "");
+      // Home links straight to one game with ?videoId=.
+      const wanted = new URLSearchParams(window.location.search).get("videoId");
+      const linked = sorted.find((game) => game.id === wanted)?.id;
+      setVideoId((current) => current || linked || sorted[0]?.id || "");
     })().catch((err) => {
       if (!cancelled) setError(friendlyMessage(err, "load your games"));
     });

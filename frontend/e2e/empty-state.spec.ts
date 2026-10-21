@@ -1,11 +1,10 @@
 import { expect, test } from "@playwright/test";
-import { mockBackend } from "./helpers";
+import { EMPTY_DASHBOARD, mockBackend } from "./helpers";
 
 /**
- * With an empty backend (no videos, jobs, or inbox rows), the dashboard
- * must not silently substitute mock clips. The Practice Inbox panel
- * should surface an explicit empty/loading message and no rows from
- * `frontend/src/lib/mock-data.ts` should appear.
+ * With an empty backend (no videos, jobs, or inbox rows), Home must not
+ * silently substitute sample numbers: it says what would fill it, and no
+ * rows from `frontend/src/lib/mock-data.ts` appear.
  *
  * The library route, viewed against an empty backend, must surface the
  * "No film yet" empty state instead of mock sessions.
@@ -18,17 +17,16 @@ test.describe("empty backend never shows mock clips", () => {
       "GET /api/v1/self-scout/tendencies": { tendencies: [] },
       "GET /api/v1/inbox/status": [],
       "GET /api/v1/practice-sessions": [],
+      "GET /api/v1/team/dashboard": EMPTY_DASHBOARD,
     });
   });
 
-  test("dashboard inbox shows empty state, not mock rows", async ({ page }) => {
+  test("home shows empty states, not mock rows", async ({ page }) => {
     await page.goto("/");
-    const inbox = page
-      .locator("section")
-      .filter({ hasText: /Practice Inbox/ });
-    await expect(inbox).toContainText(/No videos in the inbox yet|Connecting/);
+    await expect(page.getByText("No measured film in this range yet")).toBeVisible();
+    await expect(page.getByText(/No game film is linked/)).toBeVisible();
     // Mock data filenames must not leak into the live view.
-    await expect(inbox).not.toContainText(/MOCK_|sample_practice/i);
+    await expect(page.locator("main")).not.toContainText(/MOCK_|sample_practice/i);
   });
 
   test("library shows empty state for empty backend", async ({ page }) => {
