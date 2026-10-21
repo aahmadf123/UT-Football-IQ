@@ -248,6 +248,21 @@ class PipelineContext:
 # ── Per-clip helpers ──────────────────────────────────────────────────────────
 
 
+#: The parts of a human-annotated clip that change what the pipeline computes.
+#: ``annotation_revision`` moves on every staff edit; the rest of the record
+#: (official play-by-play, playback-proxy paths, provenance) is rewritten by
+#: the system on every run and must not invalidate checkpoints.
+ANNOTATION_IDENTITY_KEYS = ("id", "annotation_revision", "start_time", "end_time", "human_events")
+
+
+def annotation_identity(annotations: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Checkpoint-stable view of the effective annotations."""
+    return sorted(
+        ({key: item.get(key) for key in ANNOTATION_IDENTITY_KEYS} for item in annotations),
+        key=lambda item: str(item.get("id")),
+    )
+
+
 def _clip_frame_window(clip: dict[str, Any], fps: float, timeline: Any = None) -> tuple[int, int]:
     start_t = float(clip.get("start_time") or 0.0)
     end_t = float(clip.get("end_time") or 0.0)
@@ -1167,7 +1182,13 @@ def run_pipeline(
         ctx.timeline = VideoTimeline.from_path(ctx.video_path, fps_fallback=ctx.fps)
         model_registry_client.reset_cache()
         model_lineage = model_registry_client.resolved_identity()
-        revision_inputs = {**(revisions or {}), "production_models": model_lineage}
+        revision_inputs = {
+            **(revisions or {}),
+            "effective_annotations": annotation_identity(
+                (revisions or {}).get("effective_annotations", [])
+            ),
+            "production_models": model_lineage,
+        }
         identity = checkpoint_identity(
             ctx.video_path,
             video_id=video_id,
