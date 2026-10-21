@@ -27,6 +27,7 @@ from typing import Any
 import structlog
 
 from pipeline.detector_models import detection_has_mask, polygon_area
+from pipeline.position_evidence import canonical_shot
 
 log = structlog.get_logger(__name__)
 
@@ -192,7 +193,7 @@ class _Track:
             "source": det.get("source", "real"),
             "timestamp_seconds": det.get("timestamp_seconds"),
             "timestamp_verified": det.get("timestamp_verified", False),
-            "shot_id": det.get("shot_id"),
+            "shot_id": canonical_shot(det.get("shot_id")),
             "visibility_state": det.get("visibility_state", "observed"),
         }
         if detection_has_mask(det):
@@ -400,8 +401,8 @@ def track_expired(track: Any, frame: int, detections: list[dict[str, Any]],
     """Expire sparse source observations and never associate across a shot."""
     previous = track.points[-1]
     for detection in detections:
-        if (detection.get("shot_id") is not None and previous.get("shot_id") is not None
-                and detection["shot_id"] != previous["shot_id"]):
+        if (canonical_shot(detection.get("shot_id")) is not None and canonical_shot(previous.get("shot_id")) is not None
+                and canonical_shot(detection["shot_id"]) != canonical_shot(previous["shot_id"])):
             return True
     if max_seconds is not None:
         before = previous.get("timestamp_seconds")

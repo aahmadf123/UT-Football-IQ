@@ -11,6 +11,15 @@ export interface MetricEvidence {
   start_seconds: number; end_seconds: number;
   player_id?: string | null; tracklet_id?: string | null; result_version?: string | null;
   right_censored?: boolean; subject?: string; metric_packet?: Record<string, unknown>;
+  focus_seconds?: number;
+}
+export type FilmEvidence = Omit<MetricEvidence, "value">;
+export interface PositionOpportunity {
+  kind: string; definition_version: string; eligible_count: number; player_count: number;
+  evidence: MetricEvidence[];
+}
+export interface SpatialProduct {
+  metric_name: string; definition_version: string; unit: string; evidence: FilmEvidence[];
 }
 export interface AnalyticsGroup {
   key: string; metric_name: string; n: number; mean: number; median: number; p10: number; p90: number;
@@ -26,7 +35,8 @@ export interface CensoringGroup {
 export interface AnalyticsResult {
   dataset_version: string;
   cohort: { plays: number; player_reps: number; eligible_measurements: number; excluded_measurements: number; unknown_count?: number };
-  groups: AnalyticsGroup[]; censoring?: CensoringGroup[]; exclusions: { reason: string; count: number }[];
+  groups: AnalyticsGroup[]; censoring?: CensoringGroup[]; opportunities?: PositionOpportunity[];
+  products?: SpatialProduct[]; exclusions: { reason: string; count: number }[];
 }
 export interface SavedAnalysisView {
   id: string; name: string; surface: "film" | "analytics"; filters: Partial<AnalysisContext>;

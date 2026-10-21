@@ -5,12 +5,18 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { useAppState } from "@/lib/app-state";
 import { ANALYSIS_DEFAULTS, filmReviewHref, playerProfileContextHref, resolveAnalysisContext, updateContextParams, type AnalysisContext } from "@/lib/analysis-context";
-import { deleteAnalysisView, fetchMetricDefinitions, fetchPlayEvidence, fetchSavedViews, queryAnalytics, saveAnalysisView, type AnalyticsGroup, type AnalyticsResult, type MetricDefinition, type MetricEvidence, type PlayEvidence, type SavedAnalysisView } from "@/lib/analytics-api";
+import { deleteAnalysisView, fetchMetricDefinitions, fetchPlayEvidence, fetchSavedViews, queryAnalytics, saveAnalysisView, type AnalyticsGroup, type AnalyticsResult, type FilmEvidence, type MetricDefinition, type MetricEvidence, type PlayEvidence, type SavedAnalysisView } from "@/lib/analytics-api";
 import { friendlyMessage } from "@/lib/api-error";
 import { EChart } from "@/components/charts/echart";
 import { GameSummaryView } from "@/components/game-summary-view";
 import { LearningPanel } from "@/components/learning-panel";
 import { QualifiedPositionVisuals } from "@/components/qualified-position-visuals";
+import { InteractionPositionVisuals } from "@/components/interaction-position-visuals";
+import { GeometryPositionVisuals } from "@/components/geometry-position-visuals";
+import { MovementPositionVisuals, OpportunityEvidence } from "@/components/movement-position-visuals";
+import { SpecialistPositionVisuals } from "@/components/specialist-position-visuals";
+import { LaneWindowVisuals } from "@/components/lane-window-visuals";
+import { OriginalFrontVisuals } from "@/components/original-front-visuals";
 import { CensoringVisuals, suppliedCensoringGroups } from "@/components/censoring-visuals";
 import { AnalysisCohortFilters } from "@/components/analysis-cohort-filters";
 import { Button } from "@/components/ui/button";
@@ -36,7 +42,7 @@ export function TeamAnalytics() {
   const [visibility, setVisibility] = useState<"private" | "team">("private");
   const [saving, setSaving] = useState(false);
   const [revision, setRevision] = useState(0);
-  const [selected, setSelected] = useState<MetricEvidence | null>(null);
+  const [selected, setSelected] = useState<FilmEvidence | null>(null);
   const [evidence, setEvidence] = useState<PlayEvidence | null>(null);
   const [evidenceError, setEvidenceError] = useState("");
   const savedId = params.get("view") ?? "";
@@ -94,7 +100,8 @@ export function TeamAnalytics() {
     finally { setSaving(false); }
   }
   const filmHref = (row: MetricEvidence, rows: MetricEvidence[]) => filmReviewHref(new URLSearchParams(params.toString()), row.clip_id, {
-    playlist: [...new Set(rows.map((item) => item.clip_id))].join(","), from: `${pathname}?${params}`, t: "0",
+    playlist: [...new Set(rows.map((item) => item.clip_id))].join(","), from: `${pathname}?${params}`,
+    t: Number.isFinite(row.focus_seconds) ? String(Math.max(0, Math.min(row.end_seconds - row.start_seconds, row.focus_seconds! - row.start_seconds))) : "0",
   });
 
   return <div className="flex flex-col gap-6" data-testid="team-analytics">
@@ -128,13 +135,20 @@ export function TeamAnalytics() {
       </details>
       {loading ? <p role="status" className="py-8 text-sm text-muted-foreground">Loading the selected cohort…</p> : error ? <div role="alert" className="py-6 text-sm"><p>{error}</p><Button className="mt-3" variant="outline" onClick={() => setRevision((value) => value + 1)}>Retry analysis</Button></div> : result ? <>
         <p className="text-sm text-muted-foreground" data-testid="cohort-denominator"><strong className="text-foreground">{result.cohort.plays}</strong> canonical plays · {result.cohort.player_reps} player reps · {result.cohort.eligible_measurements} eligible measurements · {result.cohort.excluded_measurements} excluded · {result.cohort.unknown_count ?? 0} unknown</p>
-        <QualifiedPositionVisuals groups={result.groups} position={context.position} onSelect={setSelected} />
+        <OpportunityEvidence opportunities={result.opportunities} onSelect={setSelected} />
+        <InteractionPositionVisuals groups={result.groups} position={context.position} onSelect={setSelected} />
+        <GeometryPositionVisuals groups={result.groups} products={result.products} position={context.position} onSelect={setSelected} />
+        <MovementPositionVisuals groups={result.groups} products={result.products} position={context.position} onSelect={setSelected} />
+        <QualifiedPositionVisuals groups={result.groups} products={result.products} position={context.position} onSelect={setSelected} />
+        <SpecialistPositionVisuals groups={result.groups} position={context.position} onSelect={setSelected} />
+        <LaneWindowVisuals groups={result.groups} products={result.products} position={context.position} onSelect={setSelected} />
+        <OriginalFrontVisuals groups={result.groups} products={result.products} position={context.position} onSelect={setSelected} />
         <CensoringVisuals groups={result.censoring} onSelect={setSelected} />
-        {!result.groups.length && !suppliedCensoringGroups(result.censoring).length ? <div className="border-y border-border-soft py-10"><h2 className="text-lg font-semibold">No qualified measurements in this cohort</h2><p className="mt-2 max-w-2xl text-sm text-muted-foreground">Film remains available while analysis runs. Change the filters or inspect processing status in Film Room. Unknown identity, missing calibration, or unqualified models do not become zero-valued statistics.</p><Button asChild className="mt-4" variant="outline"><Link href="/film-room/">Open Film Room</Link></Button></div> : <div className="grid items-start gap-6 xl:grid-cols-2">{result.groups.map((group) => <MeasurementGroup key={`${group.key}-${group.metric_name}-${group.definition_version}-${group.unit}`} group={group} population={result.cohort} definition={definitions.find((item) => item.name === group.metric_name)} onSelect={setSelected} filmHref={filmHref} />)}</div>}
+        {!result.groups.length && !result.products?.length && !suppliedCensoringGroups(result.censoring).length ? <div className="border-y border-border-soft py-10"><h2 className="text-lg font-semibold">No qualified measurements in this cohort</h2><p className="mt-2 max-w-2xl text-sm text-muted-foreground">Film remains available while analysis runs. Change the filters or inspect processing status in Film Room. Unknown identity, missing calibration, or unqualified models do not become zero-valued statistics.</p><Button asChild className="mt-4" variant="outline"><Link href="/film-room/">Open Film Room</Link></Button></div> : <div className="grid items-start gap-6 xl:grid-cols-2">{result.groups.map((group) => <MeasurementGroup key={`${group.key}-${group.metric_name}-${group.definition_version}-${group.unit}`} group={group} population={result.cohort} definition={definitions.find((item) => item.name === group.metric_name)} onSelect={setSelected} filmHref={filmHref} />)}</div>}
         {result.exclusions.length ? <section aria-label="Excluded evidence"><h2 className="mb-2 text-sm font-semibold">Excluded from this analysis</h2><ul className="flex flex-col gap-1 text-sm text-muted-foreground">{result.exclusions.map((item) => <li key={item.reason}>{item.count} · {item.reason.replaceAll("_", " ")}</li>)}</ul></section> : null}
         {context.layout === "analyst" || tab === "analyst" ? <section className="border-t border-border-soft pt-4"><h2 className="text-base font-semibold">Dataset and definitions</h2><p className="mt-1 break-all text-xs text-muted-foreground">Dataset version: {result.dataset_version}</p><Button size="sm" variant="outline" className="mt-3" onClick={() => exportMeasurements(result)}>Export contributing measurements</Button><p className="mt-3 text-sm text-muted-foreground">Observed measurements, model classifications, predictions, and staff judgments retain separate definitions. Interaction and predictive results remain excluded until their evaluation gates pass.</p></section> : null}
       </> : null}
-      {selected ? <section aria-label="Play evidence" className="border-t border-border-soft pt-5"><div className="flex items-center justify-between"><h2 className="text-lg font-semibold">Evidence for this measurement</h2><Button variant="ghost" size="sm" onClick={() => setSelected(null)}>Close evidence</Button></div>{evidenceError ? <p role="alert">{evidenceError}</p> : !evidence ? <p role="status">Loading play evidence…</p> : <><p className="mt-2 text-sm text-muted-foreground">Canonical play {evidence.play_id} · {evidence.views.length} camera view(s)</p><div className="mt-3 flex flex-wrap gap-2">{evidence.views.map((view) => <Button asChild key={view.clip_id} size="sm" variant="outline"><Link href={filmReviewHref(new URLSearchParams(params.toString()), view.clip_id, { from: `${pathname}?${params}` })}>{view.camera_label || "Watch evidence"} · {view.start_seconds.toFixed(1)}–{view.end_seconds.toFixed(1)}s</Link></Button>)}</div><details className="mt-4 text-xs"><summary className="cursor-pointer">Events, eligibility and provenance</summary><pre className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap break-words rounded border border-border-soft p-3">{JSON.stringify(evidence, null, 2)}</pre></details></>}</section> : null}
+      {selected ? <section aria-label="Play evidence" className="border-t border-border-soft pt-5"><div className="flex items-center justify-between"><h2 className="text-lg font-semibold">Evidence for this measurement</h2><Button variant="ghost" size="sm" onClick={() => setSelected(null)}>Close evidence</Button></div>{evidenceError ? <p role="alert">{evidenceError}</p> : !evidence ? <p role="status">Loading play evidence…</p> : <><p className="mt-2 text-sm text-muted-foreground">Canonical play {evidence.play_id} · {evidence.views.length} camera view(s)</p><div className="mt-3 flex flex-wrap gap-2">{evidence.views.map((view) => <Button asChild key={view.clip_id} size="sm" variant="outline"><Link href={filmReviewHref(new URLSearchParams(params.toString()), view.clip_id, { from: `${pathname}?${params}`, t: view.clip_id === selected.clip_id && Number.isFinite(selected.focus_seconds) ? String(Math.max(0, Math.min(view.end_seconds - view.start_seconds, selected.focus_seconds! - view.start_seconds))) : "0" })}>{view.camera_label || "Watch evidence"} · {view.start_seconds.toFixed(1)}–{view.end_seconds.toFixed(1)}s</Link></Button>)}</div><details className="mt-4 text-xs"><summary className="cursor-pointer">Events, eligibility and provenance</summary><pre className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap break-words rounded border border-border-soft p-3">{JSON.stringify(evidence, null, 2)}</pre></details></>}</section> : null}
       {tab === "analyst" && (currentRole === "admin" || currentRole === "analyst") ? <LearningPanel /> : null}
     </>}
   </div>;
@@ -157,16 +171,22 @@ function MeasurementGroup({ group, population, definition, onSelect, filmHref }:
   </section>;
 }
 
-function exportMeasurements(result: AnalyticsResult) {
-  const quote = (value: unknown) => `"${String(value ?? "").replace(/^[=+@-]/, "'$&").replaceAll('"', '""')}"`;
+export function analyticsExportRows(result: AnalyticsResult): unknown[][] {
   const seen = new Set<string>();
-  const values = [...result.groups, ...suppliedCensoringGroups(result.censoring)].flatMap((group) => group.evidence.flatMap((row) => {
+  const values: unknown[][] = [...result.groups, ...suppliedCensoringGroups(result.censoring)].flatMap((group) => group.evidence.flatMap((row) => {
     const key = JSON.stringify([group.metric_name, group.key, group.definition_version, row.metric_id]);
     if (seen.has(key)) return [];
     seen.add(key);
-    return [[result.dataset_version, group.metric_name, group.key, row.value, group.unit, row.right_censored ?? false, row.play_id, row.clip_id, row.start_seconds, row.end_seconds]];
+    return [[result.dataset_version, "measurement", group.metric_name, group.key, row.value, group.unit, row.right_censored ?? false, row.play_id, row.clip_id, row.start_seconds, row.end_seconds, JSON.stringify(row.metric_packet ?? {})]];
   }));
-  const rows = [["dataset_version", "metric", "group", "value", "unit", "right_censored", "canonical_play", "clip", "source_start_seconds", "source_end_seconds"], ...values];
+  for (const product of result.products ?? []) for (const row of product.evidence) values.push([result.dataset_version, "spatial_evidence", product.metric_name, product.definition_version, null, product.unit, false, row.play_id, row.clip_id, row.start_seconds, row.end_seconds, JSON.stringify(row.metric_packet ?? {})]);
+  for (const opportunity of result.opportunities ?? []) for (const row of opportunity.evidence) values.push([result.dataset_version, "opportunity", "position_opportunity", opportunity.kind, 1, "rep", false, row.play_id, row.clip_id, row.start_seconds, row.end_seconds, JSON.stringify(row.metric_packet ?? {})]);
+  return [["dataset_version", "record_kind", "metric", "group", "value", "unit", "right_censored", "canonical_play", "clip", "source_start_seconds", "source_end_seconds", "evidence_packet"], ...values];
+}
+
+function exportMeasurements(result: AnalyticsResult) {
+  const quote = (value: unknown) => `"${String(value ?? "").replace(/^[=+@-]/, "'$&").replaceAll('"', '""')}"`;
+  const rows = analyticsExportRows(result);
   const url = URL.createObjectURL(new Blob([rows.map((row) => row.map(quote).join(",")).join("\r\n")], { type: "text/csv;charset=utf-8" }));
   const link = document.createElement("a"); link.href = url; link.download = "football-iq-measurements.csv"; link.click(); URL.revokeObjectURL(url);
 }

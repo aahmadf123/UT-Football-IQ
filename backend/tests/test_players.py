@@ -138,7 +138,7 @@ def test_list_players_applies_position_and_active_filters() -> None:
     # Each filter must reach the SQL layer — otherwise the API would silently
     # ignore caller intent.
     assert "players.position =" in sql
-    assert "players.position_group =" in sql
+    assert "upper(trim(players.position_group)) =" in sql
     assert "players.is_active =" in sql
     assert "players.jersey_number =" in sql
     assert "lower(players.first_name)" in sql or "ILIKE" in sql.upper()

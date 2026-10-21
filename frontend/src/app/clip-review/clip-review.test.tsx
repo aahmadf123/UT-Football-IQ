@@ -299,8 +299,13 @@ describe("ClipReviewPage overlays", () => {
           label_type: "offensive_formation",
           label_value: { name: "trips_right" },
           source: "model",
+          qualification: "model_approved" as const,
         },
+        { id: "lb-human", tracklet_id: null, label_type: "coverage_shell", label_value: { coverage: "reviewed-contract" }, source: "human", qualification: "human_reviewed" as const },
+        { id: "lb-legacy", tracklet_id: null, label_type: "route_family", label_value: { route: "legacy-contract" }, source: "model" },
       ],
+      withheld_label_count: 2,
+      warnings: ["2 unapproved or unverified model/annotation labels are withheld. Original labels remain available in Learning and annotation history."],
       metrics: [
         {
           id: "m-1",
@@ -340,6 +345,10 @@ describe("ClipReviewPage overlays", () => {
     expect(screen.getByTestId("overlay-tracklet-t-1")).toBeTruthy();
     expect(screen.getByTestId("event-marker-e-1")).toBeTruthy();
     expect(screen.getByText(/trips_right/)).toBeTruthy();
+    expect(screen.getByText("Approved model output")).toBeTruthy();
+    expect(screen.getByText("Staff reviewed annotation")).toBeTruthy();
+    expect(screen.getByText("Unverified annotation")).toBeTruthy();
+    expect(screen.getByText(/2 unapproved or unverified/)).toBeTruthy();
     expect(screen.getByText(/yards_gained/)).toBeTruthy();
 
     // Toggling "raw" hides the overlay SVG.
@@ -785,7 +794,8 @@ describe("ClipReviewPage overlays", () => {
 describe("ClipReviewPage playback source", () => {
   function routes(clip: Record<string, unknown>) {
     return installFetchRoutes([
-      { url: "/api/v1/videos/download-url", body: { downloadUrl: "https://dl.test/x" } },
+      { url: /\/api\/v1\/videos\/download-url\?.*bucket=clips(?:&|$)/, body: { downloadUrl: "https://dl.test/clips" } },
+      { url: /\/api\/v1\/videos\/download-url\?.*bucket=raw(?:&|$)/, body: { downloadUrl: "https://dl.test/raw" } },
       { url: "/api/v1/clips/c-1/overlays", body: EMPTY_OVERLAYS },
       { url: "/api/v1/clips/c-1", body: clip },
       { url: "/api/v1/videos/v-1/clips", body: [clip] },
@@ -833,9 +843,11 @@ describe("ClipReviewPage playback source", () => {
     const { ClipReviewPage, AppStateProvider } = await importPage();
     render(<AppStateProvider><ClipReviewPage /></AppStateProvider>);
     const player = await screen.findByLabelText("Clip 7 video") as HTMLVideoElement;
+    fireEvent.loadedMetadata(player);
     player.currentTime = 2;
     fireEvent.error(player);
     await waitFor(() => expect(requestedBuckets(fetchMock)).toEqual(["clips", "raw"]));
+    await waitFor(() => expect(player.getAttribute("src")).toBe("https://dl.test/raw"));
     fireEvent.loadedMetadata(player);
     expect(player.currentTime).toBe(12);
   });
@@ -845,9 +857,11 @@ describe("ClipReviewPage playback source", () => {
     const { ClipReviewPage, AppStateProvider } = await importPage();
     render(<AppStateProvider><ClipReviewPage /></AppStateProvider>);
     const player = await screen.findByLabelText("Clip 7 video") as HTMLVideoElement;
+    fireEvent.loadedMetadata(player);
     player.currentTime = 12;
     fireEvent.error(player);
     await waitFor(() => expect(requestedBuckets(fetchMock)).toEqual(["raw", "clips"]));
+    await waitFor(() => expect(player.getAttribute("src")).toBe("https://dl.test/clips"));
     fireEvent.loadedMetadata(player);
     expect(player.currentTime).toBe(2);
   });
@@ -863,4 +877,28 @@ describe("ClipReviewPage playback source", () => {
     await screen.findByLabelText("Clip 7 video");
     expect(requestedBuckets(fetchMock)[0]).toBe("raw");
   });
+});
+
+
+test("retired boundary deep links stay watchable and expose the current recording without edit forms", async () => {
+  window.history.replaceState({}, "", "/clip-review/?clipId=c-1&position=WR&from=%2Fteam-stats%2F");
+  installFetchRoutes([
+    { url: "/api/v1/videos/download-url", body: { downloadUrl: "https://dl.test/proxy" } },
+    { url: "/api/v1/clips/c-1/overlays", body: EMPTY_OVERLAYS },
+    { url: "/api/v1/clips/c-1", body: { ...SAMPLE_CLIP, provenance: { state: "superseded", replacement_clip_ids: ["c-2"] } } },
+    { url: "/api/v1/videos/v-1/clips", body: [{ ...SAMPLE_CLIP, id: "c-2" }] },
+    { url: "/api/v1/videos/v-1", body: SAMPLE_VIDEO },
+    { url: "/api/v1/videos", body: [] }, { url: "/api/v1/jobs", body: [] }, { url: "/api/v1/players", body: [] }, { url: "/api/v1/inbox/status", body: [] },
+  ]);
+  const { ClipReviewPage, AppStateProvider } = await importPage();
+  render(<AppStateProvider><ClipReviewPage /></AppStateProvider>);
+  await screen.findByTestId("video-transport");
+  const link = screen.getByRole("link", { name: "Open current recording" });
+  const url = new URL(link.getAttribute("href")!, "https://film.test");
+  expect(url.searchParams.get("position")).toBe("WR");
+  expect(url.searchParams.get("videoId")).toBe("v-1");
+  expect(url.searchParams.has("clipId")).toBe(false);
+  fireEvent.click(screen.getByRole("tab", { name: /Tag/ }));
+  expect(screen.getByText(/preserved version is read-only/)).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Save correction" })).toBeNull();
 });

@@ -31,6 +31,7 @@ from app.database import get_db
 from app.deps import get_current_user
 from app.models import Clip, Event, FieldCalibration, Label, Metric, Tracklet, User, Video
 from app.routers.events import effective_events
+from app.services.label_visibility import LabelQualification, select_coach_labels
 from app.services.metric_policy import INVALID_SOURCES, metric_visibility
 
 log = structlog.get_logger(__name__)
@@ -134,6 +135,7 @@ class OverlayLabel(BaseModel):
     label_type: str
     label_value: dict[str, Any]
     source: str
+    qualification: LabelQualification
 
 
 class OverlayMetric(BaseModel):
@@ -180,6 +182,7 @@ class ClipOverlayResponse(BaseModel):
     calibration: OverlayCalibration
     provenance: dict[str, Any] | None = None
     warnings: list[str] = []
+    withheld_label_count: int = 0
     tracks_timebase: Literal["recording"] = "recording"
     source_start_time_seconds: float = 0
     source_fps: float = 30
@@ -277,6 +280,9 @@ async def get_clip_overlays(
         .order_by(Label.created_at)
     )
     labels = labels_result.scalars().all()
+    label_selection = await select_coach_labels(db, list(labels))
+    qualified_labels = label_selection.labels
+    withheld_label_count = label_selection.withheld_count
 
     metrics_q = metric_visibility(
         select(Metric).where(Metric.clip_id == clip_id), current_user
@@ -309,7 +315,22 @@ async def get_clip_overlays(
             ["Output provenance is unknown; review observations before using analytics."]
             if not isinstance(clip.provenance, dict)
             else []
+        )
+        + (
+            [
+                f"{withheld_label_count} unapproved, unverified or staff-overridden labels "
+                "are withheld. "
+                "Original labels remain available in Learning and annotation history."
+            ]
+            if withheld_label_count
+            else []
+        )
+        + (
+            ["Conflicting staff annotations are withheld; review and correct the saved tags."]
+            if label_selection.conflicting_types
+            else []
         ),
+        withheld_label_count=withheld_label_count,
         tracklets=[
             OverlayTracklet(
                 id=t.id,
@@ -373,8 +394,9 @@ async def get_clip_overlays(
                 label_type=lb.label_type,
                 label_value=lb.label_value,
                 source=lb.source,
+                qualification=qualification,
             )
-            for lb in labels
+            for lb, qualification in qualified_labels
         ],
         metrics=[
             OverlayMetric(
@@ -393,7 +415,7 @@ async def get_clip_overlays(
         layers_available=OverlayLayersAvailable(
             tracklets=bool(tracklets),
             events=bool(events),
-            labels=bool(labels),
+            labels=bool(qualified_labels),
             metrics=bool(metrics),
         ),
     )

@@ -28,6 +28,7 @@ import time
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
+from urllib.request import url2pathname
 
 import structlog
 
@@ -89,7 +90,7 @@ def parse_ref(ref: str) -> tuple[str, str, str]:
     as ``("file", "", path)``.
     """
     if ref.startswith("file://"):
-        return "file", "", ref[len("file://") :]
+        return "file", "", url2pathname(ref[len("file://") :])
     for scheme in ("s3", "local", "api"):
         prefix = f"{scheme}://"
         if ref.startswith(prefix):

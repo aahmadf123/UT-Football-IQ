@@ -17,6 +17,7 @@ import type {
   TrainingDataset,
   ModelVersion,
   LearningBenchmark,
+  LearningEvaluation,
   CfbdMacBenchmarkResponse,
   CfbdScheduleResponse,
   CfbdTeamResponse,
@@ -275,6 +276,11 @@ export function listTrainingDatasets(token?: string): Promise<TrainingDataset[]>
 export function getTrainingDatasetDownloadUrl(id: string, token?: string): Promise<{ download_url: string }> {
   return getJSON(`${apiBase()}/api/v1/learning/datasets/${encodeURIComponent(id)}/download`, token);
 }
+
+export interface ExpectedFeatureDownload { download_url: string; sha256: string; row_count: number; size_bytes: number; filename: string }
+export function getExpectedFeatureDownload(jobId: string, token?: string): Promise<ExpectedFeatureDownload> {
+  return getJSON(`${apiBase()}/api/v1/learning/expected-outcomes/features/${encodeURIComponent(jobId)}/download`, token);
+}
 export function listModelVersions(token?: string): Promise<ModelVersion[]> {
   return getJSON(`${apiBase()}/api/v1/mlops/models`, token);
 }
@@ -283,6 +289,9 @@ export function promoteModelVersion(id: string, stage: "staging" | "production" 
 }
 export function listLearningBenchmarks(token?: string): Promise<LearningBenchmark[]> {
   return getJSON(`${apiBase()}/api/v1/learning/benchmarks`, token);
+}
+export function listLearningEvaluations(token?: string): Promise<LearningEvaluation[]> {
+  return getJSON(`${apiBase()}/api/v1/learning/evaluations`, token);
 }
 export interface LearningSessionSplit { session_id: string; split: "train" | "calibration" | "holdout" }
 export interface LearningFeaturePreview { ready: boolean; counts: Record<string, number>; required: Record<string, number>; class_counts: Record<string, unknown>; issues: string[]; job_ids: string[] }
@@ -298,6 +307,18 @@ export function createFeatureManifest(body: { name?: string; sessions: LearningS
 }
 export function queueCoverageTraining(body: { training_dataset_id: string; features_uri: string }, token?: string): Promise<{ job_id: string; status: string }> {
   return mutateJSON("/api/v1/learning/train", "POST", { ...body, training_variant: "local_coverage" }, token);
+}
+export interface ExpectedOutcomesTrainingRequest {
+  manifest_path: string;
+  manifest_sha256: string;
+  output_dir: string;
+  task?: "completion" | "rushing_gain" | "yac" | "pressure";
+}
+export function queueExpectedOutcomesTraining(body: ExpectedOutcomesTrainingRequest, token?: string): Promise<{ job_id: string; status: string }> {
+  return mutateJSON("/api/v1/learning/train", "POST", { ...body, training_variant: "expected_outcomes" }, token);
+}
+export function evaluateExpectedOutcomesCandidate(modelId: string, token?: string): Promise<{ passed: boolean; sample_count: number; missing_data_reasons?: string[] } | { status: string; job_id: string; challenge_id: string }> {
+  return mutateJSON(`/api/v1/learning/expected-outcomes/${encodeURIComponent(modelId)}/evaluate`, "POST", {}, token);
 }
 export function listLearningCandidates(manifestId: string, token?: string): Promise<ModelVersion[]> {
   return getJSON(`${apiBase()}/api/v1/learning/candidates?${new URLSearchParams({ manifest_id: manifestId })}`, token);
@@ -561,7 +582,7 @@ export interface PlayerCreate {
   last_name: string;
   jersey_number?: number | null;
   position?: string | null;
-  position_group?: "QB" | "RB" | "WR" | "TE" | "Skill" | "OL" | "DL" | "LB" | "DB" | "ST" | null;
+  position_group?: "QB" | "RB" | "WR" | "TE" | "Skill" | "OL" | "DL" | "EDGE" | "LB" | "DB" | "ST" | null;
   is_active?: boolean;
 }
 export interface PlayerImportResult {
@@ -1009,6 +1030,29 @@ export interface CorrectionResponse extends CorrectionCreate {
 
 export function fetchCorrections(clipId: string, token?: string): Promise<CorrectionResponse[]> {
   return getJSON(`${apiBase()}/api/v1/corrections?${new URLSearchParams({ clip_id: clipId, limit: "50" })}`, token);
+}
+
+export interface ActorBindingReviewEvent {
+  id: string;
+  event_type: string;
+  timestamp_seconds: number | null;
+  attributes: Record<string, unknown> | null;
+}
+export interface ActorBindingReview {
+  annotation_revision: number;
+  observations: { event: ActorBindingReviewEvent; issues: { reason: string; fields?: string[] }[] }[];
+  removed_observations?: { event: ActorBindingReviewEvent; issues: { reason: string }[] }[];
+}
+export function fetchActorBindingReview(clipId: string, token?: string): Promise<ActorBindingReview> {
+  return getJSON(`${apiBase()}/api/v1/clips/${encodeURIComponent(clipId)}/actor-binding-review`, token);
+}
+export function updateReviewedEvent(eventId: string, attributes: Record<string, unknown>, token?: string, revision?: number, time?: number): Promise<ActorBindingReviewEvent> {
+  return mutateJSON(`/api/v1/events/${encodeURIComponent(eventId)}`, "PATCH", { attributes, timestamp_seconds: time, expected_revision: revision }, token);
+}
+export async function removeInvalidReviewedEvent(eventId: string, token?: string, revision?: number): Promise<void> {
+  const suffix = revision == null ? "" : `?expected_revision=${revision}`;
+  const response = await fetch(`${apiBase()}/api/v1/events/${encodeURIComponent(eventId)}${suffix}`, { method: "DELETE", headers: authHeaders(token) });
+  if (!response.ok) throw await apiErrorFromResponse(response, "remove the invalid observation");
 }
 
 export async function createCorrection(

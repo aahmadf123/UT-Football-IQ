@@ -6,9 +6,8 @@ central model router, with ``SEGMENTER_VARIANT`` as an explicit override.
 Runtime depends on the actual recording and computer.
 
 Variants:
-  - ``auto``: edited coaches' game film (scoreboard card, sideline
-    angle, end-zone angle per play) becomes one clip per angle per play with
-    the scoreboard's down & distance; anything else uses ``optical_flow``.
+  - ``auto``: source-time camera shots, event proposals and conservative
+    replay/angle associations across practice, coach and television formats.
   - ``optical_flow``: the historical mean-flow-magnitude heuristic;
     proposals require review.
   - ``learned_play``: rules + ML hybrid with a play-duration prior.
@@ -27,6 +26,8 @@ Output: ``clips`` rows for each proposed play segment.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import math
 import os
 from pathlib import Path
@@ -76,6 +77,12 @@ def run(video_id: str, input_uri: str, job_id: str, *, priority: int = 0,
         segmenter = GameFilmSegmenter(fallback=segmenter)
     if timeline is not None:
         segmenter.timeline = timeline
+    if isinstance(segmenter, GameFilmSegmenter):
+        context = backend.fetch_video_context(video_id)
+        metadata = context.get("metadata_") or context.get("metadata") or {}
+        category = metadata.get("film_category")
+        segmenter.film_type = category if category in {"practice", "coach_game", "television"} else (
+            "practice" if context.get("session_kind") in {"practice", "scrimmage"} else "unknown")
     log.info(
         "stage_segment_start",
         video_id=video_id,
@@ -129,6 +136,12 @@ def _segment(
 ) -> dict[str, Any]:
     from pipeline.model_router import is_same_session
 
+    # Capture before expensive inference. A concurrent staff correction or
+    # changed layout rejects publication atomically in the backend.
+    online = not backend._offline()
+    snapshot = backend.fetch_active_clips(video_id) if online else []
+    pending: list[dict[str, Any]] = []
+    collect = {"pending_payloads": pending} if online else {}
     if getattr(segmenter, "timeline", None) is None:
         segmenter.timeline = VideoTimeline.from_path(video_path)
     boundaries = segmenter.segment(video_path)
@@ -140,12 +153,23 @@ def _segment(
     result_state = "preliminary" if is_same_session(priority) else "final"
     specs = getattr(segmenter, "clip_specs", None)
     if specs:
-        clips = _write_spec_clips(video_id, specs, duration, job_id, result_state)
+        clips = _write_spec_clips(video_id, specs, duration, job_id, result_state, **collect)
     else:
         clips = _write_clips(
             video_id, boundaries, duration, job_id, segmenter.source, result_state,
             review_fallback=review_fallback,
+            **collect,
         )
+    if online:
+        if not pending:
+            raise ValueError("Segmentation proposed no usable source windows; existing layout retained")
+        from pipeline.film_association import ASSOCIATION_VERSION
+
+        generation = hashlib.sha256(json.dumps(
+            [video_id, job_id, ASSOCIATION_VERSION, pending], sort_keys=True, allow_nan=False,
+        ).encode()).hexdigest()
+        clips = backend.batch_create_clips(video_id, pending, generation_id=generation,
+                                           expected_active_clip_ids=[str(clip["id"]) for clip in snapshot])
 
     log.info(
         "stage_segment_done",
@@ -187,6 +211,7 @@ def _write_clips(
     result_state: str | None = None,
     *,
     review_fallback: bool = False,
+    pending_payloads: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     """Post one clip per segment to the backend.
 
@@ -229,8 +254,9 @@ def _write_clips(
             continue
         play_idx += 1
         confidence = round(min(start_c, end_c), 3)
-        clip = backend.create_clip(
+        clip = _submit_clip(
             video_id,
+            pending_payloads=pending_payloads,
             start_time=start_t,
             end_time=end_t,
             boundary_source="synthetic_test" if boundary_model == "stub" else "heuristic",
@@ -238,6 +264,9 @@ def _write_clips(
             play_number=play_idx,
             job_id=job_id,
             result_state=result_state,
+            extra={"label_data": {"logical_play_status": "proposed",
+                                  "canonical_count_eligible": False,
+                                  "review_required": True}},
         )
         # Tag the in-memory clip dict so callers/tests can see which
         # adapter produced it without re-querying the backend.
@@ -248,8 +277,9 @@ def _write_clips(
         # A short recording is still valid film for annotation. Preserve it as
         # an explicitly unconfirmed review window, not a detected football play.
         check_control()
-        clip = backend.create_clip(
+        clip = _submit_clip(
             video_id, start_time=0., end_time=duration,
+            pending_payloads=pending_payloads,
             boundary_source="synthetic_test" if boundary_model == "stub" else "heuristic",
             boundary_confidence=0., play_number=1, job_id=job_id, result_state=result_state,
             extra={"label_data": {"logical_play_status": "unresolved",
@@ -267,12 +297,21 @@ def _write_clips(
 _VIEW_REGIMES = {"sideline": "fixed_sideline", "endzone": "fixed_endzone"}
 
 
+def _submit_clip(video_id: str, *, pending_payloads: list[dict[str, Any]] | None = None,
+                 **payload: Any) -> dict[str, Any]:
+    if pending_payloads is None:
+        return backend.create_clip(video_id, **payload)
+    pending_payloads.append(payload)
+    return {"video_id": video_id, **backend._clip_payload(payload)}
+
+
 def _write_spec_clips(
     video_id: str,
     specs: list[dict[str, Any]],
     duration: float,
     job_id: str,
     result_state: str | None,
+    *, pending_payloads: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     """Write one clip per (play, camera angle) from game-film structure.
 
@@ -300,10 +339,32 @@ def _write_spec_clips(
             "logical_play_status": spec.get("logical_play_status", "proposed"),
             "canonical_count_eligible": spec.get("canonical_count_eligible", True),
         }
+        sequence = spec.get("sequence")
+        if sequence:
+            # Canonical eligibility is a VIEW policy in the API. Confirmed
+            # alternate views share one play; they do not add another snap.
+            label_data["canonical_count_eligible"] = sequence["canonical_view_eligible"]
+            label_data["contributes_snap_count"] = sequence["canonical_count_eligible"]
+            label_data.update({"sequence_id": sequence["id"], "sequence_kind": sequence["sequence_kind"],
+                               "source_shot_id": sequence["shot_id"], "snap_seconds": sequence["snap_seconds"],
+                               "snap_confidence": sequence.get("snap_confidence"),
+                               "snap_candidate_seconds": sequence.get("snap_candidate_seconds"),
+                               "terminal_seconds": sequence.get("terminal_seconds"),
+                               "live_action_complete": sequence["live_action_complete"],
+                               "sequence_confidence": sequence["confidence"],
+                               "sequence_version": sequence["result_version"],
+                               "canonical_action_id": sequence["canonical_id"],
+                               "association_status": sequence["association_status"],
+                               "association_candidate": sequence.get("association_candidate"),
+                               "event_evidence": sequence["evidence"],
+                               "source_clock": sequence["source_clock"],
+                               "review_required": sequence["review_required"],
+                               "exclusion_reason": sequence.get("exclusion_reason")})
         if board:
             label_data["scoreboard"] = board
-        clip = backend.create_clip(
+        clip = _submit_clip(
             video_id,
+            pending_payloads=pending_payloads,
             start_time=start,
             end_time=end,
             boundary_source="heuristic",
@@ -312,10 +373,12 @@ def _write_spec_clips(
             job_id=job_id,
             result_state=result_state,
             extra={
-                "play_call_id": (f"{video_id[:8]}-p{int(spec['play_number']):03d}"
-                                 if spec.get("canonical_count_eligible", True) else None),
+                "play_call_id": (f"{video_id}-{sequence['canonical_id']}" if sequence and sequence["canonical_view_eligible"]
+                                 else f"{video_id[:8]}-p{int(spec['play_number']):03d}"
+                                 if not sequence and spec.get("canonical_count_eligible", True) else None),
                 "label_data": label_data,
-                "capture_regime": _VIEW_REGIMES.get(view),
+                # An angle classifier cannot establish a stationary camera.
+                "capture_regime": spec.get("capture_regime", "unknown") if sequence else _VIEW_REGIMES.get(view),
                 "down": board.get("down"),
                 "distance": board.get("distance"),
             },

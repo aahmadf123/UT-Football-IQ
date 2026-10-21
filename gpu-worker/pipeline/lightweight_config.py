@@ -43,6 +43,7 @@ SAME_SESSION_STAGES: list[str] = [
     "coverage",
     "oline",
     "pressure",
+    "expected_outcomes",
     "render",
 ]
 
@@ -64,6 +65,7 @@ NIGHTLY_STAGES: list[str] = [
     "coverage",
     "oline",
     "pressure",
+    "expected_outcomes",
     "render",
     "render_hls",
     "self_scout",
@@ -112,6 +114,7 @@ PROCESSING_PROFILES: dict[str, tuple[str, ...]] = {
         "metrics",
         "routes",
         "coverage",
+        "expected_outcomes",
         "render",
     ),
     "detailed": (
@@ -130,6 +133,7 @@ PROCESSING_PROFILES: dict[str, tuple[str, ...]] = {
         "coverage",
         "oline",
         "pressure",
+        "expected_outcomes",
         "render",
         "render_hls",
     ),

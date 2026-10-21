@@ -22,6 +22,16 @@ Routing lives in `gpu-worker/pipeline/model_router.py`. Stages call
 | `pose`       | `rtmpose-t`                  | `rtmpose-m`             |
 | `render`     | `ffmpeg-overlay`             | `ffmpeg-overlay`        |
 | `embeddings` | `none`                       | `play-embed-clip-vitb32-baseline` |
+| `expected_outcomes` | `expected-outcomes-linear-v1` | `expected-outcomes-linear-v1` |
+
+Expected outcomes use small CPU logistic/linear heads and always remain experimental.
+The stage abstains without qualified prediction-time snapshots and hash-verified
+externally approved registry artifacts. It has no bundled weights or heuristic
+fallback. Registry model types are `expected_completion`, `expected_rushing_gain`,
+`expected_yac` and `contextual_pressure`; their bytes enter checkpoint identity.
+Offline candidate fitting and evaluation use `python -m training.expected_outcomes`;
+the existing manually queued `train` workflow accepts `training_variant=expected_outcomes`.
+See [the expected-outcomes contract](../reports/overhaul/expected-outcomes-continuation.md).
 
 The pose row is the contract preserved from issue #16: same-session pose
 jobs route to RTMPose-tiny (~1000 FPS on a GTX 1660 Ti), nightly pose jobs

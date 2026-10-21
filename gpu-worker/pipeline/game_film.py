@@ -1,30 +1,13 @@
-"""Structure of edited coaches' game film: plays, camera angles, scoreboards.
+"""Source-time camera shots, event sequences and within-recording associations.
 
-Toledo's full-game exports (and coaches' film generally) are a concatenation
-of, for every play::
+Practice, coach film, television and short extracts share the event evidence
+interface. Actual decoded-frame motion, field lines, repeated images and cached
+OCR supply unvalidated review proposals; explicit human event/association
+evidence can establish canonical actions and matched views. No card history or
+camera order is required, and unknown/context footage remains playable.
 
-    [scoreboard card ~3 s] [sideline (press-box) angle] [end-zone angle]
-
-with hard cuts or short dissolves between them. A whole game is ~90 minutes
-and ~150 plays. This module recovers that structure so the pipeline can:
-
-* make one clip per camera angle per play, paired by ``play_number`` and a
-  shared ``play_call_id`` (each angle gets its own field calibration instead
-  of one homography breaking at every cut);
-* label each clip's view (``sideline`` / ``endzone``) so calibration and
-  metrics use the right geometry;
-* read the scoreboard card (quarter, clock, down & distance, ball on) so
-  every play carries its game situation and can be matched to CFBD
-  play-by-play.
-
-Footage without this structure (practice clips, raw single-camera film) is
-detected by :func:`looks_like_edited_film` and left to the optical-flow
-segmenter.
-
-Everything here is a heuristic on pixels, not a trained model: views come
-from yard-line geometry (sideline views show many steep yard lines, end-zone
-views show them flat across the frame), cards from the absence of field
-green. Each output carries a confidence so the UI can flag uncertain ones.
+Legacy edited-layout helpers remain for compatibility. Neither those helpers
+nor pixel heuristics are trained football models or measured accuracy evidence.
 """
 
 from __future__ import annotations
@@ -40,10 +23,11 @@ import numpy as np
 import structlog
 
 from pipeline.runtime import check_control, inference_device
+from pipeline.video_timeline import VideoTimeline, iter_frames
 
 log = structlog.get_logger(__name__)
 
-# ── Tunables (validated on Toledo 2026 game film, 720p60) ────────────────────
+# ── Legacy layout tunables (unqualified heuristics) ──────────────────────────
 
 #: Low-resolution decode used for cut detection and field-green measurement.
 CUT_FPS = 30
@@ -99,10 +83,14 @@ class GameFilmStructure:
     edited: bool
     shots: list[Shot] = field(default_factory=list)
     plays: list[GamePlay] = field(default_factory=list)
+    clip_specs: list[dict[str, Any]] = field(default_factory=list)
+    sequence_analysis: dict[str, Any] = field(default_factory=dict)
+    shot_evidence: list[dict[str, Any]] = field(default_factory=list)
+    feature_provenance: dict[str, Any] = field(default_factory=dict)
 
     def summary(self) -> dict[str, Any]:
         views = [v.view for p in self.plays for v in p.views]
-        return {
+        result = {
             "edited": self.edited,
             "shots": len(self.shots),
             "plays": len(self.plays),
@@ -112,6 +100,20 @@ class GameFilmStructure:
             "shot_boundaries_seconds": [shot.start for shot in self.shots],
             "boundary_semantics": "camera_shots_are_not_football_events",
         }
+        if self.sequence_analysis:
+            result.update({"format_strategy": "event_sequence_association",
+                           "qualified_canonical_actions": sum(row["canonical_count_eligible"] for row in self.sequence_analysis["sequences"]),
+                           "film_type": self.sequence_analysis["film_type"],
+                           "sequences": self.sequence_analysis["sequences"],
+                           "associations": self.sequence_analysis["associations"],
+                           "coverage": self.sequence_analysis["coverage"],
+                           "association_diagnostics": self.sequence_analysis["diagnostics"],
+                           "sequence_version": self.sequence_analysis["result_version"],
+                           "feature_provenance": self.feature_provenance,
+                           "sideline_views": sum(s.get("view") == "sideline" for s in self.shot_evidence),
+                           "endzone_views": sum(s.get("view") == "endzone" for s in self.shot_evidence),
+                           "source_shots": self.shot_evidence})
+        return result
 
 
 # ── Decoding helpers ─────────────────────────────────────────────────────────
@@ -315,34 +317,14 @@ def classify_views(video_path: Path, shots: list[Shot]) -> list[ViewSegment]:
 # ── Stage 3: plays ───────────────────────────────────────────────────────────
 
 
-def _resolve_unknown_views(views: list[ViewSegment]) -> None:
-    """Fill undecided angles from the film's fixed order.
-
-    Coaches' film shows the sideline angle first, then the end zone. An
-    undecided first angle is sideline; one after a sideline angle is the end
-    zone. Kept at low confidence so the UI can flag it.
-    """
-    for index, view in enumerate(views):
-        if view.view != "unknown":
-            continue
-        if index == 0:
-            view.view = "sideline"
-        elif views[index - 1].view == "sideline":
-            view.view = "endzone"
-        else:
-            continue
-        view.confidence = min(view.confidence, 0.4)
-
-
 def group_plays(segments: list[ViewSegment]) -> list[GamePlay]:
-    """A play is the run of field views between two scoreboard cards."""
+    """Legacy layout hints between cards; no angle or event is invented."""
     plays: list[GamePlay] = []
     current: list[ViewSegment] = []
     card_time: float | None = None
     for seg in segments:
         if seg.view == "card":
             if current:
-                _resolve_unknown_views(current)
                 plays.append(GamePlay(len(plays) + 1, current, card_time=card_time))
                 current = []
             card_time = (seg.start + seg.end) / 2
@@ -350,7 +332,6 @@ def group_plays(segments: list[ViewSegment]) -> list[GamePlay]:
         if seg.duration >= MIN_VIEW_SECONDS:
             current.append(seg)
     if current:
-        _resolve_unknown_views(current)
         plays.append(GamePlay(len(plays) + 1, current, card_time=card_time))
     return plays
 
@@ -443,10 +424,13 @@ class ScoreboardReader:
     def __init__(self) -> None:
         import easyocr  # type: ignore[import-not-found]
 
-        self._reader = easyocr.Reader(["en"], gpu=inference_device(), verbose=False)
+        self._reader = easyocr.Reader(["en"], gpu=inference_device(), verbose=False, download_enabled=False)
+
+    def read_text(self, frame: np.ndarray) -> list[str]:
+        return [str(t) for t in self._reader.readtext(frame, detail=0)]
 
     def read(self, frame: np.ndarray) -> dict[str, Any] | None:
-        texts = [str(t) for t in self._reader.readtext(frame, detail=0)]
+        texts = self.read_text(frame)
         parsed = parse_scoreboard(texts)
         if parsed is not None:
             parsed["raw"] = texts[:20]
@@ -475,27 +459,99 @@ def read_scoreboards(video_path: Path, plays: list[GamePlay]) -> None:
 # ── Entry point ──────────────────────────────────────────────────────────────
 
 
-def analyze(video_path: Path, *, read_cards: bool = True) -> GameFilmStructure:
+def read_shot_text_evidence(video_path: Path, shots: list[dict[str, Any]], timeline: VideoTimeline) -> None:
+    """Read existing cached OCR at actual source frames; never download models.
+
+    A repeated complete situation is needed for angle suggestions. Replay and
+    nonplay text remains unvalidated evidence, not an adjudicated event.
+    """
     try:
-        shots = detect_shots(video_path)
+        reader = ScoreboardReader()
+    except Exception as exc:  # noqa: BLE001 - OCR is optional, unavailable stays unknown
+        log.info("shot_text_evidence_unavailable", reason=type(exc).__name__)
+        return
+    cap = cv2.VideoCapture(str(video_path))
+    try:
+        for shot in shots:
+            check_control()
+            a, b = shot["start_seconds"], shot["end_seconds"]
+            frames = sorted({timeline.frame_for_time(t) for t in (a, (a+b)/2, max(a, b-.25))})
+            readings, situations = [], []
+            for index in frames:
+                for actual, frame in iter_frames(cap, timeline, index, index+1, fill_gaps=False):
+                    texts = reader.read_text(frame)
+                    board = parse_scoreboard(texts)
+                    reading = {"timestamp_seconds": timeline.timestamp(actual), "source_frame": actual,
+                               "source": "scoreboard_ocr", "validated": False, "texts": texts[:20], "scoreboard": board}
+                    readings.append(reading)
+                    if board and all(key in board for key in ("quarter", "clock_seconds", "down")):
+                        situations.append(board)
+                    blob = " ".join(texts).upper()
+                    if re.search(r"\bREPLAY\b", blob):
+                        shot["replay_evidence"] = {"source": "ocr_replay_banner", "confidence": .5,
+                                                   "validated": False, "source_frame": actual,
+                                                   "timestamp_seconds": timeline.timestamp(actual)}
+                    if shot.get("scene_kind") != "field":
+                        if re.search(r"COMMERCIAL BREAK|TV TIMEOUT|ADVERTISEMENT", blob):
+                            shot["scene_kind"] = "commercial"
+                        elif board:
+                            shot["scene_kind"] = "scoreboard"
+                    for token, kind in (("FALSE START", "false_start_candidate"), ("NO PLAY", "no_play_candidate"),
+                                        ("PENALTY", "penalty_candidate")):
+                        if token in blob:
+                            shot["events"].append({"event_type": kind, "timestamp_seconds": timeline.timestamp(actual),
+                                                   "source_frame": actual, "source": "ocr_text", "validated": False,
+                                                   "confidence": .5, "timestamp_verified": timeline.verified})
+            shot["text_evidence"] = readings
+            # Avoid a single erroneous OCR card or a changing broadcast clock
+            # silently binding independent actions.
+            for situation in situations:
+                signature = tuple(situation.get(key) for key in ("quarter", "clock_seconds", "down", "distance"))
+                if sum(tuple(other.get(key) for key in ("quarter", "clock_seconds", "down", "distance")) == signature
+                       for other in situations) >= 2:
+                    shot["scoreboard"] = situation
+                    break
+    finally:
+        cap.release()
+
+
+def analyze(video_path: Path, *, read_cards: bool = True, timeline: VideoTimeline | None = None,
+            event_evidence: list[dict[str, Any]] | None = None, film_type: str = "unknown") -> GameFilmStructure:
+    from pipeline.film_association import associate_shots
+    from pipeline.film_features import extract_shot_evidence, propose_visual_replays
+
+    try:
+        timeline = timeline or VideoTimeline.from_path(video_path)
+        evidence, provenance = extract_shot_evidence(video_path, timeline=timeline)
     except (OSError, ValueError) as exc:
         # No ffmpeg, or an undecodable file: not something we can structure;
         # the caller falls back to the generic segmenter.
         log.warning("game_film_analysis_unavailable", reason=type(exc).__name__)
         return GameFilmStructure(edited=False)
-    if not looks_like_edited_film(shots):
-        log.info("game_film_not_edited", shots=len(shots))
-        return GameFilmStructure(edited=False, shots=shots)
-    plays = group_plays(classify_views(video_path, shots))
     if read_cards:
-        read_scoreboards(video_path, plays)
-    structure = GameFilmStructure(edited=True, shots=shots, plays=plays)
-    log.info("game_film_structure", **structure.summary())
+        read_shot_text_evidence(video_path, evidence, timeline)
+    for event in event_evidence or []:
+        stamp = event.get("timestamp_seconds")
+        if isinstance(stamp, (int, float)):
+            for shot in evidence:
+                if shot["start_seconds"] <= stamp < shot["end_seconds"]:
+                    shot["events"].append(event)
+                    break
+    propose_visual_replays(evidence)
+    analysis = associate_shots(evidence, duration=timeline.duration, film_type=film_type)
+    structure = GameFilmStructure(edited=len(evidence) > 1,
+                                  shots=[Shot(s["start_seconds"], s["end_seconds"], s.get("green_fraction", 0)) for s in evidence],
+                                  clip_specs=analysis["clip_specs"], sequence_analysis=analysis,
+                                  shot_evidence=evidence, feature_provenance=provenance)
+    log.info("game_film_structure", shots=len(evidence), sequences=len(analysis["sequences"]),
+             associations=len(analysis["associations"]), source_coverage=analysis["coverage"])
     return structure
 
 
 def play_clip_specs(structure: GameFilmStructure) -> list[dict[str, Any]]:
     """One clip spec per (play, view): what ``stage_segment`` writes."""
+    if structure.clip_specs:
+        return structure.clip_specs
     specs: list[dict[str, Any]] = []
     for play in structure.plays:
         for index, view in enumerate(play.views):
@@ -506,6 +562,8 @@ def play_clip_specs(structure: GameFilmStructure) -> list[dict[str, Any]]:
                 "view": view.view,
                 "view_index": index,
                 "view_confidence": round(view.confidence, 2),
+                "canonical_count_eligible": False,
+                "logical_play_status": "layout_hint_unconfirmed",
             }
             if play.scoreboard:
                 spec["scoreboard"] = play.scoreboard

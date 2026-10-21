@@ -214,6 +214,11 @@ async def session_response(db: AsyncSession, session: FootballSession) -> dict[s
             }
         )
     plays = [play for play in plays if play.id in views]
+    countable = {
+        view.play_id
+        for view, clip, _video in view_rows
+        if (clip.label_data or {}).get("canonical_count_eligible", True) is True
+    }
     return {
         "id": str(session.id),
         "title": session.title,
@@ -225,7 +230,8 @@ async def session_response(db: AsyncSession, session: FootballSession) -> dict[s
         "created_at": session.created_at.isoformat(),
         "updated_at": session.updated_at.isoformat(),
         "recording_count": len(recordings),
-        "play_count": len(plays),
+        "play_count": sum(play.id in countable for play in plays),
+        "source_window_count": sum(play.id not in countable for play in plays),
         "recordings": [VideoResponse.from_orm_video(v).model_dump(mode="json") for v in recordings],
         "plays": [
             {
@@ -233,6 +239,7 @@ async def session_response(db: AsyncSession, session: FootballSession) -> dict[s
                 "session_id": str(p.session_id),
                 "title": p.title,
                 "sequence": p.sequence,
+                "count_eligible": p.id in countable,
                 "views": views.get(p.id, []),
             }
             for p in plays

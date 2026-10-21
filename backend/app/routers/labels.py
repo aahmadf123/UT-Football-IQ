@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.deps import get_current_user, require_analyst_or_above, require_any_staff
-from app.models import Clip, CoachCorrection, CorrectionType, Label, Tracklet, User
+from app.models import Clip, CoachCorrection, CorrectionType, Label, ProcessingJob, Tracklet, User
 from app.services.annotations import (
     TAG_TYPES,
     apply_label,
@@ -24,6 +24,9 @@ from app.services.annotations import (
     lock_output_id,
     touch_annotation,
 )
+from app.services.clip_state import lock_active_clip, require_active_clip
+from app.services.label_publication import label_identity, prepare_label_proof, store_label_proof
+from app.services.metric_publication import trusted_label_job
 
 log = structlog.get_logger(__name__)
 router = APIRouter(tags=["labels"])
@@ -43,6 +46,7 @@ class LabelCreate(BaseModel):
     source: Literal["model", "human", "heuristic", "synthetic_test"] = "model"
     dataset_version: str | None = None
     model_version_id: uuid.UUID | None = None
+    job_id: uuid.UUID | None = None
 
 
 class LabelResponse(BaseModel):
@@ -94,7 +98,7 @@ async def list_labels_for_clip(
     q = (
         select(Label)
         .where(Label.clip_id == clip_id)
-        .order_by(Label.created_at)
+        .order_by(Label.created_at, Label.id)
         .limit(limit)
         .offset(offset)
     )
@@ -118,7 +122,7 @@ async def list_labels_for_tracklet(
     if tracklet_result.scalar_one_or_none() is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tracklet not found")
 
-    q = select(Label).where(Label.tracklet_id == tracklet_id).order_by(Label.created_at)
+    q = select(Label).where(Label.tracklet_id == tracklet_id).order_by(Label.created_at, Label.id)
     if label_type is not None:
         q = q.where(Label.label_type == label_type)
     result = await db.execute(q)
@@ -134,6 +138,7 @@ async def create_label(
     body: LabelCreate,
     db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     current_user: Annotated[User, Depends(require_any_staff)],
+    producer_job: Annotated[ProcessingJob | None, Depends(trusted_label_job)],
 ) -> LabelResponse:
     """Store a formation/coverage/route label for a clip or tracklet."""
     provenance = body.label_value.get("provenance", {})
@@ -146,17 +151,6 @@ async def create_label(
         body.source = "synthetic_test"
     elif actual_source == "heuristic" and body.source != "human":
         body.source = "heuristic"
-    if body.id is not None:
-        await lock_output_id(db, body.id)
-        prior = (await db.execute(select(Label).where(Label.id == body.id))).scalar_one_or_none()
-        if prior is not None:
-            if (
-                prior.clip_id != body.clip_id
-                or prior.tracklet_id != body.tracklet_id
-                or prior.label_type != body.label_type
-            ):
-                raise HTTPException(409, detail="Output ID belongs to another label target")
-            return LabelResponse.from_orm_label(prior)
     if body.clip_id is None and body.tracklet_id is None:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -181,6 +175,46 @@ async def create_label(
             clip = (
                 await db.execute(select(Clip).where(Clip.id == tracklet.clip_id).with_for_update())
             ).scalar_one()
+
+    if clip is not None:
+        require_active_clip(clip)
+
+    qualified_model = body.source == "model" and actual_source == "real"
+    if qualified_model:
+        if producer_job is None or body.job_id != producer_job.id:
+            raise HTTPException(
+                403, "Real model labels require their trusted current processor job"
+            )
+        body.clip_id = clip.id if clip is not None else body.clip_id
+    candidate = Label(
+        id=body.id or uuid.uuid4(),
+        clip_id=body.clip_id,
+        tracklet_id=body.tracklet_id,
+        label_type=body.label_type,
+        label_value=body.label_value,
+        source=body.source,
+        dataset_version=body.dataset_version,
+        model_version_id=body.model_version_id,
+    )
+    proof = (
+        await prepare_label_proof(db, candidate, producer_job, current_user)
+        if qualified_model
+        else None
+    )
+    if body.id is not None:
+        await lock_output_id(db, body.id)
+        prior = await db.get(Label, body.id)
+        if prior is not None:
+            if label_identity(prior) != label_identity(candidate):
+                raise HTTPException(409, "Output ID belongs to a different immutable label body")
+            if proof is not None:
+                # A prior untrusted or failed-attempt label cannot be upgraded by replay.
+                from app.models import SystemSetting
+
+                if await db.get(SystemSetting, f"labels:producer:{prior.id}") is None:
+                    raise HTTPException(409, "Existing label has no immutable producer proof")
+                await store_label_proof(db, prior, proof, current_user)
+            return LabelResponse.from_orm_label(prior)
 
     if body.source == "human" and clip is not None:
         originals = await apply_label(
@@ -243,27 +277,24 @@ async def create_label(
             .limit(1)
         )
     ).scalar_one_or_none()
-    if existing is not None:
+    if existing is not None and not qualified_model:
         if existing.source != "human":
+            from app.models import SystemSetting
+
+            if await db.get(SystemSetting, f"labels:producer:{existing.id}") is not None:
+                raise HTTPException(409, "Trusted model labels are immutable")
             existing.label_value = body.label_value
             existing.source = body.source
             existing.model_version_id = body.model_version_id
             await db.flush()
             return LabelResponse.from_orm_label(existing)
 
-    label = Label(
-        id=body.id or uuid.uuid4(),
-        clip_id=body.clip_id,
-        tracklet_id=body.tracklet_id,
-        label_type=body.label_type,
-        label_value=body.label_value,
-        annotated_by=current_user.id,
-        source=body.source,
-        dataset_version=body.dataset_version,
-        model_version_id=body.model_version_id,
-    )
+    label = candidate
+    label.annotated_by = current_user.id
     db.add(label)
     await db.flush()
+    if proof is not None:
+        await store_label_proof(db, label, proof, current_user)
     log.info(
         "label_created",
         label_id=str(label.id),
@@ -299,6 +330,55 @@ async def delete_label(
     label = result.scalar_one_or_none()
     if label is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Label not found")
+    clip_id = label.clip_id
+    if clip_id is None and label.tracklet_id is not None:
+        tracklet = await db.get(Tracklet, label.tracklet_id)
+        if tracklet is None:
+            raise HTTPException(404, "Tracklet not found")
+        clip_id = tracklet.clip_id
+    if clip_id is not None:
+        clip = await lock_active_clip(db, clip_id)
+        # Serialize against annotation writes, then reread after the clip lock:
+        # a concurrent delete must not increment the revision a second time.
+        label = (
+            await db.execute(
+                select(Label)
+                .where(Label.id == label_id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+        ).scalar_one_or_none()
+        if label is None:
+            raise HTTPException(404, "Label not found")
+        if label.source in {"human", "manual"}:
+            data = dict(clip.label_data) if isinstance(clip.label_data, dict) else {}
+            data.pop(label.label_type, None)
+            clip.label_data = data
+            if label.label_type == "personnel_grouping":
+                clip.personnel_grouping = None
+            revision = touch_annotation(clip)
+            clip.is_reviewed = False
+            clip.reviewed_by = None
+            await invalidate_metrics(db, clip, "coach_label_removed")
+            db.add(
+                CoachCorrection(
+                    id=uuid.uuid4(),
+                    clip_id=clip.id,
+                    correction_type=next(
+                        (kind for kind, name in TAG_TYPES.items() if name == label.label_type),
+                        CorrectionType.event_tag,
+                    ),
+                    original_value={"removed_label": label_identity(label)},
+                    corrected_value={
+                        "removed_label_id": str(label.id),
+                        "label_type": label.label_type,
+                        "_revision": revision,
+                    },
+                    corrected_by=_current_user.id,
+                    training_eligible=False,
+                    notes="Reviewed label removed; no replacement target was supplied.",
+                )
+            )
     await db.delete(label)
     await db.flush()
     log.info("label_deleted", label_id=str(label_id))

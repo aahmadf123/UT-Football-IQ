@@ -1,0 +1,1255 @@
+{
+  "fixture_kind": "synthetic_producer_contract_only",
+  "rows": [
+    {
+      "metric_name": "lineman_first_second_displacement",
+      "tracklet_id": "lt",
+      "unit": "yd",
+      "is_suppressed": false,
+      "experimental_flag": true,
+      "metric_value": {
+        "definition_version": "2026-10-21.1",
+        "actor_id": "lt",
+        "track_id": "lt",
+        "actor_role": "LT",
+        "opponent_id": null,
+        "role_evidence": [],
+        "opportunity_kind": null,
+        "source_start_seconds": 0.0,
+        "source_end_seconds": 1.0,
+        "trajectory": [
+          {
+            "timestamp_seconds": 0.0,
+            "frame_number": 0,
+            "field_x": 50.0,
+            "field_y": 4,
+            "shot_id": "one",
+            "visibility_state": "observed"
+          },
+          {
+            "timestamp_seconds": 0.1,
+            "frame_number": 1,
+            "field_x": 49.9,
+            "field_y": 4,
+            "shot_id": "one",
+            "visibility_state": "observed"
+          },
+          {
+            "timestamp_seconds": 0.2,
+            "frame_number": 2,
+            "field_x": 49.8,
+            "field_y": 4,
+            "shot_id": "one",
+            "visibility_state": "observed"
+          },
+          {
+            "timestamp_seconds": 0.3,
+            "frame_number": 3,
+            "field_x": 49.7,
+            "field_y": 4,
+            "shot_id": "one",
+            "visibility_state": "observed"
+          },
+          {
+            "timestamp_seconds": 0.4,
+            "frame_number": 4,
+            "field_x": 49.6,
+            "field_y": 4,
+            "shot_id": "one",
+            "visibility_state": "observed"
+          },
+          {
+            "timestamp_seconds": 0.5,
+            "frame_number": 5,
+            "field_x": 49.5,
+            "field_y": 4,
+            "shot_id": "one",
+            "visibility_state": "observed"
+          },
+          {
+            "timestamp_seconds": 0.6,
+            "frame_number": 6,
+            "field_x": 49.4,
+            "field_y": 4,
+            "shot_id": "one",
+            "visibility_state": "observed"
+          },
+          {
+            "timestamp_seconds": 0.7,
+            "frame_number": 7,
+            "field_x": 49.3,
+            "field_y": 4,
+            "shot_id": "one",
+            "visibility_state": "observed"
+          },
+          {
+            "timestamp_seconds": 0.8,
+            "frame_number": 8,
+            "field_x": 49.2,
+            "field_y": 4,
+            "shot_id": "one",
+            "visibility_state": "observed"
+          },
+          {
+            "timestamp_seconds": 0.9,
+            "frame_number": 9,
+            "field_x": 49.1,
+            "field_y": 4,
+            "shot_id": "one",
+            "visibility_state": "observed"
+          },
+          {
+            "timestamp_seconds": 1.0,
+            "frame_number": 10,
+            "field_x": 49.0,
+            "field_y": 4,
+            "shot_id": "one",
+            "visibility_state": "observed"
+          }
+        ],
+        "series_interpolation": "none",
+        "right_censored": false,
+        "partial_observation": false,
+        "measurement_complete": true,
+        "scalar_scope": "declared_participation_interval",
+        "event_evidence": [
+          {
+            "event_id": "snap-0",
+            "event_type": "snap",
+            "timestamp_seconds": 0.0,
+            "source": "human",
+            "shot_id": "one"
+          }
+        ],
+        "required_evidence": [
+          "resolved_role",
+          "explicit_team",
+          "qualified_snap_los_direction",
+          "calibrated_trajectory",
+          "native_source_timestamps",
+          "same_known_shot",
+          "continuous_visibility_200ms"
+        ],
+        "original_role": "LT",
+        "attacking_direction": 1,
+        "los_x": 50.0,
+        "yards": 1.0,
+        "forward_yards": -1.0,
+        "lateral_yards": 0,
+        "scalar_summary": "net_displacement_within_scalar_scope",
+        "series": [
+          {
+            "timestamp_seconds": 0.0,
+            "frame_number": 0,
+            "field_x": 50.0,
+            "field_y": 4,
+            "shot_id": "one",
+            "visibility_state": "observed",
+            "forward_yards": 0.0,
+            "lateral_yards": 0
+          },
+          {
+            "timestamp_seconds": 0.1,
+            "frame_number": 1,
+            "field_x": 49.9,
+            "field_y": 4,
+            "shot_id": "one",
+            "visibility_state": "observed",
+            "forward_yards": -0.10000000000000142,
+            "lateral_yards": 0
+          },
+          {
+            "timestamp_seconds": 0.2,
+            "frame_number": 2,
+            "field_x": 49.8,
+            "field_y": 4,
+            "shot_id": "one",
+            "visibility_state": "observed",
+            "forward_yards": -0.20000000000000284,
+            "lateral_yards": 0
+          },
+          {
+            "timestamp_seconds": 0.3,
+            "frame_number": 3,
+            "field_x": 49.7,
+            "field_y": 4,
+            "shot_id": "one",
+            "visibility_state": "observed",
+            "forward_yards": -0.29999999999999716,
+            "lateral_yards": 0
+          },
+          {
+            "timestamp_seconds": 0.4,
+            "frame_number": 4,
+            "field_x": 49.6,
+            "field_y": 4,
+            "shot_id": "one",
+            "visibility_state": "observed",
+            "forward_yards": -0.3999999999999986,
+            "lateral_yards": 0
+          },
+          {
+            "timestamp_seconds": 0.5,
+            "frame_number": 5,
+            "field_x": 49.5,
+            "field_y": 4,
+            "shot_id": "one",
+            "visibility_state": "observed",
+            "forward_yards": -0.5,
+            "lateral_yards": 0
+          },
+          {
+            "timestamp_seconds": 0.6,
+            "frame_number": 6,
+            "field_x": 49.4,
+            "field_y": 4,
+            "shot_id": "one",
+            "visibility_state": "observed",
+            "forward_yards": -0.6000000000000014,
+            "lateral_yards": 0
+          },
+          {
+            "timestamp_seconds": 0.7,
+            "frame_number": 7,
+            "field_x": 49.3,
+            "field_y": 4,
+            "shot_id": "one",
+            "visibility_state": "observed",
+            "forward_yards": -0.7000000000000028,
+            "lateral_yards": 0
+          },
+          {
+            "timestamp_seconds": 0.8,
+            "frame_number": 8,
+            "field_x": 49.2,
+            "field_y": 4,
+            "shot_id": "one",
+            "visibility_state": "observed",
+            "forward_yards": -0.7999999999999972,
+            "lateral_yards": 0
+          },
+          {
+            "timestamp_seconds": 0.9,
+            "frame_number": 9,
+            "field_x": 49.1,
+            "field_y": 4,
+            "shot_id": "one",
+            "visibility_state": "observed",
+            "forward_yards": -0.8999999999999986,
+            "lateral_yards": 0
+          },
+          {
+            "timestamp_seconds": 1.0,
+            "frame_number": 10,
+            "field_x": 49.0,
+            "field_y": 4,
+            "shot_id": "one",
+            "visibility_state": "observed",
+            "forward_yards": -1.0,
+            "lateral_yards": 0
+          }
+        ]
+      }
+    },
+    {
+      "metric_name": "lineman_first_second_displacement",
+      "tracklet_id": "lg",
+      "unit": "yd",
+      "is_suppressed": false,
+      "experimental_flag": true,
+      "metric_value": {
+        "definition_version": "2026-10-21.1",
+        "actor_id": "lg",
+        "track_id": "lg",
+        "actor_role": "LG",
+        "opponent_id": null,
+        "role_evidence": [],
+        "opportunity_kind": null,
+        "source_start_seconds": 0.0,
+        "source_end_seconds": 1.0,
+        "trajectory": [
+          {
+            "timestamp_seconds": 0.0,
+            "frame_number": 0,
+            "field_x": 50.0,
+            "field_y": 2,
+            "shot_id": "one",
+            "visibility_state": "observed"
+          },
+          {
+            "timestamp_seconds": 0.1,
+            "frame_number": 1,
+            "field_x": 49.9,
+            "field_y": 2,
+            "shot_id": "one",
+            "visibility_state": "observed"
+          },
+          {
+            "timestamp_seconds": 0.2,
+            "frame_number": 2,
+            "field_x": 49.8,
+            "field_y": 2,
+            "shot_id": "one",
+            "visibility_state": "observed"
+          },
+          {
+            "timestamp_seconds": 0.3,
+            "frame_number": 3,
+            "field_x": 49.7,
+            "field_y": 2,
+            "shot_id": "one",
+            "visibility_state": "observed"
+          },
+          {
+            "timestamp_seconds": 0.4,
+            "frame_number": 4,
+            "field_x": 49.6,
+            "field_y": 2,
+            "shot_id": "one",
+            "visibility_state": "observed"
+          },
+          {
+            "timestamp_seconds": 0.5,
+            "frame_number": 5,
+            "field_x": 49.5,
+            "field_y": 2,
+            "shot_id": "one",
+            "visibility_state": "observed"
+          },
+          {
+            "timestamp_seconds": 0.6,
+            "frame_number": 6,
+            "field_x": 49.4,
+            "field_y": 2,
+            "shot_id": "one",
+            "visibility_state": "observed"
+          },
+          {
+            "timestamp_seconds": 0.7,
+            "frame_number": 7,
+            "field_x": 49.3,
+            "field_y": 2,
+            "shot_id": "one",
+            "visibility_state": "observed"
+          },
+          {
+            "timestamp_seconds": 0.8,
+            "frame_number": 8,
+            "field_x": 49.2,
+            "field_y": 2,
+            "shot_id": "one",
+            "visibility_state": "observed"
+          },
+          {
+            "timestamp_seconds": 0.9,
+            "frame_number": 9,
+            "field_x": 49.1,
+            "field_y": 2,
+            "shot_id": "one",
+            "visibility_state": "observed"
+          },
+          {
+            "timestamp_seconds": 1.0,
+            "frame_number": 10,
+            "field_x": 49.0,
+            "field_y": 2,
+            "shot_id": "one",
+            "visibility_state": "observed"
+          }
+        ],
+        "series_interpolation": "none",
+        "right_censored": false,
+        "partial_observation": false,
+        "measurement_complete": true,
+        "scalar_scope": "declared_participation_interval",
+        "event_evidence": [
+          {
+            "event_id": "snap-0",
+            "event_type": "snap",
+            "timestamp_seconds": 0.0,
+            "source": "human",
+            "shot_id": "one"
+          }
+        ],
+        "required_evidence": [
+          "resolved_role",
+          "explicit_team",
+          "qualified_snap_los_direction",
+          "calibrated_trajectory",
+          "native_source_timestamps",
+          "same_known_shot",
+          "continuous_visibility_200ms"
+        ],
+        "original_role": "LG",
+        "attacking_direction": 1,
+        "los_x": 50.0,
+        "yards": 1.0,
+        "forward_yards": -1.0,
+        "lateral_yards": 0,
+        "scalar_summary": "net_displacement_within_scalar_scope",
+        "series": [
+          {
+            "timestamp_seconds": 0.0,
+            "frame_number": 0,
+            "field_x": 50.0,
+            "field_y": 2,
+            "shot_id": "one",
+            "visibility_state": "observed",
+            "forward_yards": 0.0,
+            "lateral_yards": 0
+          },
+          {
+            "timestamp_seconds": 0.1,
+            "frame_number": 1,
+            "field_x": 49.9,
+            "field_y": 2,
+            "shot_id": "one",
+            "visibility_state": "observed",
+            "forward_yards": -0.10000000000000142,
+            "lateral_yards": 0
+          },
+          {
+            "timestamp_seconds": 0.2,
+            "frame_number": 2,
+            "field_x": 49.8,
+            "field_y": 2,
+            "shot_id": "one",
+            "visibility_state": "observed",
+            "forward_yards": -0.20000000000000284,
+            "lateral_yards": 0
+          },
+          {
+            "timestamp_seconds": 0.3,
+            "frame_number": 3,
+            "field_x": 49.7,
+            "field_y": 2,
+            "shot_id": "one",
+            "visibility_state": "observed",
+            "forward_yards": -0.29999999999999716,
+            "lateral_yards": 0
+          },
+          {
+            "timestamp_seconds": 0.4,
+            "frame_number": 4,
+            "field_x": 49.6,
+            "field_y": 2,
+            "shot_id": "one",
+            "visibility_state": "observed",
+            "forward_yards": -0.3999999999999986,
+            "lateral_yards": 0
+          },
+          {
+            "timestamp_seconds": 0.5,
+            "frame_number": 5,
+            "field_x": 49.5,
+            "field_y": 2,
+            "shot_id": "one",
+            "visibility_state": "observed",
+            "forward_yards": -0.5,
+            "lateral_yards": 0
+          },
+          {
+            "timestamp_seconds": 0.6,
+            "frame_number": 6,
+            "field_x": 49.4,
+            "field_y": 2,
+            "shot_id": "one",
+            "visibility_state": "observed",
+            "forward_yards": -0.6000000000000014,
+            "lateral_yards": 0
+          },
+          {
+            "timestamp_seconds": 0.7,
+            "frame_number": 7,
+            "field_x": 49.3,
+            "field_y": 2,
+            "shot_id": "one",
+            "visibility_state": "observed",
+            "forward_yards": -0.7000000000000028,
+            "lateral_yards": 0
+          },
+          {
+            "timestamp_seconds": 0.8,
+            "frame_number": 8,
+            "field_x": 49.2,
+            "field_y": 2,
+            "shot_id": "one",
+            "visibility_state": "observed",
+            "forward_yards": -0.7999999999999972,
+            "lateral_yards": 0
+          },
+          {
+            "timestamp_seconds": 0.9,
+            "frame_number": 9,
+            "field_x": 49.1,
+            "field_y": 2,
+            "shot_id": "one",
+            "visibility_state": "observed",
+            "forward_yards": -0.8999999999999986,
+            "lateral_yards": 0
+          },
+          {
+            "timestamp_seconds": 1.0,
+            "frame_number": 10,
+            "field_x": 49.0,
+            "field_y": 2,
+            "shot_id": "one",
+            "visibility_state": "observed",
+            "forward_yards": -1.0,
+            "lateral_yards": 0
+          }
+        ]
+      }
+    },
+    {
+      "metric_name": "lineman_first_second_displacement",
+      "tracklet_id": "c",
+      "unit": "yd",
+      "is_suppressed": false,
+      "experimental_flag": true,
+      "metric_value": {
+        "definition_version": "2026-10-21.1",
+        "actor_id": "c",
+        "track_id": "c",
+        "actor_role": "C",
+        "opponent_id": null,
+        "role_evidence": [],
+        "opportunity_kind": null,
+        "source_start_seconds": 0.0,
+        "source_end_seconds": 1.0,
+        "trajectory": [
+          {
+            "timestamp_seconds": 0.0,
+            "frame_number": 0,
+            "field_x": 50.0,
+            "field_y": 0,
+            "shot_id": "one",
+            "visibility_state": "observed"
+          },
+          {
+            "timestamp_seconds": 0.1,
+            "frame_number": 1,
+            "field_x": 49.9,
+            "field_y": 0,
+            "shot_id": "one",
+            "visibility_state": "observed"
+          },
+          {
+            "timestamp_seconds": 0.2,
+            "frame_number": 2,
+            "field_x": 49.8,
+            "field_y": 0,
+            "shot_id": "one",
+            "visibility_state": "observed"
+          },
+          {
+            "timestamp_seconds": 0.3,
+            "frame_number": 3,
+            "field_x": 49.7,
+            "field_y": 0,
+            "shot_id": "one",
+            "visibility_state": "observed"
+          },
+          {
+            "timestamp_seconds": 0.4,
+            "frame_number": 4,
+            "field_x": 49.6,
+            "field_y": 0,
+            "shot_id": "one",
+            "visibility_state": "observed"
+          },
+          {
+            "timestamp_seconds": 0.5,
+            "frame_number": 5,
+            "field_x": 49.5,
+            "field_y": 0,
+            "shot_id": "one",
+            "visibility_state": "observed"
+          },
+          {
+            "timestamp_seconds": 0.6,
+            "frame_number": 6,
+            "field_x": 49.4,
+            "field_y": 0,
+            "shot_id": "one",
+            "visibility_state": "observed"
+          },
+          {
+            "timestamp_seconds": 0.7,
+            "frame_number": 7,
+            "field_x": 49.3,
+            "field_y": 0,
+            "shot_id": "one",
+            "visibility_state": "observed"
+          },
+          {
+            "timestamp_seconds": 0.8,
+            "frame_number": 8,
+            "field_x": 49.2,
+            "field_y": 0,
+            "shot_id": "one",
+            "visibility_state": "observed"
+          },
+          {
+            "timestamp_seconds": 0.9,
+            "frame_number": 9,
+            "field_x": 49.1,
+            "field_y": 0,
+            "shot_id": "one",
+            "visibility_state": "observed"
+          },
+          {
+            "timestamp_seconds": 1.0,
+            "frame_number": 10,
+            "field_x": 49.0,
+            "field_y": 0,
+            "shot_id": "one",
+            "visibility_state": "observed"
+          }
+        ],
+        "series_interpolation": "none",
+        "right_censored": false,
+        "partial_observation": false,
+        "measurement_complete": true,
+        "scalar_scope": "declared_participation_interval",
+        "event_evidence": [
+          {
+            "event_id": "snap-0",
+            "event_type": "snap",
+            "timestamp_seconds": 0.0,
+            "source": "human",
+            "shot_id": "one"
+          }
+        ],
+        "required_evidence": [
+          "resolved_role",
+          "explicit_team",
+          "qualified_snap_los_direction",
+          "calibrated_trajectory",
+          "native_source_timestamps",
+          "same_known_shot",
+          "continuous_visibility_200ms"
+        ],
+        "original_role": "C",
+        "attacking_direction": 1,
+        "los_x": 50.0,
+        "yards": 1.0,
+        "forward_yards": -1.0,
+        "lateral_yards": 0,
+        "scalar_summary": "net_displacement_within_scalar_scope",
+        "series": [
+          {
+            "timestamp_seconds": 0.0,
+            "frame_number": 0,
+            "field_x": 50.0,
+            "field_y": 0,
+            "shot_id": "one",
+            "visibility_state": "observed",
+            "forward_yards": 0.0,
+            "lateral_yards": 0
+          },
+          {
+            "timestamp_seconds": 0.1,
+            "frame_number": 1,
+            "field_x": 49.9,
+            "field_y": 0,
+            "shot_id": "one",
+            "visibility_state": "observed",
+            "forward_yards": -0.10000000000000142,
+            "lateral_yards": 0
+          },
+          {
+            "timestamp_seconds": 0.2,
+            "frame_number": 2,
+            "field_x": 49.8,
+            "field_y": 0,
+            "shot_id": "one",
+            "visibility_state": "observed",
+            "forward_yards": -0.20000000000000284,
+            "lateral_yards": 0
+          },
+          {
+            "timestamp_seconds": 0.3,
+            "frame_number": 3,
+            "field_x": 49.7,
+            "field_y": 0,
+            "shot_id": "one",
+            "visibility_state": "observed",
+            "forward_yards": -0.29999999999999716,
+            "lateral_yards": 0
+          },
+          {
+            "timestamp_seconds": 0.4,
+            "frame_number": 4,
+            "field_x": 49.6,
+            "field_y": 0,
+            "shot_id": "one",
+            "visibility_state": "observed",
+            "forward_yards": -0.3999999999999986,
+            "lateral_yards": 0
+          },
+          {
+            "timestamp_seconds": 0.5,
+            "frame_number": 5,
+            "field_x": 49.5,
+            "field_y": 0,
+            "shot_id": "one",
+            "visibility_state": "observed",
+            "forward_yards": -0.5,
+            "lateral_yards": 0
+          },
+          {
+            "timestamp_seconds": 0.6,
+            "frame_number": 6,
+            "field_x": 49.4,
+            "field_y": 0,
+            "shot_id": "one",
+            "visibility_state": "observed",
+            "forward_yards": -0.6000000000000014,
+            "lateral_yards": 0
+          },
+          {
+            "timestamp_seconds": 0.7,
+            "frame_number": 7,
+            "field_x": 49.3,
+            "field_y": 0,
+            "shot_id": "one",
+            "visibility_state": "observed",
+            "forward_yards": -0.7000000000000028,
+            "lateral_yards": 0
+          },
+          {
+            "timestamp_seconds": 0.8,
+            "frame_number": 8,
+            "field_x": 49.2,
+            "field_y": 0,
+            "shot_id": "one",
+            "visibility_state": "observed",
+            "forward_yards": -0.7999999999999972,
+            "lateral_yards": 0
+          },
+          {
+            "timestamp_seconds": 0.9,
+            "frame_number": 9,
+            "field_x": 49.1,
+            "field_y": 0,
+            "shot_id": "one",
+            "visibility_state": "observed",
+            "forward_yards": -0.8999999999999986,
+            "lateral_yards": 0
+          },
+          {
+            "timestamp_seconds": 1.0,
+            "frame_number": 10,
+            "field_x": 49.0,
+            "field_y": 0,
+            "shot_id": "one",
+            "visibility_state": "observed",
+            "forward_yards": -1.0,
+            "lateral_yards": 0
+          }
+        ]
+      }
+    },
+    {
+      "metric_name": "lineman_first_second_displacement",
+      "tracklet_id": "rg",
+      "unit": "yd",
+      "is_suppressed": false,
+      "experimental_flag": true,
+      "metric_value": {
+        "definition_version": "2026-10-21.1",
+        "actor_id": "rg",
+        "track_id": "rg",
+        "actor_role": "RG",
+        "opponent_id": null,
+        "role_evidence": [],
+        "opportunity_kind": null,
+        "source_start_seconds": 0.0,
+        "source_end_seconds": 1.0,
+        "trajectory": [
+          {
+            "timestamp_seconds": 0.0,
+            "frame_number": 0,
+            "field_x": 50.0,
+            "field_y": -2,
+            "shot_id": "one",
+            "visibility_state": "observed"
+          },
+          {
+            "timestamp_seconds": 0.1,
+            "frame_number": 1,
+            "field_x": 49.9,
+            "field_y": -2,
+            "shot_id": "one",
+            "visibility_state": "observed"
+          },
+          {
+            "timestamp_seconds": 0.2,
+            "frame_number": 2,
+            "field_x": 49.8,
+            "field_y": -2,
+            "shot_id": "one",
+            "visibility_state": "observed"
+          },
+          {
+            "timestamp_seconds": 0.3,
+            "frame_number": 3,
+            "field_x": 49.7,
+            "field_y": -2,
+            "shot_id": "one",
+            "visibility_state": "observed"
+          },
+          {
+            "timestamp_seconds": 0.4,
+            "frame_number": 4,
+            "field_x": 49.6,
+            "field_y": -2,
+            "shot_id": "one",
+            "visibility_state": "observed"
+          },
+          {
+            "timestamp_seconds": 0.5,
+            "frame_number": 5,
+            "field_x": 49.5,
+            "field_y": -2,
+            "shot_id": "one",
+            "visibility_state": "observed"
+          },
+          {
+            "timestamp_seconds": 0.6,
+            "frame_number": 6,
+            "field_x": 49.4,
+            "field_y": -2,
+            "shot_id": "one",
+            "visibility_state": "observed"
+          },
+          {
+            "timestamp_seconds": 0.7,
+            "frame_number": 7,
+            "field_x": 49.3,
+            "field_y": -2,
+            "shot_id": "one",
+            "visibility_state": "observed"
+          },
+          {
+            "timestamp_seconds": 0.8,
+            "frame_number": 8,
+            "field_x": 49.2,
+            "field_y": -2,
+            "shot_id": "one",
+            "visibility_state": "observed"
+          },
+          {
+            "timestamp_seconds": 0.9,
+            "frame_number": 9,
+            "field_x": 49.1,
+            "field_y": -2,
+            "shot_id": "one",
+            "visibility_state": "observed"
+          },
+          {
+            "timestamp_seconds": 1.0,
+            "frame_number": 10,
+            "field_x": 49.0,
+            "field_y": -2,
+            "shot_id": "one",
+            "visibility_state": "observed"
+          }
+        ],
+        "series_interpolation": "none",
+        "right_censored": false,
+        "partial_observation": false,
+        "measurement_complete": true,
+        "scalar_scope": "declared_participation_interval",
+        "event_evidence": [
+          {
+            "event_id": "snap-0",
+            "event_type": "snap",
+            "timestamp_seconds": 0.0,
+            "source": "human",
+            "shot_id": "one"
+          }
+        ],
+        "required_evidence": [
+          "resolved_role",
+          "explicit_team",
+          "qualified_snap_los_direction",
+          "calibrated_trajectory",
+          "native_source_timestamps",
+          "same_known_shot",
+          "continuous_visibility_200ms"
+        ],
+        "original_role": "RG",
+        "attacking_direction": 1,
+        "los_x": 50.0,
+        "yards": 1.0,
+        "forward_yards": -1.0,
+        "lateral_yards": 0,
+        "scalar_summary": "net_displacement_within_scalar_scope",
+        "series": [
+          {
+            "timestamp_seconds": 0.0,
+            "frame_number": 0,
+            "field_x": 50.0,
+            "field_y": -2,
+            "shot_id": "one",
+            "visibility_state": "observed",
+            "forward_yards": 0.0,
+            "lateral_yards": 0
+          },
+          {
+            "timestamp_seconds": 0.1,
+            "frame_number": 1,
+            "field_x": 49.9,
+            "field_y": -2,
+            "shot_id": "one",
+            "visibility_state": "observed",
+            "forward_yards": -0.10000000000000142,
+            "lateral_yards": 0
+          },
+          {
+            "timestamp_seconds": 0.2,
+            "frame_number": 2,
+            "field_x": 49.8,
+            "field_y": -2,
+            "shot_id": "one",
+            "visibility_state": "observed",
+            "forward_yards": -0.20000000000000284,
+            "lateral_yards": 0
+          },
+          {
+            "timestamp_seconds": 0.3,
+            "frame_number": 3,
+            "field_x": 49.7,
+            "field_y": -2,
+            "shot_id": "one",
+            "visibility_state": "observed",
+            "forward_yards": -0.29999999999999716,
+            "lateral_yards": 0
+          },
+          {
+            "timestamp_seconds": 0.4,
+            "frame_number": 4,
+            "field_x": 49.6,
+            "field_y": -2,
+            "shot_id": "one",
+            "visibility_state": "observed",
+            "forward_yards": -0.3999999999999986,
+            "lateral_yards": 0
+          },
+          {
+            "timestamp_seconds": 0.5,
+            "frame_number": 5,
+            "field_x": 49.5,
+            "field_y": -2,
+            "shot_id": "one",
+            "visibility_state": "observed",
+            "forward_yards": -0.5,
+            "lateral_yards": 0
+          },
+          {
+            "timestamp_seconds": 0.6,
+            "frame_number": 6,
+            "field_x": 49.4,
+            "field_y": -2,
+            "shot_id": "one",
+            "visibility_state": "observed",
+            "forward_yards": -0.6000000000000014,
+            "lateral_yards": 0
+          },
+          {
+            "timestamp_seconds": 0.7,
+            "frame_number": 7,
+            "field_x": 49.3,
+            "field_y": -2,
+            "shot_id": "one",
+            "visibility_state": "observed",
+            "forward_yards": -0.7000000000000028,
+            "lateral_yards": 0
+          },
+          {
+            "timestamp_seconds": 0.8,
+            "frame_number": 8,
+            "field_x": 49.2,
+            "field_y": -2,
+            "shot_id": "one",
+            "visibility_state": "observed",
+            "forward_yards": -0.7999999999999972,
+            "lateral_yards": 0
+          },
+          {
+            "timestamp_seconds": 0.9,
+            "frame_number": 9,
+            "field_x": 49.1,
+            "field_y": -2,
+            "shot_id": "one",
+            "visibility_state": "observed",
+            "forward_yards": -0.8999999999999986,
+            "lateral_yards": 0
+          },
+          {
+            "timestamp_seconds": 1.0,
+            "frame_number": 10,
+            "field_x": 49.0,
+            "field_y": -2,
+            "shot_id": "one",
+            "visibility_state": "observed",
+            "forward_yards": -1.0,
+            "lateral_yards": 0
+          }
+        ]
+      }
+    },
+    {
+      "metric_name": "lineman_first_second_displacement",
+      "tracklet_id": "rt",
+      "unit": "yd",
+      "is_suppressed": false,
+      "experimental_flag": true,
+      "metric_value": {
+        "definition_version": "2026-10-21.1",
+        "actor_id": "rt",
+        "track_id": "rt",
+        "actor_role": "RT",
+        "opponent_id": null,
+        "role_evidence": [],
+        "opportunity_kind": null,
+        "source_start_seconds": 0.0,
+        "source_end_seconds": 1.0,
+        "trajectory": [
+          {
+            "timestamp_seconds": 0.0,
+            "frame_number": 0,
+            "field_x": 50.0,
+            "field_y": -4,
+            "shot_id": "one",
+            "visibility_state": "observed"
+          },
+          {
+            "timestamp_seconds": 0.1,
+            "frame_number": 1,
+            "field_x": 49.9,
+            "field_y": -4,
+            "shot_id": "one",
+            "visibility_state": "observed"
+          },
+          {
+            "timestamp_seconds": 0.2,
+            "frame_number": 2,
+            "field_x": 49.8,
+            "field_y": -4,
+            "shot_id": "one",
+            "visibility_state": "observed"
+          },
+          {
+            "timestamp_seconds": 0.3,
+            "frame_number": 3,
+            "field_x": 49.7,
+            "field_y": -4,
+            "shot_id": "one",
+            "visibility_state": "observed"
+          },
+          {
+            "timestamp_seconds": 0.4,
+            "frame_number": 4,
+            "field_x": 49.6,
+            "field_y": -4,
+            "shot_id": "one",
+            "visibility_state": "observed"
+          },
+          {
+            "timestamp_seconds": 0.5,
+            "frame_number": 5,
+            "field_x": 49.5,
+            "field_y": -4,
+            "shot_id": "one",
+            "visibility_state": "observed"
+          },
+          {
+            "timestamp_seconds": 0.6,
+            "frame_number": 6,
+            "field_x": 49.4,
+            "field_y": -4,
+            "shot_id": "one",
+            "visibility_state": "observed"
+          },
+          {
+            "timestamp_seconds": 0.7,
+            "frame_number": 7,
+            "field_x": 49.3,
+            "field_y": -4,
+            "shot_id": "one",
+            "visibility_state": "observed"
+          },
+          {
+            "timestamp_seconds": 0.8,
+            "frame_number": 8,
+            "field_x": 49.2,
+            "field_y": -4,
+            "shot_id": "one",
+            "visibility_state": "observed"
+          },
+          {
+            "timestamp_seconds": 0.9,
+            "frame_number": 9,
+            "field_x": 49.1,
+            "field_y": -4,
+            "shot_id": "one",
+            "visibility_state": "observed"
+          },
+          {
+            "timestamp_seconds": 1.0,
+            "frame_number": 10,
+            "field_x": 49.0,
+            "field_y": -4,
+            "shot_id": "one",
+            "visibility_state": "observed"
+          }
+        ],
+        "series_interpolation": "none",
+        "right_censored": false,
+        "partial_observation": false,
+        "measurement_complete": true,
+        "scalar_scope": "declared_participation_interval",
+        "event_evidence": [
+          {
+            "event_id": "snap-0",
+            "event_type": "snap",
+            "timestamp_seconds": 0.0,
+            "source": "human",
+            "shot_id": "one"
+          }
+        ],
+        "required_evidence": [
+          "resolved_role",
+          "explicit_team",
+          "qualified_snap_los_direction",
+          "calibrated_trajectory",
+          "native_source_timestamps",
+          "same_known_shot",
+          "continuous_visibility_200ms"
+        ],
+        "original_role": "RT",
+        "attacking_direction": 1,
+        "los_x": 50.0,
+        "yards": 1.0,
+        "forward_yards": -1.0,
+        "lateral_yards": 0,
+        "scalar_summary": "net_displacement_within_scalar_scope",
+        "series": [
+          {
+            "timestamp_seconds": 0.0,
+            "frame_number": 0,
+            "field_x": 50.0,
+            "field_y": -4,
+            "shot_id": "one",
+            "visibility_state": "observed",
+            "forward_yards": 0.0,
+            "lateral_yards": 0
+          },
+          {
+            "timestamp_seconds": 0.1,
+            "frame_number": 1,
+            "field_x": 49.9,
+            "field_y": -4,
+            "shot_id": "one",
+            "visibility_state": "observed",
+            "forward_yards": -0.10000000000000142,
+            "lateral_yards": 0
+          },
+          {
+            "timestamp_seconds": 0.2,
+            "frame_number": 2,
+            "field_x": 49.8,
+            "field_y": -4,
+            "shot_id": "one",
+            "visibility_state": "observed",
+            "forward_yards": -0.20000000000000284,
+            "lateral_yards": 0
+          },
+          {
+            "timestamp_seconds": 0.3,
+            "frame_number": 3,
+            "field_x": 49.7,
+            "field_y": -4,
+            "shot_id": "one",
+            "visibility_state": "observed",
+            "forward_yards": -0.29999999999999716,
+            "lateral_yards": 0
+          },
+          {
+            "timestamp_seconds": 0.4,
+            "frame_number": 4,
+            "field_x": 49.6,
+            "field_y": -4,
+            "shot_id": "one",
+            "visibility_state": "observed",
+            "forward_yards": -0.3999999999999986,
+            "lateral_yards": 0
+          },
+          {
+            "timestamp_seconds": 0.5,
+            "frame_number": 5,
+            "field_x": 49.5,
+            "field_y": -4,
+            "shot_id": "one",
+            "visibility_state": "observed",
+            "forward_yards": -0.5,
+            "lateral_yards": 0
+          },
+          {
+            "timestamp_seconds": 0.6,
+            "frame_number": 6,
+            "field_x": 49.4,
+            "field_y": -4,
+            "shot_id": "one",
+            "visibility_state": "observed",
+            "forward_yards": -0.6000000000000014,
+            "lateral_yards": 0
+          },
+          {
+            "timestamp_seconds": 0.7,
+            "frame_number": 7,
+            "field_x": 49.3,
+            "field_y": -4,
+            "shot_id": "one",
+            "visibility_state": "observed",
+            "forward_yards": -0.7000000000000028,
+            "lateral_yards": 0
+          },
+          {
+            "timestamp_seconds": 0.8,
+            "frame_number": 8,
+            "field_x": 49.2,
+            "field_y": -4,
+            "shot_id": "one",
+            "visibility_state": "observed",
+            "forward_yards": -0.7999999999999972,
+            "lateral_yards": 0
+          },
+          {
+            "timestamp_seconds": 0.9,
+            "frame_number": 9,
+            "field_x": 49.1,
+            "field_y": -4,
+            "shot_id": "one",
+            "visibility_state": "observed",
+            "forward_yards": -0.8999999999999986,
+            "lateral_yards": 0
+          },
+          {
+            "timestamp_seconds": 1.0,
+            "frame_number": 10,
+            "field_x": 49.0,
+            "field_y": -4,
+            "shot_id": "one",
+            "visibility_state": "observed",
+            "forward_yards": -1.0,
+            "lateral_yards": 0
+          }
+        ]
+      }
+    }
+  ]
+}

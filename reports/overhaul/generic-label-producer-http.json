@@ -1,0 +1,24 @@
+{
+  "protocol_fixture_only": true,
+  "football_accuracy_verified": false,
+  "transport": "actual loopback API, owned runtime, claims, CPU fitting, labels, completion, evaluation and promotion",
+  "dataset_id": "16f0329e-8f02-44e0-a874-c517822e12f7",
+  "benchmark_id": "fdc2aa2b-5171-4243-8186-5a21c6b03e13",
+  "models": [
+    {
+      "model_id": "6e68ee8d-9d0c-5764-a6e7-c757be104046",
+      "artifact_sha256": "d504987c75f882012fe7dc673e7fdd20b8b6494f98d524ecd8c3ea480fd0d69e",
+      "prediction_count": 20
+    },
+    {
+      "model_id": "c4f33acd-cc75-5558-b876-90cf663423a2",
+      "artifact_sha256": "d504987c75f882012fe7dc673e7fdd20b8b6494f98d524ecd8c3ea480fd0d69e",
+      "prediction_count": 20
+    }
+  ],
+  "same_artifact_new_execution_ids": true,
+  "public_api_retry_preserved_dataset_scope": true,
+  "failed_producer_evaluation_status": 422,
+  "ordinary_staff_copied_fence_completion_status": 403,
+  "note": "Scratch database contract only; numerical protocol fixtures never establish real football validation."
+}

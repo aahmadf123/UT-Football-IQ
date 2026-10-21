@@ -1,0 +1,1019 @@
+{
+  "observed_at_utc": "2026-10-21T20:16:18.888069+00:00",
+  "source_root": "C:\\Users\\firas\\OneDrive - University of Toledo\\UT Game Film 2026",
+  "operation": "Read-only ffprobe metadata and head/middle/tail bounded single-thread CPU decoded-PTS samples; no full hashes, inference, services, deployments or source writes",
+  "catalog_path": "C:\\Users\\firas\\UT-Football-IQ\\reports\\overhaul\\labeling-package\\sources-content-verified.json",
+  "catalog_sha256": "996e52fab5db5e72bb05acc2b2f14d31d52374f54331375b919bb3ac6075a939",
+  "catalog_hash_reuse_limit": "Catalog records prior verified full-byte hashes but no original mtime tuple. Current metadata matching is not a fresh cryptographic full-file revalidation. Current size/mtime recorded for future comparisons.",
+  "elapsed_seconds": 11.459,
+  "rows": [
+    {
+      "path": "C:\\Users\\firas\\OneDrive - University of Toledo\\UT Game Film 2026\\26 01 OHTO FULL GAME @ MIST.mp4",
+      "stat_before": {
+        "size_bytes": 3742691239,
+        "modified_ns": 1792179736449892300,
+        "file_attributes": 32
+      },
+      "metadata_returncode": 0,
+      "probe": {
+        "streams": [
+          {
+            "index": 0,
+            "codec_name": "h264",
+            "codec_long_name": "H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10",
+            "profile": "High",
+            "codec_type": "video",
+            "codec_tag_string": "avc1",
+            "codec_tag": "0x31637661",
+            "mime_codec_string": "avc1.640028",
+            "width": 1280,
+            "height": 720,
+            "coded_width": 1280,
+            "coded_height": 720,
+            "has_b_frames": 1,
+            "sample_aspect_ratio": "1:1",
+            "display_aspect_ratio": "16:9",
+            "pix_fmt": "yuv420p",
+            "level": 40,
+            "chroma_location": "left",
+            "field_order": "progressive",
+            "is_avc": "true",
+            "nal_length_size": "4",
+            "id": "0x1",
+            "r_frame_rate": "60000/1001",
+            "avg_frame_rate": "60390000/1007507",
+            "time_base": "1/60000",
+            "start_pts": 0,
+            "start_time": "0.000000",
+            "duration_ts": 302252100,
+            "duration": "5037.535000",
+            "bit_rate": "5935871",
+            "bits_per_raw_sample": "8",
+            "nb_frames": "301950",
+            "extradata_size": 190,
+            "disposition": {
+              "default": 1,
+              "dub": 0,
+              "original": 0,
+              "comment": 0,
+              "lyrics": 0,
+              "karaoke": 0,
+              "forced": 0,
+              "hearing_impaired": 0,
+              "visual_impaired": 0,
+              "clean_effects": 0,
+              "attached_pic": 0,
+              "timed_thumbnails": 0,
+              "non_diegetic": 0,
+              "captions": 0,
+              "descriptions": 0,
+              "metadata": 0,
+              "dependent": 0,
+              "still_image": 0,
+              "multilayer": 0
+            },
+            "tags": {
+              "creation_time": "1970-01-01T00:00:00.000000Z",
+              "language": "und",
+              "handler_name": "VideoHandler"
+            }
+          }
+        ],
+        "format": {
+          "filename": "C:\\Users\\firas\\OneDrive - University of Toledo\\UT Game Film 2026\\26 01 OHTO FULL GAME @ MIST.mp4",
+          "nb_streams": 1,
+          "nb_programs": 0,
+          "nb_stream_groups": 0,
+          "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
+          "format_long_name": "QuickTime / MOV",
+          "start_time": "0.000000",
+          "duration": "5037.535000",
+          "size": "3742691239",
+          "bit_rate": "5943686",
+          "probe_score": 100,
+          "tags": {
+            "major_brand": "isom",
+            "minor_version": "512",
+            "compatible_brands": "isomiso2avc1mp41",
+            "creation_time": "1970-01-01T00:00:00.000000Z",
+            "encoder": "Lavf52.87.1"
+          }
+        }
+      },
+      "prior_verified_catalog": {
+        "id": "source-959c4d7b116e6ca1",
+        "media_sha256": "7cc11a129c88c78fd6d0f4d7c9fe394d5b13ba10fefa95667a007f536843756e",
+        "hash_status": "verified_local_bytes",
+        "inventory_observation_date": "2026-10-21"
+      },
+      "catalog_metadata_match": true,
+      "hash_handling": "prior full-SHA reused with current path/size/stream-metadata match; no new full-file read",
+      "prior_mtime_binding_available": false,
+      "native_pts_samples": [
+        {
+          "position": "head",
+          "requested_start_seconds": 0,
+          "requested_duration_seconds": 2,
+          "returncode": 0,
+          "decoded_frames": 118,
+          "timestamped_frames": 118,
+          "first_pts_seconds": 0.0,
+          "last_pts_seconds": 1.95195,
+          "strictly_increasing": true,
+          "min_pts_delta": 0.016682999999999892,
+          "max_pts_delta": 0.016684000000000143,
+          "decoded_dimensions": [
+            [
+              1280,
+              720
+            ]
+          ]
+        },
+        {
+          "position": "middle",
+          "requested_start_seconds": 2518.7675,
+          "requested_duration_seconds": 2,
+          "returncode": 0,
+          "decoded_frames": 118,
+          "timestamped_frames": 118,
+          "first_pts_seconds": 2518.51725,
+          "last_pts_seconds": 2520.469183,
+          "strictly_increasing": true,
+          "min_pts_delta": 0.016665999999986525,
+          "max_pts_delta": 0.016700000000128057,
+          "decoded_dimensions": [
+            [
+              1280,
+              720
+            ]
+          ]
+        },
+        {
+          "position": "tail",
+          "requested_start_seconds": 5034.535,
+          "requested_duration_seconds": 2,
+          "returncode": 0,
+          "decoded_frames": 118,
+          "timestamped_frames": 118,
+          "first_pts_seconds": 5034.531983,
+          "last_pts_seconds": 5036.48395,
+          "strictly_increasing": true,
+          "min_pts_delta": 0.016665999999531778,
+          "max_pts_delta": 0.016700000000128057,
+          "decoded_dimensions": [
+            [
+              1280,
+              720
+            ]
+          ]
+        }
+      ],
+      "stat_after": {
+        "size_bytes": 3742691239,
+        "modified_ns": 1792179736449892300,
+        "file_attributes": 32
+      },
+      "source_size_mtime_unchanged": true
+    },
+    {
+      "path": "C:\\Users\\firas\\OneDrive - University of Toledo\\UT Game Film 2026\\26 02 OHTO FULL GAME vs CTCE.mp4",
+      "stat_before": {
+        "size_bytes": 4143692321,
+        "modified_ns": 1792179795999304100,
+        "file_attributes": 32
+      },
+      "metadata_returncode": 0,
+      "probe": {
+        "streams": [
+          {
+            "index": 0,
+            "codec_name": "h264",
+            "codec_long_name": "H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10",
+            "profile": "High",
+            "codec_type": "video",
+            "codec_tag_string": "avc1",
+            "codec_tag": "0x31637661",
+            "mime_codec_string": "avc1.640028",
+            "width": 1280,
+            "height": 720,
+            "coded_width": 1280,
+            "coded_height": 720,
+            "has_b_frames": 16,
+            "sample_aspect_ratio": "1:1",
+            "display_aspect_ratio": "16:9",
+            "pix_fmt": "yuv420p",
+            "level": 40,
+            "chroma_location": "left",
+            "field_order": "progressive",
+            "is_avc": "true",
+            "nal_length_size": "4",
+            "id": "0x1",
+            "r_frame_rate": "60000/1001",
+            "avg_frame_rate": "1320945263/22037781",
+            "time_base": "1/60000",
+            "start_pts": 0,
+            "start_time": "0.000000",
+            "duration_ts": 336786616,
+            "duration": "5613.110267",
+            "bit_rate": "5897989",
+            "bits_per_raw_sample": "8",
+            "nb_frames": "336450",
+            "extradata_size": 190,
+            "disposition": {
+              "default": 1,
+              "dub": 0,
+              "original": 0,
+              "comment": 0,
+              "lyrics": 0,
+              "karaoke": 0,
+              "forced": 0,
+              "hearing_impaired": 0,
+              "visual_impaired": 0,
+              "clean_effects": 0,
+              "attached_pic": 0,
+              "timed_thumbnails": 0,
+              "non_diegetic": 0,
+              "captions": 0,
+              "descriptions": 0,
+              "metadata": 0,
+              "dependent": 0,
+              "still_image": 0,
+              "multilayer": 0
+            },
+            "tags": {
+              "creation_time": "1970-01-01T00:00:00.000000Z",
+              "language": "und",
+              "handler_name": "VideoHandler"
+            }
+          }
+        ],
+        "format": {
+          "filename": "C:\\Users\\firas\\OneDrive - University of Toledo\\UT Game Film 2026\\26 02 OHTO FULL GAME vs CTCE.mp4",
+          "nb_streams": 1,
+          "nb_programs": 0,
+          "nb_stream_groups": 0,
+          "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
+          "format_long_name": "QuickTime / MOV",
+          "start_time": "0.000000",
+          "duration": "5613.110267",
+          "size": "4143692321",
+          "bit_rate": "5905734",
+          "probe_score": 100,
+          "tags": {
+            "major_brand": "isom",
+            "minor_version": "512",
+            "compatible_brands": "isomiso2avc1mp41",
+            "creation_time": "1970-01-01T00:00:00.000000Z",
+            "encoder": "Lavf52.87.1"
+          }
+        }
+      },
+      "prior_verified_catalog": {
+        "id": "source-dba2f5661c9f399f",
+        "media_sha256": "bb4393c97f4e42606d33dc98f70784a77fdc8fd26c3d90b97e23d511e81dffb7",
+        "hash_status": "verified_local_bytes",
+        "inventory_observation_date": "2026-10-21"
+      },
+      "catalog_metadata_match": true,
+      "hash_handling": "prior full-SHA reused with current path/size/stream-metadata match; no new full-file read",
+      "prior_mtime_binding_available": false,
+      "native_pts_samples": [
+        {
+          "position": "head",
+          "requested_start_seconds": 0,
+          "requested_duration_seconds": 2,
+          "returncode": 0,
+          "decoded_frames": 118,
+          "timestamped_frames": 118,
+          "first_pts_seconds": 0.0,
+          "last_pts_seconds": 1.95195,
+          "strictly_increasing": true,
+          "min_pts_delta": 0.016682999999999892,
+          "max_pts_delta": 0.016684000000000143,
+          "decoded_dimensions": [
+            [
+              1280,
+              720
+            ]
+          ]
+        },
+        {
+          "position": "middle",
+          "requested_start_seconds": 2806.5551335,
+          "requested_duration_seconds": 2,
+          "returncode": 0,
+          "decoded_frames": 118,
+          "timestamped_frames": 118,
+          "first_pts_seconds": 2806.30485,
+          "last_pts_seconds": 2808.256817,
+          "strictly_increasing": true,
+          "min_pts_delta": 0.016666999999870313,
+          "max_pts_delta": 0.016700000000128057,
+          "decoded_dimensions": [
+            [
+              1280,
+              720
+            ]
+          ]
+        },
+        {
+          "position": "tail",
+          "requested_start_seconds": 5610.110267,
+          "requested_duration_seconds": 2,
+          "returncode": 0,
+          "decoded_frames": 118,
+          "timestamped_frames": 118,
+          "first_pts_seconds": 5610.107267,
+          "last_pts_seconds": 5612.059217,
+          "strictly_increasing": true,
+          "min_pts_delta": 0.016682999999829917,
+          "max_pts_delta": 0.016684000000168453,
+          "decoded_dimensions": [
+            [
+              1280,
+              720
+            ]
+          ]
+        }
+      ],
+      "stat_after": {
+        "size_bytes": 4143692321,
+        "modified_ns": 1792179795999304100,
+        "file_attributes": 32
+      },
+      "source_size_mtime_unchanged": true
+    },
+    {
+      "path": "C:\\Users\\firas\\OneDrive - University of Toledo\\UT Game Film 2026\\26 03 OHTO FULL GAME vs PATE.mp4",
+      "stat_before": {
+        "size_bytes": 4549285620,
+        "modified_ns": 1792179826996711900,
+        "file_attributes": 32
+      },
+      "metadata_returncode": 0,
+      "probe": {
+        "streams": [
+          {
+            "index": 0,
+            "codec_name": "h264",
+            "codec_long_name": "H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10",
+            "profile": "High",
+            "codec_type": "video",
+            "codec_tag_string": "avc1",
+            "codec_tag": "0x31637661",
+            "mime_codec_string": "avc1.640028",
+            "width": 1280,
+            "height": 720,
+            "coded_width": 1280,
+            "coded_height": 720,
+            "has_b_frames": 1,
+            "sample_aspect_ratio": "1:1",
+            "display_aspect_ratio": "16:9",
+            "pix_fmt": "yuv420p",
+            "level": 40,
+            "chroma_location": "left",
+            "field_order": "progressive",
+            "is_avc": "true",
+            "nal_length_size": "4",
+            "id": "0x1",
+            "r_frame_rate": "60000/1001",
+            "avg_frame_rate": "90875381/1516105",
+            "time_base": "1/60000",
+            "start_pts": 0,
+            "start_time": "0.000000",
+            "duration_ts": 369128937,
+            "duration": "6152.148950",
+            "bit_rate": "5906006",
+            "bits_per_raw_sample": "8",
+            "nb_frames": "368760",
+            "extradata_size": 190,
+            "disposition": {
+              "default": 1,
+              "dub": 0,
+              "original": 0,
+              "comment": 0,
+              "lyrics": 0,
+              "karaoke": 0,
+              "forced": 0,
+              "hearing_impaired": 0,
+              "visual_impaired": 0,
+              "clean_effects": 0,
+              "attached_pic": 0,
+              "timed_thumbnails": 0,
+              "non_diegetic": 0,
+              "captions": 0,
+              "descriptions": 0,
+              "metadata": 0,
+              "dependent": 0,
+              "still_image": 0,
+              "multilayer": 0
+            },
+            "tags": {
+              "creation_time": "1970-01-01T00:00:00.000000Z",
+              "language": "und",
+              "handler_name": "VideoHandler"
+            }
+          }
+        ],
+        "format": {
+          "filename": "C:\\Users\\firas\\OneDrive - University of Toledo\\UT Game Film 2026\\26 03 OHTO FULL GAME vs PATE.mp4",
+          "nb_streams": 1,
+          "nb_programs": 0,
+          "nb_stream_groups": 0,
+          "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
+          "format_long_name": "QuickTime / MOV",
+          "start_time": "0.000000",
+          "duration": "6152.148950",
+          "size": "4549285620",
+          "bit_rate": "5915702",
+          "probe_score": 100,
+          "tags": {
+            "major_brand": "isom",
+            "minor_version": "512",
+            "compatible_brands": "isomiso2avc1mp41",
+            "creation_time": "1970-01-01T00:00:00.000000Z",
+            "encoder": "Lavf52.87.1"
+          }
+        }
+      },
+      "prior_verified_catalog": {
+        "id": "source-a5cc5810f0f8fc78",
+        "media_sha256": "07ab7a28f9c8e6c630a7644c41a336cf89cfdaf1ab66c8c765244b47d8256f09",
+        "hash_status": "verified_local_bytes",
+        "inventory_observation_date": "2026-10-21"
+      },
+      "catalog_metadata_match": true,
+      "hash_handling": "prior full-SHA reused with current path/size/stream-metadata match; no new full-file read",
+      "prior_mtime_binding_available": false,
+      "native_pts_samples": [
+        {
+          "position": "head",
+          "requested_start_seconds": 0,
+          "requested_duration_seconds": 2,
+          "returncode": 0,
+          "decoded_frames": 118,
+          "timestamped_frames": 118,
+          "first_pts_seconds": 0.0,
+          "last_pts_seconds": 1.95195,
+          "strictly_increasing": true,
+          "min_pts_delta": 0.016682999999999892,
+          "max_pts_delta": 0.016684000000000143,
+          "decoded_dimensions": [
+            [
+              1280,
+              720
+            ]
+          ]
+        },
+        {
+          "position": "middle",
+          "requested_start_seconds": 3076.074475,
+          "requested_duration_seconds": 2,
+          "returncode": 0,
+          "decoded_frames": 118,
+          "timestamped_frames": 118,
+          "first_pts_seconds": 3075.573983,
+          "last_pts_seconds": 3077.525917,
+          "strictly_increasing": true,
+          "min_pts_delta": 0.016665999999986525,
+          "max_pts_delta": 0.016700000000128057,
+          "decoded_dimensions": [
+            [
+              1280,
+              720
+            ]
+          ]
+        },
+        {
+          "position": "tail",
+          "requested_start_seconds": 6149.14895,
+          "requested_duration_seconds": 2,
+          "returncode": 0,
+          "decoded_frames": 118,
+          "timestamped_frames": 118,
+          "first_pts_seconds": 6149.14595,
+          "last_pts_seconds": 6151.097883,
+          "strictly_increasing": true,
+          "min_pts_delta": 0.016665999999531778,
+          "max_pts_delta": 0.016700000000128057,
+          "decoded_dimensions": [
+            [
+              1280,
+              720
+            ]
+          ]
+        }
+      ],
+      "stat_after": {
+        "size_bytes": 4549285620,
+        "modified_ns": 1792179826996711900,
+        "file_attributes": 32
+      },
+      "source_size_mtime_unchanged": true
+    },
+    {
+      "path": "C:\\Users\\firas\\OneDrive - University of Toledo\\UT Game Film 2026\\26 04 OHTO FULL GAME vs CASS.mp4",
+      "stat_before": {
+        "size_bytes": 4193532469,
+        "modified_ns": 1792179856307542000,
+        "file_attributes": 32
+      },
+      "metadata_returncode": 0,
+      "probe": {
+        "streams": [
+          {
+            "index": 0,
+            "codec_name": "h264",
+            "codec_long_name": "H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10",
+            "profile": "High",
+            "codec_type": "video",
+            "codec_tag_string": "avc1",
+            "codec_tag": "0x31637661",
+            "mime_codec_string": "avc1.640028",
+            "width": 1280,
+            "height": 720,
+            "coded_width": 1280,
+            "coded_height": 720,
+            "has_b_frames": 1,
+            "sample_aspect_ratio": "1:1",
+            "display_aspect_ratio": "16:9",
+            "pix_fmt": "yuv420p",
+            "level": 40,
+            "chroma_location": "left",
+            "field_order": "progressive",
+            "is_avc": "true",
+            "nal_length_size": "4",
+            "id": "0x1",
+            "r_frame_rate": "60000/1001",
+            "avg_frame_rate": "1030574657/17193429",
+            "time_base": "1/60000",
+            "start_pts": 0,
+            "start_time": "0.000000",
+            "duration_ts": 340930758,
+            "duration": "5682.179300",
+            "bit_rate": "5896317",
+            "bits_per_raw_sample": "8",
+            "nb_frames": "340590",
+            "extradata_size": 190,
+            "disposition": {
+              "default": 1,
+              "dub": 0,
+              "original": 0,
+              "comment": 0,
+              "lyrics": 0,
+              "karaoke": 0,
+              "forced": 0,
+              "hearing_impaired": 0,
+              "visual_impaired": 0,
+              "clean_effects": 0,
+              "attached_pic": 0,
+              "timed_thumbnails": 0,
+              "non_diegetic": 0,
+              "captions": 0,
+              "descriptions": 0,
+              "metadata": 0,
+              "dependent": 0,
+              "still_image": 0,
+              "multilayer": 0
+            },
+            "tags": {
+              "creation_time": "1970-01-01T00:00:00.000000Z",
+              "language": "und",
+              "handler_name": "VideoHandler"
+            }
+          }
+        ],
+        "format": {
+          "filename": "C:\\Users\\firas\\OneDrive - University of Toledo\\UT Game Film 2026\\26 04 OHTO FULL GAME vs CASS.mp4",
+          "nb_streams": 1,
+          "nb_programs": 0,
+          "nb_stream_groups": 0,
+          "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
+          "format_long_name": "QuickTime / MOV",
+          "start_time": "0.000000",
+          "duration": "5682.179300",
+          "size": "4193532469",
+          "bit_rate": "5904118",
+          "probe_score": 100,
+          "tags": {
+            "major_brand": "isom",
+            "minor_version": "512",
+            "compatible_brands": "isomiso2avc1mp41",
+            "creation_time": "1970-01-01T00:00:00.000000Z",
+            "encoder": "Lavf52.87.1"
+          }
+        }
+      },
+      "prior_verified_catalog": {
+        "id": "source-2e20d3052280765f",
+        "media_sha256": "13cb99d03ac345a674c0289f3d889c4f10eb96381637e08ddb9fa393a33b877a",
+        "hash_status": "verified_local_bytes",
+        "inventory_observation_date": "2026-10-21"
+      },
+      "catalog_metadata_match": true,
+      "hash_handling": "prior full-SHA reused with current path/size/stream-metadata match; no new full-file read",
+      "prior_mtime_binding_available": false,
+      "native_pts_samples": [
+        {
+          "position": "head",
+          "requested_start_seconds": 0,
+          "requested_duration_seconds": 2,
+          "returncode": 0,
+          "decoded_frames": 118,
+          "timestamped_frames": 118,
+          "first_pts_seconds": 0.0,
+          "last_pts_seconds": 1.95195,
+          "strictly_increasing": true,
+          "min_pts_delta": 0.016682999999999892,
+          "max_pts_delta": 0.016684000000000143,
+          "decoded_dimensions": [
+            [
+              1280,
+              720
+            ]
+          ]
+        },
+        {
+          "position": "middle",
+          "requested_start_seconds": 2841.08965,
+          "requested_duration_seconds": 2,
+          "returncode": 0,
+          "decoded_frames": 118,
+          "timestamped_frames": 118,
+          "first_pts_seconds": 2840.839417,
+          "last_pts_seconds": 2842.791383,
+          "strictly_increasing": true,
+          "min_pts_delta": 0.016665999999986525,
+          "max_pts_delta": 0.016700000000128057,
+          "decoded_dimensions": [
+            [
+              1280,
+              720
+            ]
+          ]
+        },
+        {
+          "position": "tail",
+          "requested_start_seconds": 5679.1793,
+          "requested_duration_seconds": 2,
+          "returncode": 0,
+          "decoded_frames": 118,
+          "timestamped_frames": 118,
+          "first_pts_seconds": 5679.1763,
+          "last_pts_seconds": 5681.12825,
+          "strictly_increasing": true,
+          "min_pts_delta": 0.016682999999829917,
+          "max_pts_delta": 0.016684000000168453,
+          "decoded_dimensions": [
+            [
+              1280,
+              720
+            ]
+          ]
+        }
+      ],
+      "stat_after": {
+        "size_bytes": 4193532469,
+        "modified_ns": 1792179856307542000,
+        "file_attributes": 32
+      },
+      "source_size_mtime_unchanged": true
+    },
+    {
+      "path": "C:\\Users\\firas\\OneDrive - University of Toledo\\UT Game Film 2026\\26 05 OHTO @ INBS FULL GAME.mp4",
+      "stat_before": {
+        "size_bytes": 4374633343,
+        "modified_ns": 1792179766483172200,
+        "file_attributes": 32
+      },
+      "metadata_returncode": 0,
+      "probe": {
+        "streams": [
+          {
+            "index": 0,
+            "codec_name": "h264",
+            "codec_long_name": "H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10",
+            "profile": "High",
+            "codec_type": "video",
+            "codec_tag_string": "avc1",
+            "codec_tag": "0x31637661",
+            "mime_codec_string": "avc1.640028",
+            "width": 1280,
+            "height": 720,
+            "coded_width": 1280,
+            "coded_height": 720,
+            "has_b_frames": 1,
+            "sample_aspect_ratio": "1:1",
+            "display_aspect_ratio": "16:9",
+            "pix_fmt": "yuv420p",
+            "level": 40,
+            "chroma_location": "left",
+            "field_order": "progressive",
+            "is_avc": "true",
+            "nal_length_size": "4",
+            "id": "0x1",
+            "r_frame_rate": "60000/1001",
+            "avg_frame_rate": "1475801897/24621307",
+            "time_base": "1/60000",
+            "start_pts": 0,
+            "start_time": "0.000000",
+            "duration_ts": 354414233,
+            "duration": "5906.903883",
+            "bit_rate": "5915090",
+            "bits_per_raw_sample": "8",
+            "nb_frames": "354060",
+            "extradata_size": 190,
+            "disposition": {
+              "default": 1,
+              "dub": 0,
+              "original": 0,
+              "comment": 0,
+              "lyrics": 0,
+              "karaoke": 0,
+              "forced": 0,
+              "hearing_impaired": 0,
+              "visual_impaired": 0,
+              "clean_effects": 0,
+              "attached_pic": 0,
+              "timed_thumbnails": 0,
+              "non_diegetic": 0,
+              "captions": 0,
+              "descriptions": 0,
+              "metadata": 0,
+              "dependent": 0,
+              "still_image": 0,
+              "multilayer": 0
+            },
+            "tags": {
+              "creation_time": "1970-01-01T00:00:00.000000Z",
+              "language": "und",
+              "handler_name": "VideoHandler"
+            }
+          }
+        ],
+        "format": {
+          "filename": "C:\\Users\\firas\\OneDrive - University of Toledo\\UT Game Film 2026\\26 05 OHTO @ INBS FULL GAME.mp4",
+          "nb_streams": 1,
+          "nb_programs": 0,
+          "nb_stream_groups": 0,
+          "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
+          "format_long_name": "QuickTime / MOV",
+          "start_time": "0.000000",
+          "duration": "5906.903883",
+          "size": "4374633343",
+          "bit_rate": "5924773",
+          "probe_score": 100,
+          "tags": {
+            "major_brand": "isom",
+            "minor_version": "512",
+            "compatible_brands": "isomiso2avc1mp41",
+            "creation_time": "1970-01-01T00:00:00.000000Z",
+            "encoder": "Lavf52.87.1"
+          }
+        }
+      },
+      "prior_verified_catalog": {
+        "id": "source-596548e90861e952",
+        "media_sha256": "c94e555e9a9189748e9f07151a8a82391b496cd9c427d6e8a4d3e453ebe288a5",
+        "hash_status": "verified_local_bytes",
+        "inventory_observation_date": "2026-10-21"
+      },
+      "catalog_metadata_match": true,
+      "hash_handling": "prior full-SHA reused with current path/size/stream-metadata match; no new full-file read",
+      "prior_mtime_binding_available": false,
+      "native_pts_samples": [
+        {
+          "position": "head",
+          "requested_start_seconds": 0,
+          "requested_duration_seconds": 2,
+          "returncode": 0,
+          "decoded_frames": 118,
+          "timestamped_frames": 118,
+          "first_pts_seconds": 0.0,
+          "last_pts_seconds": 1.95195,
+          "strictly_increasing": true,
+          "min_pts_delta": 0.016682999999999892,
+          "max_pts_delta": 0.016684000000000143,
+          "decoded_dimensions": [
+            [
+              1280,
+              720
+            ]
+          ]
+        },
+        {
+          "position": "middle",
+          "requested_start_seconds": 2953.4519415,
+          "requested_duration_seconds": 2,
+          "returncode": 0,
+          "decoded_frames": 118,
+          "timestamped_frames": 118,
+          "first_pts_seconds": 2952.95145,
+          "last_pts_seconds": 2954.9034,
+          "strictly_increasing": true,
+          "min_pts_delta": 0.016682999999829917,
+          "max_pts_delta": 0.016684000000168453,
+          "decoded_dimensions": [
+            [
+              1280,
+              720
+            ]
+          ]
+        },
+        {
+          "position": "tail",
+          "requested_start_seconds": 5903.903883,
+          "requested_duration_seconds": 2,
+          "returncode": 0,
+          "decoded_frames": 118,
+          "timestamped_frames": 118,
+          "first_pts_seconds": 5903.900883,
+          "last_pts_seconds": 5905.852817,
+          "strictly_increasing": true,
+          "min_pts_delta": 0.016665999999531778,
+          "max_pts_delta": 0.016700000000128057,
+          "decoded_dimensions": [
+            [
+              1280,
+              720
+            ]
+          ]
+        }
+      ],
+      "stat_after": {
+        "size_bytes": 4374633343,
+        "modified_ns": 1792179766483172200,
+        "file_attributes": 32
+      },
+      "source_size_mtime_unchanged": true
+    },
+    {
+      "path": "C:\\Users\\firas\\OneDrive - University of Toledo\\UT Game Film 2026\\26 06 OHTO FULL GAME vs NYBU .mp4",
+      "stat_before": {
+        "size_bytes": 3996542758,
+        "modified_ns": 1792179885205721200,
+        "file_attributes": 32
+      },
+      "metadata_returncode": 0,
+      "probe": {
+        "streams": [
+          {
+            "index": 0,
+            "codec_name": "h264",
+            "codec_long_name": "H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10",
+            "profile": "High",
+            "codec_type": "video",
+            "codec_tag_string": "avc1",
+            "codec_tag": "0x31637661",
+            "mime_codec_string": "avc1.640028",
+            "width": 1280,
+            "height": 720,
+            "coded_width": 1280,
+            "coded_height": 720,
+            "has_b_frames": 1,
+            "sample_aspect_ratio": "1:1",
+            "display_aspect_ratio": "16:9",
+            "pix_fmt": "yuv420p",
+            "level": 40,
+            "chroma_location": "left",
+            "field_order": "progressive",
+            "is_avc": "true",
+            "nal_length_size": "4",
+            "id": "0x1",
+            "r_frame_rate": "60000/1001",
+            "avg_frame_rate": "50643750/844907",
+            "time_base": "1/60000",
+            "start_pts": 0,
+            "start_time": "0.000000",
+            "duration_ts": 324444288,
+            "duration": "5407.404800",
+            "bit_rate": "5904938",
+            "bits_per_raw_sample": "8",
+            "nb_frames": "324120",
+            "extradata_size": 190,
+            "disposition": {
+              "default": 1,
+              "dub": 0,
+              "original": 0,
+              "comment": 0,
+              "lyrics": 0,
+              "karaoke": 0,
+              "forced": 0,
+              "hearing_impaired": 0,
+              "visual_impaired": 0,
+              "clean_effects": 0,
+              "attached_pic": 0,
+              "timed_thumbnails": 0,
+              "non_diegetic": 0,
+              "captions": 0,
+              "descriptions": 0,
+              "metadata": 0,
+              "dependent": 0,
+              "still_image": 0,
+              "multilayer": 0
+            },
+            "tags": {
+              "creation_time": "1970-01-01T00:00:00.000000Z",
+              "language": "und",
+              "handler_name": "VideoHandler"
+            }
+          }
+        ],
+        "format": {
+          "filename": "C:\\Users\\firas\\OneDrive - University of Toledo\\UT Game Film 2026\\26 06 OHTO FULL GAME vs NYBU .mp4",
+          "nb_streams": 1,
+          "nb_programs": 0,
+          "nb_stream_groups": 0,
+          "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
+          "format_long_name": "QuickTime / MOV",
+          "start_time": "0.000000",
+          "duration": "5407.404800",
+          "size": "3996542758",
+          "bit_rate": "5912696",
+          "probe_score": 100,
+          "tags": {
+            "major_brand": "isom",
+            "minor_version": "512",
+            "compatible_brands": "isomiso2avc1mp41",
+            "creation_time": "1970-01-01T00:00:00.000000Z",
+            "encoder": "Lavf52.87.1"
+          }
+        }
+      },
+      "prior_verified_catalog": {
+        "id": "source-2c87ac258329924d",
+        "media_sha256": "6cd19fae0610ecbf07ef1e742939958ef9920fe33fba9255aaed75d7030be945",
+        "hash_status": "verified_local_bytes",
+        "inventory_observation_date": "2026-10-21"
+      },
+      "catalog_metadata_match": true,
+      "hash_handling": "prior full-SHA reused with current path/size/stream-metadata match; no new full-file read",
+      "prior_mtime_binding_available": false,
+      "native_pts_samples": [
+        {
+          "position": "head",
+          "requested_start_seconds": 0,
+          "requested_duration_seconds": 2,
+          "returncode": 0,
+          "decoded_frames": 118,
+          "timestamped_frames": 118,
+          "first_pts_seconds": 0.0,
+          "last_pts_seconds": 1.95195,
+          "strictly_increasing": true,
+          "min_pts_delta": 0.016682999999999892,
+          "max_pts_delta": 0.016684000000000143,
+          "decoded_dimensions": [
+            [
+              1280,
+              720
+            ]
+          ]
+        },
+        {
+          "position": "middle",
+          "requested_start_seconds": 2703.7024,
+          "requested_duration_seconds": 2,
+          "returncode": 0,
+          "decoded_frames": 117,
+          "timestamped_frames": 117,
+          "first_pts_seconds": 2703.201917,
+          "last_pts_seconds": 2705.153883,
+          "strictly_increasing": true,
+          "min_pts_delta": 0.016665999999986525,
+          "max_pts_delta": 0.03336699999999837,
+          "decoded_dimensions": [
+            [
+              1280,
+              720
+            ]
+          ]
+        },
+        {
+          "position": "tail",
+          "requested_start_seconds": 5404.4048,
+          "requested_duration_seconds": 2,
+          "returncode": 0,
+          "decoded_frames": 118,
+          "timestamped_frames": 118,
+          "first_pts_seconds": 5404.401783,
+          "last_pts_seconds": 5406.35375,
+          "strictly_increasing": true,
+          "min_pts_delta": 0.016665999999531778,
+          "max_pts_delta": 0.016700000000128057,
+          "decoded_dimensions": [
+            [
+              1280,
+              720
+            ]
+          ]
+        }
+      ],
+      "stat_after": {
+        "size_bytes": 3996542758,
+        "modified_ns": 1792179885205721200,
+        "file_attributes": 32
+      },
+      "source_size_mtime_unchanged": true
+    }
+  ]
+}

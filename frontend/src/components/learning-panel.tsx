@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { LearningWorkflow } from "@/components/learning-workflow";
 import { friendlyMessage } from "@/lib/api-error";
+import { ModelReliability } from "@/components/model-reliability";
 
 export function LearningPanel() {
   const { authToken, currentRole } = useAppState();
@@ -69,6 +70,7 @@ export function LearningPanel() {
     {error ? <p role="alert" className="text-sm text-status-danger">{error}</p> : null}
     {notice ? <p role="status" className="rounded-lg border border-status-info/40 p-3 text-sm">{notice}</p> : null}
     <LearningWorkflow onUpdated={load} />
+    <ModelReliability models={models} authToken={authToken} onReloadModels={load} />
     <form onSubmit={(event) => { event.preventDefault(); void materialize(); }} className="flex flex-wrap items-end gap-3 rounded-lg border border-border-soft p-4"><div><Label htmlFor="learning-scope">Snapshot name / model scope</Label><Input id="learning-scope" value={scope} onChange={(event) => setScope(event.target.value)} maxLength={100} className="mt-2" /></div><Button disabled={busy !== null || loading}>{busy === "export" ? "Creating…" : "Create learning snapshot"}</Button><p className="basis-full text-sm text-muted-foreground">Snapshots contain new eligible corrections and their source labels. Creating a snapshot does not change model weights.</p></form>
     <div><h3 className="mb-3 font-medium">Human label snapshots</h3>{datasets.length ? <div className="space-y-3">{datasets.map((snapshot) => <div key={snapshot.id} className="flex flex-wrap items-start justify-between gap-3 rounded-lg border border-border-soft p-4"><div><p className="font-medium">{snapshot.model_scope} · {snapshot.row_count} labels</p><p className="mt-1 text-sm text-muted-foreground">{snapshot.snapshot_date} · {snapshot.source_correction_ids?.length ?? 0} source corrections</p><details className="mt-2 text-xs text-muted-foreground"><summary className="cursor-pointer">View snapshot lineage</summary><pre className="mt-2 max-w-2xl overflow-x-auto whitespace-pre-wrap">{JSON.stringify({ dataset: snapshot.id, source_labels: snapshot.source_label_ids, source_corrections: snapshot.source_correction_ids, change: snapshot.changelog }, null, 2)}</pre></details></div><Button size="sm" variant="outline" disabled={!snapshot.artifact_uri || busy !== null} onClick={() => void download(snapshot)}><Download className="size-4" /> Download labels</Button></div>)}</div> : <p className="text-sm text-muted-foreground">No learning snapshots yet. Review film and save a correction to begin.</p>}</div>
     <div><h3 className="mb-3 font-medium">Registered model versions</h3>{models.length ? <div className="space-y-3">{models.map((model) => {

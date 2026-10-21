@@ -1,0 +1,79 @@
+{
+  "evidence_kind": "real_media_executable_smoke_not_accuracy",
+  "sources": [
+    {
+      "source": "Drone Footage/Dji 20260416110000 0257 D.mp4",
+      "film_type": "practice",
+      "elapsed_seconds": 23.218,
+      "shots": 1,
+      "sequence_kinds": {
+        "unresolved": 1
+      },
+      "qualified_canonical_actions": 0,
+      "associations": [],
+      "coverage": {
+        "source_seconds": 10.3103,
+        "covered_seconds": 10.3103,
+        "gaps": [],
+        "meaning": "source_interval_retention_not_live_action_accuracy"
+      },
+      "feature_provenance": {
+        "source": "real_decoded_pixels",
+        "validated": false,
+        "sample_count": 104,
+        "decoded_frame_count": 309,
+        "cut_audit": "every_decoded_native_frame",
+        "timestamp_verified": true,
+        "source_pts_origin": 0.0,
+        "sample_hz": 10.0,
+        "native_pts": true,
+        "limitations": [
+          "Motion onset is not a qualified football snap",
+          "Scene subtypes need independent evidence"
+        ]
+      },
+      "shot_boundaries_seconds": [
+        0.0
+      ]
+    },
+    {
+      "source": "reports/overhaul/canary/inputs/mist-accurate-120s.mp4",
+      "film_type": "television",
+      "elapsed_seconds": 47.219,
+      "shots": 3,
+      "sequence_kinds": {
+        "context": 1,
+        "unresolved": 2
+      },
+      "qualified_canonical_actions": 0,
+      "associations": [],
+      "coverage": {
+        "source_seconds": 30.013317,
+        "covered_seconds": 30.013317,
+        "gaps": [],
+        "meaning": "source_interval_retention_not_live_action_accuracy"
+      },
+      "feature_provenance": {
+        "source": "real_decoded_pixels",
+        "validated": false,
+        "sample_count": 301,
+        "decoded_frame_count": 1794,
+        "cut_audit": "every_decoded_native_frame",
+        "timestamp_verified": true,
+        "source_pts_origin": 0.0,
+        "sample_hz": 10.0,
+        "native_pts": true,
+        "limitations": [
+          "Motion onset is not a qualified football snap",
+          "Scene subtypes need independent evidence"
+        ]
+      },
+      "shot_boundaries_seconds": [
+        0.0,
+        0.583917,
+        25.191833
+      ]
+    }
+  ],
+  "ocr_execution": "Optional cached OCR enabled; separate read counts were not captured in this smoke summary"
+}

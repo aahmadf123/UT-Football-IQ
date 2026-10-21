@@ -157,3 +157,156 @@ def test_long_film_reads_packet_timestamps_without_decoding(tmp_path, monkeypatc
     assert timeline.verified and len(timeline.timestamps) == 300
     assert timeline.timestamp(240) == pytest.approx(240 * 1001 / 60000, abs=1e-3)
     assert timeline.duration == pytest.approx(300 * 1001 / 60000, abs=1e-3)
+
+
+def _mock_native_probe(monkeypatch, stream, rows, *, packets=False):
+    import pipeline.video_timeline as module
+
+    module._probe.cache_clear()
+    requests = []
+
+    def probe(_path, *args, **_kwargs):
+        requests.append(args)
+        if args[1].startswith("stream="):
+            return {"streams": [stream]}
+        return {"packets" if packets else "frames": rows}
+
+    monkeypatch.setattr(module, "_ffprobe_json", probe)
+    timeline = module._probe("native-clock-protocol", 1, 1)
+    return timeline, requests
+
+
+@pytest.mark.parametrize("packets", [False, True])
+def test_probe_prefers_native_ticks_over_rounded_six_decimal_strings(monkeypatch, packets):
+    # Actual canary clock values; pictures/media are not needed to test ffprobe parsing.
+    ticks = [0, 983983, 983984, 984985, 985985]
+    rows = [{"pts": tick, "pts_time": f"{tick/60000:.6f}",
+             "best_effort_timestamp": tick, "best_effort_timestamp_time": f"{tick/60000:.6f}",
+             "duration": 1001, "duration_time": "0.016683"} for tick in ticks]
+    if packets:
+        rows = [rows[index] for index in (0, 3, 1, 4, 2)]  # decode order may differ
+    stream = {"avg_frame_rate":"60000/1001", "time_base":"1/60000", "duration":"16.449767",
+              "duration_ts":986986, "nb_frames":"30000" if packets else "5"}
+    timeline, requests = _mock_native_probe(monkeypatch, stream, rows, packets=packets)
+    assert timeline.timestamp(3) == 984985/60000
+    assert timeline.timestamp(2) > timeline.timestamp(1)
+    assert timeline.timestamp(2)-timeline.timestamp(1) == pytest.approx(1/60000, abs=1e-15)
+    assert "time_base" in requests[0][1]
+    assert "pts" in requests[1][1 if packets else 2]
+    assert not packets or all("-show_frames" not in request for request in requests)
+
+
+def test_probe_normalizes_integer_origin_before_float_conversion(monkeypatch):
+    origin = 2**55
+    ticks = [origin, origin+1, origin+1002]
+    rows = [{"best_effort_timestamp":tick, "best_effort_timestamp_time":f"{tick/60000:.6f}",
+             "pkt_duration":1001} for tick in ticks]
+    stream = {"avg_frame_rate":"60000/1001", "time_base":"1/60000", "nb_frames":"3"}
+    timeline, _ = _mock_native_probe(monkeypatch, stream, rows)
+    assert timeline.timestamps == (0., 1/60000, 1002/60000)
+    assert timeline.duration == 2003/60000
+    assert timeline.pts_origin == origin/60000
+
+
+@pytest.mark.parametrize("duration_key", ["duration", "pkt_duration"])
+def test_probe_preserves_exact_stream_and_frame_duration_ticks(monkeypatch, duration_key):
+    rows = [{"best_effort_timestamp": tick, "best_effort_timestamp_time": f"{tick/60000:.6f}",
+             duration_key:1, "duration_time":"0.000017"} for tick in (0,1)]
+    stream = {"avg_frame_rate":"60000/1", "time_base":"1/60000", "nb_frames":"2",
+              "duration_ts":2, "duration":"0.000033"}
+    timeline, _ = _mock_native_probe(monkeypatch, stream, rows)
+    assert timeline.timestamp(1) == 1/60000
+    assert timeline.duration == 2/60000
+
+
+@pytest.mark.parametrize("ticks", [[0,1,1], [0,2,1]])
+def test_probe_rejects_actual_duplicate_or_out_of_order_ticks(monkeypatch, ticks):
+    rows = [{"best_effort_timestamp":tick, "best_effort_timestamp_time":str(index/30)}
+            for index,tick in enumerate(ticks)]
+    stream = {"avg_frame_rate":"30/1", "time_base":"1/60000", "nb_frames":"3"}
+    with pytest.raises(ValueError, match="strictly ordered"):
+        _mock_native_probe(monkeypatch, stream, rows)
+
+
+def test_probe_uses_pts_then_decimal_only_when_exact_fields_are_unavailable(monkeypatch):
+    stream = {"avg_frame_rate":"30/1", "time_base":"1/60000", "nb_frames":"3"}
+    rows = [{"best_effort_timestamp":60000, "best_effort_timestamp_time":"1.000000"},
+            {"best_effort_timestamp":"N/A", "pts":60001, "best_effort_timestamp_time":"1.000017"},
+            {"best_effort_timestamp_time":"1.033333", "duration_time":"0.033333"}]
+    timeline, _ = _mock_native_probe(monkeypatch, stream, rows)
+    assert timeline.timestamps == (0.,1/60000,.033333)
+
+
+def test_probe_uses_actual_frame_pts_before_decoder_best_effort(monkeypatch):
+    stream = {"avg_frame_rate":"60000/1001", "time_base":"1/60000", "nb_frames":"3"}
+    rows = [{"pts":tick, "best_effort_timestamp":estimate,
+             "pts_time":f"{tick/60000:.6f}", "best_effort_timestamp_time":f"{estimate/60000:.6f}"}
+            for tick,estimate in [(0,0),(1001,1002),(1002,1002)]]
+    timeline, _ = _mock_native_probe(monkeypatch, stream, rows)
+    assert timeline.timestamps == (0.,1001/60000,1002/60000)
+
+
+@pytest.mark.parametrize("ticks", [[0,1,1], [0,2,1]])
+def test_probe_does_not_mask_bad_actual_pts_with_best_effort(monkeypatch, ticks):
+    stream = {"avg_frame_rate":"30/1", "time_base":"1/60000", "nb_frames":"3"}
+    rows = [{"pts":tick,"best_effort_timestamp":index,"best_effort_timestamp_time":str(index/30)}
+            for index,tick in enumerate(ticks)]
+    with pytest.raises(ValueError, match="strictly ordered"):
+        _mock_native_probe(monkeypatch, stream, rows)
+
+
+def test_probe_rejects_duplicate_packet_ticks_even_when_decimals_differ(monkeypatch):
+    stream = {"avg_frame_rate":"30/1", "time_base":"1/60000", "nb_frames":"30000"}
+    rows = [{"pts":tick,"pts_time":str(index/30)} for index,tick in enumerate([0,1,1])]
+    with pytest.raises(ValueError, match="strictly ordered"):
+        _mock_native_probe(monkeypatch, stream, rows, packets=True)
+
+
+@pytest.mark.parametrize("time_base", [None, "N/A", "0/1"])
+def test_probe_decimal_compatibility_without_usable_time_base(monkeypatch, time_base):
+    stream = {"avg_frame_rate":"30/1", "nb_frames":"2"}
+    if time_base is not None:
+        stream['time_base'] = time_base
+    rows = [{"pts":tick,"pts_time":clock,"duration_time":".033333"}
+            for tick,clock in [(60000,"1.000000"),(62000,"1.033333")]]
+    timeline, _ = _mock_native_probe(monkeypatch, stream, rows)
+    assert timeline.timestamps == (0.,.033333)
+
+
+def test_probe_excludes_explicitly_discarded_packet_preroll_before_origin(monkeypatch):
+    stream = {"avg_frame_rate":"60000/1001", "time_base":"1/60000", "nb_frames":"30000", "duration_ts":2002}
+    rows = [{"pts":-2002,"flags":"_D_"},{"pts":-1001,"flags":"_D_"},
+            {"pts":0,"flags":"K__"},{"pts":1001,"flags":"___"}]
+    timeline, requests = _mock_native_probe(monkeypatch, stream, rows, packets=True)
+    assert timeline.timestamps == (0.,1001/60000)
+    assert timeline.pts_origin == 0.
+    assert timeline.duration == 2002/60000
+    assert "flags" in requests[1][1]
+
+
+def test_probe_ignores_missing_pts_only_on_explicitly_discarded_packets(monkeypatch):
+    stream = {"avg_frame_rate":"30/1", "time_base":"1/60000", "nb_frames":"30000"}
+    rows = [{"flags":"_D_"},{"pts":"N/A","pts_time":"N/A","flags":"KD_"},
+            {"pts":0,"flags":"K__"},{"pts":2000,"flags":"___"}]
+    timeline, _ = _mock_native_probe(monkeypatch, stream, rows, packets=True)
+    assert timeline.timestamps == (0.,2000/60000)
+
+
+@pytest.mark.parametrize("flags", [None, "___", "K__"])
+def test_probe_preserves_nondiscard_negative_packet_origins(monkeypatch, flags):
+    stream = {"avg_frame_rate":"60000/1001", "time_base":"1/60000", "nb_frames":"30000"}
+    rows = [{"pts":tick} for tick in [-1001,0,1001]]
+    if flags is not None:
+        for row in rows:
+            row['flags'] = flags
+    timeline, _ = _mock_native_probe(monkeypatch, stream, rows, packets=True)
+    assert timeline.timestamps == (0.,1001/60000,2002/60000)
+    assert timeline.pts_origin == -1001/60000
+
+
+@pytest.mark.parametrize("flags", [None, "___", "K__"])
+def test_probe_still_refuses_missing_nondiscard_packet_pts(monkeypatch, flags):
+    stream = {"avg_frame_rate":"30/1", "time_base":"1/60000", "nb_frames":"30000"}
+    bad = {"flags":flags} if flags is not None else {}
+    with pytest.raises(ValueError, match="packets without usable"):
+        _mock_native_probe(monkeypatch, stream, [{"pts":0},bad], packets=True)

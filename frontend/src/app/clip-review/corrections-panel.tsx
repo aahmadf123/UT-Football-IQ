@@ -25,6 +25,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { NativeSelect } from "@/components/ui/native-select";
 import { friendlyMessage } from "@/lib/api-error";
+import { ObservedEvidenceFields, buildEvidenceAttributes, emptyEvidenceDraft, INTERACTION_TYPES } from "./observed-evidence-fields";
+import { ObservedOutcomesFields, OUTCOME_TYPES, outcomeAttributes, emptyOutcomeDraft } from "./observed-outcomes-fields";
+import { PredictionContextFields, buildPredictionContext, emptyPredictionContext } from "./prediction-context-fields";
 
 type CorrectionKind =
   | "player_identity"
@@ -33,6 +36,7 @@ type CorrectionKind =
   | "route_tag"
   | "personnel_tag"
   | "event_mark"
+  | "position_observation"
   | "clip_boundary"
   | "event_tag";
 
@@ -43,9 +47,50 @@ const KIND_OPTIONS: ReadonlyArray<{ value: CorrectionKind; label: string }> = [
   { value: "route_tag", label: "Route is wrong" },
   { value: "personnel_tag", label: "Personnel grouping is wrong" },
   { value: "event_mark", label: "Mark a play event" },
+  { value: "position_observation", label: "Record position observation" },
   { value: "clip_boundary", label: "Play boundary is wrong / bad clip" },
   { value: "event_tag", label: "Bad boxes / detection glitch" },
 ];
+
+const OBSERVED_ROLES: Record<string, string[]> = {
+  offense: ["QB", "RB", "FB", "WR", "TE", "LT", "LG", "C", "RG", "RT"],
+  defense: ["DL", "DT", "DE", "EDGE", "LB", "DB", "CB", "S"],
+  special_teams: ["K", "P", "LS", "HOLDER", "BALL", "KR", "PR"],
+};
+const POSITION_OBSERVATIONS = [
+  ["position_participation", "Position participation"], ["position_role", "Observed position role"],
+  ["first_movement", "First movement"], ["te_usage", "TE block/chip/route state"],
+  ["snap", "Snap"], ["kick", "Kick"], ["punt", "Punt"], ["landing", "Ball landing"],
+  ["pass_release", "Observed forward-pass release"], ["catch", "Observed catch"],
+  ["protection_envelope", "Measured protection envelope"],
+  ["receiver_release", "Observed receiver release location"], ["route_break", "Observed route break location"],
+  ["pressure_observation", "Observed pressure coverage interval"], ["geometry_observation", "Measured LOS body/occupancy snapshot"],
+  ["handoff", "Observed handoff to carrier"], ["possession_start", "Observed carrier possession start"],
+  ["first_contact", "Observed first carrier contact"], ["end_of_play", "Observed carrier endpoint"],
+  ["tackle", "Observed carrier tackle endpoint"], ["out_of_bounds", "Observed carrier out-of-bounds endpoint"], ["touchdown", "Observed carrier touchdown endpoint"],
+  ["engagement_start", "Observed engagement start"], ["engagement_end", "Observed engagement end"],
+  ["chip_end", "Observed chip end"], ["route_start", "Observed route start after chip"],
+  ["pass_target", "Reviewed forward-pass target"], ["pass_result", "Reviewed pass result"],
+  ["reception", "Reviewed offensive reception"], ["possession_end", "Reviewed possession endpoint"],
+  ["carrier_cut", "Reviewed carrier cut"], ["tackle_outcome", "Reviewed tackle outcome"],
+] as const;
+const EMPTY_POSITION = { type: "position_participation", role: "", side: "", opportunity: "routes", end: "", direction: "", opponent: "", shot: "", interaction: "", state: "chip", operation: "", ball: "", x: "", y: "", envelope: "", windowStart: "", los: "" };
+const OPPORTUNITY_LABELS: Record<string, string> = { routes: "Route", pass_rush: "Pass rush", pursuit: "Pursuit", coverage: "Coverage", blocking_reps: "Blocking rep", punts: "Punt", kickoffs: "Kickoff", field_goal: "Field goal", rushes: "Rush", targets: "Target", pass_protection: "Pass protection", tackle_opportunities: "Tackle opportunity", returns: "Return" };
+function positionOpportunities(side: string, role: string): string[] {
+  if (side === "defense" && OBSERVED_ROLES.defense.includes(role)) return ["pass_rush", "pursuit", "coverage", "tackle_opportunities"];
+  if (side === "offense" && role === "WR") return ["routes", "targets", "rushes"];
+  if (side === "offense" && role === "TE") return ["routes", "blocking_reps", "targets", "rushes", "pass_protection"];
+  if (side === "offense" && ["RB", "FB"].includes(role)) return ["rushes", "targets", "pass_protection"];
+  if (side === "offense" && role === "QB") return ["rushes"];
+  if (side === "offense" && ["LT", "LG", "C", "RG", "RT"].includes(role)) return ["pass_protection"];
+  if (side === "special_teams" && role === "P") return ["punts"];
+  if (side === "special_teams" && role === "K") return ["kickoffs", "field_goal"];
+  if (side === "special_teams" && ["KR", "PR"].includes(role)) return ["returns"];
+  return [];
+}
+function knownShot(shot: unknown): shot is string {
+  return typeof shot === "string" && !!shot.trim() && !["unknown", "unverified", "unresolved", "none", "null", "missing", "n/a"].includes(shot.trim().toLowerCase());
+}
 
 type SubmitStatus =
   | { kind: "idle" }
@@ -126,6 +171,12 @@ export function CorrectionsPanel({ clipId, tracklets, selection, annotationRevis
   const [formation, setFormation] = useState("");
   const [eventType, setEventType] = useState("snap");
   const [eventTime, setEventTime] = useState("");
+  const [position, setPosition] = useState(EMPTY_POSITION);
+  const [vertices, setVertices] = useState([{ x: "", y: "" }, { x: "", y: "" }, { x: "", y: "" }]);
+  const [evidenceDraft, setEvidenceDraft] = useState(emptyEvidenceDraft);
+  const [outcomeDraft, setOutcomeDraft] = useState(emptyOutcomeDraft);
+  const [predictionDraft, setPredictionDraft] = useState(emptyPredictionContext);
+  const knownShots = [...new Set(tracklets.flatMap((track) => track.track_points.map((point) => point.shot_id).filter(knownShot)))];
   const [startSeconds, setStartSeconds] = useState("");
   const [endSeconds, setEndSeconds] = useState("");
   const [note, setNote] = useState("");
@@ -140,6 +191,11 @@ export function CorrectionsPanel({ clipId, tracklets, selection, annotationRevis
     setPlayerId("");
     setFormation("");
     setEventTime("");
+    setPosition(EMPTY_POSITION);
+    setVertices([{ x: "", y: "" }, { x: "", y: "" }, { x: "", y: "" }]);
+    setEvidenceDraft(emptyEvidenceDraft());
+    setOutcomeDraft(emptyOutcomeDraft());
+    setPredictionDraft(emptyPredictionContext());
     setStartSeconds("");
     setEndSeconds("");
     setNote("");
@@ -224,6 +280,80 @@ export function CorrectionsPanel({ clipId, tracklets, selection, annotationRevis
         if (!Number.isFinite(time) || time < 0 || (clipBounds && time > clipBounds.end - clipBounds.start)) return null;
         return { clip_id: clipId, correction_type: "event_tag", corrected_value: { event_type: eventType, timestamp_seconds: time }, notes: trimmedNote || null };
       }
+      case "position_observation": {
+        const time = eventTime.trim() === "" ? eventTimeNow : Number(eventTime);
+        const actor = tracklets.find((track) => track.id === trackletId);
+        const shot = position.shot || (knownShots.length === 1 ? knownShots[0] : "");
+        if ((!actor && !["protection_envelope", "geometry_observation"].includes(position.type)) || !shot || !knownShots.includes(shot) || !Number.isFinite(time) || time < 0 || (clipBounds && time > clipBounds.end - clipBounds.start)) return null;
+        const attributes: Record<string, unknown> = { ...(actor ? { actor_id: actor.id } : {}), shot_id: shot };
+        const declaresRole = ["position_role", "position_participation"].includes(position.type);
+        if (declaresRole) {
+          if (!OBSERVED_ROLES[position.side]?.includes(position.role)) return null;
+          Object.assign(attributes, { observed_role: position.role, team_label: position.side });
+        }
+        if (position.type === "position_participation") {
+          if (!positionOpportunities(position.side, position.role).includes(position.opportunity)) return null;
+          Object.assign(attributes, { opportunity_kind: position.opportunity });
+          if (position.end.trim()) {
+            const end = Number(position.end);
+            if (!Number.isFinite(end) || end <= time || (clipBounds && end > clipBounds.end - clipBounds.start)) return null;
+            Object.assign(attributes, { end_seconds: end, interval_timebase: "clip" });
+          }
+          if (position.direction) attributes.attacking_direction = Number(position.direction);
+        }
+        if (position.type === "snap") {
+          if (position.los.trim()) {
+            if (!Number.isFinite(Number(position.los)) || Number(position.los) < 0 || Number(position.los) > 100) return null;
+            attributes.los_x = Number(position.los);
+          }
+          if (position.direction) attributes.attacking_direction = Number(position.direction);
+        }
+        if (position.opponent && ["position_participation", "te_usage", ...INTERACTION_TYPES, ...OUTCOME_TYPES].includes(position.type)) {
+          if (position.opponent === actor?.id || !tracklets.some((track) => track.id === position.opponent)) return null;
+          attributes.opponent_id = position.opponent;
+        }
+        if (position.type === "te_usage") {
+          if (!position.interaction.trim() || (position.state !== "route" && !position.opponent)) return null;
+          Object.assign(attributes, { state: position.state, interaction_id: position.interaction.trim() });
+        }
+        if (["kick", "punt", "landing"].includes(position.type) && !position.operation.trim()) return null;
+        if (position.operation.trim()) attributes.operation_id = position.operation.trim();
+        if (position.ball) {
+          if (!tracklets.some((track) => track.id === position.ball)) return null;
+          attributes.ball_id = position.ball;
+        }
+        if (["landing", "receiver_release", "route_break"].includes(position.type)) {
+          if ((position.type === "landing" && !position.ball) || !position.x.trim() || !position.y.trim() || !Number.isFinite(Number(position.x)) || !Number.isFinite(Number(position.y))) return null;
+          Object.assign(attributes, { field_x: Number(position.x), field_y: Number(position.y), visibility_state: "observed" });
+        }
+        if (position.type === "protection_envelope") {
+          if (!position.envelope.trim() || vertices.some((vertex) => !vertex.x.trim() || !vertex.y.trim() || !Number.isFinite(Number(vertex.x)) || !Number.isFinite(Number(vertex.y)))) return null;
+          const polygon = vertices.map((vertex) => ({ field_x: Number(vertex.x), field_y: Number(vertex.y) }));
+          if (polygon.some((point) => point.field_x < -10 || point.field_x > 110 || Math.abs(point.field_y) > 26.665)) return null;
+          const signedArea = polygon.reduce((sum, point, index) => { const next = polygon[(index + 1) % polygon.length]; return sum + point.field_x * next.field_y - next.field_x * point.field_y; }, 0) / 2;
+          if (Math.abs(signedArea) < 0.000001) return null;
+          Object.assign(attributes, { envelope_id: position.envelope.trim(), polygon, visibility_state: "observed" });
+          if (position.windowStart.trim() || position.end.trim()) {
+            const start = Number(position.windowStart), end = Number(position.end);
+            if (!position.windowStart.trim() || !position.end.trim() || !Number.isFinite(start) || !Number.isFinite(end) || start < 0 || start > time || end < time || start >= end || (clipBounds && end > clipBounds.end - clipBounds.start)) return null;
+            Object.assign(attributes, { start_seconds: start, end_seconds: end, interval_timebase: "clip" });
+          }
+        }
+        const observed = buildEvidenceAttributes(position.type, trackletId, time, evidenceDraft,
+          tracklets, position.opponent, position.interaction, clipBounds ? clipBounds.end - clipBounds.start : undefined);
+        if (observed === null) return null;
+        Object.assign(attributes, observed);
+        const outcome = outcomeAttributes(position.type, outcomeDraft, position.opponent);
+        if (outcome === null) return null;
+        Object.assign(attributes, outcome);
+        const context = buildPredictionContext({ type: position.type, value: predictionDraft, tracks: tracklets, actor: trackletId,
+          localTime: time, clipStart: clipBounds?.start, shot, originalRoles: evidenceDraft.originalRoles, los: position.los, direction: position.direction });
+        if (context === null) return null;
+        Object.assign(attributes, context.attributes);
+        return { clip_id: clipId, correction_type: "event_tag", corrected_value: { event_type: position.type,
+          timestamp_seconds: context.sourceTimestamp ?? time, timebase: context.sourceTimestamp == null ? "clip" : "recording",
+          ...(context.frameNumber == null ? {} : { frame_number: context.frameNumber }), attributes }, notes: trimmedNote || null };
+      }
     }
   };
 
@@ -231,7 +361,13 @@ export function CorrectionsPanel({ clipId, tracklets, selection, annotationRevis
 
   const submit = async () => {
     const submitPayload = buildPayload(getCurrentTimeSeconds?.() ?? currentTimeSeconds);
-    if (!submitPayload || locked || submitting) return;
+    if (locked || submitting) return;
+    if (!submitPayload) {
+      setStatus({ kind: "error", message: predictionDraft.enabled
+        ? "The observation no longer matches a supported source frame. Review the fields and choose a prediction source frame, then save again."
+        : "The observation is incomplete or changed while saving. Review the fields, then save again." });
+      return;
+    }
     setSubmitting(true);
     setStatus({ kind: "idle" });
     try {
@@ -395,6 +531,63 @@ export function CorrectionsPanel({ clipId, tracklets, selection, annotationRevis
             <Field htmlFor="correction-event-type" label="Event"><NativeSelect id="correction-event-type" value={eventType} disabled={disabled} onChange={(event) => setEventType(event.target.value)}>{["snap", "throw", "handoff", "catch", "play_end"].map((value) => <option key={value} value={value}>{value.replace("_", " ")}</option>)}</NativeSelect></Field>
             <Field htmlFor="correction-event-time" label="Play time (seconds)"><Input id="correction-event-time" type="number" min={0} step="0.1" value={eventTime} placeholder={currentTimeSeconds.toFixed(1)} disabled={disabled} onChange={(event) => setEventTime(event.target.value)} /></Field>
           </div>}
+
+          {kind === "position_observation" && <>
+            <p className="text-xs text-muted-foreground">Record only what this play shows. Player identity is corrected separately. Link related observations using the same interaction or kicking operation name.</p>
+            <Field htmlFor="position-observation" label="Observation"><NativeSelect id="position-observation" value={position.type} disabled={disabled} onChange={(event) => { setPosition({ ...position, type: event.target.value }); setOutcomeDraft(emptyOutcomeDraft()); setPredictionDraft(emptyPredictionContext()); }}>{POSITION_OBSERVATIONS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</NativeSelect></Field>
+            <Field htmlFor="position-actor" label={position.type === "protection_envelope" ? "Observed QB track (optional)" : position.type === "geometry_observation" ? "Observed player track (optional)" : "Observed player track"}><NativeSelect id="position-actor" value={trackletId} disabled={disabled} onChange={(event) => setTrackletId(event.target.value)}><option value="">Select a track…</option>{tracklets.map((track, index) => <option key={track.id} value={track.id}>T{index + 1}</option>)}</NativeSelect></Field>
+            <Field htmlFor="position-shot" label="Observed camera shot"><NativeSelect id="position-shot" value={position.shot || (knownShots.length === 1 ? knownShots[0] : "")} disabled={disabled} onChange={(event) => setPosition({ ...position, shot: event.target.value })}><option value="">Select the shot containing this observation…</option>{knownShots.map((shot, index) => <option key={shot} value={shot}>Shot {index + 1}</option>)}</NativeSelect></Field>
+            {knownShots.length === 0 && <p className="text-xs text-muted-foreground">No source shot is available. Finish tracking review before recording this observation.</p>}
+            <Field htmlFor="position-time" label="Observation time (play seconds)"><Input id="position-time" type="number" min={0} step="0.01" value={eventTime} placeholder={currentTimeSeconds.toFixed(2)} disabled={disabled} onChange={(event) => setEventTime(event.target.value)} /></Field>
+            {["position_role", "position_participation"].includes(position.type) && <>
+              <p className="text-xs text-muted-foreground">Name original line roles at the snap; pulling or crossing does not rename them.</p>
+              <Field htmlFor="position-side" label="Side of the ball"><NativeSelect id="position-side" value={position.side} disabled={disabled} onChange={(event) => setPosition({ ...position, side: event.target.value, role: "" })}><option value="">Select observed side…</option><option value="offense">Offense</option><option value="defense">Defense</option><option value="special_teams">Special teams</option></NativeSelect></Field>
+              <Field htmlFor="position-role" label="Observed role"><NativeSelect id="position-role" value={position.role} disabled={disabled} onChange={(event) => setPosition({ ...position, role: event.target.value })}><option value="">Select observed role…</option>{(OBSERVED_ROLES[position.side] ?? []).map((role) => <option key={role} value={role}>{role}</option>)}</NativeSelect></Field>
+            </>}
+            {position.type === "position_participation" && <>
+              <Field htmlFor="position-opportunity" label="Opportunity"><NativeSelect id="position-opportunity" value={positionOpportunities(position.side, position.role).includes(position.opportunity) ? position.opportunity : ""} disabled={disabled} onChange={(event) => setPosition({ ...position, opportunity: event.target.value })}><option value="">Select observed participation…</option>{positionOpportunities(position.side, position.role).map((value) => <option key={value} value={value}>{OPPORTUNITY_LABELS[value]}</option>)}</NativeSelect></Field>
+              <Field htmlFor="position-end" label="Participation end (play seconds)"><Input id="position-end" type="number" min={0} step="0.01" value={position.end} disabled={disabled} onChange={(event) => setPosition({ ...position, end: event.target.value })} /></Field>
+              <p className="text-xs text-muted-foreground">An end time enables interval geometry. An unknown end still records explicit participation.</p>
+              <Field htmlFor="position-direction" label="Attacking direction"><NativeSelect id="position-direction" value={position.direction} disabled={disabled} onChange={(event) => setPosition({ ...position, direction: event.target.value })}><option value="">Unknown</option><option value="1">Toward increasing field x</option><option value="-1">Toward decreasing field x</option></NativeSelect></Field>
+            </>}
+            {position.type === "snap" && <>
+              <Field htmlFor="position-los" label="Measured LOS field x (yards)"><Input id="position-los" type="number" min={0} max={100} step="0.01" value={position.los} disabled={disabled} onChange={(event) => setPosition({ ...position, los: event.target.value })} /></Field>
+              <Field htmlFor="snap-direction" label="Attacking direction"><NativeSelect id="snap-direction" value={position.direction} disabled={disabled} onChange={(event) => setPosition({ ...position, direction: event.target.value })}><option value="">Unknown</option><option value="1">Toward increasing field x</option><option value="-1">Toward decreasing field x</option></NativeSelect></Field>
+            </>}
+            {["position_participation", "te_usage", ...INTERACTION_TYPES, ...OUTCOME_TYPES].includes(position.type) && <Field htmlFor="position-opponent" label="Comparison player (optional)"><NativeSelect id="position-opponent" value={position.opponent} disabled={disabled} onChange={(event) => setPosition({ ...position, opponent: event.target.value })}><option value="">No explicit comparison</option>{tracklets.filter((track) => track.id !== trackletId).map((track) => <option key={track.id} value={track.id}>T{tracklets.indexOf(track) + 1}</option>)}</NativeSelect></Field>}
+            {position.type === "te_usage" && <>
+              <Field htmlFor="position-state" label="Observed TE state"><NativeSelect id="position-state" value={position.state} disabled={disabled} onChange={(event) => setPosition({ ...position, state: event.target.value })}>{["block", "chip", "route"].map((state) => <option key={state} value={state}>{state}</option>)}</NativeSelect></Field>
+              <Field htmlFor="position-interaction" label="Interaction name"><Input id="position-interaction" value={position.interaction} disabled={disabled} onChange={(event) => setPosition({ ...position, interaction: event.target.value })} /></Field>
+            </>}
+            {INTERACTION_TYPES.includes(position.type) && <Field htmlFor="paired-interaction" label="Interaction name"><Input id="paired-interaction" value={position.interaction} disabled={disabled} onChange={(event) => setPosition({ ...position, interaction: event.target.value })} /></Field>}
+            <ObservedOutcomesFields type={position.type} value={outcomeDraft} onChange={setOutcomeDraft} disabled={disabled} />
+            <ObservedEvidenceFields type={position.type} tracks={tracklets} value={evidenceDraft} onChange={setEvidenceDraft} disabled={disabled} />
+            <PredictionContextFields type={position.type} tracks={tracklets} actor={trackletId} value={predictionDraft} onChange={setPredictionDraft} disabled={disabled} clipStart={clipBounds?.start} clipEnd={clipBounds?.end} onClockChange={(localTime) => setEventTime(String(localTime))} />
+            {predictionDraft.enabled && !payload && <p role="status" className="text-xs text-muted-foreground">Prediction context is incomplete or conflicts with the selected source frame. Review the required players, complete populations, known context times and original roles. Every selected player must be visible in the same exact native frame; no missing value is estimated.</p>}
+            {["snap", "kick", "punt", "landing"].includes(position.type) && <>
+              <Field htmlFor="position-operation" label="Kicking operation name"><Input id="position-operation" value={position.operation} disabled={disabled} onChange={(event) => setPosition({ ...position, operation: event.target.value })} /></Field>
+              <Field htmlFor="position-ball" label="Observed ball track"><NativeSelect id="position-ball" value={position.ball} disabled={disabled} onChange={(event) => setPosition({ ...position, ball: event.target.value })}><option value="">Unknown / unavailable</option>{tracklets.filter((track) => track.id !== trackletId).map((track) => <option key={track.id} value={track.id}>T{tracklets.indexOf(track) + 1}</option>)}</NativeSelect></Field>
+            </>}
+            {position.type === "landing" && <div className="grid grid-cols-2 gap-2">
+              <Field htmlFor="position-x" label="Measured landing field x (yards)"><Input id="position-x" type="number" step="0.01" value={position.x} disabled={disabled} onChange={(event) => setPosition({ ...position, x: event.target.value })} /></Field>
+              <Field htmlFor="position-y" label="Measured landing field y (yards)"><Input id="position-y" type="number" step="0.01" value={position.y} disabled={disabled} onChange={(event) => setPosition({ ...position, y: event.target.value })} /></Field>
+            </div>}
+            {["receiver_release", "route_break"].includes(position.type) && <div className="grid grid-cols-2 gap-2">
+              <Field htmlFor="actor-location-x" label="Measured actor field x (yards)"><Input id="actor-location-x" type="number" step="0.01" value={position.x} disabled={disabled} onChange={(event) => setPosition({ ...position, x: event.target.value })} /></Field>
+              <Field htmlFor="actor-location-y" label="Measured actor field y (yards)"><Input id="actor-location-y" type="number" step="0.01" value={position.y} disabled={disabled} onChange={(event) => setPosition({ ...position, y: event.target.value })} /></Field>
+            </div>}
+            {position.type === "protection_envelope" && <>
+              <p className="text-xs text-muted-foreground">Enter measured vertices in boundary order around the field polygon. Use the same envelope name and measurement window for each observed source time. This does not grade protection success.</p>
+              <Field htmlFor="envelope-name" label="Envelope name"><Input id="envelope-name" value={position.envelope} disabled={disabled} onChange={(event) => setPosition({ ...position, envelope: event.target.value })} /></Field>
+              <Field htmlFor="envelope-start" label="Measurement window start (play seconds)"><Input id="envelope-start" type="number" min={0} step="0.01" value={position.windowStart} disabled={disabled} onChange={(event) => setPosition({ ...position, windowStart: event.target.value })} /></Field>
+              <Field htmlFor="envelope-end" label="Measurement window end (play seconds)"><Input id="envelope-end" type="number" min={0} step="0.01" value={position.end} disabled={disabled} onChange={(event) => setPosition({ ...position, end: event.target.value })} /></Field>
+              {vertices.map((vertex, index) => <div key={index} className="grid grid-cols-2 gap-2">
+                <Field htmlFor={`vertex-${index}-x`} label={`Envelope vertex ${index + 1} field x (yards)`}><Input id={`vertex-${index}-x`} type="number" step="0.01" value={vertex.x} disabled={disabled} onChange={(event) => setVertices(vertices.map((item, i) => i === index ? { ...item, x: event.target.value } : item))} /></Field>
+                <Field htmlFor={`vertex-${index}-y`} label={`Envelope vertex ${index + 1} field y (yards)`}><Input id={`vertex-${index}-y`} type="number" step="0.01" value={vertex.y} disabled={disabled} onChange={(event) => setVertices(vertices.map((item, i) => i === index ? { ...item, y: event.target.value } : item))} /></Field>
+              </div>)}
+              <div className="flex gap-2"><Button type="button" variant="outline" size="sm" disabled={disabled || vertices.length >= 16} onClick={() => setVertices([...vertices, { x: "", y: "" }])}>Add vertex</Button><Button type="button" variant="outline" size="sm" disabled={disabled || vertices.length <= 3} onClick={() => setVertices(vertices.slice(0, -1))}>Remove last vertex</Button></div>
+            </>}
+          </>}
 
           {kind === "clip_boundary" && (
             <>

@@ -12,7 +12,7 @@ vi.mock("@/lib/api", () => ({
   fetchSessions: vi.fn(async () => ["Training film", "Calibration film", "Holdout film"].map((title, index) => ({ id: `s-${index + 1}`, title, recordings: [], library_role: "toledo", recorded_at: "2026-10-14T12:00:00Z" }))),
   listFeatureManifests: vi.fn(async () => fixtures.history),
   listLearningCandidates: vi.fn(async () => fixtures.candidates),
-  previewFeatureManifest: fixtures.preview, createFeatureManifest: fixtures.create, queueCoverageTraining: fixtures.queue, evaluateLearningCandidate: fixtures.evaluate,
+  previewFeatureManifest: fixtures.preview, createFeatureManifest: fixtures.create, queueCoverageTraining: fixtures.queue, queueExpectedOutcomesTraining: vi.fn(), evaluateExpectedOutcomesCandidate: vi.fn(), getExpectedFeatureDownload: vi.fn(), evaluateLearningCandidate: fixtures.evaluate,
 }));
 
 import { LearningWorkflow } from "./learning-workflow";

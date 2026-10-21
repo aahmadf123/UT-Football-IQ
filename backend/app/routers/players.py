@@ -47,6 +47,9 @@ from app.governance import (
     shape_player,
 )
 from app.models import Player, PlayerVisibilityAudit, PlayerVisibilityState, User
+from app.services.roster_positions import POSITION_GROUPS as _POSITION_GROUPS
+from app.services.roster_positions import POSITION_TO_GROUP as _POSITION_TO_GROUP
+from app.services.roster_positions import roster_cohort_condition
 
 log = structlog.get_logger(__name__)
 router = APIRouter(tags=["players"])
@@ -70,53 +73,6 @@ class VisibilityAuditEntry(BaseModel):
     actor_id: uuid.UUID | None
     reason: str | None
     created_at: str
-
-
-_POSITION_GROUPS = {
-    "qb": "QB",
-    "skill": "Skill",
-    "rb": "RB",
-    "wr": "WR",
-    "te": "TE",
-    "ol": "OL",
-    "dl": "DL",
-    "lb": "LB",
-    "db": "DB",
-    "st": "ST",
-}
-_POSITION_TO_GROUP = {
-    "QB": "QB",
-    "RB": "RB",
-    "FB": "RB",
-    "HB": "RB",
-    "WR": "WR",
-    "SLOT": "WR",
-    "TE": "TE",
-    "OT": "OL",
-    "OG": "OL",
-    "C": "OL",
-    "G": "OL",
-    "T": "OL",
-    "OL": "OL",
-    "DT": "DL",
-    "DE": "DL",
-    "NT": "DL",
-    "DL": "DL",
-    "LB": "LB",
-    "ILB": "LB",
-    "OLB": "LB",
-    "CB": "DB",
-    "S": "DB",
-    "SAF": "DB",
-    "FS": "DB",
-    "SS": "DB",
-    "DB": "DB",
-    "K": "ST",
-    "PK": "ST",
-    "P": "ST",
-    "LS": "ST",
-    "ST": "ST",
-}
 
 
 class PlayerCreate(BaseModel):
@@ -152,7 +108,9 @@ class PlayerCreate(BaseModel):
         if value is None or not value.strip():
             return None
         if value.strip().lower() not in _POSITION_GROUPS:
-            raise ValueError("Position group must be QB, RB, WR, TE, Skill, OL, DL, LB, DB, or ST")
+            raise ValueError(
+                "Position group must be QB, RB, WR, TE, Skill, OL, DL, EDGE, LB, DB, or ST"
+            )
         return _POSITION_GROUPS[value.strip().lower()]
 
 
@@ -461,7 +419,7 @@ async def list_players(
     if position is not None:
         stmt = stmt.where(Player.position == position)
     if position_group is not None:
-        stmt = stmt.where(Player.position_group == position_group)
+        stmt = stmt.where(roster_cohort_condition(position_group))
     if is_active is not None:
         stmt = stmt.where(Player.is_active == is_active)
     if jersey_number is not None:

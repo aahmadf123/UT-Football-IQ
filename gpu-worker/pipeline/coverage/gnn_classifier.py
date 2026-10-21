@@ -212,9 +212,7 @@ class CoverageGNN:
         self.bias = b
         return self
 
-    def calibrate(
-        self, embeddings: np.ndarray, class_indices: np.ndarray
-    ) -> CoverageGNN:
+    def calibrate(self, embeddings: np.ndarray, class_indices: np.ndarray) -> CoverageGNN:
         """Fit a temperature scaler on held-out embeddings (Issue #146)."""
         if not self.is_loaded:
             raise RuntimeError("fit the head before calibrating")
@@ -252,20 +250,29 @@ class CoverageGNN:
         model = cls(
             weight=np.asarray(d["weight"], dtype=np.float64),
             bias=np.asarray(d["bias"], dtype=np.float64),
-            feat_mean=None if d.get("feat_mean") is None else np.asarray(d["feat_mean"], dtype=np.float64),
-            feat_std=None if d.get("feat_std") is None else np.asarray(d["feat_std"], dtype=np.float64),
+            feat_mean=None
+            if d.get("feat_mean") is None
+            else np.asarray(d["feat_mean"], dtype=np.float64),
+            feat_std=None
+            if d.get("feat_std") is None
+            else np.asarray(d["feat_std"], dtype=np.float64),
             temperature=TemperatureScaler.from_dict(temp) if temp else None,
             labels=tuple(d.get("labels", COVERAGE_CLASSES)),
             provenance=d.get("provenance", {}),
         )
         dimension = 4 * len(fs.NODE_FEATURE_NAMES)
-        if (model.weight.shape != (len(model.labels), dimension)
-                or model.bias.shape != (len(model.labels),)
-                or set(model.labels) != set(COVERAGE_CLASSES)
-                or not np.isfinite(model.weight).all() or not np.isfinite(model.bias).all()):
+        if (
+            model.weight.shape != (len(model.labels), dimension)
+            or model.bias.shape != (len(model.labels),)
+            or set(model.labels) != set(COVERAGE_CLASSES)
+            or not np.isfinite(model.weight).all()
+            or not np.isfinite(model.bias).all()
+        ):
             raise ValueError("Coverage checkpoint shape/labels/weights are invalid")
         for parameter in (model.feat_mean, model.feat_std):
-            if parameter is not None and (parameter.shape != (dimension,) or not np.isfinite(parameter).all()):
+            if parameter is not None and (
+                parameter.shape != (dimension,) or not np.isfinite(parameter).all()
+            ):
                 raise ValueError("Coverage feature scaling is invalid")
         return model
 
@@ -280,12 +287,18 @@ class CoverageGNN:
             if resolved is None:
                 return None
             try:
-                model = cls.from_checkpoint(json.loads(resolved.local_path.read_text()))
+                encoded = resolved.local_path.read_bytes()
+                model = cls.from_checkpoint(json.loads(encoded))
+                import hashlib
+
                 # Production status is accepted only through the backend's
                 # measured-holdout/admin promotion gate, never a local filename.
-                model.provenance = {**(model.provenance or {}), "validated": resolved.validated,
-                                    "artifact_sha256": resolved.artifact_sha256,
-                                    "model_version_id": resolved.model_version_id}
+                model.provenance = {
+                    **(model.provenance or {}),
+                    "validated": resolved.validated,
+                    "artifact_sha256": hashlib.sha256(encoded).hexdigest(),
+                    "model_version_id": resolved.model_version_id,
+                }
                 return model
             except (OSError, json.JSONDecodeError, ValueError, KeyError) as exc:
                 log.warning("coverage_registry_artifact_invalid", error=str(exc))

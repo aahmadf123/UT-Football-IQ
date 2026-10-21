@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { NativeSelect } from "@/components/ui/native-select";
 import { StatusBadge, toneForJobStatus } from "@/components/composite/status-badge";
 import { friendlyMessage, processingErrorMessage } from "@/lib/api-error";
+import { ExpectedOutcomesTraining } from "@/components/expected-outcomes-training";
 
 type Split = LearningSessionSplit["split"];
 type Evaluation = { passed: boolean; accuracy: number; macro_f1: number; sample_count: number };
@@ -133,6 +134,7 @@ export function LearningWorkflow({ onUpdated }: { onUpdated: () => Promise<void>
         return <div key={candidate.id} className="rounded-lg border border-border-soft p-3"><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="font-medium">{candidate.model_name} · {candidate.version}</p><p className="mt-1 text-xs text-muted-foreground">{predictionCount} persisted model predictions{candidate.required_predictions ? ` · ${candidate.required_predictions} required` : ""}</p></div><Button size="sm" variant="outline" disabled={busy !== null || candidate.ready_for_evaluation !== true} onClick={() => void evaluate(candidate)}>{busy === candidate.id ? "Evaluating…" : "Evaluate held-out film"}</Button></div>{measured ? <p className="mt-3 text-sm">Accuracy {(measured.accuracy * 100).toFixed(1)}% · Macro F1 {(measured.macro_f1 * 100).toFixed(1)}% · {measured.sample_count} examples · <strong className={measured.passed ? "text-status-ok" : "text-status-warn"}>{measured.passed ? "Release thresholds passed" : "Release thresholds not met"}</strong></p> : null}</div>;
       })}</div> : <p className="mt-2 text-sm text-muted-foreground">A candidate appears here after successful training. It stays experimental until the holdout evaluation passes.</p>}<p className="mt-4 text-sm text-muted-foreground">Validated versions can be promoted or restored in Registered model versions below.</p>
     </div> : null}
+    <ExpectedOutcomesTraining onUpdated={onUpdated} />
   </section>;
 }
 

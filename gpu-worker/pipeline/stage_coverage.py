@@ -65,8 +65,13 @@ def run(
     snap_event = next((e for e in events if e.get("event_type") == "snap"), None)
     snap_frame = snap_event.get("frame_number", 0) if snap_event else 0
     if snap_event is None:
-        return {"label_count": 0, "label_ids": [], "skipped": True, "reason": "snap_not_observed",
-                "feature_packet": None}
+        return {
+            "label_count": 0,
+            "label_ids": [],
+            "skipped": True,
+            "reason": "snap_not_observed",
+            "feature_packet": None,
+        }
 
     los_x = _estimate_los(tracklets, snap_frame)
 
@@ -98,23 +103,27 @@ def run(
         }
         alignment_results.append(alignment)
 
-        labels.append({
-            "label_type": "press_off",
-            "label_value": {
-                "classification": press_off,
-                "cushion_yards": round(cushion, 1),
-                "track_id": def_t.get("id", "unknown"),
-                "confidence": 0.6,
-            },
-        })
-        labels.append({
-            "label_type": "leverage",
-            "label_value": {
-                "classification": leverage,
-                "track_id": def_t.get("id", "unknown"),
-                "confidence": 0.55,
-            },
-        })
+        labels.append(
+            {
+                "label_type": "press_off",
+                "label_value": {
+                    "classification": press_off,
+                    "cushion_yards": round(cushion, 1),
+                    "track_id": def_t.get("id", "unknown"),
+                    "confidence": 0.6,
+                },
+            }
+        )
+        labels.append(
+            {
+                "label_type": "leverage",
+                "label_value": {
+                    "classification": leverage,
+                    "track_id": def_t.get("id", "unknown"),
+                    "confidence": 0.55,
+                },
+            }
+        )
 
     # ── Coverage shell classification (GNN + calibrated uncertainty, #139) ──
     if analytics_safe:
@@ -155,8 +164,12 @@ def run(
         "coverage_bust_flag": bust["coverage_bust_flag"],
         "bust_detail": bust,
         "source": source,
-        "provenance": {"source": source, "actual_model": shell_value.get("model"),
-                       "validated": not shell_value["experimental"] and source == "real"},
+        "provenance": {
+            "source": source,
+            "actual_model": shell_value.get("model"),
+            "artifact_sha256": shell_value.get("artifact_sha256"),
+            "validated": not shell_value["experimental"] and source == "real",
+        },
     }
     labels.append({"label_type": "coverage_shell", "label_value": shell_label})
 
@@ -165,15 +178,21 @@ def run(
     for lbl in labels:
         check_control()
         lbl["label_value"].setdefault("source", "synthetic_test" if synthetic else "heuristic")
-        lbl["label_value"].setdefault("provenance", {"source": lbl["label_value"]["source"],
-                                                     "validated": False})
+        lbl["label_value"].setdefault(
+            "provenance", {"source": lbl["label_value"]["source"], "validated": False}
+        )
         try:
             resp = backend.create_label(
                 lbl["label_type"],
                 lbl["label_value"],
                 clip_id=clip_id,
                 source="synthetic_test" if synthetic else "model",
-                model_version_id=shell_value.get("model_version_id") if lbl["label_type"] == "coverage_shell" else None,
+                model_version_id=shell_value.get("model_version_id")
+                if lbl["label_type"] == "coverage_shell"
+                else None,
+                artifact_sha256=shell_value.get("artifact_sha256")
+                if lbl["label_type"] == "coverage_shell"
+                else None,
             )
             label_ids.append(resp["id"])
         except PipelineInterrupted:
@@ -204,10 +223,16 @@ def run(
         # computed here and dropped, which is why nothing was ever queued.
         "uncertainty": shell_value["uncertainty"],
         "is_calibrated": shell_value["is_calibrated"],
-        "feature_packet": ({"clip_id": clip_id, "graph": shell_value["feature_graph"],
-                            "analytics_safe": analytics_safe,
-                            "source": "synthetic_test" if synthetic else "real"}
-                           if shell_value.get("feature_graph") is not None else None),
+        "feature_packet": (
+            {
+                "clip_id": clip_id,
+                "graph": shell_value["feature_graph"],
+                "analytics_safe": analytics_safe,
+                "source": "synthetic_test" if synthetic else "real",
+            }
+            if shell_value.get("feature_graph") is not None
+            else None
+        ),
     }
 
 
@@ -223,14 +248,13 @@ def _synthetic_lineage(tracklets: list[dict[str, Any]], events: list[dict[str, A
     ) or any(
         event.get("source") == "synthetic_test"
         or (event.get("provenance") or {}).get("source") == "synthetic_test"
-        or ((event.get("attributes") or {}).get("provenance") or {}).get("source") == "synthetic_test"
+        or ((event.get("attributes") or {}).get("provenance") or {}).get("source")
+        == "synthetic_test"
         for event in events
     )
 
 
-def _estimate_los(
-    tracklets: list[dict[str, Any]], snap_frame: int
-) -> float:
+def _estimate_los(tracklets: list[dict[str, Any]], snap_frame: int) -> float:
     xs: list[float] = []
     for t in tracklets:
         for pt in t.get("track_points", []):
@@ -245,9 +269,7 @@ def _estimate_los(
     return xs[len(xs) // 2]
 
 
-def _position_at_frame(
-    tracklet: dict[str, Any], frame: int
-) -> tuple[float, float] | None:
+def _position_at_frame(tracklet: dict[str, Any], frame: int) -> tuple[float, float] | None:
     for pt in tracklet.get("track_points", []):
         if pt.get("frame_number") == frame:
             fx = pt.get("field_x")
@@ -314,9 +336,7 @@ def _classify_press_off(cushion: float) -> str:
     return "off"
 
 
-def _classify_leverage(
-    defender: tuple[float, float], receiver: tuple[float, float]
-) -> str:
+def _classify_leverage(defender: tuple[float, float], receiver: tuple[float, float]) -> str:
     """Classify inside/outside/head-up leverage."""
     lateral_diff = abs(defender[1]) - abs(receiver[1])
     if abs(lateral_diff) < LEVERAGE_THRESHOLD_YD:
@@ -372,15 +392,22 @@ def _classify_shell(
                 "coverage_confidence": out["confidence"],
                 "calibration_method": out["calibration_method"],
                 "is_calibrated": out["is_calibrated"],
-                "experimental": synthetic or out["experimental"] or not (
-                    clf.gnn and (clf.gnn.provenance or {}).get("validated") is True),
+                "experimental": synthetic
+                or out["experimental"]
+                or not (clf.gnn and (clf.gnn.provenance or {}).get("validated") is True),
                 "uncertainty": out["uncertainty"],
                 "probabilities": out.get("probabilities"),
                 "model": out.get("detail", {}).get("model"),
-                "source": "synthetic_test" if synthetic else (
-                    (clf.gnn.provenance or {}).get("source", "real") if clf.gnn else "heuristic"),
+                "source": "synthetic_test"
+                if synthetic
+                else ((clf.gnn.provenance or {}).get("source", "real") if clf.gnn else "heuristic"),
                 "feature_graph": graph.to_dict(),
-                "model_version_id": (clf.gnn.provenance or {}).get("model_version_id") if clf.gnn else None,
+                "model_version_id": (clf.gnn.provenance or {}).get("model_version_id")
+                if clf.gnn
+                else None,
+                "artifact_sha256": (clf.gnn.provenance or {}).get("artifact_sha256")
+                if clf.gnn
+                else None,
             }
         except fs.FieldFrameError:
             log.warning("coverage_shell_field_frame_guard_tripped")

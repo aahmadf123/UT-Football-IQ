@@ -158,7 +158,7 @@ def test_blank_card_has_no_down() -> None:
     assert parsed["quarter"] == 1 and parsed["clock"] == "15:00"
 
 
-def test_undecided_angles_follow_film_order() -> None:
+def test_undecided_angles_remain_unknown_instead_of_inheriting_film_order() -> None:
     plays = group_plays(
         [
             ViewSegment(0, 3, "card", 0.9),
@@ -169,8 +169,8 @@ def test_undecided_angles_follow_film_order() -> None:
             ViewSegment(44, 57, "unknown", 0.3),
         ]
     )
-    assert [v.view for v in plays[0].views] == ["sideline", "endzone"]
-    assert [v.view for v in plays[1].views] == ["sideline", "endzone"]
+    assert [v.view for v in plays[0].views] == ["unknown", "unknown"]
+    assert [v.view for v in plays[1].views] == ["sideline", "unknown"]
     assert all(v.confidence <= 0.4 for v in plays[0].views)
 
 
@@ -233,4 +233,4 @@ def test_scoreboard_reader_uses_resolved_pipeline_device(
     monkeypatch.setitem(sys.modules, "easyocr", types.SimpleNamespace(Reader=Reader))
     monkeypatch.setattr(game_film, "inference_device", lambda: "cpu")
     game_film.ScoreboardReader()
-    assert captured == {"languages": ["en"], "gpu": "cpu", "verbose": False}
+    assert captured == {"languages": ["en"], "gpu": "cpu", "verbose": False, "download_enabled": False}

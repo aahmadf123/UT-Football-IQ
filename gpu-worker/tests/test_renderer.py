@@ -5,8 +5,7 @@ cv2 and ffmpeg are mocked so the tests are fast and hermetic.
 
 period_renderer covers:
   - Happy path: run() uploads to the object store and returns period_overlay_uri
-  - Happy path: _label_value extracts formation correctly
-  - Happy path: _label_value returns default when label absent
+  - Reviewed staff HUD uses the separate effective annotation snapshot
   - Failure: cv2.VideoCapture failure propagates
 
 hls_encoder covers:
@@ -33,27 +32,50 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 # ── period_renderer ───────────────────────────────────────────────────────────
 
 
-class TestPeriodRendererLabelValue:
-    def test_extracts_formation_label(self) -> None:
-        from renderer.period_renderer import _label_value
+class TestReviewedHud:
+    @pytest.mark.parametrize("source", ["synthetic_test", "synthetic", "stub", "heuristic",
+                                       "unavailable", "disabled", "unverified_adapter"])
+    @pytest.mark.parametrize("nested", [False, True])
+    def test_disqualified_source_cannot_be_replayed_as_staff(self, source, nested) -> None:
+        from pipeline.reviewed_labels import reviewed_label_data
 
-        labels = [
-            {"label_type": "offensive_formation", "label_value": {"formation": "Shotgun"}},
-            {"label_type": "play_direction", "label_value": {"direction": "right"}},
-        ]
-        assert _label_value(labels, "offensive_formation", "formation", "—") == "Shotgun"
+        evidence = {"source": source}
+        value = {"formation": "Pistol", **({"provenance": evidence} if nested else evidence)}
+        label = {"source": "human", "annotated_by": "cf128509-d42d-4532-8c4d-67e44150d391",
+                 "label_type": "offensive_formation", "label_value": value}
+        assert reviewed_label_data([label]) == {}
+
+    def test_only_attributed_unambiguous_human_labels_enter_staff_snapshot(self) -> None:
+        from pipeline.reviewed_labels import reviewed_label_data
+
+        actor = "cf128509-d42d-4532-8c4d-67e44150d391"
+        human = {"source": "human", "annotated_by": actor,
+                 "label_type": "offensive_formation", "label_value": {"formation": "Pistol"}}
+        raw = {**human, "source": "model", "validated": True, "qualification": "human_reviewed"}
+        assert reviewed_label_data([raw, {**human, "annotated_by": None}]) == {}
+        assert reviewed_label_data([raw, human]) == {"offensive_formation": {"formation": "Pistol"}}
+        assert reviewed_label_data([human, {**human, "label_value": {"formation": "Shotgun"}}]) == {}
+        assert reviewed_label_data([{**human, "tracklet_id": "actor"}]) == {}
+        assert reviewed_label_data([{**human, "label_value": {"formation": "Pistol", "source": "heuristic"}}]) == {}
+
+    def test_extracts_formation_label(self) -> None:
+        from pipeline.reviewed_labels import reviewed_hud
+
+        labels = {"offensive_formation": {"formation": "Shotgun"},
+                  "play_direction": {"direction": "right"}}
+        assert reviewed_hud(labels) == ("STAFF  OFF: Shotgun  DIR: right", "right")
 
     def test_returns_default_when_missing(self) -> None:
-        from renderer.period_renderer import _label_value
+        from pipeline.reviewed_labels import reviewed_hud
 
-        labels: list[dict[str, Any]] = []
-        assert _label_value(labels, "offensive_formation", "formation", "—") == "—"
+        assert reviewed_hud(None) == ("", "")
 
     def test_returns_default_for_wrong_key(self) -> None:
-        from renderer.period_renderer import _label_value
+        from pipeline.reviewed_labels import reviewed_hud
 
-        labels = [{"label_type": "offensive_formation", "label_value": {}}]
-        assert _label_value(labels, "offensive_formation", "formation", "N/A") == "N/A"
+        labels = {"offensive_formation": {}, "defensive_front": {"front": {"nested": "4-3"}},
+                  "play_direction": {"direction": "unknown"}}
+        assert reviewed_hud(labels) == ("", "")
 
 
 class TestPeriodRendererRun:
@@ -117,7 +139,7 @@ class TestPeriodRendererRun:
             )
 
         object_key = mock_upload.call_args.args[1]
-        assert object_key.startswith("period_overlays/clip-abc/pts-overlay-v4/")
+        assert object_key.startswith("period_overlays/clip-abc/pts-overlay-v6-native-staff-hud/")
         assert object_key.endswith("/period_overlay.mp4")
 
     def test_analytics_unsafe_draws_warning(self) -> None:

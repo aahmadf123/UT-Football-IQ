@@ -307,6 +307,11 @@ async def claim_job(
     runtime = (
         await db.execute(select(WorkerRuntime).where(WorkerRuntime.worker_id == body.worker_id))
     ).scalar_one_or_none()
+    from app.services.expected_outcomes import trusted_worker
+
+    if not trusted_worker(_current_user, runtime):
+        variant = ProcessingJob.input_artifacts["training_variant"].astext
+        candidate = candidate.where(or_(variant.is_(None), variant != "verify_expected_outcomes"))
     capabilities = body.capabilities or (runtime.capabilities if runtime else None)
     if capabilities:
         advertised_types = capabilities.get("job_types")
@@ -497,6 +502,45 @@ async def update_job_status(
         and body.output_artifacts
     ):
         body.output_artifacts = {**body.output_artifacts, "interrupted_action": "pause"}
+    if (
+        body.status == JobStatus.succeeded
+        and (job.input_artifacts or {}).get("training_variant") == "verify_expected_outcomes"
+    ):
+        from app.services.expected_outcomes import bind_verification_completion
+
+        await bind_verification_completion(
+            db,
+            job,
+            current_user,
+            body.output_artifacts or {},
+            worker_id=body.worker_id,
+            lease_token=body.lease_token,
+            attempt_count=body.attempt_count,
+        )
+    if body.status in {JobStatus.running, JobStatus.succeeded} and job.job_type == JobType.pipeline:
+        from app.services.media_identity import bind_media_identity_completion
+
+        await bind_media_identity_completion(
+            db,
+            job,
+            current_user,
+            body.output_artifacts or {},
+            worker_id=body.worker_id,
+            lease_token=body.lease_token,
+            attempt_count=body.attempt_count,
+        )
+    if body.status == JobStatus.succeeded:
+        from app.services.label_publication import bind_label_completion
+
+        await bind_label_completion(
+            db,
+            job,
+            current_user,
+            body.output_artifacts or {},
+            worker_id=body.worker_id,
+            lease_token=body.lease_token,
+            attempt_count=body.attempt_count,
+        )
     job.status = body.status
     if body.status == JobStatus.running and job.started_at is None:
         job.started_at = datetime.now(UTC)
@@ -547,6 +591,9 @@ async def update_job_status(
         await publish_job_metrics(db, job_id)
         await publish_job_clip_tiers(db, job)
         await schedule_detailed_followup(db, job)
+        from app.services.label_publication import finalize_label_completion
+
+        await finalize_label_completion(db, job)
     await db.flush()
     log.info("job_status_updated", job_id=str(job_id), status=body.status)
     if body.status == JobStatus.succeeded and job.job_type == JobType.pipeline and job.video_id:
@@ -647,6 +694,7 @@ async def retry_job(
         pipeline_mode=original.pipeline_mode,
         input_artifacts=original.input_artifacts,
         model_version_id=original.model_version_id,
+        training_dataset_id=original.training_dataset_id,
     )
     db.add(retry)
     await db.flush()

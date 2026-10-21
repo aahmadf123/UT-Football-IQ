@@ -34,6 +34,16 @@ def test_physical_bucket_passes_through_without_env() -> None:
     assert storage.physical_bucket("some-legacy-bucket") == "some-legacy-bucket"
 
 
+def test_native_file_uri_handles_drive_unicode_and_escaped_spaces(tmp_path):
+    source = tmp_path / "film with space \u2014 native.mp4"
+    source.write_bytes(b"local transport fixture")
+    copied = storage.download_to_temp(source.as_uri())
+    try:
+        assert copied.read_bytes() == source.read_bytes()
+    finally:
+        copied.unlink()
+
+
 def test_physical_bucket_maps_all_logical_names(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("S3_BUCKET_RAW", "footiq-raw-video")
     monkeypatch.setenv("S3_BUCKET_CLIPS", "footiq-clips")

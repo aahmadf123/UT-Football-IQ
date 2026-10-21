@@ -16,7 +16,7 @@ from unittest.mock import AsyncMock, MagicMock
 from app.database import get_db
 from app.deps import get_current_user
 from app.main import app
-from app.models import Clip, Event, User, UserRole
+from app.models import Clip, CoachCorrection, Event, User, UserRole, Video
 from fastapi.testclient import TestClient
 
 
@@ -327,13 +327,37 @@ def test_update_event_mutates_only_provided_fields() -> None:
 
 def test_delete_event_returns_204() -> None:
     event = _make_event()
+    clip = _make_clip(id=event.clip_id)
+    clip.label_data, clip.provenance = {}, {}
+    video = Video(
+        id=clip.video_id,
+        filename="removal-test.mp4",
+        storage_uri="local://raw/test.mp4",
+        content_sha256="a" * 64,
+        size_bytes=10,
+    )
+    statements = []
+    sessions = []
 
     async def _db() -> AsyncGenerator[Any, None]:
         session = AsyncMock()
-        result = MagicMock()
-        result.scalar_one_or_none.return_value = event
-        session.execute = AsyncMock(return_value=result)
+        sessions.append(session)
+
+        async def execute(stmt: Any) -> Any:
+            statements.append(stmt)
+            result = MagicMock()
+            descriptions = getattr(stmt, "column_descriptions", [])
+            entity = descriptions[0].get("entity") if descriptions else None
+            result.scalar_one_or_none.return_value = (
+                clip if entity is Clip else video if entity is Video else event
+            )
+            if entity is Video:
+                result.scalar_one.return_value = video
+            return result
+
+        session.execute = AsyncMock(side_effect=execute)
         session.delete = AsyncMock()
+        session.add = MagicMock()
         session.flush = AsyncMock()
         yield session
 
@@ -346,6 +370,17 @@ def test_delete_event_returns_204() -> None:
         app.dependency_overrides.clear()
 
     assert resp.status_code == 204
+    assert clip.label_data["_annotation_revision"] == 1
+    assert clip.label_data["_observation_revision"] == 1
+    assert any(
+        getattr(stmt, "is_update", False) and stmt.table.name == "metrics" for stmt in statements
+    )
+    sessions[0].delete.assert_not_awaited()
+    assert event.provenance["state"] == "superseded"
+    history = sessions[0].add.call_args.args[0]
+    assert isinstance(history, CoachCorrection)
+    assert history.corrected_value["removed"] is True
+    assert history.original_value["event"]["id"] == str(event.id)
 
 
 def test_delete_event_returns_404_when_missing() -> None:

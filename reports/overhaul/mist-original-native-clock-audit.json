@@ -1,0 +1,173 @@
+{
+  "observed_at_utc": "2026-10-21T20:35:24.203894+00:00",
+  "source_path": "C:\\Users\\firas\\OneDrive - University of Toledo\\UT Game Film 2026\\26 01 OHTO FULL GAME @ MIST.mp4",
+  "operation": "full original video packet demux only + bounded native-frame decode near316.4s; no full decode/hash",
+  "seconds": 11.187999999994645,
+  "streams": [
+    {
+      "avg_frame_rate": "60390000/1007507",
+      "time_base": "1/60000",
+      "duration": "5037.535000",
+      "nb_frames": "301950"
+    }
+  ],
+  "packet_count": 301950,
+  "missing_pts": 0,
+  "duplicate_pts_values": {},
+  "duplicate_packet_count": 0,
+  "strict_in_decode_order": false,
+  "strict_sorted_presentation_pts": true,
+  "first_pts": -2002,
+  "last_pts": 302249097,
+  "near_native_packets": [
+    {
+      "pts": 18984975,
+      "dts": 18981973,
+      "duration": 1000,
+      "packet_index_decode_order": 18966
+    },
+    {
+      "pts": 18983975,
+      "dts": 18983975,
+      "duration": 1000,
+      "packet_index_decode_order": 18968
+    },
+    {
+      "pts": 18985977,
+      "dts": 18985977,
+      "duration": 1000,
+      "packet_index_decode_order": 18970
+    },
+    {
+      "pts": 18986977,
+      "dts": 18986977,
+      "duration": 1002,
+      "packet_index_decode_order": 18971
+    }
+  ],
+  "bounded_decoded_frames": [
+    {
+      "pts": 18984975,
+      "pkt_dts": 18981973,
+      "best_effort_timestamp": 18984975,
+      "duration": 1000,
+      "pict_type": "P",
+      "side_data_list": [
+        {
+          "side_data_type": "H.26[45] User Data Unregistered SEI message"
+        }
+      ]
+    },
+    {
+      "pts": 18975965,
+      "pkt_dts": 18984975,
+      "best_effort_timestamp": 18984975,
+      "duration": 1002,
+      "pict_type": "P",
+      "side_data_list": [
+        {
+          "side_data_type": "H.26[45] User Data Unregistered SEI message"
+        }
+      ]
+    },
+    {
+      "pts": 18985977,
+      "pkt_dts": 18985977,
+      "best_effort_timestamp": 18985977,
+      "duration": 1000,
+      "pict_type": "B",
+      "side_data_list": [
+        {
+          "side_data_type": "H.26[45] User Data Unregistered SEI message"
+        }
+      ]
+    },
+    {
+      "pts": 18986977,
+      "pkt_dts": 18986977,
+      "best_effort_timestamp": 18986977,
+      "duration": 1002,
+      "pict_type": "B",
+      "side_data_list": [
+        {
+          "side_data_type": "H.26[45] User Data Unregistered SEI message"
+        }
+      ]
+    }
+  ],
+  "bounded_decoded_sample_count": 230,
+  "source_unchanged": true,
+  "actual_frozen_probe": {
+    "verified": true,
+    "frame_count": 301948,
+    "first_normalized_seconds": 0.0,
+    "last_normalized_seconds": 5037.48495,
+    "pts_origin_seconds": 0.0,
+    "duration_seconds": 5037.535,
+    "fps": 59.94003019333861,
+    "is_vfr": false,
+    "strictly_increasing": true,
+    "minimum_positive_delta_seconds": 0.016649999999572174,
+    "maximum_delta_seconds": 0.016716666666980018,
+    "probe_seconds": 10.781999999991967,
+    "uses_packet_path": true,
+    "no_nominal_fps_fallback": true,
+    "source_unchanged": true,
+    "opencv_first_five": [
+      {
+        "ordinal": 0,
+        "ok": true,
+        "pos_msec": 0.0,
+        "pos_frames": 1.0,
+        "actual_current_index": 0
+      },
+      {
+        "ordinal": 1,
+        "ok": true,
+        "pos_msec": 16.683333333333334,
+        "pos_frames": 2.0,
+        "actual_current_index": 1
+      },
+      {
+        "ordinal": 2,
+        "ok": true,
+        "pos_msec": 33.36666666666667,
+        "pos_frames": 3.0,
+        "actual_current_index": 2
+      },
+      {
+        "ordinal": 3,
+        "ok": true,
+        "pos_msec": 50.050000000000004,
+        "pos_frames": 4.0,
+        "actual_current_index": 3
+      },
+      {
+        "ordinal": 4,
+        "ok": true,
+        "pos_msec": 66.73333333333333,
+        "pos_frames": 5.0,
+        "actual_current_index": 4
+      }
+    ],
+    "opencv_first_five_match_displayed_native_indices": true
+  },
+  "pre_discard_filter_probe": {
+    "verified": true,
+    "frame_count": 301950,
+    "first_normalized_seconds": 0.0,
+    "last_normalized_seconds": 5037.518316666667,
+    "pts_origin_seconds": -0.03336666666666667,
+    "duration_seconds": 5037.535,
+    "fps": 59.94003019333861,
+    "is_vfr": false,
+    "strictly_increasing": true,
+    "minimum_positive_delta_seconds": 0.016649999999572174,
+    "maximum_delta_seconds": 0.016716666666980018,
+    "probe_seconds": 9.5,
+    "uses_packet_path": true,
+    "no_nominal_fps_fallback": true,
+    "source_unchanged": true,
+    "acceptance_caveat": "Subsequent bounded decoder-origin audit found two discarded negative preroll packets included in this pre-fix index. verified=true is not proof of displayed-picture alignment."
+  }
+}

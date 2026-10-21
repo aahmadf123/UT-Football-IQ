@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from pipeline.stage_render import _metric_callouts, _render, _transcode_to_h264
+from pipeline.stage_render import _render, _transcode_to_h264
 
 
 def test_full_resolution_overlay_renders_only_requested_frame_window(tmp_path):
@@ -52,12 +52,19 @@ def test_overlay_draws_each_box_on_its_own_frame_despite_undecodable_frames(tmp_
 
 
 @pytest.mark.parametrize("flags", [
-    {"is_suppressed": True}, {"experimental_flag": True},
+    {}, {"is_suppressed": True}, {"experimental_flag": True},
     {"metric_value": {"value": 8, "provenance": {"validated": False}}},
 ])
-def test_unreviewed_numbers_are_not_burned_into_film(flags):
+def test_inflight_numbers_are_not_burned_into_film(flags, tmp_path):
+    from tests.fake_capture import FakeCapture
+
     metric = {"metric_name": "max_speed", "tracklet_id": "t", "metric_value": {"value": 8}, **flags}
-    assert _metric_callouts([{"id": "t"}], [metric]) == {}
+    track = {"id": "t", "track_points": [{"frame_number": 0, "bbox": [10, 10, 30, 30]}]}
+    with patch("pipeline.hwaccel.nvdec_video_capture", return_value=FakeCapture(1)), patch(
+        "cv2.VideoWriter"
+    ), patch("pipeline.stage_render._transcode_to_h264"), patch("cv2.putText") as captions:
+        _render(Path("source.mp4"), tmp_path / "overlay.mp4", [track], [], [metric], True, 30)
+    assert [call.args[1] for call in captions.call_args_list] == ["T0"]
 
 
 def test_missing_browser_encoder_is_an_error_not_a_successful_raw_mp4(tmp_path):

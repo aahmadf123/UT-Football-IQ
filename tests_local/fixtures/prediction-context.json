@@ -1,0 +1,157 @@
+{
+  "evidence_kind": "synthetic_protocol_fixture",
+  "clip_start_seconds": 10,
+  "prediction_play_seconds": 2.5,
+  "event_frame_number": 375,
+  "coordinates": {
+    "lt": [
+      50,
+      4
+    ],
+    "lg": [
+      50,
+      2
+    ],
+    "center": [
+      50,
+      0
+    ],
+    "rg": [
+      50,
+      -2
+    ],
+    "rt": [
+      50,
+      -4
+    ],
+    "qb": [
+      48,
+      0
+    ],
+    "receiver": [
+      55,
+      10
+    ],
+    "dl": [
+      50.5,
+      1
+    ],
+    "lb": [
+      53,
+      -2
+    ],
+    "db": [
+      60,
+      10
+    ]
+  },
+  "cases": [
+    {
+      "task": "completion",
+      "event_type": "pass_release",
+      "actor_id": "qb",
+      "attributes": {
+        "feature_context_available_at_seconds": 12.4,
+        "feature_context_timebase": "recording",
+        "defender_track_ids": [
+          "dl",
+          "lb",
+          "db"
+        ],
+        "defender_population_complete": true,
+        "play_design": "pass",
+        "forward_pass": true,
+        "intended_receiver_id": "receiver",
+        "qb_id": "qb"
+      }
+    },
+    {
+      "task": "rushing_gain",
+      "event_type": "handoff",
+      "actor_id": "receiver",
+      "attributes": {
+        "feature_context_available_at_seconds": 12.4,
+        "feature_context_timebase": "recording",
+        "defender_track_ids": [
+          "dl",
+          "lb",
+          "db"
+        ],
+        "defender_population_complete": true,
+        "play_design": "rush",
+        "possessor_id": "receiver"
+      }
+    },
+    {
+      "task": "yac",
+      "event_type": "catch",
+      "actor_id": "receiver",
+      "attributes": {
+        "feature_context_available_at_seconds": 12.4,
+        "feature_context_timebase": "recording",
+        "defender_track_ids": [
+          "dl",
+          "lb",
+          "db"
+        ],
+        "defender_population_complete": true,
+        "play_design": "pass",
+        "forward_pass": true,
+        "completion_observed": true,
+        "possession_side": "offense",
+        "possessor_id": "receiver"
+      }
+    },
+    {
+      "task": "pressure",
+      "event_type": "snap",
+      "actor_id": "qb",
+      "attributes": {
+        "feature_context_available_at_seconds": 12.4,
+        "feature_context_timebase": "recording",
+        "defender_track_ids": [
+          "dl",
+          "lb",
+          "db"
+        ],
+        "defender_population_complete": true,
+        "play_design": "pass",
+        "front_population_complete": true,
+        "ol_roles": {
+          "LT": "lt",
+          "LG": "lg",
+          "C": "center",
+          "RG": "rg",
+          "RT": "rt"
+        },
+        "defensive_roles": {
+          "dl": "DT",
+          "lb": "LB",
+          "db": "CB"
+        },
+        "call_context_known": true,
+        "call_context_available_at_seconds": 12.3,
+        "call_context_timebase": "recording",
+        "called_rusher_ids": [
+          "dl"
+        ],
+        "called_blitzer_ids": [],
+        "protection_blocker_ids": [
+          "lt",
+          "lg",
+          "center",
+          "rg",
+          "rt"
+        ],
+        "dl_gap_alignment": {
+          "dl": "a"
+        },
+        "down": 2,
+        "distance_yards": 7,
+        "los_x": 50,
+        "attacking_direction": 1,
+        "ball_y": 0
+      }
+    }
+  ]
+}

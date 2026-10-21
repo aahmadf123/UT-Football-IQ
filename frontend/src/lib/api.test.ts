@@ -15,6 +15,16 @@ async function freshImport() {
   return import("./api");
 }
 
+test("model reliability reads actual stored evaluations with staff authentication", async () => {
+  const reports = [{ id: "evaluation", model_id: "model", source: "measured_human_holdout", passed: false }];
+  const fetchMock = vi.fn(async () => ({ ok: true, status: 200, json: async () => reports }));
+  vi.stubGlobal("fetch", fetchMock);
+  const { listLearningEvaluations } = await freshImport();
+  expect(await listLearningEvaluations("staff-token")).toEqual(reports);
+  expect((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[0]).toBe("https://api.test/api/v1/learning/evaluations");
+  expect((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].headers).toMatchObject({ Authorization: "Bearer staff-token" });
+});
+
 describe("requestUploadUrl", () => {
   test("requests an upload URL from the configured API and returns uploadUrl + key", async () => {
     const mockResponse = { uploadUrl: "https://api.test/api/v1/videos/upload/raw/123-test.mp4", key: "raw/123-test.mp4" };

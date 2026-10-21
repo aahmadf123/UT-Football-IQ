@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
+import cv2
+import pytest
+
 from pipeline.video_timeline import VideoTimeline, iter_frames, read_frames, seek_to
 from tests.fake_capture import FakeCapture
 
@@ -63,3 +66,43 @@ def test_a_capture_that_never_ends_stops_at_the_timeline_end() -> None:
 
     got = list(iter_frames(Endless(10**9, fps=FPS), _timeline(50), 0, None, fill_gaps=False))
     assert len(got) == 50
+
+
+class ReorderedCapture(FakeCapture):
+    """Different decoded pictures can arrive late or repeat a source timestamp."""
+    def __init__(self):
+        super().__init__(6, fps=10)
+        self.timestamps = (0.0, 0.1, 0.05, 0.1, 0.2, 0.3)
+
+    def get(self, prop):
+        if prop == cv2.CAP_PROP_POS_MSEC:
+            return self.timestamps[self._current or 0] * 1000
+        return super().get(prop)
+
+
+def test_late_and_duplicate_decoder_pictures_do_not_invent_source_indices():
+    timeline = VideoTimeline((0.0, 0.1, 0.2, 0.3), 0.4, 10)
+    assert _ids(list(iter_frames(ReorderedCapture(), timeline, fill_gaps=False))) == [
+        (0, 0), (1, 1), (2, 4), (3, 5),
+    ]
+
+
+def test_seeking_ignores_a_late_picture_instead_of_counting_it_as_target():
+    capture = ReorderedCapture()
+    timeline = VideoTimeline((0.0, 0.1, 0.2, 0.3), 0.4, 10)
+    assert seek_to(capture, timeline, 2) == 2
+    assert int(capture.retrieve()[1][0, 0, 0]) == 4
+
+
+@pytest.mark.parametrize("reader", ["iterate", "read"])
+def test_decoder_stalled_clock_is_bounded(reader):
+    class Stalled(FakeCapture):
+        def grab(self):
+            self._current = 0
+            return True
+
+    with pytest.raises(ValueError, match="stopped advancing"):
+        if reader == "iterate":
+            list(iter_frames(Stalled(), _timeline(3), fill_gaps=False))
+        else:
+            read_frames(Stalled(), _timeline(3), [0, 1])

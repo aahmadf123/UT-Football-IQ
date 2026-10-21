@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { filmReviewHref, playerProfileContextHref, resolveAnalysisContext, safeReturnHref, updateContextParams } from "./analysis-context";
+import { recordingReviewHref, filmReviewHref, playerProfileContextHref, resolveAnalysisContext, safeReturnHref, updateContextParams } from "./analysis-context";
 
 describe("shared analysis context", () => {
   test("return links cannot navigate outside the workspace", () => {
@@ -35,4 +35,15 @@ describe("shared analysis context", () => {
     expect(url.searchParams.has("clipId")).toBe(false);
     expect(url.searchParams.has("t")).toBe(false);
   });
+});
+
+
+test("archived clip links reopen its recording with the analysis context", () => {
+  const url = new URL(recordingReviewHref(new URLSearchParams("clipId=old&t=3&playlist=old,new&position=WR&from=%2Fteam-stats%2F"), "video"), "https://film.test");
+  expect(url.searchParams.get("videoId")).toBe("video");
+  expect(url.searchParams.get("position")).toBe("WR");
+  expect(url.searchParams.get("from")).toBe("/team-stats/");
+  expect(url.searchParams.has("clipId")).toBe(false);
+  expect(url.searchParams.has("t")).toBe(false);
+  expect(url.searchParams.has("playlist")).toBe(false);
 });

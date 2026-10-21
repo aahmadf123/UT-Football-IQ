@@ -1,0 +1,334 @@
+{
+  "observed_at_utc": "2026-10-21T20:07:46.184724+00:00",
+  "scope": "real_720p_short_engineering_smoke",
+  "passed": true,
+  "limits": [
+    "not_1080p",
+    "not_p95",
+    "not_90_minute",
+    "not_football_accuracy"
+  ],
+  "database": "127.0.0.1:55432/footiq_overhaul_completion",
+  "api_stopped": true,
+  "worker_pid_28716_untouched": true,
+  "source": {
+    "path": "C:\\Users\\firas\\OneDrive - University of Toledo\\Drone Footage\\Dji 20260416110958 0274 D.mp4",
+    "sha256": "cc19ae61940d7c3f59536cfed2271c94291742d0adaf658a4d8f772428c74a18",
+    "size_bytes": 5734873,
+    "streams": [
+      {
+        "codec_type": "video",
+        "codec_name": "h264",
+        "width": 1280,
+        "height": 720,
+        "pix_fmt": "yuv420p",
+        "r_frame_rate": "30000/1001",
+        "avg_frame_rate": "30000/1001",
+        "time_base": "1/90000",
+        "start_time": "0.000000",
+        "duration": "6.973633",
+        "nb_frames": "209"
+      }
+    ],
+    "native_pts": {
+      "frames": 209,
+      "first": 0.0,
+      "last": 6.940267,
+      "strictly_increasing": true,
+      "min_delta": 0.03336599999999998,
+      "max_delta": 0.03336700000000015
+    },
+    "unchanged": true
+  },
+  "model_artifact": {
+    "path": "C:\\Users\\firas\\UT-Football-IQ\\gpu-worker\\yolov8n.pt",
+    "bytes": 6549796,
+    "sha256": "f59b3d833e2ff32e194b5bb8e08d211dc7c5bdf144b90d2c8412c47ccfc83b36"
+  },
+  "runtime": {
+    "torch": "2.8.0+cu128",
+    "ultralytics": "8.3.237",
+    "requested_device": "cuda",
+    "actual_cuda_name": "NVIDIA GeForce RTX 5060 Laptop GPU",
+    "cuda_available": true
+  },
+  "no_model_downloads": true,
+  "external_connections_attempted": [],
+  "source_receipt_checks": {
+    "source_record_present": true,
+    "attempt_record_present": true,
+    "job_binding_matches": true,
+    "attempt_matches": true,
+    "source_matches_result": true,
+    "full_sha_matches_original": true,
+    "annotated_principal_matches_runtime": true,
+    "processor_role": "analyst",
+    "job_status": "succeeded"
+  },
+  "job": {
+    "id": "7a7e70d6-73d1-4e90-ad76-dd04d9449291",
+    "video_id": "f1523332-1200-478e-9ea9-578fcd871d99",
+    "normal_registered_claim": true,
+    "status": "succeeded",
+    "attempt_count": 1,
+    "profile": "quick",
+    "worker_wall_seconds": 36.406,
+    "pipeline_seconds": 35.55,
+    "result_state": "complete",
+    "playback_ready": true,
+    "trusted_analysis": false,
+    "source": "real",
+    "analytics_safe": false,
+    "stage_timings": {
+      "detect": 4.328,
+      "ingest": 4.313,
+      "segment": 8.875,
+      "calibrate": 0.016,
+      "reid:da573260-4120-5071-b155-83ca1299a0a3": 0.047,
+      "track:da573260-4120-5071-b155-83ca1299a0a3": 3.5,
+      "events:da573260-4120-5071-b155-83ca1299a0a3": 0.485,
+      "labels:da573260-4120-5071-b155-83ca1299a0a3": 6.313,
+      "render:da573260-4120-5071-b155-83ca1299a0a3": 2.531,
+      "routes:da573260-4120-5071-b155-83ca1299a0a3": 0.015,
+      "metrics:da573260-4120-5071-b155-83ca1299a0a3": 0.0,
+      "coverage:da573260-4120-5071-b155-83ca1299a0a3": 0.0,
+      "playback_proxy:da573260-4120-5071-b155-83ca1299a0a3": 1.609,
+      "expected_outcomes:da573260-4120-5071-b155-83ca1299a0a3": 0.0
+    },
+    "stage_states": {
+      "detect": {
+        "status": "succeeded",
+        "total_frames": 209
+      },
+      "ingest": {
+        "status": "succeeded",
+        "capture_regime": "unconstrained"
+      },
+      "segment": {
+        "status": "succeeded",
+        "clip_count": 1
+      },
+      "calibrate": {
+        "status": "succeeded",
+        "analytics_safe": false,
+        "capture_regime": "multi_view"
+      },
+      "source_identity": {
+        "status": "verified",
+        "source_identity": {
+          "video_id": "f1523332-1200-478e-9ea9-578fcd871d99",
+          "size_bytes": 5734873,
+          "full_sha256": "cc19ae61940d7c3f59536cfed2271c94291742d0adaf658a4d8f772428c74a18",
+          "storage_uri": "local://raw-video/raw/1792613044427-dcdb7209e0ff41a28e5f8c88ff186d5a-Dji 20260416110958 0274 D.mp4",
+          "schema_version": 1,
+          "registration_algorithm": "full-sha256",
+          "registration_fingerprint": "cc19ae61940d7c3f59536cfed2271c94291742d0adaf658a4d8f772428c74a18"
+        }
+      },
+      "reid:da573260-4120-5071-b155-83ca1299a0a3": {
+        "reason": "roster_and_identity_seeds_unavailable",
+        "status": "skipped"
+      },
+      "track:da573260-4120-5071-b155-83ca1299a0a3": {
+        "status": "succeeded",
+        "tracklet_count": 65
+      },
+      "events:da573260-4120-5071-b155-83ca1299a0a3": {
+        "status": "succeeded",
+        "event_count": 1
+      },
+      "labels:da573260-4120-5071-b155-83ca1299a0a3": {
+        "status": "succeeded",
+        "label_count": 15
+      },
+      "render:da573260-4120-5071-b155-83ca1299a0a3": {
+        "status": "succeeded"
+      },
+      "routes:da573260-4120-5071-b155-83ca1299a0a3": {
+        "reason": "logical_play_unresolved",
+        "status": "skipped"
+      },
+      "metrics:da573260-4120-5071-b155-83ca1299a0a3": {
+        "reason": "logical_play_unresolved",
+        "status": "skipped"
+      },
+      "coverage:da573260-4120-5071-b155-83ca1299a0a3": {
+        "reason": "logical_play_unresolved",
+        "status": "skipped"
+      },
+      "playback_proxy:da573260-4120-5071-b155-83ca1299a0a3": {
+        "status": "succeeded"
+      },
+      "expected_outcomes:da573260-4120-5071-b155-83ca1299a0a3": {
+        "reason": "logical_play_unresolved",
+        "status": "skipped"
+      }
+    },
+    "model_routing": {
+      "ball": "yolov8n-ball",
+      "detect": "yolov8n",
+      "segment": "optical-flow-fast",
+      "calibrate": "calib-numeral-dlt"
+    },
+    "model_provenance": {
+      "ball": {
+        "device": null,
+        "source": "disabled",
+        "model_sha256": null,
+        "effective_variant": "disabled",
+        "requested_variant": "yolov8n-ball"
+      },
+      "detect": {
+        "device": "cuda:0",
+        "source": "real",
+        "model_sha256": "f59b3d833e2ff32e194b5bb8e08d211dc7c5bdf144b90d2c8412c47ccfc83b36",
+        "effective_variant": "yolov8n",
+        "requested_variant": "yolov8n"
+      }
+    },
+    "publication_holds": {},
+    "failed_video_stages": [],
+    "failed_clip_stages": []
+  },
+  "clip": {
+    "id": "da573260-4120-5071-b155-83ca1299a0a3",
+    "start_time": 0.0,
+    "end_time": 6.973633,
+    "is_reviewed": false,
+    "logical_play_status": "unresolved",
+    "exclusion_reason": "unqualified_event_evidence",
+    "canonical_count_eligible": false,
+    "visible_tracklets": 65,
+    "resolved_players": 0,
+    "visible_events": 0,
+    "visible_labels": 0,
+    "visible_metrics": 0,
+    "raw_label_count": 15,
+    "withheld_label_count": 15,
+    "calibration": {
+      "analytics_safe": false,
+      "reason": "The field couldn't be calibrated from this footage, so spatial metrics are unavailable. Player tracking and clips are unaffected.",
+      "reason_codes": [
+        "no_calibration"
+      ],
+      "confidence": null,
+      "calibration_id": null,
+      "provenance": null
+    },
+    "warnings": [
+      "15 unapproved, unverified or staff-overridden labels are withheld. Original labels remain available in Learning and annotation history."
+    ]
+  },
+  "clean_playback_derivative": {
+    "path": "C:\\Users\\firas\\UT-Football-IQ\\runs\\real-720-smoke-b10f9559ba\\store\\clips\\attempts\\8fa0ede3-b686-4a2a-80b5-dd38de4de353\\playback_proxies\\da573260-4120-5071-b155-83ca1299a0a3\\73cd931f895b97dbea95624528ca98f1566e1f20111189a0c5183258c4dddacf\\clip.mp4",
+    "bytes": 1603899,
+    "sha256": "6f8bbb3893c056745cdcef4848bad7cd6e4f2530fd7f53ac31b1c57b02738b35",
+    "streams": [
+      {
+        "codec_type": "video",
+        "codec_name": "h264",
+        "width": 960,
+        "height": 540,
+        "pix_fmt": "yuv420p",
+        "r_frame_rate": "30/1",
+        "avg_frame_rate": "30/1",
+        "time_base": "1/15360",
+        "start_time": "0.000000",
+        "duration": "6.966016",
+        "nb_frames": "209"
+      }
+    ],
+    "native_pts": {
+      "frames": 209,
+      "first": 0.0,
+      "last": 6.933333,
+      "strictly_increasing": true,
+      "min_delta": 0.033332999999999835,
+      "max_delta": 0.033334000000000086
+    },
+    "signed_download_matches": true
+  },
+  "clean_playback_provenance": {
+    "kind": "clean_clip",
+    "audio": {
+      "status": "absent_in_source"
+    },
+    "proxy_fps": 30,
+    "timeline_uri": "local://artifacts/attempts/8fa0ede3-b686-4a2a-80b5-dd38de4de353/playback_proxies/da573260-4120-5071-b155-83ca1299a0a3/73cd931f895b97dbea95624528ca98f1566e1f20111189a0c5183258c4dddacf/timeline.json",
+    "source_sha256": "cc19ae61940d7c3f59536cfed2271c94291742d0adaf658a4d8f772428c74a18",
+    "encoder_config": {
+      "crf": 23,
+      "fps": 30,
+      "audio": "source_aac",
+      "codec": "h264",
+      "max_height": 540,
+      "pixel_format": "yuv420p"
+    },
+    "schema_version": 2,
+    "artifact_sha256": "6f8bbb3893c056745cdcef4848bad7cd6e4f2530fd7f53ac31b1c57b02738b35",
+    "generator_version": "pts-proxy-v2",
+    "timeline_revision": 2,
+    "source_end_seconds": 6.973633,
+    "duration_validation": {
+      "codec": "h264",
+      "passed": true,
+      "encoded_seconds": 6.966016,
+      "expected_seconds": 6.973633,
+      "tolerance_seconds": 0.034333333333333334
+    },
+    "alignment_validation": {
+      "method": "mapped_source_picture_comparison",
+      "passed": true,
+      "samples": [
+        {
+          "output_frame": 0,
+          "mean_absolute_pixel_error": 1.911
+        },
+        {
+          "output_frame": 104,
+          "mean_absolute_pixel_error": 1.848
+        },
+        {
+          "output_frame": 208,
+          "mean_absolute_pixel_error": 2.021
+        }
+      ]
+    },
+    "artifact_fingerprint": "73cd931f895b97dbea95624528ca98f1566e1f20111189a0c5183258c4dddacf",
+    "source_start_seconds": 0.0,
+    "source_timestamps_verified": true
+  },
+  "native_source_mapping_checks": {
+    "mapping_count": 209,
+    "derivative_frame_count": 209,
+    "lengths_match": true,
+    "every_source_frame_valid": true,
+    "every_timestamp_matches_native_source": true,
+    "frame_mapping_nondecreasing": true,
+    "source_timestamps_verified": true
+  },
+  "rendered_overlay_derivative": {
+    "path": "runs\\real-720-smoke-b10f9559ba\\store\\overlays\\attempts\\8fa0ede3-b686-4a2a-80b5-dd38de4de353\\period_overlays\\da573260-4120-5071-b155-83ca1299a0a3\\pts-overlay-v4\\1133886cc57944e9b44093c0664860e2\\period_overlay.mp4",
+    "size_bytes": 3538315,
+    "sha256": "9522ad7454f260c8aa3cd8b41729e63b7c1bdda0576e238aafab227bccd0a3fd",
+    "streams": [
+      {
+        "codec_type": "video",
+        "codec_name": "h264",
+        "width": 960,
+        "height": 540,
+        "pix_fmt": "yuv420p",
+        "r_frame_rate": "2997/100",
+        "avg_frame_rate": "2997/100",
+        "time_base": "1/11988",
+        "start_time": "0.000000",
+        "duration": "6.973640",
+        "nb_frames": "209"
+      }
+    ],
+    "frames": 209,
+    "qualification": "raw heuristic preview; not verified football labels"
+  },
+  "remaining_preview_limit": "Optional burned-in overlay renderer still consumes heuristic label values; separate clean playback and current coach overlay JSON withhold them. No football label approval claimed.",
+  "raw_local_evidence": "runs\\real-720-smoke-b10f9559ba\\evidence.json"
+}

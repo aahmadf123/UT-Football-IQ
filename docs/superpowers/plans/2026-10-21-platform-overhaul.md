@@ -8,6 +8,17 @@
 
 **Global constraints:** Unknown evidence stays unknown. No synthetic production results, committed secrets or model weights. Interaction and prediction publication requires actual held-out evaluation. Production processor remains the staff GPU for the hosted deployment; local CPU operation remains supported.
 
+**Current status (2026-10-21 continuation): incomplete.** The current per-page
+implementation and missing-evidence ledger is
+[`reports/overhaul/spec-coverage.md`](../../../reports/overhaul/spec-coverage.md).
+Later continuation reports supersede the historical snapshots below. In
+particular, explicit pressure-duration/corridor/envelope/role and reviewed-outcome
+producers, original-five comparisons, signed feature exports and stored model
+diagnostics are now implemented; trained automatic specialist coverage and
+real-football acceptance are still separate requirements. The original pending
+hash catalog is preserved alongside full verified hashes for all 36 sources.
+No package checkbox denotes full acceptance without the missing external gates.
+
 ## Packages and ownership
 
 - [ ] P0 Backend: durable processing intent, release inventory; record production and benchmark evidence gaps.
@@ -23,6 +34,43 @@
 Long gaps and shot changes must hide markers. Duplicate/same-number opponents must not receive Toledo identities. Alternate views/fragments/retries must not inflate canonical plays or reps. Saturated/disconnected processing must retain upload intent. Failed replacement results must not erase usable prior output. All filters, saved views, drilldowns, angle switches and Back retain applicable context. Missing models and labels remain explicit, never fabricated.
 
 ## Evidence ledger
+
+### Continuation after PR 57 merge
+
+2026-10-21: User reaffirmed full-overhaul completion. Resumed on branch
+`codex/overhaul-completion-20261021` from merged `7bb3793`. Existing implementation
+and accepted test evidence remain intact; package checkboxes remain acceptance
+gates, not claims that the prior engineering work is absent.
+
+Ruling: use disjoint worker/frontend/release ownership concurrently and retain
+the independent reviewer throughout, as requested by the user. No shared-file
+edits without coordination. The source branch is isolated from `main`; no new
+worktree, shared-branch push, merge or deployment has been performed.
+
+Continuation ownership and interfaces:
+
+| Work | Owner | Interface and verification |
+| --- | --- | --- |
+| Production recovery and independent reviews | reviewer | Actual serving SHA, readiness, placement and heartbeat; no credential reuse or production mutation. |
+| CI/release readiness and image retention | root | Exact SHA + DB readiness; verified digest history; fail-closed pruning; transient rollout retries. |
+| Format-aware sequence and association proposals | pipeline | Source PTS, complete shot/context retention, unresolved proposals never become accepted snap counts. |
+| QB/OL/signed-gain producers | backend agent | Qualified events/coverage/geometry; additive evidence packets; no fabricated body extents or pressure coverage. |
+| Event, release and gap film-linked views | root | Consume qualified packets and source timestamps; exact clip-relative navigation; accessible tables. |
+
+Ruling: the observed production connection exhaustion does not establish database
+capacity. The deployment recovered on its own. Do not guess pool defaults or
+restart a healthy service. Add release checks; capacity remains an explicit
+diagnostic question if exhaustion recurs.
+
+Production recovery: independent provider checks found frontend, edge and backend
+on the merge SHA, current worker heartbeats returning 200, and DB readiness 200.
+The new public readiness script also passed three consecutive exact-build checks
+at 16:53:44 UTC. Production schema head and models still require authenticated
+inventory; a heartbeat alone does not prove those. The rerun of existing live
+smoke passed expected backend release, but its page crawl timed out because
+`networkidle` waits on the intentional alerts SSE on every route. Replace that
+wait with bounded finite API-request settling and retain actual response/error
+checks. No production credentials were read or copied.
 
 2026-10-21: User authorized implementation of the attached design and independent subagent review. Baseline checkout `1aad137`, branch `claude/no-local-copies`, clean worktree. Reviewer, backend and pipeline agents assigned disjoint ownership. Frontend/integration owned by primary agent. The supplied release gates require actual footage annotations and production access; code tests alone cannot satisfy those gates.
 

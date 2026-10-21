@@ -33,6 +33,7 @@ import structlog
 from pipeline import object_store
 from pipeline.media_contract import OVERLAY_GENERATOR_VERSION, validate_duration
 from pipeline.observations import bounded_frame_observations
+from pipeline.reviewed_labels import reviewed_hud
 from pipeline.runtime import check_control
 from pipeline.video_timeline import VideoTimeline, iter_frames
 from renderer.field_minimap import draw_field_minimap
@@ -67,6 +68,7 @@ def run(
     timeline: VideoTimeline | None = None,
     start_seconds: float | None = None,
     end_seconds: float | None = None,
+    reviewed_label_data: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Render a reduced-resolution period-break overlay and upload to the object store.
 
@@ -74,7 +76,7 @@ def run(
         clip_id:       Clip UUID used as the object key prefix.
         video_path:    Local path to the source clip video.
         tracklets:     List of tracklet dicts (same schema as stage_render).
-        labels:        List of label dicts for formation HUD.
+        labels:        Raw candidates, retained for call compatibility; not burned in.
         analytics_safe: If False a calibration-warning banner is drawn.
         fps:           Source frame rate.
 
@@ -97,6 +99,7 @@ def run(
             timeline=timeline,
             start_seconds=start_seconds,
             end_seconds=end_seconds,
+            reviewed_label_data=reviewed_label_data,
         )
 
         validation = None
@@ -143,6 +146,7 @@ def _render_reduced(
     timeline: VideoTimeline | None = None,
     start_seconds: float | None = None,
     end_seconds: float | None = None,
+    reviewed_label_data: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     from pipeline.hwaccel import nvdec_video_capture
 
@@ -211,9 +215,7 @@ def _render_reduced(
         )
         repetitions = Counter(proxy_timeline["proxy_to_source_frame"])
 
-    formation = _label_value(labels, "offensive_formation", "formation", "—")
-    front = _label_value(labels, "defensive_front", "front", "—")
-    direction = _label_value(labels, "play_direction", "direction", "—")
+    hud, _direction = reviewed_hud(reviewed_label_data)
 
     try:
         # Frames by timestamp, never by counting (see video_timeline).
@@ -228,15 +230,10 @@ def _render_reduced(
                 cv2.rectangle(frame, (0, 0), (out_w, 22), (0, 0, 200), -1)
                 cv2.putText(frame, "CALIBRATION WARNING", (6, 16), FONT, 0.45, (255, 255, 255), 1)
 
-            cv2.putText(
-                frame,
-                f"OFF: {formation}  DEF: {front}  DIR: {direction}",
-                (6, out_h - 8),
-                FONT,
-                0.38,
-                (255, 255, 255),
-                1,
-            )
+            if hud:
+                cv2.putText(
+                    frame, hud, (6, out_h - 8), FONT, 0.38, (255, 255, 255), 1,
+                )
 
             for bbox, color, tid in frame_tracks.get(frame_idx, []):
                 x1, y1, x2, y2 = [int(v) for v in bbox]
@@ -287,15 +284,3 @@ def _transcode_h264(source: Path, destination: Path) -> None:
         raise RuntimeError(
             "Browser-compatible overlay encoding requires working ffmpeg/libx264"
         ) from exc
-
-
-def _label_value(
-    labels: list[dict[str, Any]],
-    label_type: str,
-    key: str,
-    default: str,
-) -> str:
-    for lb in labels:
-        if lb.get("label_type") == label_type:
-            return str(lb.get("label_value", {}).get(key, default))
-    return default

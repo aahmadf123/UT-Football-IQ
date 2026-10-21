@@ -237,7 +237,8 @@ describe("apiPlayerToSummary", () => {
     ["HB", null, "RB"],
     ["SLOT", "Skill", "WR"],
     [" wr ", "Skill", "WR"],
-    ["ATH", "Skill", "Skill"],
+    ["ATH", "Skill", "Skill"], ["DT", "Skill", "Skill"],
+    ["LT", null, "OL"], ["DT", null, "DL"], ["EDGE", null, "EDGE"], ["CB", null, "DB"], ["KR", null, "ST"],
     [null, "Skill", "Skill"],
     ["TE", "WR", "WR"],
   ])("keeps listed position %s and stored group %s compatible", async (position, positionGroup, expected) => {

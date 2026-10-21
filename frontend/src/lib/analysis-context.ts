@@ -51,6 +51,14 @@ export function filmReviewHref(params: URLSearchParams, clipId: string, override
   return `/clip-review/?${next}`;
 }
 
+/** Open the active recording while retaining the cohort and return location. */
+export function recordingReviewHref(params: URLSearchParams, videoId: string): string {
+  const next = new URLSearchParams(params);
+  for (const key of ["clipId", "t", "playlist", "trackletId"]) next.delete(key);
+  next.set("videoId", videoId);
+  return `/clip-review/?${next}`;
+}
+
 /** Carry the same analytical population into a profile without film-local state. */
 export function playerProfileContextHref(params: URLSearchParams, playerId: string, from?: string): string {
   const next = new URLSearchParams();

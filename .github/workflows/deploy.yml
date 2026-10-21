@@ -1,4 +1,4 @@
-# Deploys the edge Worker (+ backend container image) on pushes to main.
+# Deploys the edge Worker (+ backend container image) after main passes CI.
 #
 # Requires two repository secrets:
 #   CLOUDFLARE_API_TOKEN   token with Workers Scripts:Edit + Containers write
@@ -10,14 +10,15 @@
 name: Deploy
 
 on:
-  push:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
     branches: [main]
-    paths:
-      - "workers/api-edge/**"
-      - "backend/**"
-      - "gpu-worker/**"
-      - ".github/workflows/deploy.yml"
   workflow_dispatch: {}
+
+permissions:
+  contents: read
+  actions: read
 
 concurrency:
   group: deploy-worker
@@ -26,13 +27,23 @@ concurrency:
 jobs:
   deploy-worker:
     runs-on: ubuntu-latest
-    # Skip quietly on forks / before the secrets are configured.
-    if: ${{ github.repository == 'aahmadf123/UT-Football-IQ' }}
+    # Only trusted main push CI runs or an explicit main dispatch may deploy.
+    if: >-
+      github.repository == 'aahmadf123/UT-Football-IQ' &&
+      ((github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+       (github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.head_repository.full_name == github.repository))
+    timeout-minutes: 40
+    env:
+      RELEASE_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
     defaults:
       run:
         working-directory: workers/api-edge
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
       - uses: actions/setup-node@v7
         with:
           node-version: 22
@@ -42,31 +53,83 @@ jobs:
       - run: npx tsc --noEmit
       - run: npx vitest run
       - name: Deploy
-        run: npx wrangler deploy --var GIT_SHA:${{ github.sha }} 2>&1 | tee deploy.log
+        id: deploy
+        run: |
+          latest=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')
+          if [ "$latest" != "$RELEASE_SHA" ]; then
+            echo "A newer main commit exists; skipping this stale release."
+            echo "deployed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          npx wrangler deploy --var GIT_SHA:"$RELEASE_SHA" 2>&1 | tee deploy.log
+          echo "deployed=true" >> "$GITHUB_OUTPUT"
         shell: bash -o pipefail {0}
         env:
+          GH_TOKEN: ${{ github.token }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      # Each deploy pushes a ~5 GB backend image and the account's registry
-      # holds 50 GB: after ~10 deploys pushes failed ("Docker command exited
-      # with code 1"). Keep only the image this deploy runs; rolling back
-      # means redeploying an older commit, which rebuilds its image.
-      - name: Prune old container images
-        if: success()
+      - name: Verify serving version and database readiness
+        if: steps.deploy.outputs.deployed == 'true'
+        run: >-
+          python ../../scripts/deployment_readiness.py check
+          --base-url https://footiq-api-edge.firas-azfar.workers.dev
+          --sha "$RELEASE_SHA" --output readiness.json
+      # Bootstrap preserves existing images. Once three verified generations
+      # exist, retain the current and two previous known-good image tags.
+      - name: Prepare verified image retention
+        if: steps.deploy.outputs.deployed == 'true'
+        id: retention
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          repo=footiq-api-edge-backendcontainer
+          current=$(grep -oE "${repo}:[0-9a-f]+" deploy.log | head -1 | cut -d: -f2 || true)
+          if [ -z "$current" ]; then
+            echo "No image tag in deploy output (image unchanged); nothing to prune."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          digest=$(sed -nE 's/.*digest: (sha256:[a-f0-9]{64}) .*/\1/p' deploy.log | tail -1)
+          if [ -z "$digest" ]; then
+            echo "No image digest in deploy output; preserving all images."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          mkdir -p previous-release
+          for run in $(gh run list --repo "$GITHUB_REPOSITORY" --workflow deploy.yml --branch main --status success --limit 30 --json databaseId --jq '.[].databaseId'); do
+            count=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run/artifacts" --jq '[.artifacts[] | select(.name == "known-good-backend-images" and .expired == false)] | length')
+            if [ "$count" -gt 0 ]; then
+              gh run download "$run" --repo "$GITHUB_REPOSITORY" --name known-good-backend-images --dir previous-release
+              break
+            fi
+          done
+          npx wrangler containers images list --json > registry-images.json
+          history=()
+          if [ -f previous-release/image-history.json ]; then
+            history=(--history previous-release/image-history.json)
+          fi
+          python ../../scripts/deployment_readiness.py retain --inventory registry-images.json \
+            --current-tag "$current" --current-digest "$digest" --readiness readiness.json "${history[@]}" --output image-history.json
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v7
+        if: steps.retention.outputs.ready == 'true'
+        with:
+          name: known-good-backend-images
+          path: workers/api-edge/image-history.json
+          retention-days: 90
+      - name: Prune unprotected image tags
+        if: steps.retention.outputs.ready == 'true'
         shell: bash
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
-          repo=footiq-api-edge-backendcontainer
-          current=$(grep -oE "${repo}:[0-9a-f]+" deploy.log | head -1 | cut -d: -f2)
-          if [ -z "$current" ]; then
-            echo "No image tag in deploy output (image unchanged); nothing to prune."
-            exit 0
-          fi
-          npx wrangler containers images list --json \
-            | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));for(const r of d)for(const t of r.tags)console.log(r.name+":"+t)' \
-            | grep "^${repo}:" | grep -v ":${current}$" \
-            | while read -r image; do
-                npx wrangler containers images delete "$image" || echo "could not delete $image"
-              done
+          python -c 'import json; print("\n".join(json.load(open("image-history.json"))["delete_tags"]))' > prune-tags.txt
+          while IFS= read -r tag; do
+            if [ -n "$tag" ]; then
+              npx wrangler containers images delete "footiq-api-edge-backendcontainer:$tag"
+            fi
+          done < prune-tags.txt

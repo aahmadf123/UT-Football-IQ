@@ -176,7 +176,9 @@ export interface ApiSession {
   notes: string | null;
   created_at: string;
   recordings: ApiVideo[];
-  plays: Array<{ id: string; session_id: string; title?: string | null; sequence?: number | null; views: Array<{ id: string; clip_id: string; video_id: string; camera_label?: string | null }> }>;
+  play_count?: number;
+  source_window_count?: number;
+  plays: Array<{ id: string; session_id: string; title?: string | null; sequence?: number | null; count_eligible?: boolean; views: Array<{ id: string; clip_id: string; video_id: string; camera_label?: string | null }> }>;
 }
 
 export type ProcessingProfile = "review" | "quick" | "detailed";
@@ -227,6 +229,13 @@ export interface LearningBenchmark {
   name: string;
   created_at?: string;
   samples?: unknown[];
+}
+
+/** Server-stored evaluation record; optional diagnostics depend on report version. */
+export interface LearningEvaluation extends Record<string, unknown> {
+  id: string;
+  model_id: string;
+  source: string;
 }
 
 // One entry in a job's per-stage progress map. The orchestrator heartbeats
@@ -400,6 +409,7 @@ export interface OverlayLabel {
   label_type: string;
   label_value: Record<string, unknown>;
   source: string;
+  qualification?: "human_reviewed" | "model_approved";
 }
 
 export interface OverlayMetric {
@@ -446,6 +456,7 @@ export interface ClipOverlayPayload {
   calibration?: OverlayCalibration;
   provenance?: Record<string, unknown> | null;
   warnings?: string[];
+  withheld_label_count?: number;
   tracks_timebase?: "recording" | "clip";
   source_start_time_seconds?: number;
   source_fps?: number;

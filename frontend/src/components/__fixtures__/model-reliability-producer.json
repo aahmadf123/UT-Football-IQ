@@ -1,0 +1,391 @@
+{
+  "evaluation": {
+    "artifact_sha256": "5ddfa7c793db9cdba5804ae6f5f78bbeeda16efe9e219992115381fdaf3fea98",
+    "baseline": {
+      "definition": "empirical_training_population_mean",
+      "metrics": {
+        "brier": 0.25,
+        "calibration_bins": [
+          {
+            "count": 20,
+            "lower": 0.5,
+            "observed_mean": 0.5,
+            "predicted_mean": 0.5,
+            "upper": 0.6
+          }
+        ],
+        "confusion_matrix": {
+          "columns": "predicted",
+          "counts": [
+            [
+              0,
+              10
+            ],
+            [
+              0,
+              10
+            ]
+          ],
+          "decision_threshold": 0.5,
+          "labels": [
+            "0",
+            "1"
+          ],
+          "rows": "observed"
+        },
+        "diagnostics_version": 1,
+        "ece": 0.0,
+        "error_distribution": {
+          "bins": [
+            {
+              "count": 0,
+              "lower": null,
+              "upper": -0.5
+            },
+            {
+              "count": 10,
+              "lower": -0.5,
+              "upper": -0.1
+            },
+            {
+              "count": 0,
+              "lower": -0.1,
+              "upper": 0
+            },
+            {
+              "count": 0,
+              "lower": 0,
+              "upper": 0.1
+            },
+            {
+              "count": 0,
+              "lower": 0.1,
+              "upper": 0.5
+            },
+            {
+              "count": 10,
+              "lower": 0.5,
+              "upper": null
+            }
+          ],
+          "definition": "prediction_minus_observation",
+          "interval": "lower_inclusive_upper_exclusive",
+          "unit": "probability"
+        },
+        "log_loss": 0.6931471805599453
+      },
+      "training_mean": 0.5
+    },
+    "capture_regimes": [
+      "fixed_sideline"
+    ],
+    "created_at": "2026-10-21T19:23:36.551851+00:00",
+    "created_by": "8bbe5368-7f72-4c2f-bc66-39ba47256144",
+    "dataset_identity": {
+      "dataset_sha256": "451c2f07703348716fd167f714d15429246cb884a4d6cee99b4f31e9228b34e8",
+      "manifest_sha256": "c027dc2f00305107137c38ce22b060aad54c30390046796720e29e99b752e206"
+    },
+    "feature_version": "expected-outcomes-2",
+    "id": "4f7d1b0d-23ab-4e98-b43a-6381a68adc3f",
+    "kind": "expected_outcomes",
+    "metrics": {
+      "brier": 0.00040000000000000034,
+      "calibration_bins": [
+        {
+          "count": 10,
+          "lower": 0.0,
+          "observed_mean": 0.0,
+          "predicted_mean": 0.02,
+          "upper": 0.1
+        },
+        {
+          "count": 10,
+          "lower": 0.9,
+          "observed_mean": 1.0,
+          "predicted_mean": 0.9800000000000001,
+          "upper": 1.0
+        }
+      ],
+      "confusion_matrix": {
+        "columns": "predicted",
+        "counts": [
+          [
+            10,
+            0
+          ],
+          [
+            0,
+            10
+          ]
+        ],
+        "decision_threshold": 0.5,
+        "labels": [
+          "0",
+          "1"
+        ],
+        "rows": "observed"
+      },
+      "diagnostics_version": 1,
+      "ece": 0.019999999999999955,
+      "error_distribution": {
+        "bins": [
+          {
+            "count": 0,
+            "lower": null,
+            "upper": -0.5
+          },
+          {
+            "count": 0,
+            "lower": -0.5,
+            "upper": -0.1
+          },
+          {
+            "count": 10,
+            "lower": -0.1,
+            "upper": 0
+          },
+          {
+            "count": 10,
+            "lower": 0,
+            "upper": 0.1
+          },
+          {
+            "count": 0,
+            "lower": 0.1,
+            "upper": 0.5
+          },
+          {
+            "count": 0,
+            "lower": 0.5,
+            "upper": null
+          }
+        ],
+        "definition": "prediction_minus_observation",
+        "interval": "lower_inclusive_upper_exclusive",
+        "unit": "probability"
+      },
+      "log_loss": 0.020202707317519466
+    },
+    "missing_data_reasons": [
+      "independently_confirmed_source_groups_missing",
+      "requires_240_distinct_heldout_canonical_plays",
+      "requires_12_independent_heldout_groups",
+      "requires_80_plays_and_four_groups_practice",
+      "requires_80_plays_and_four_groups_coach_game",
+      "requires_80_plays_and_four_groups_television",
+      "requires_20_percent_double_labeled_adjudicated_outcomes"
+    ],
+    "model_id": "58b77a31-d66b-497c-8736-a9fa5a603ccd",
+    "passed": false,
+    "population": {
+      "canonical_plays": 20,
+      "double_labeled_adjudicated_plays": 0,
+      "groups_by_category": {
+        "coach_game": 0,
+        "practice": 0,
+        "television": 0
+      },
+      "independent_groups": 0,
+      "missing_data_reasons": [
+        "independently_confirmed_source_groups_missing",
+        "requires_240_distinct_heldout_canonical_plays",
+        "requires_12_independent_heldout_groups",
+        "requires_80_plays_and_four_groups_practice",
+        "requires_80_plays_and_four_groups_coach_game",
+        "requires_80_plays_and_four_groups_television",
+        "requires_20_percent_double_labeled_adjudicated_outcomes"
+      ],
+      "passed": false,
+      "plays_by_category": {
+        "coach_game": 0,
+        "practice": 0,
+        "television": 0
+      }
+    },
+    "release_evidence_sha256": "44274a5f2c482db937d13bd1bc363a65a64d755b3e924d7fad2090e1d07808e0",
+    "report_sha256": "82c5809ce82c54098bcf70a814451db4d29a78dcc4b6c21bc945b7b9c9df23b1",
+    "sample_count": 20,
+    "slices": {
+      "fixed_sideline": {
+        "baseline_metrics": {
+          "brier": 0.25,
+          "calibration_bins": [
+            {
+              "count": 20,
+              "lower": 0.5,
+              "observed_mean": 0.5,
+              "predicted_mean": 0.5,
+              "upper": 0.6
+            }
+          ],
+          "confusion_matrix": {
+            "columns": "predicted",
+            "counts": [
+              [
+                0,
+                10
+              ],
+              [
+                0,
+                10
+              ]
+            ],
+            "decision_threshold": 0.5,
+            "labels": [
+              "0",
+              "1"
+            ],
+            "rows": "observed"
+          },
+          "diagnostics_version": 1,
+          "ece": 0.0,
+          "error_distribution": {
+            "bins": [
+              {
+                "count": 0,
+                "lower": null,
+                "upper": -0.5
+              },
+              {
+                "count": 10,
+                "lower": -0.5,
+                "upper": -0.1
+              },
+              {
+                "count": 0,
+                "lower": -0.1,
+                "upper": 0
+              },
+              {
+                "count": 0,
+                "lower": 0,
+                "upper": 0.1
+              },
+              {
+                "count": 0,
+                "lower": 0.1,
+                "upper": 0.5
+              },
+              {
+                "count": 10,
+                "lower": 0.5,
+                "upper": null
+              }
+            ],
+            "definition": "prediction_minus_observation",
+            "interval": "lower_inclusive_upper_exclusive",
+            "unit": "probability"
+          },
+          "log_loss": 0.6931471805599453
+        },
+        "metrics": {
+          "brier": 0.00040000000000000034,
+          "calibration_bins": [
+            {
+              "count": 10,
+              "lower": 0.0,
+              "observed_mean": 0.0,
+              "predicted_mean": 0.02,
+              "upper": 0.1
+            },
+            {
+              "count": 10,
+              "lower": 0.9,
+              "observed_mean": 1.0,
+              "predicted_mean": 0.9800000000000001,
+              "upper": 1.0
+            }
+          ],
+          "confusion_matrix": {
+            "columns": "predicted",
+            "counts": [
+              [
+                10,
+                0
+              ],
+              [
+                0,
+                10
+              ]
+            ],
+            "decision_threshold": 0.5,
+            "labels": [
+              "0",
+              "1"
+            ],
+            "rows": "observed"
+          },
+          "diagnostics_version": 1,
+          "ece": 0.019999999999999955,
+          "error_distribution": {
+            "bins": [
+              {
+                "count": 0,
+                "lower": null,
+                "upper": -0.5
+              },
+              {
+                "count": 0,
+                "lower": -0.5,
+                "upper": -0.1
+              },
+              {
+                "count": 10,
+                "lower": -0.1,
+                "upper": 0
+              },
+              {
+                "count": 10,
+                "lower": 0,
+                "upper": 0.1
+              },
+              {
+                "count": 0,
+                "lower": 0.1,
+                "upper": 0.5
+              },
+              {
+                "count": 0,
+                "lower": 0.5,
+                "upper": null
+              }
+            ],
+            "definition": "prediction_minus_observation",
+            "interval": "lower_inclusive_upper_exclusive",
+            "unit": "probability"
+          },
+          "log_loss": 0.020202707317519466
+        },
+        "passed": false
+      }
+    },
+    "source": "measured_human_holdout",
+    "task": "completion",
+    "thresholds": {
+      "binary_losses": "brier_and_log_loss_strictly_below_training_mean_baseline",
+      "max_binary_ece": 0.1,
+      "split_counts_per_film_category": {
+        "calibration": 10,
+        "holdout": 20,
+        "train": 30
+      },
+      "yardage_losses": "mae_and_rmse_strictly_below_baseline_with_calibration_error_no_worse"
+    },
+    "verification_challenge_id": "591e52e3-5b65-419a-a22d-cb49dce92278",
+    "verification_job_id": "2a5c3603-ae53-40a9-b92d-a9cdc1a1a9bd",
+    "verification_receipt_sha256": "21a54f0f2b3d3f7610cae94d5b8fdd54728acdd38fe3cf7d06281a63b1bd7312"
+  },
+  "fixture_notice": "Synthetic protocol-only producer/stored-evaluation fixture; not real football validation.",
+  "model": {
+    "artifact_uri": "local://artifacts/fixture.bin",
+    "id": "58b77a31-d66b-497c-8736-a9fa5a603ccd",
+    "metrics": {
+      "artifact_sha256": "5ddfa7c793db9cdba5804ae6f5f78bbeeda16efe9e219992115381fdaf3fea98",
+      "evaluation_id": "4f7d1b0d-23ab-4e98-b43a-6381a68adc3f"
+    },
+    "model_name": "Protocol completion candidate",
+    "model_type": "expected_completion",
+    "promoted_stage": "candidate",
+    "version": "fixture-v1"
+  }
+}

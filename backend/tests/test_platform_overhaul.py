@@ -2,7 +2,7 @@
 
 import uuid
 from collections.abc import AsyncGenerator
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 from app.config import get_settings
@@ -616,11 +616,29 @@ async def test_play_readiness_ignores_pending_and_historical_tracks(db: AsyncSes
             tracklet_id=track.id if track else None,
             label_type="route_family",
             source="human",
+            annotated_by=user.id,
             label_value={"route": "go"},
         )
         for track in (current, old, pending, None)
     ]
     db.add_all(labels)
+    unverified = [
+        Label(
+            clip_id=clip.id,
+            tracklet_id=current.id,
+            label_type="coverage_shell",
+            source="model",
+            label_value={"coverage": "legacy", "validated": True},
+        ),
+        Label(
+            clip_id=clip.id,
+            tracklet_id=current.id,
+            label_type="defensive_front",
+            source="human",
+            label_value={"front": "missing-annotator"},
+        ),
+    ]
+    db.add_all(unverified)
     await db.flush()
     out = await play_evidence(clip.id, db, user)
     assert out["readiness"]["tracking"] is True
@@ -631,6 +649,9 @@ async def test_play_readiness_ignores_pending_and_historical_tracks(db: AsyncSes
 
     overlay = await get_clip_overlays(clip.id, db, user)
     assert {item.id for item in overlay.labels} == {labels[0].id, labels[3].id}
+    assert all(item.qualification == "human_reviewed" for item in overlay.labels)
+    assert not ({label.id for label in unverified} & {item.id for item in overlay.labels})
+    assert overlay.withheld_label_count == 2
 
 
 async def test_human_ttt_requires_current_forward_release_and_matching_timebase(
@@ -654,7 +675,7 @@ async def test_human_ttt_requires_current_forward_release_and_matching_timebase(
         event_type="snap",
         timestamp_seconds=1,
         provenance={"source": "human"},
-        attributes={"timebase": "clip"},
+        attributes={"timebase": "clip", "shot_id": "observed-shot"},
     )
     release = Event(
         id=uuid.uuid4(),
@@ -662,7 +683,7 @@ async def test_human_ttt_requires_current_forward_release_and_matching_timebase(
         event_type="release",
         timestamp_seconds=104,
         provenance={"source": "human"},
-        attributes={"timebase": "recording"},
+        attributes={"timebase": "recording", "shot_id": "observed-shot"},
     )
     db.add_all([*obsolete, snap, release])
     await db.flush()
@@ -1091,3 +1112,418 @@ async def test_fresh_detailed_clip_never_claims_final_before_promoted_outputs(
     await db.flush()
     clip = await db.get(Clip, proposed.id)
     assert clip.result_state == "preliminary"
+
+
+async def test_opportunities_include_unmeasured_reps_and_deduplicate_matched_views(
+    db: AsyncSession,
+) -> None:
+    user = await actor(db)
+    video, clip = await recording(db)
+    alternate = Clip(id=uuid.uuid4(), video_id=video.id, start_time=10, end_time=15)
+    other_rep = Clip(id=uuid.uuid4(), video_id=video.id, start_time=20, end_time=25)
+    person = Player(
+        id=uuid.uuid4(), first_name="Route", last_name=f"Opportunity{uuid.uuid4()}", position="WR"
+    )
+    session = FootballSession(id=uuid.uuid4(), title="Opportunity test")
+    db.add_all([alternate, other_rep, person, session])
+    await db.flush()
+    video.practice_session_id = session.id
+    play = Play(id=uuid.uuid4(), session_id=session.id)
+    db.add(play)
+    await db.flush()
+    db.add_all(
+        [
+            PlayView(play_id=play.id, clip_id=clip.id),
+            PlayView(play_id=play.id, clip_id=alternate.id),
+        ]
+    )
+    tracks = [await player_track(db, c, person) for c in (clip, alternate, other_rep)]
+    tracks[0].end_frame = 300
+    for c, track in zip((clip, alternate, other_rep), tracks, strict=True):
+        opportunity = measurement(c, track, 1)
+        opportunity.metric_name = "position_opportunity"
+        opportunity.unit = "rep"
+        opportunity.metric_value = {
+            "value": 1,
+            "opportunity_kind": "routes",
+            "opportunity_observation": True,
+            "participation_event_id": str(uuid.uuid4()),
+            "player_id": str(person.id),
+            "canonical_play_id": "untrusted-packet-play",
+        }
+        db.add(opportunity)
+    # One measured outcome among two eligible routes; alternate view must not add a rep.
+    db.add(measurement(clip, tracks[0], 8))
+    await db.flush()
+    result = await query_analytics(
+        AnalyticsQuery(session_ids=[session.id], metric_names=["distance_traveled"]), db, user
+    )
+    assert result["groups"][0]["n"] == 1
+    assert result["opportunities"][0]["kind"] == "routes"
+    assert result["opportunities"][0]["eligible_count"] == 2
+    assert result["opportunities"][0]["player_count"] == 1
+    assert {e["play_id"] for e in result["opportunities"][0]["evidence"]} == {
+        str(play.id),
+        str(other_rep.id),
+    }
+    assert result["cohort"]["player_reps"] == 2
+    assert result["cohort"]["eligible_measurements"] == 1
+
+
+async def test_unresolved_and_experimental_opportunities_never_become_denominators(
+    db: AsyncSession,
+) -> None:
+    user = await actor(db)
+    video, clip = await recording(db)
+    session = FootballSession(id=uuid.uuid4(), title="Unknown opportunity test")
+    person = Player(id=uuid.uuid4(), first_name="Unknown", last_name=f"Route{uuid.uuid4()}")
+    db.add_all([session, person])
+    await db.flush()
+    video.practice_session_id = session.id
+    unknown = await player_track(db, clip)
+    resolved = await player_track(db, clip, person)
+    for track, experimental in [(unknown, False), (resolved, True)]:
+        opportunity = measurement(clip, track, 1)
+        opportunity.metric_name = "position_opportunity"
+        opportunity.unit = "rep"
+        opportunity.metric_value = {
+            "value": 1,
+            "opportunity_kind": "routes",
+            "opportunity_observation": True,
+            "participation_event_id": str(uuid.uuid4()),
+        }
+        opportunity.experimental_flag = experimental
+        db.add(opportunity)
+    await db.flush()
+    result = await query_analytics(AnalyticsQuery(session_ids=[session.id]), db, user)
+    assert result["opportunities"] == []
+    assert result["cohort"]["player_reps"] == 0
+    assert {e["reason"] for e in result["exclusions"]} >= {"unresolved_player", "experimental"}
+
+
+async def test_qualified_spatial_product_keeps_coordinates_without_fabricating_scalar(
+    db: AsyncSession,
+) -> None:
+    user = await actor(db)
+    video, clip = await recording(db)
+    session = FootballSession(id=uuid.uuid4(), title="Spatial product test")
+    person = Player(id=uuid.uuid4(), first_name="Punt", last_name=f"Landing{uuid.uuid4()}")
+    db.add_all([session, person])
+    await db.flush()
+    video.practice_session_id = session.id
+    track = await player_track(db, clip, person)
+    landing = measurement(clip, track, 1)
+    landing.metric_name = "kick_landing_location"
+    landing.unit = "field_location"
+    landing.metric_value = {
+        "field_x": 33.5,
+        "field_y": -12.5,
+        "timestamp_seconds": 3.0,
+        "visibility_state": "observed",
+        "landing_event_id": "landing",
+        "event_evidence": [
+            {
+                "event_id": "landing",
+                "event_type": "landing",
+                "timestamp_seconds": 3.0,
+                "shot_id": "shot-a",
+                "source": "human",
+            }
+        ],
+    }
+    db.add(landing)
+    await db.flush()
+    result = await query_analytics(AnalyticsQuery(session_ids=[session.id]), db, user)
+    assert result["groups"] == []
+    assert result["products"][0]["metric_name"] == "kick_landing_location"
+    assert result["products"][0]["evidence"][0]["value"] is None
+    assert result["products"][0]["evidence"][0]["metric_packet"]["field_y"] == -12.5
+    assert result["cohort"]["eligible_measurements"] == 1
+
+
+async def test_opportunity_only_qualification_changes_dataset_version(db: AsyncSession) -> None:
+    from app.routers.analytics import summarize_rows
+
+    video, clip = await recording(db)
+    person = Player(id=uuid.uuid4(), first_name="Hash", last_name=f"Rep{uuid.uuid4()}")
+    db.add(person)
+    await db.flush()
+    track = await player_track(db, clip, person)
+    metric = measurement(clip, track, 1)
+    metric.metric_name, metric.unit = "position_opportunity", "rep"
+    metric.metric_value = {
+        "value": 1,
+        "opportunity_kind": "routes",
+        "opportunity_observation": True,
+        "participation_event_id": str(uuid.uuid4()),
+    }
+    metric.experimental_flag = True
+    db.add(metric)
+    await db.flush()
+    rows = [(metric, clip, video, track, person, clip.id)]
+    before = summarize_rows(rows, AnalyticsQuery())
+    metric.experimental_flag = False
+    after = summarize_rows(rows, AnalyticsQuery())
+    assert before["opportunities"] == [] and after["opportunities"][0]["eligible_count"] == 1
+    assert before["dataset_version"] != after["dataset_version"]
+
+
+async def test_partial_movement_stays_film_evidence_without_complete_scalar(
+    db: AsyncSession,
+) -> None:
+    from app.routers.analytics import summarize_rows
+
+    video, clip = await recording(db)
+    person = Player(id=uuid.uuid4(), first_name="Partial", last_name=f"Path{uuid.uuid4()}")
+    db.add(person)
+    await db.flush()
+    track = await player_track(db, clip, person)
+    metric = measurement(clip, track, 9)
+    metric.metric_name = "observed_separation"
+    metric.metric_value = {
+        "yards": 9,
+        "partial_observation": True,
+        "measurement_complete": False,
+        "series": [
+            {"timestamp_seconds": 0.1, "yards": 9, "shot_id": "a", "visibility_state": "observed"}
+        ],
+    }
+    db.add(metric)
+    await db.flush()
+    result = summarize_rows([(metric, clip, video, track, person, clip.id)], AnalyticsQuery())
+    assert result["groups"] == []
+    assert result["censoring"] == []
+    assert result["products"][0]["evidence"][0]["value"] is None
+    assert result["products"][0]["evidence"][0]["metric_packet"]["partial_observation"] is True
+
+
+@pytest.mark.parametrize(
+    ("listed", "declared", "cohort", "included"),
+    [
+        ("C", None, "OL", True),
+        ("LT", None, "OL", True),
+        ("CB", None, "DB", True),
+        ("DT", None, "DL", True),
+        ("MLB", None, "LB", True),
+        ("K", None, "ST", True),
+        ("ATH", "Skill", "WR", False),
+        ("DT", "Skill", "DL", False),
+        ("WR", "Skill", "WR", True),
+        ("CB", "DL", "DB", False),
+        ("CB", "DL", "DL", True),
+        ("DE", None, "EDGE", False),
+        ("EDGE", None, "EDGE", True),
+    ],
+)
+async def test_position_tabs_select_declared_roster_cohorts_without_role_inference(
+    db: AsyncSession, listed, declared, cohort, included
+) -> None:
+    user = await actor(db)
+    video, clip = await recording(db)
+    session = FootballSession(id=uuid.uuid4(), title="Position alias cohort")
+    player = Player(
+        id=uuid.uuid4(),
+        first_name="Cohort",
+        last_name=f"Alias{uuid.uuid4()}",
+        position=listed,
+        position_group=declared,
+    )
+    db.add_all([session, player])
+    await db.flush()
+    video.practice_session_id = session.id
+    track = await player_track(db, clip, player)
+    db.add(measurement(clip, track, 4))
+    await db.flush()
+    result = await query_analytics(
+        AnalyticsQuery(position=cohort, session_ids=[session.id]), db, user
+    )
+    assert bool(result["groups"]) is included
+
+
+async def test_expected_prediction_ingest_reaches_only_actual_player_cohort(
+    db: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Protocol-only approved metadata tests persistence/filtering, never accuracy."""
+    from app.models import ModelStage, ModelVersion, WorkerRuntime
+    from app.routers.jobs import JobStatusUpdate, update_job_status
+    from app.routers.metrics import MetricCreate, create_metric
+    from app.services.expected_outcomes import FEATURE_VERSION, POPULATIONS
+    from app.services.metric_definitions import DEFINITIONS
+    from app.services.metric_publication import trusted_metric_job
+    from fastapi import BackgroundTasks
+    from starlette.requests import Request
+
+    user = await actor(db)
+    monkeypatch.setenv("SEED_WORKER_EMAIL", user.email)
+    get_settings.cache_clear()
+    video, clip = await recording(db)
+    worker_id = f"prediction-{uuid.uuid4()}"
+    job = ProcessingJob(
+        id=uuid.uuid4(),
+        video_id=video.id,
+        job_type=JobType.pipeline,
+        status=JobStatus.running,
+        leased_by=worker_id,
+        lease_token=uuid.uuid4(),
+        attempt_count=1,
+        lease_expires_at=datetime.now(UTC) + timedelta(minutes=5),
+    )
+    db.add_all([job, WorkerRuntime(worker_id=worker_id, registered_by=user.id)])
+    await db.flush()
+    producer = await trusted_metric_job(
+        Request(
+            {
+                "type": "http",
+                "headers": [
+                    (b"x-job-id", str(job.id).encode()),
+                    (b"x-worker-id", worker_id.encode()),
+                    (b"x-job-lease-token", str(job.lease_token).encode()),
+                ],
+            }
+        ),
+        db,
+        user,
+    )
+    session = FootballSession(id=uuid.uuid4(), title="Prediction protocol")
+    players = [
+        Player(id=uuid.uuid4(), first_name="Fixture", last_name=f"QB-{uuid.uuid4()}", position="QB")
+        for _ in range(2)
+    ]
+    definition = DEFINITIONS["expected_completion"]
+    model = ModelVersion(
+        id=uuid.uuid4(),
+        model_name="fixture-protocol-only",
+        version="fixture",
+        model_type="expected_completion",
+        promoted_stage=ModelStage.production,
+        metrics={
+            "approved_evaluation_id": "protocol-only",
+            "approved_artifact_sha256": "b" * 64,
+            "publication_approvals": {
+                "expected_completion": {
+                    "feature_version": FEATURE_VERSION,
+                    "definition_version": definition["version"],
+                    "capture_regimes": ["fixed_sideline"],
+                }
+            },
+        },
+    )
+    db.add_all([session, model, *players])
+    await db.flush()
+    video.practice_session_id, video.content_sha256, video.size_bytes = session.id, "a" * 64, 1024
+    clip.capture_regime = "fixed_sideline"
+    for player, probability in zip(players, (0.6, 0.7), strict=True):
+        track = await player_track(db, clip, player)
+        packet = {
+            "task": "completion",
+            "feature_version": FEATURE_VERSION,
+            "weights_sha256": "b" * 64,
+            "eligible_population": POPULATIONS["completion"],
+            "value": probability,
+            "validated": True,
+            "experimental": False,
+            "analytics_safe": True,
+            "capture_regime": "fixed_sideline",
+            "definition_version": definition["version"],
+            "feature_evidence_sha256": ["c" * 64],
+            "observation_clock": {"event": "pass_release", "timestamp_seconds": 0.5},
+            "lineage": {
+                "recording_id": str(video.id),
+                "session_id": str(session.id),
+                "canonical_play_id": str(clip.id),
+                "media_sha256": "a" * 64,
+            },
+            "subject": {"scope": "player", "role": "QB", "tracklet_id": str(track.id)},
+        }
+        provenance = {
+            "source": "real",
+            "validated": True,
+            "artifact_sha256": "b" * 64,
+            "approved_evaluation_id": "protocol-only",
+            "quality_checks_passed": True,
+            "definition_version": definition["version"],
+            "evidence": {key: True for key in definition["required_evidence"]},
+        }
+        created = await create_metric(
+            MetricCreate(
+                clip_id=clip.id,
+                tracklet_id=track.id,
+                metric_name="expected_completion",
+                metric_value=packet,
+                unit="prob",
+                experimental_flag=False,
+                analytics_safe=True,
+                model_version_id=model.id,
+                job_id=job.id,
+                provenance=provenance,
+            ),
+            db,
+            user,
+            producer,
+        )
+        assert created.analytics_safe and created.tracklet_id == track.id
+        assert created.provenance["publication_state"] == "pending"
+    await update_job_status(
+        job.id,
+        JobStatusUpdate(
+            status=JobStatus.succeeded,
+            worker_id=worker_id,
+            lease_token=job.lease_token,
+            attempt_count=job.attempt_count,
+        ),
+        db,
+        user,
+        BackgroundTasks(),
+    )
+    result = await query_analytics(
+        AnalyticsQuery(
+            metric_names=["expected_completion"], player_id=players[0].id, session_ids=[session.id]
+        ),
+        db,
+        user,
+    )
+    assert result["cohort"]["eligible_measurements"] == 1
+    assert result["groups"][0]["mean"] == 0.6
+    assert result["groups"][0]["evidence"][0]["player_id"] == str(players[0].id)
+
+
+async def test_dense_manual_event_pages_preserve_complete_effective_set(db: AsyncSession) -> None:
+    from app.routers.events import list_events_for_clip
+
+    user = await actor(db)
+    _, clip = await recording(db)
+    manual = [
+        Event(
+            id=uuid.uuid4(),
+            clip_id=clip.id,
+            event_type="protection_envelope",
+            timestamp_seconds=i / 1000,
+            attributes={"sample": i},
+            provenance={"source": "manual"},
+            created_by=user.id,
+        )
+        for i in range(1201)
+    ]
+    db.add_all(manual)
+    # A machine event with the same type on another page is overridden by staff.
+    db.add(
+        Event(
+            id=uuid.uuid4(),
+            clip_id=clip.id,
+            event_type="protection_envelope",
+            timestamp_seconds=2,
+            attributes={"source": "real"},
+            provenance={"source": "real"},
+        )
+    )
+    await db.flush()
+    pages = [
+        await list_events_for_clip(clip.id, db, user, None, 500, offset, True)
+        for offset in (0, 500, 1000)
+    ]
+    actual = [row for page in pages for row in page]
+    assert [row.id for row in actual] == [row.id for row in manual]
+    assert actual[-1].attributes["sample"] == 1200
+    general = await list_events_for_clip(clip.id, db, user, None, 500, 1000, False)
+    assert [row.id for row in general] == [row.id for row in manual[1000:]]

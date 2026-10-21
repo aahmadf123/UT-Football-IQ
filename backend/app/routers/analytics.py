@@ -27,9 +27,11 @@ from app.models import (
     User,
     Video,
 )
+from app.services.actor_binding_protocol import canonical_shot
 from app.services.clip_state import active_clip, clip_is_active
 from app.services.metric_definitions import DEFINITION_VERSION, DEFINITIONS
 from app.services.metric_policy import canonical_play_id, exclusion_reason, selected_trajectory_ids
+from app.services.roster_positions import roster_cohort_condition
 
 router = APIRouter(prefix="/api/v1/analytics", tags=["analytics"])
 
@@ -119,11 +121,105 @@ def metric_subject(metric: Metric) -> str:
     return "team"
 
 
+def measurement_preference(metric: Metric) -> tuple[bool, float, str, str]:
+    return (
+        (metric.provenance or {}).get("source") in {"manual", "human"},
+        metric.confidence if metric.confidence is not None else -1,
+        metric.created_at.isoformat(),
+        str(metric.id),
+    )
+
+
+PARTIAL_GEOMETRY_NAMES = {
+    "rusher_proximity",
+    "observed_separation",
+    "observed_closing_speed",
+    "observed_rush_path",
+    "observed_pursuit_path",
+    "protection_envelope_width",
+    "protection_envelope_depth",
+    "protection_envelope_area",
+    "protection_envelope_compression",
+    "lineman_first_second_displacement",
+    "observed_pass_set_geometry",
+    "observed_route_depth",
+}
+
+
+def valid_location_packet(metric: Metric, clip: Clip, event_type: str, id_key: str) -> bool:
+    packet = metric.metric_value
+    if event_type in {"receiver_release", "route_break", "carrier_cut"} and (
+        metric.tracklet_id is None or packet.get("actor_id") != str(metric.tracklet_id)
+    ):
+        return False
+    coordinates = [
+        float(value)
+        for key in ("field_x", "field_y", "timestamp_seconds")
+        if isinstance(value := packet.get(key), (float, int))
+        and not isinstance(value, bool)
+        and math.isfinite(value)
+    ]
+    if len(coordinates) != 3:
+        return False
+    x, y, seconds = coordinates
+    if not (-10 <= x <= 110 and abs(y) <= 160 / 6 and clip.start_time <= seconds <= clip.end_time):
+        return False
+    if (
+        packet.get("visibility_state") not in {"visible", "observed"}
+        or packet.get("right_censored") is True
+    ):
+        return False
+    events = packet.get("event_evidence")
+    if (
+        not isinstance(events, list)
+        or not isinstance(packet.get(id_key), str)
+        or not packet[id_key]
+    ):
+        return False
+    return any(
+        isinstance(event, dict)
+        and event.get("event_id") == packet[id_key]
+        and event.get("event_type") == event_type
+        and event.get("timestamp_seconds") == seconds
+        and event.get("source") in {"manual", "human", "real", "model"}
+        and canonical_shot(event.get("shot_id")) is not None
+        for event in events
+    )
+
+
+def evidence_row(row: Any, value: float | None) -> dict[str, Any]:
+    metric, clip, video, track, _player, play_id = row
+    return {
+        "play_id": str(play_id),
+        "clip_id": str(clip.id),
+        "metric_id": str(metric.id),
+        "video_id": str(video.id),
+        "player_id": str(track.player_id) if track and track.player_id else None,
+        "value": value,
+        "start_seconds": clip.start_time,
+        "end_seconds": clip.end_time,
+        "source_timestamps": (metric.provenance or {}).get("source_timestamps"),
+        "right_censored": metric.metric_value.get("right_censored") is True,
+        "endpoint": metric.metric_value.get("endpoint"),
+        "subject": metric_subject(metric),
+        "dimensions": {
+            key: metric.metric_value[key]
+            for key in ("gap_index", "initial_pair")
+            if key in metric.metric_value
+        },
+        "tracklet_id": str(metric.tracklet_id) if metric.tracklet_id else None,
+        "metric_packet": metric.metric_value,
+        "result_version": (metric.provenance or {}).get("result_version")
+        or (str(metric.job_id) if metric.job_id else None),
+    }
+
+
 def summarize_rows(
     rows: list[Any], body: AnalyticsQuery, trajectory_ids: set[uuid.UUID] | None = None
 ) -> dict[str, Any]:
     exclusions: Counter[str] = Counter()
-    chosen: dict[tuple[str, str, str, str, str, str], tuple[Any, float]] = {}
+    chosen: dict[tuple[str, str, str, str, str, str], tuple[Any, float | None]] = {}
+    opportunities: dict[tuple[str, str, str, str], Any] = {}
     plays: set[str] = set()
     participants: set[tuple[str, str]] = set()
     for row in rows:
@@ -147,20 +243,42 @@ def summarize_rows(
         if (
             not reason
             and metric.tracklet_id
+            and metric.metric_name != "position_opportunity"
             and trajectory_ids is not None
             and metric.tracklet_id not in trajectory_ids
             and (metric.provenance or {}).get("source") not in {"manual", "human"}
         ):
             reason = "unselected_trajectory"
         value = scalar_value(metric)
+        partial_geometry = (
+            metric.metric_name in PARTIAL_GEOMETRY_NAMES
+            and metric.metric_value.get("partial_observation") is True
+        )
         if (
             not reason
             and metric.metric_value.get("right_censored") is True
+            and not partial_geometry
             and metric.metric_name
             not in {"ball_holding_duration", "time_to_first_pressure", "tackle_box_residence"}
         ):
             reason = "invalid_censoring_metric"
-        if not reason and value is None:
+        composite = (
+            metric.metric_name in DEFINITIONS
+            and DEFINITIONS[metric.metric_name]["scalar_key"] is None
+        )
+        locations = {
+            "kick_landing_location": ("landing", "landing_event_id"),
+            "receiver_release_location": ("receiver_release", "location_event_id"),
+            "receiver_break_location": ("route_break", "location_event_id"),
+            "observed_cut_location": ("carrier_cut", "cut_event_id"),
+        }
+        if metric.metric_name in locations and not valid_location_packet(
+            metric, clip, *locations[metric.metric_name]
+        ):
+            reason = reason or "location_source_evidence_missing"
+        if partial_geometry:
+            value, composite = None, True
+        if not reason and value is None and not composite:
             reason = "no_scalar_observation"
         if reason:
             exclusions[reason] += 1
@@ -172,6 +290,47 @@ def summarize_rows(
             or "legacy_unversioned"
         )
         athlete = str(track.player_id) if track and track.player_id else "team"
+        if metric.metric_name == "position_opportunity":
+            packet = metric.metric_value
+            kind = packet.get("opportunity_kind")
+            if (
+                athlete == "team"
+                or not isinstance(kind, str)
+                or kind
+                not in {
+                    "routes",
+                    "pass_rush",
+                    "pursuit",
+                    "coverage",
+                    "punts",
+                    "kickoffs",
+                    "field_goal",
+                    "blocking_reps",
+                    "rushes",
+                    "targets",
+                    "pass_protection",
+                    "tackle_opportunities",
+                    "returns",
+                }
+                or value != 1
+                or metric.unit != "rep"
+                or packet.get("opportunity_observation") is not True
+                or not isinstance(packet.get("participation_event_id"), str)
+                or not packet["participation_event_id"]
+                or (packet.get("player_id") is not None and str(packet["player_id"]) != athlete)
+            ):
+                exclusions["invalid_opportunity_observation"] += 1
+                continue
+            opportunity_key = (canonical, athlete, kind, version)
+            previous_opportunity = opportunities.get(opportunity_key)
+            if previous_opportunity is not None:
+                exclusions["alternate_view_or_fragment"] += 1
+                if measurement_preference(metric) <= measurement_preference(
+                    previous_opportunity[0]
+                ):
+                    continue
+            opportunities[opportunity_key] = row
+            continue
         key = (
             canonical,
             athlete,
@@ -183,24 +342,13 @@ def summarize_rows(
         previous = chosen.get(key)
         # Human corrections win; otherwise pick the strongest qualified view,
         # then the latest complete result. Fragments never add extra reps.
-        preference = (
-            provenance.get("source") in {"manual", "human"},
-            metric.confidence if metric.confidence is not None else -1,
-            metric.created_at.isoformat(),
-            str(metric.id),
-        )
+        preference = measurement_preference(metric)
         if previous:
             old = previous[0][0]
-            old_preference = (
-                (old.provenance or {}).get("source") in {"manual", "human"},
-                old.confidence if old.confidence is not None else -1,
-                old.created_at.isoformat(),
-                str(old.id),
-            )
+            old_preference = measurement_preference(old)
             exclusions["alternate_view_or_fragment"] += 1
             if preference <= old_preference:
                 continue
-        assert value is not None
         chosen[key] = (row, value)
 
     grouped: dict[tuple[str, str, str, str | None], list[dict[str, Any]]] = defaultdict(list)
@@ -214,8 +362,28 @@ def summarize_rows(
                             "clip": str(row[1].id),
                             "play": str(row[5]),
                             "metric": str(row[0].id) if row[0] else None,
+                            "metric_name": row[0].metric_name if row[0] else None,
+                            "unit": row[0].unit if row[0] else None,
+                            "confidence": row[0].confidence if row[0] else None,
+                            "created_at": row[0].created_at if row[0] else None,
+                            "source_window": [row[1].start_time, row[1].end_time],
+                            "session_kind": str(row[1].session_kind or row[2].session_kind),
+                            "position": [
+                                row[3].position_group if row[3] else None,
+                                row[4].position if row[4] else None,
+                            ],
                             "value": row[0].metric_value if row[0] else None,
                             "provenance": row[0].provenance if row[0] else None,
+                            "qualification": {
+                                "experimental": row[0].experimental_flag,
+                                "analytics_safe": row[0].analytics_safe,
+                                "suppressed": row[0].is_suppressed,
+                            }
+                            if row[0]
+                            else None,
+                            "clip_eligible": clip_is_active(row[1])
+                            and (row[1].label_data or {}).get("canonical_count_eligible")
+                            is not False,
                             "eligible": exclusion_reason(row[0]) if row[0] else "no_measurement",
                             "player": str(row[3].player_id)
                             if row[3] and row[3].player_id
@@ -230,6 +398,7 @@ def summarize_rows(
             default=str,
         ).encode()
     )
+    products: dict[tuple[str, str, str | None], list[dict[str, Any]]] = defaultdict(list)
     for key, (row, value) in sorted(chosen.items()):
         metric, clip, video, track, player, play_id = row
         canonical, athlete, name, version, subject, _unit = key
@@ -249,31 +418,15 @@ def summarize_rows(
         if subject != "team":
             group = f"{group} · {subject}"
         digest.update(f"{metric.id}:{version}:{metric.created_at.isoformat()}".encode())
-        grouped[(group, name, version, metric.unit)].append(
-            {
-                "play_id": str(play_id),
-                "clip_id": str(clip.id),
-                "metric_id": str(metric.id),
-                "video_id": str(video.id),
-                "player_id": athlete if athlete != "team" else None,
-                "value": value,
-                "start_seconds": clip.start_time,
-                "end_seconds": clip.end_time,
-                "source_timestamps": (metric.provenance or {}).get("source_timestamps"),
-                "right_censored": metric.metric_value.get("right_censored") is True,
-                "endpoint": metric.metric_value.get("endpoint"),
-                "subject": subject,
-                "dimensions": {
-                    key: metric.metric_value[key]
-                    for key in ("gap_index", "initial_pair")
-                    if key in metric.metric_value
-                },
-                "tracklet_id": str(metric.tracklet_id) if metric.tracklet_id else None,
-                "metric_packet": metric.metric_value,
-                "result_version": (metric.provenance or {}).get("result_version")
-                or (str(metric.job_id) if metric.job_id else None),
-            }
-        )
+        record = evidence_row(row, value)
+        if value is None:
+            products[(name, version, metric.unit)].append(record)
+        else:
+            grouped[(group, name, version, metric.unit)].append(record)
+    opportunity_groups: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+    for (canonical, athlete, kind, version), row in sorted(opportunities.items()):
+        participants.add((canonical, athlete))
+        opportunity_groups[(kind, version)].append(evidence_row(row, 1))
     groups = []
     censoring = []
     censored_measurements = 0
@@ -337,6 +490,22 @@ def summarize_rows(
         },
         "groups": groups,
         "censoring": censoring,
+        "products": [
+            {"metric_name": name, "definition_version": version, "unit": unit, "evidence": records}
+            for (name, version, unit), records in sorted(
+                products.items(), key=lambda item: str(item[0])
+            )
+        ],
+        "opportunities": [
+            {
+                "kind": kind,
+                "definition_version": version,
+                "eligible_count": len(records),
+                "player_count": len({record["player_id"] for record in records}),
+                "evidence": records,
+            }
+            for (kind, version), records in sorted(opportunity_groups.items())
+        ],
         "exclusions": [
             {"reason": reason, "count": count} for reason, count in sorted(exclusions.items())
         ],
@@ -352,7 +521,7 @@ async def query_analytics(
     recorded = func.coalesce(Video.recorded_at, Video.created_at)
     metric_join = [Metric.clip_id == Clip.id, Metric.metric_name != "workload_fusion"]
     if body.metric_names:
-        metric_join.append(Metric.metric_name.in_(body.metric_names))
+        metric_join.append(Metric.metric_name.in_([*body.metric_names, "position_opportunity"]))
     stmt = (
         select(Metric, Clip, Video, Tracklet, Player, canonical_play_id().label("play_id"))
         .select_from(Clip)
@@ -376,9 +545,9 @@ async def query_analytics(
     if body.player_id:
         stmt = stmt.where(Tracklet.player_id == body.player_id)
     if body.position_group:
-        stmt = stmt.where(func.upper(Player.position_group) == body.position_group.upper())
+        stmt = stmt.where(roster_cohort_condition(body.position_group))
     if body.position:
-        stmt = stmt.where(func.upper(Player.position) == body.position.upper())
+        stmt = stmt.where(roster_cohort_condition(body.position))
     if body.personnel:
         stmt = stmt.where(Clip.personnel_grouping == body.personnel)
     if body.formation:

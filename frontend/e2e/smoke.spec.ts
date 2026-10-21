@@ -18,7 +18,7 @@ test("dashboard loads with empty backend responses", async ({ page }) => {
   await page.goto("/");
 
   // Football-IQ shell renders the consolidated Film Room nav link (ADR 0003).
-  await expect(page.getByRole("link", { name: /Film Room/ })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Film Room", exact: true })).toBeVisible();
   // No JS crash means Home rendered its sections and honest empty states.
   await expect(page.getByRole("heading", { name: "Performance trend" })).toBeVisible();
   await expect(page.getByText("No measured film in this range yet")).toBeVisible();

@@ -12,9 +12,9 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-MEDIA_GENERATOR_VERSION = "pts-proxy-v2"
-OVERLAY_GENERATOR_VERSION = "pts-overlay-v4"
-TIMELINE_REVISION = 2
+MEDIA_GENERATOR_VERSION = "pts-proxy-v3-native-window"
+OVERLAY_GENERATOR_VERSION = "pts-overlay-v6-native-staff-hud"
+TIMELINE_REVISION = 3
 
 
 def current_playback(media: dict[str, Any], source_sha256: str | None,

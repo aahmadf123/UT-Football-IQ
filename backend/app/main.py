@@ -15,6 +15,7 @@ from app.logging import configure_logging
 from app.observability import PrometheusMiddleware, metrics_response
 from app.roster_seeding import seed_roster
 from app.routers import health
+from app.routers.actor_binding_review import router as actor_binding_review_router
 from app.routers.alerts import router as alerts_router
 from app.routers.alerts_sse import router as alerts_sse_router
 from app.routers.analytics import router as analytics_router
@@ -228,6 +229,7 @@ app.include_router(calibrations_router, dependencies=[Depends(validate_worker_wr
 app.include_router(tracklets_router, dependencies=[Depends(validate_worker_write)])
 app.include_router(corrections_router)
 app.include_router(events_router, dependencies=[Depends(validate_worker_write)])
+app.include_router(actor_binding_review_router, dependencies=[Depends(validate_worker_write)])
 app.include_router(labels_router, dependencies=[Depends(validate_worker_write)])
 app.include_router(metrics_router, dependencies=[Depends(validate_worker_write)])
 app.include_router(overlays_router)

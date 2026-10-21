@@ -1,0 +1,1235 @@
+{
+  "schema_version": 1,
+  "observed_at_utc": "2026-10-21T20:56:29.155027+00:00",
+  "status": "local_regression_verified_full_overhaul_incomplete",
+  "scope": "uncommitted_local_continuation_not_a_production_or_football_accuracy_release",
+  "source": {
+    "observed_at_utc": "2026-10-21T20:49:27.688713+00:00",
+    "base_commit": "7bb3793cd9be08e44a609510c093612a8fd7c02a",
+    "branch": "codex/overhaul-completion-20261021",
+    "modified_source_files": 209,
+    "working_source_sha256": "9c76d4d7d8f634a8c69508367d5c14fecede36157874c680f66b943040416f43",
+    "files": [
+      {
+        "path": ".github/workflows/deploy.yml",
+        "bytes": 6031,
+        "sha256": "07c471fc1c41f9c253e97237f64869bea2743f868c2d737d09d4df7fadafea50"
+      },
+      {
+        "path": ".github/workflows/live-smoke.yml",
+        "bytes": 2967,
+        "sha256": "8888e1f96949605e1a1430e96b26fe81352df0073cc6cb5d59d2bab33c2a0af5"
+      },
+      {
+        "path": "backend/app/main.py",
+        "bytes": 12567,
+        "sha256": "f7857071c680e4d76db436dd0ac1e8f5a3cdacbf4823cbdc1afdcd66752dbc4a"
+      },
+      {
+        "path": "backend/app/routers/actor_binding_review.py",
+        "bytes": 10440,
+        "sha256": "749330fec4bae166c782b405b2b3e2812bf514fe9622115b8748767108e138f4"
+      },
+      {
+        "path": "backend/app/routers/analytics.py",
+        "bytes": 24454,
+        "sha256": "0b795138a9572dcf96fafa01e6b526d6623e89ec6037fa44d0e3e93f7a80ca3d"
+      },
+      {
+        "path": "backend/app/routers/clip_edits.py",
+        "bytes": 18174,
+        "sha256": "49c25d60c88fec409022bb18777d21ce185298290d0e82c7dd4b2f03bcc99f25"
+      },
+      {
+        "path": "backend/app/routers/clips.py",
+        "bytes": 38199,
+        "sha256": "a75a982955dd9f6d2b03a8b30dc6d54d11e3b793ef8b605b6a8068ae252ca323"
+      },
+      {
+        "path": "backend/app/routers/events.py",
+        "bytes": 16064,
+        "sha256": "39368218c35e3ba394d0526c92d65d1011e02778c2c097a36ff6cd0178b823b3"
+      },
+      {
+        "path": "backend/app/routers/jobs.py",
+        "bytes": 32603,
+        "sha256": "a6a9cb2e2a2a8b8e32186c43efc09be637dff5f197d4175a67b116b4e3906b9c"
+      },
+      {
+        "path": "backend/app/routers/labels.py",
+        "bytes": 15902,
+        "sha256": "cb81238ef907dd5d36e63aca8315e17b092f7e14e8cf3ae74aedb382bc4dfc09"
+      },
+      {
+        "path": "backend/app/routers/learning.py",
+        "bytes": 20401,
+        "sha256": "d83a1477477e011e20d874479965f4a54fac1d7f17beb1a7007e718d8b095b87"
+      },
+      {
+        "path": "backend/app/routers/metrics.py",
+        "bytes": 22741,
+        "sha256": "dd77616c5e15ea14229277333a2d5fd7b4e3ca19fcb2c3fbd56807f6e5ed952c"
+      },
+      {
+        "path": "backend/app/routers/overlays.py",
+        "bytes": 16417,
+        "sha256": "097de433396c6dffd7d1e088c307b46642d2a3e513959ff79aa42ea856e36270"
+      },
+      {
+        "path": "backend/app/routers/players.py",
+        "bytes": 23058,
+        "sha256": "514cb7e3f2c67d189b4c11ddee1cacaac2ebbca2a9e9eb6ee09cb9cae11de6bf"
+      },
+      {
+        "path": "backend/app/routers/sessions.py",
+        "bytes": 17523,
+        "sha256": "3acb5e39d0bfe8533493152c838d85abebb089c5da5cf9e272d850141df52a76"
+      },
+      {
+        "path": "backend/app/routers/tracklets.py",
+        "bytes": 13135,
+        "sha256": "de00b9c086ab6f2d339fbd13bea368ab6466442e889c38c6258e4c5ae26b82df"
+      },
+      {
+        "path": "backend/app/routers/videos.py",
+        "bytes": 21797,
+        "sha256": "60e274a93e90f007a0e9120028721688bb46d8ef50f1b68e3653c833b7c40fef"
+      },
+      {
+        "path": "backend/app/services/actor_binding_protocol.py",
+        "bytes": 6855,
+        "sha256": "6305d85f6765b640f29d8dc20dfe30f6d92b1dedd0a53275ce1d4d0438499e71"
+      },
+      {
+        "path": "backend/app/services/actor_bindings.py",
+        "bytes": 7127,
+        "sha256": "a546612f3bec4183a465d5950b8e8268fead18385059ef27b6b311e76ca64562"
+      },
+      {
+        "path": "backend/app/services/annotations.py",
+        "bytes": 17991,
+        "sha256": "8768259a3cfa70f1d83d5305124aaf6f34529b5a958f24cd55ccfb557ae7c3b5"
+      },
+      {
+        "path": "backend/app/services/clip_state.py",
+        "bytes": 4727,
+        "sha256": "db6915c2e475c3250eae59638bf8917db5ca3d4ed35037d756e649d88b255c31"
+      },
+      {
+        "path": "backend/app/services/expected_feature_exports.py",
+        "bytes": 6454,
+        "sha256": "b6da1ed7cce61c938c1adfe91abacd5da5841967fa2bd49797b5faab3e8e347d"
+      },
+      {
+        "path": "backend/app/services/expected_outcomes.py",
+        "bytes": 40847,
+        "sha256": "90a6fa47f3c5d739b12a9a4f064863886052f12b36f6b002f942d176c725ae79"
+      },
+      {
+        "path": "backend/app/services/label_publication.py",
+        "bytes": 20862,
+        "sha256": "fcaa9a2247a82b49b4c5c0dbb032fdc6b870e101a345f1a7def6133fbfa398c7"
+      },
+      {
+        "path": "backend/app/services/label_visibility.py",
+        "bytes": 5516,
+        "sha256": "8254bd9e28c2af42f7383812fba2c15fa11c77f3c63a7199055c00afee27313f"
+      },
+      {
+        "path": "backend/app/services/learning.py",
+        "bytes": 27769,
+        "sha256": "da1f26571fa21d5ba1edb760be330dfb32a4c8276423210974d132ee2f528eed"
+      },
+      {
+        "path": "backend/app/services/media_identity.py",
+        "bytes": 7554,
+        "sha256": "f611ca6a3ac16977ea16f449516e1e6640c58d268a47151b47b9631129e444f1"
+      },
+      {
+        "path": "backend/app/services/metric_definitions.py",
+        "bytes": 29549,
+        "sha256": "9c632b5773840b21fe1a86e5331931714d2c4a9e26303c3c9ee4e04f13d8ebee"
+      },
+      {
+        "path": "backend/app/services/metric_eligibility.py",
+        "bytes": 10456,
+        "sha256": "b9ad6d43076c1cd6fb854160a6eb72ec40b11636b0012b6640da4c71596c3c80"
+      },
+      {
+        "path": "backend/app/services/metric_publication.py",
+        "bytes": 2646,
+        "sha256": "8605ebfa7f480cfb03a9c470c3857ba770cf166ce54beda3f9b5844f9392e311"
+      },
+      {
+        "path": "backend/app/services/model_diagnostics.py",
+        "bytes": 2479,
+        "sha256": "e5d96e0aebb9f846d318a0b9e0b5271e49086e42b359637b7f58468919dc5548"
+      },
+      {
+        "path": "backend/app/services/roster_positions.py",
+        "bytes": 1370,
+        "sha256": "d738a209a81a8eea885f0b8a58ae82e43fd732113681b63ea25f3e38907208fe"
+      },
+      {
+        "path": "backend/tests/conftest.py",
+        "bytes": 3430,
+        "sha256": "77ae0833f796514c175f5019e55ac5c5965a88ff794742dc571473b4dfff57e7"
+      },
+      {
+        "path": "backend/tests/label_producer_helpers.py",
+        "bytes": 6634,
+        "sha256": "fb83d73e47a23a254d3b8c59a0b2b86a06427186cf66c8253595a1566afd433f"
+      },
+      {
+        "path": "backend/tests/test_actor_bindings.py",
+        "bytes": 25557,
+        "sha256": "1272e9c3bcb31408bc133ccc9a2b957a4631030184eb062dcee14f4d691121ab"
+      },
+      {
+        "path": "backend/tests/test_annotation_learning_integration.py",
+        "bytes": 25691,
+        "sha256": "31e1c5364b55fadfc0275de39a9dd1092222d1098f1dbc5a3f9efe296b90e0f8"
+      },
+      {
+        "path": "backend/tests/test_classification_scope.py",
+        "bytes": 3588,
+        "sha256": "9c6c29eb971e2d1f9561a93f12fdebebe1655d1abb30dd7aab99a72e0614c3e3"
+      },
+      {
+        "path": "backend/tests/test_clip_edits.py",
+        "bytes": 26361,
+        "sha256": "883227aecb4161c2a23c56de020679702d634417269550aa165404cb9505b85d"
+      },
+      {
+        "path": "backend/tests/test_events_round_trip.py",
+        "bytes": 13899,
+        "sha256": "0a8450f9068ad901846131810f7df409e5408fd2fbcfd91a8896d6c635a51595"
+      },
+      {
+        "path": "backend/tests/test_expected_feature_export.py",
+        "bytes": 8182,
+        "sha256": "feb18e610113465af072f16a46dc1ef75426214e8951106b83c2fa667ef67a6d"
+      },
+      {
+        "path": "backend/tests/test_expected_outcome_release.py",
+        "bytes": 19139,
+        "sha256": "6831c5641a22315ae130a79687864645e982d60f6093e8cdfc58dff17adbeb6a"
+      },
+      {
+        "path": "backend/tests/test_expected_outcome_serving.py",
+        "bytes": 6406,
+        "sha256": "d75f52cf05a43326c260acd7b2fec1c2cde3343c82a50e51d3d64f99cdb903a9"
+      },
+      {
+        "path": "backend/tests/test_expected_outcomes_training.py",
+        "bytes": 2738,
+        "sha256": "22547d3a394ad07ee3c1c41152a4cfc040805a6a37d7aa00c7bc0063cd5c70b5"
+      },
+      {
+        "path": "backend/tests/test_frontier_analytics.py",
+        "bytes": 7560,
+        "sha256": "aa033738d3f51d397fad855a7d62d5790c4d5cb0c696259a54577c0025097c04"
+      },
+      {
+        "path": "backend/tests/test_label_deletion.py",
+        "bytes": 4465,
+        "sha256": "32d06e1f892163c05ceebd6b3b2d0d974ad5445899823b1c1c0814477377f13b"
+      },
+      {
+        "path": "backend/tests/test_label_publication.py",
+        "bytes": 18786,
+        "sha256": "80fc97d0d0b60ebc89e26636c7961660f4102a14f96213789cdc11b5bc75c8b5"
+      },
+      {
+        "path": "backend/tests/test_label_visibility.py",
+        "bytes": 13944,
+        "sha256": "08b807950cf289f88dc328ab5168a5e8cbf0f781503a52849ec952d686ca8cb1"
+      },
+      {
+        "path": "backend/tests/test_media_identity.py",
+        "bytes": 6365,
+        "sha256": "3d08e27b4077dea585ba97bcc01870f9d8199548603bb06b73cdc064231427ad"
+      },
+      {
+        "path": "backend/tests/test_media_identity_db.py",
+        "bytes": 2515,
+        "sha256": "8558710142ae6554efea01509f221d4206ef500f4a5840ad2643f8d276ee4d82"
+      },
+      {
+        "path": "backend/tests/test_metric_publication.py",
+        "bytes": 7536,
+        "sha256": "90b0ee9e575275a7c8ee132edb3b7f47c3cf245fe2914803977d26829e78c74f"
+      },
+      {
+        "path": "backend/tests/test_model_diagnostics.py",
+        "bytes": 3169,
+        "sha256": "4c8cebe3066a72a0d91dc1233fbfb87ae9cb4c33ccccaf2605f12ea304bdd411"
+      },
+      {
+        "path": "backend/tests/test_movement_definitions.py",
+        "bytes": 1770,
+        "sha256": "e5145bb7e5f81c76c62e0efdaea90d359ef6850f855193f846bd5d799bb95f7e"
+      },
+      {
+        "path": "backend/tests/test_observed_outcomes_roundtrip.py",
+        "bytes": 5317,
+        "sha256": "841b70e85f70c12c6c15050ef3b807d7db7a649ee19805b631c40ea22865325e"
+      },
+      {
+        "path": "backend/tests/test_overlays.py",
+        "bytes": 13109,
+        "sha256": "5baf7dca94c2ebc3a27838befbd128ddf8e602607995058b6dcf2a4f1c9dae90"
+      },
+      {
+        "path": "backend/tests/test_platform_overhaul.py",
+        "bytes": 60139,
+        "sha256": "8b70960a86899c49b2440dc4be400b4f44b42f5d23b0e7b0215e6073e855c1b9"
+      },
+      {
+        "path": "backend/tests/test_players.py",
+        "bytes": 6294,
+        "sha256": "7c2b38b69af56c6d754b7c5af29d42e74767d8bbe3623afe2d4a358d88fee947"
+      },
+      {
+        "path": "backend/tests/test_position_definitions.py",
+        "bytes": 957,
+        "sha256": "171306086b63ae2f452ea1d63dc32304546428e0cd2962e5e6333d7f37c95626"
+      },
+      {
+        "path": "backend/tests/test_prediction_context_intake.py",
+        "bytes": 4483,
+        "sha256": "089986c5188190d04793903ac4743d6a09d1eb6a7b8d679c7fad17eb42bb5f0a"
+      },
+      {
+        "path": "backend/tests/test_ttt_clock.py",
+        "bytes": 3287,
+        "sha256": "dfd29676046b0e75557f870daa49465c86528d8f70077ff88e7ff8cad08c96a9"
+      },
+      {
+        "path": "frontend/e2e-live/crawl.spec.ts",
+        "bytes": 7790,
+        "sha256": "220c086dcd3917dd29dace1404596c6c58d3bd8ae5c55dcc7a1c0466af57b389"
+      },
+      {
+        "path": "frontend/e2e/analytics.spec.ts",
+        "bytes": 14295,
+        "sha256": "adc0a6a00e56808c7c88fd22421f8048968c039f67b7b20b8f03bbf79ace031f"
+      },
+      {
+        "path": "frontend/e2e/correction.spec.ts",
+        "bytes": 9524,
+        "sha256": "039a61d10ffe1086a686abd74bce57ddc16e0f2dac1e69f2b597fb011c65d574"
+      },
+      {
+        "path": "frontend/e2e/global-setup.ts",
+        "bytes": 882,
+        "sha256": "f8803aa2310b71e47993667bbf2852322b0584ce1849bdc32994b34c0c017480"
+      },
+      {
+        "path": "frontend/e2e/model-reliability.spec.ts",
+        "bytes": 2616,
+        "sha256": "da1e53d3ae9dced1a7d88d74b428420cbdb942d05408b247d8327bc51fa2acc8"
+      },
+      {
+        "path": "frontend/e2e/smoke.spec.ts",
+        "bytes": 1099,
+        "sha256": "f0882c7ef0c2978471829ec919d989d8fa64dbdfc0ba73bd2de780195d40a4d1"
+      },
+      {
+        "path": "frontend/playwright.config.ts",
+        "bytes": 2485,
+        "sha256": "c84f636024666876b9774a041bd96eee61ebb628d936cc85f26355e39dd26b17"
+      },
+      {
+        "path": "frontend/src/app/clip-review/actor-binding-review.test.tsx",
+        "bytes": 12344,
+        "sha256": "2b7459aee98f7ee7b3e2e1b372d0a051815c5d587ade510d9f29fd527dcfd72f"
+      },
+      {
+        "path": "frontend/src/app/clip-review/actor-binding-review.tsx",
+        "bytes": 15240,
+        "sha256": "f43e88129d92c52f7fa39cb66d684e5dfbe266eba55e583e5046a06192b2f999"
+      },
+      {
+        "path": "frontend/src/app/clip-review/clip-review.test.tsx",
+        "bytes": 37658,
+        "sha256": "d4646baa21953d0f343f445fadbb8f753be2572670c4fdcb3c4856e5af9acaf0"
+      },
+      {
+        "path": "frontend/src/app/clip-review/corrections-panel.test.tsx",
+        "bytes": 36588,
+        "sha256": "b5f77eb1ca7b8f04c2a2be4b70771559ad54a784bce3db9844d2208b62d5ee29"
+      },
+      {
+        "path": "frontend/src/app/clip-review/corrections-panel.tsx",
+        "bytes": 43429,
+        "sha256": "d773ffba768748f65720ca8307d89b01668e588b9b0ee47b8195497d3158427f"
+      },
+      {
+        "path": "frontend/src/app/clip-review/observed-evidence-fields.tsx",
+        "bytes": 10231,
+        "sha256": "f92c7dbda9a8e8244a34ef0053da2b511cad3b7ed5a6cdbe3d2fca25c02b4b74"
+      },
+      {
+        "path": "frontend/src/app/clip-review/observed-outcomes-fields.tsx",
+        "bytes": 5476,
+        "sha256": "5d9d6f6dc5c003b34f20f1ca1c36e7c9a43e6cf3c1b87b1e0170966bd4b88514"
+      },
+      {
+        "path": "frontend/src/app/clip-review/page.tsx",
+        "bytes": 82360,
+        "sha256": "fafc91b550228065403bddd9a2f33b37a8108e668e351a892db6bc6ffb39b36a"
+      },
+      {
+        "path": "frontend/src/app/clip-review/prediction-context-fields.test.tsx",
+        "bytes": 12308,
+        "sha256": "0180842e4a7ff415a21486f3646ad9b977b7c6cb5c64f57218917ce1fd4bfeeb"
+      },
+      {
+        "path": "frontend/src/app/clip-review/prediction-context-fields.tsx",
+        "bytes": 14388,
+        "sha256": "1a213a0becaadf045203fd855802c0b93de14aa0a0d1044a1f3c27e39841e705"
+      },
+      {
+        "path": "frontend/src/components/__fixtures__/lane-window-producer.json",
+        "bytes": 19820,
+        "sha256": "960f83ccd571a18fa24a61e895a0116b5a54cb77a9b0085f1f6a7e63863337d8"
+      },
+      {
+        "path": "frontend/src/components/__fixtures__/model-reliability-producer.json",
+        "bytes": 10986,
+        "sha256": "a3fc93372c2c8747b50f35f133a40671c06b1206b893497b638cbbebe17cd3ec"
+      },
+      {
+        "path": "frontend/src/components/__fixtures__/original-front-producer.json",
+        "bytes": 37680,
+        "sha256": "a5fbdb51fc076d0d2063ead1660150caa2bf97655e8bee8935ddd97027e659d2"
+      },
+      {
+        "path": "frontend/src/components/charts/echart.tsx",
+        "bytes": 2233,
+        "sha256": "78a532106f690321ed8f21bcbb5727174ccc11fd91d53422590d9ecb711ef4b1"
+      },
+      {
+        "path": "frontend/src/components/expected-feature-exports.test.tsx",
+        "bytes": 2364,
+        "sha256": "669322fe71ec310d68566485d64004eb55e5dd9bab6ed39c77c744bdfb336e80"
+      },
+      {
+        "path": "frontend/src/components/expected-feature-exports.tsx",
+        "bytes": 4127,
+        "sha256": "8dc6425f2d69cab5e77dcc0ebdc8e43aaad2b85f06a65b7b52175b4436d224e0"
+      },
+      {
+        "path": "frontend/src/components/expected-outcomes-training.test.tsx",
+        "bytes": 5021,
+        "sha256": "01ab4250b08e4a784e955030953c4b997169ce13ee336b43d246f842cb3dd665"
+      },
+      {
+        "path": "frontend/src/components/expected-outcomes-training.tsx",
+        "bytes": 10439,
+        "sha256": "34a551f64982b1194939c52906368c96f491cbe3946955b7536fc9dfcbf8c3cb"
+      },
+      {
+        "path": "frontend/src/components/film-room/session-workspace.test.tsx",
+        "bytes": 4826,
+        "sha256": "d8bcb6f1ede9e557fd91caf5ca055ceef4e5a02cdbcccfd93eda6f54069ee32d"
+      },
+      {
+        "path": "frontend/src/components/film-room/session-workspace.tsx",
+        "bytes": 22902,
+        "sha256": "7154ada6a4c32dda26c371abe72fef7f70905c6c6341de89215ab6826d4932cb"
+      },
+      {
+        "path": "frontend/src/components/geometry-position-visuals.test.tsx",
+        "bytes": 5927,
+        "sha256": "029f7cad3b65a19b3982bb8ae3873cb8f7c468177186f9221fcf0a3a2575191b"
+      },
+      {
+        "path": "frontend/src/components/geometry-position-visuals.tsx",
+        "bytes": 11235,
+        "sha256": "95b39d4f307e8d9fe0e1011b05f5f8d244a87b1fddfb8ed940b0dfc0f1029fe5"
+      },
+      {
+        "path": "frontend/src/components/interaction-position-visuals.test.tsx",
+        "bytes": 2785,
+        "sha256": "bd039798475f2f136a24b4a1b164d7f21c2b56e39797dffb925e67584f6147d8"
+      },
+      {
+        "path": "frontend/src/components/interaction-position-visuals.tsx",
+        "bytes": 6012,
+        "sha256": "9aaccd7680d9db84aed3fd2e9738e0f54e163778c685c75e77aa2c795891c785"
+      },
+      {
+        "path": "frontend/src/components/lane-window-visuals.test.tsx",
+        "bytes": 4264,
+        "sha256": "998227ee9fafb96c6072d8c58744f81ea046b683c274a8241fad49f6ff35350b"
+      },
+      {
+        "path": "frontend/src/components/lane-window-visuals.tsx",
+        "bytes": 12567,
+        "sha256": "8c53af28f5a5aac004313e97fd28514e8c202ad0cdf82aae668af28178334996"
+      },
+      {
+        "path": "frontend/src/components/learning-panel-reliability.test.tsx",
+        "bytes": 1586,
+        "sha256": "1ca6843fb2259e1cb4bc960d582ceeab927a766e643ef7d61f9e44378ed503ff"
+      },
+      {
+        "path": "frontend/src/components/learning-panel.tsx",
+        "bytes": 8117,
+        "sha256": "9ff2e855322422f249e2734070da20603c78376d184e6ef43a1a48dc1b799928"
+      },
+      {
+        "path": "frontend/src/components/learning-workflow.test.tsx",
+        "bytes": 6329,
+        "sha256": "eb68e886dedc4e70b1ec5259f5348ddad499fa19f432a46485ff13f956e797f0"
+      },
+      {
+        "path": "frontend/src/components/learning-workflow.tsx",
+        "bytes": 16416,
+        "sha256": "f1243fa2871527db78b659ebc177714eac401e26a73017e95975f5d582d50fd5"
+      },
+      {
+        "path": "frontend/src/components/model-reliability.test.tsx",
+        "bytes": 6285,
+        "sha256": "7cda6444ef4732130b6fbb51835cbad8f4126065063843516365a92543870409"
+      },
+      {
+        "path": "frontend/src/components/model-reliability.tsx",
+        "bytes": 15895,
+        "sha256": "ab1f8e4ae4bd444e8538fd403ef7621df093e61b4665031dca89e53c14f3d234"
+      },
+      {
+        "path": "frontend/src/components/movement-position-visuals.test.tsx",
+        "bytes": 7385,
+        "sha256": "a658a071b2458c7696c8c316dc457ef02500831e6d34dfa8c18dcebb44142bbf"
+      },
+      {
+        "path": "frontend/src/components/movement-position-visuals.tsx",
+        "bytes": 13899,
+        "sha256": "125a2e6c45f50e8d865b80d08819d636b3b69bcc769182dd2fd674625ebe1bda"
+      },
+      {
+        "path": "frontend/src/components/original-front-visuals.test.tsx",
+        "bytes": 6921,
+        "sha256": "5e04abaf2125281237bc59ad0d3c95616d3c6c3ba3eeb2960fb6eedb70d65116"
+      },
+      {
+        "path": "frontend/src/components/original-front-visuals.tsx",
+        "bytes": 12506,
+        "sha256": "12a028502326b2b06cba6059287bf606c8fcfaea6e37cc575e7c1de66225eca1"
+      },
+      {
+        "path": "frontend/src/components/qualified-position-visuals.test.tsx",
+        "bytes": 5428,
+        "sha256": "a7e1e86041f9fcb524adbdb7374623ee172246ac58e84e3e048deb18cebcc487"
+      },
+      {
+        "path": "frontend/src/components/qualified-position-visuals.tsx",
+        "bytes": 14408,
+        "sha256": "395f79ee5ab5665b3fe4237b5677fa1dde5247a2457b5ee9009176b542bb868d"
+      },
+      {
+        "path": "frontend/src/components/roster-editor.tsx",
+        "bytes": 9210,
+        "sha256": "ab1957fb54c8a18cdc476ea6efec35b0361cc1f81b05e739c7dd8f52aeb42078"
+      },
+      {
+        "path": "frontend/src/components/specialist-position-visuals.test.tsx",
+        "bytes": 4821,
+        "sha256": "b595c77e238deffe3c5ec3edf15825882d8c61bbe105eb494a649a13879d7016"
+      },
+      {
+        "path": "frontend/src/components/specialist-position-visuals.tsx",
+        "bytes": 13107,
+        "sha256": "fe5022a0f685a97f0994a873c0851fe6ffe0fe6dd9e9d3643a19db63860158f6"
+      },
+      {
+        "path": "frontend/src/components/team-analytics.test.tsx",
+        "bytes": 9589,
+        "sha256": "5adbea4deb97c9c8d0acfc1587f6ca6ec1e2aaced3f4f66e51a7a9218ecea54b"
+      },
+      {
+        "path": "frontend/src/components/team-analytics.tsx",
+        "bytes": 23814,
+        "sha256": "7189389f6daa81ccc9798957ec2d52264963fe0d2a27028c26977fd67762007c"
+      },
+      {
+        "path": "frontend/src/lib/analysis-context.test.ts",
+        "bytes": 3303,
+        "sha256": "6b25202cbe6b58b06cadce1853a1da360581e8c3b8827c085c3e3aa81fc701b9"
+      },
+      {
+        "path": "frontend/src/lib/analysis-context.ts",
+        "bytes": 3641,
+        "sha256": "34afb896286e57eb5e68b3bd0d1338ef06fc804c16f269286473fa294928b4a7"
+      },
+      {
+        "path": "frontend/src/lib/analytics-api.ts",
+        "bytes": 5109,
+        "sha256": "0e3f6b99441c9ad72c1aab047c96f8280fbd78045c69187146ba976ff4444f46"
+      },
+      {
+        "path": "frontend/src/lib/api.actor-binding-review.test.ts",
+        "bytes": 1361,
+        "sha256": "dc04f289530e6b02bf07256be957f1b1355655572c62b97cc34ef676a4ff3ea3"
+      },
+      {
+        "path": "frontend/src/lib/api.players.test.ts",
+        "bytes": 8923,
+        "sha256": "8abd6248bfe8b9e3875f373002e724400db389ca0709b6dfe552be34ca0d3906"
+      },
+      {
+        "path": "frontend/src/lib/api.test.ts",
+        "bytes": 13609,
+        "sha256": "943f7fb93d4dc0f58a09387a1be6bbce840328b4317dabfc9f5e4b4e7f994edc"
+      },
+      {
+        "path": "frontend/src/lib/api.ts",
+        "bytes": 61784,
+        "sha256": "04d6768722064d38c0cd66b67d0699108f4b21d38309772507d445dab68e8f76"
+      },
+      {
+        "path": "frontend/src/lib/app-state.tsx",
+        "bytes": 22080,
+        "sha256": "170902150bd3d42e8fefe83d93294e89fd96c970beabe029bbca64d4974b168c"
+      },
+      {
+        "path": "frontend/src/lib/model-reliability.test.ts",
+        "bytes": 1349,
+        "sha256": "a013d05dee6dd5a03e16cb9857639c3d7de8ad3118e5829a24b42444e070dd61"
+      },
+      {
+        "path": "frontend/src/lib/model-reliability.ts",
+        "bytes": 4313,
+        "sha256": "93dcfa74a367bb9032fe29e6a19d4ff48cacbb74c93f10e08c06b2c9cdc36142"
+      },
+      {
+        "path": "frontend/src/lib/release-probe.test.ts",
+        "bytes": 1017,
+        "sha256": "b7add9d62cdc2646e1af89f7510dfbf5d9a1c96d38629330ca73b42b6419befa"
+      },
+      {
+        "path": "frontend/src/lib/release-probe.ts",
+        "bytes": 611,
+        "sha256": "5d2e2cb96e1134a0f80594c2ad819fc95f13c6084bf247a11428d1e67b57871f"
+      },
+      {
+        "path": "frontend/src/lib/shot-id.test.ts",
+        "bytes": 783,
+        "sha256": "f824275badd627c0524ee4b1606a978912c936139a8ef31b722f238ac3f80d1b"
+      },
+      {
+        "path": "frontend/src/lib/shot-id.ts",
+        "bytes": 1024,
+        "sha256": "b07d83bf66594c629bc590acf4f1c9f954f4b26944108e842a67c5aca43d9e85"
+      },
+      {
+        "path": "frontend/src/lib/types.ts",
+        "bytes": 20560,
+        "sha256": "2a57d2bf03ddb6eaf3c7c722d71c1a6cbf77aa74c12f01936a82a490372e50d7"
+      },
+      {
+        "path": "frontend/tsconfig.json",
+        "bytes": 738,
+        "sha256": "e22e1fd5d69c2cc15212d450e92273954f28c258c82caa403429f2ee8818cfb3"
+      },
+      {
+        "path": "gpu-worker/__main__.py",
+        "bytes": 63836,
+        "sha256": "94f0921ff98a43b8168025e372c99525bad365dc3ff239928b855d6b34ab2430"
+      },
+      {
+        "path": "gpu-worker/pipeline/actor_binding_protocol.py",
+        "bytes": 6855,
+        "sha256": "6305d85f6765b640f29d8dc20dfe30f6d92b1dedd0a53275ce1d4d0438499e71"
+      },
+      {
+        "path": "gpu-worker/pipeline/actor_bindings.py",
+        "bytes": 5114,
+        "sha256": "7fa2c6d8b20950451c85763831fe0642d9d49e5fdb47c33aab80188b81287822"
+      },
+      {
+        "path": "gpu-worker/pipeline/backend.py",
+        "bytes": 52955,
+        "sha256": "a7cb1f9ede3e01f3f19e1f9e1d5e7d36f58835ee2784c82a939ae643f3c0bf9c"
+      },
+      {
+        "path": "gpu-worker/pipeline/checkpoints.py",
+        "bytes": 5476,
+        "sha256": "a9933f1ab8c08f2bf8355c3a07a63f834e7428ecbf3e7f555435bf05cd9f9d60"
+      },
+      {
+        "path": "gpu-worker/pipeline/coverage/gnn_classifier.py",
+        "bytes": 19477,
+        "sha256": "84e3e44c0a7425dfcac7c902675b934c1bbd8029cccb7b5c353822d0e6178e4f"
+      },
+      {
+        "path": "gpu-worker/pipeline/event_removals.py",
+        "bytes": 5454,
+        "sha256": "96cacc1ee98ca22c59a943d280a6b58634cf6ca1a1734674a7f6a41738668ca7"
+      },
+      {
+        "path": "gpu-worker/pipeline/expected_outcomes/__init__.py",
+        "bytes": 84,
+        "sha256": "a582b285b69c7dddb731d62debbf18c58cf3d9aba70667b85082d385e15d0f61"
+      },
+      {
+        "path": "gpu-worker/pipeline/expected_outcomes/data.py",
+        "bytes": 11130,
+        "sha256": "e4a7ee4d755d7f9ff73594218e5f803e83696113000f45b50b70dfdd723d3b65"
+      },
+      {
+        "path": "gpu-worker/pipeline/expected_outcomes/diagnostics.py",
+        "bytes": 2479,
+        "sha256": "e5d96e0aebb9f846d318a0b9e0b5271e49086e42b359637b7f58468919dc5548"
+      },
+      {
+        "path": "gpu-worker/pipeline/expected_outcomes/export.py",
+        "bytes": 3966,
+        "sha256": "d0328f2a18ad17b8c5b95552cc293cba7072dd6fe494e9191aebf09fd6fad92e"
+      },
+      {
+        "path": "gpu-worker/pipeline/expected_outcomes/extract.py",
+        "bytes": 18440,
+        "sha256": "e252908b9f68044d983cea9c99366e43e2046c1ae37c606df34d373cf7627a60"
+      },
+      {
+        "path": "gpu-worker/pipeline/expected_outcomes/model.py",
+        "bytes": 14264,
+        "sha256": "3208247422c076f0ccefe675aa4f6dcd38628efe9c8e819ded7fd02767f0b508"
+      },
+      {
+        "path": "gpu-worker/pipeline/film_association.py",
+        "bytes": 16271,
+        "sha256": "519760864ae7eda5aa60a5af1646b67c5c586b1644c85fd26e576107fbbde051"
+      },
+      {
+        "path": "gpu-worker/pipeline/film_features.py",
+        "bytes": 14411,
+        "sha256": "41215f98a1f03ffd40b476af3f0d6c650dcd401ecba7ec112a017e3a997d8f73"
+      },
+      {
+        "path": "gpu-worker/pipeline/game_film.py",
+        "bytes": 25271,
+        "sha256": "0fc14fed2d01a878b15ea2aad1acba23c8591330351bdaab02d878fd7fd4815b"
+      },
+      {
+        "path": "gpu-worker/pipeline/lane_windows.py",
+        "bytes": 11735,
+        "sha256": "d8783bdcb42826b3868c432b19d5e89ce9f313eb0daa7ad8324a664e9c59388a"
+      },
+      {
+        "path": "gpu-worker/pipeline/lightweight_config.py",
+        "bytes": 4563,
+        "sha256": "58456601eced475739a087969982373c958943b04dea94a4b82c93ab9262f427"
+      },
+      {
+        "path": "gpu-worker/pipeline/media_contract.py",
+        "bytes": 6509,
+        "sha256": "dd970a7b07b71bdddfc4e5d68003546d734571a0bd74a9666ee58fc2ad5f7efc"
+      },
+      {
+        "path": "gpu-worker/pipeline/media_identity.py",
+        "bytes": 3270,
+        "sha256": "8e407a3750cb7da834f3a6d9425bfbd631e3a862f852c1dfc288924496ef8e95"
+      },
+      {
+        "path": "gpu-worker/pipeline/model_registry_client.py",
+        "bytes": 8841,
+        "sha256": "dc29e13f6bca076b5068f15416d580474bb687aeee510fe8036bba105ad4a0bf"
+      },
+      {
+        "path": "gpu-worker/pipeline/model_router.py",
+        "bytes": 22269,
+        "sha256": "83f781657bc6d82454e4961129292c9e7384cb3b0190221c6130795f3190911e"
+      },
+      {
+        "path": "gpu-worker/pipeline/model_routing.json",
+        "bytes": 1055,
+        "sha256": "60fd08a14306ca777d35846c4d9347c86c9a7c09c58187bb9db55e14177b8b64"
+      },
+      {
+        "path": "gpu-worker/pipeline/observed_position_products.py",
+        "bytes": 32344,
+        "sha256": "c994d66bc96e252e49dbfaf220d1dcce61e4af3eab9acdf0f89ed85c2ac8732a"
+      },
+      {
+        "path": "gpu-worker/pipeline/observed_skill_outcomes.py",
+        "bytes": 14745,
+        "sha256": "ce8dc4cc6ce0c607735e8b46f4fb9994d0aa86c610f00e539ead59dcd4acc6e4"
+      },
+      {
+        "path": "gpu-worker/pipeline/oline_observations.py",
+        "bytes": 3808,
+        "sha256": "1d319b50e7c5d5f5efaf3e2e0ee5670a059d2322bf60e5ebcc43ef209fa2de2a"
+      },
+      {
+        "path": "gpu-worker/pipeline/orchestrator.py",
+        "bytes": 82135,
+        "sha256": "913dd5f55d5bbcb958f02c07914a8fbb3e472bfc9b69bedc421cf7805febe065"
+      },
+      {
+        "path": "gpu-worker/pipeline/position_evidence.py",
+        "bytes": 12790,
+        "sha256": "b8cb66ad1d4e86614ba4cb3a7c3c06dfffec8117b75ad6fd9f64eddc8c129a79"
+      },
+      {
+        "path": "gpu-worker/pipeline/qb_observations.py",
+        "bytes": 15485,
+        "sha256": "2efe38fabf7f8b2128fef48e6b228dbed05f115390a433f9f8303417950f3c59"
+      },
+      {
+        "path": "gpu-worker/pipeline/reviewed_labels.py",
+        "bytes": 3003,
+        "sha256": "38badb71c092b2ba7687fd333d2d0b318bcf29a4eb064dc42670850826a41ae4"
+      },
+      {
+        "path": "gpu-worker/pipeline/run_observations.py",
+        "bytes": 12735,
+        "sha256": "be3d10335a960c60920a29d4d941f4c60140ff91f0ef1456c75aca464394ac54"
+      },
+      {
+        "path": "gpu-worker/pipeline/segment_models.py",
+        "bytes": 20293,
+        "sha256": "bc229a7dc10ef4e7995d9784bcdae52078aba8a10dafb4642cc9aeac03e5039c"
+      },
+      {
+        "path": "gpu-worker/pipeline/specialist_geometry.py",
+        "bytes": 21955,
+        "sha256": "ad425fc95dcbafbbb193c990feea44743f6a4d860ebf3613f189ceba38ea7f00"
+      },
+      {
+        "path": "gpu-worker/pipeline/stage_coverage.py",
+        "bytes": 17520,
+        "sha256": "9b98ff3ad30c027cfd99f401347972e7e61ba7cffa590ef6e746c2a9b1af90dd"
+      },
+      {
+        "path": "gpu-worker/pipeline/stage_events.py",
+        "bytes": 22570,
+        "sha256": "3161e07ab4993bb5e63bf10cc39886214c1e7e595e458d42c2b8a9f56b004c19"
+      },
+      {
+        "path": "gpu-worker/pipeline/stage_expected_outcomes.py",
+        "bytes": 5796,
+        "sha256": "bb33cdc1cd3df481c0025ec933b072a4e059b87a9fea544d3ef5e321e204812b"
+      },
+      {
+        "path": "gpu-worker/pipeline/stage_metrics.py",
+        "bytes": 45165,
+        "sha256": "c7a4f61d9cb780dfcc5c9bc889c75168f153fd584e80ca9c9a0a023031390051"
+      },
+      {
+        "path": "gpu-worker/pipeline/stage_oline.py",
+        "bytes": 22256,
+        "sha256": "ba8cbba2759169bb5e7b4ef5ad3fb63897067409ff59898bf7a31e4e786f3997"
+      },
+      {
+        "path": "gpu-worker/pipeline/stage_render.py",
+        "bytes": 11710,
+        "sha256": "62387c8ea2d2a28cfe16c729a3ceb269c98be83d45902331b298f4f0f2eb5cc9"
+      },
+      {
+        "path": "gpu-worker/pipeline/stage_segment.py",
+        "bytes": 17304,
+        "sha256": "80e449c90a68417911724b1b2872519b7930ab99ee70ecd80a05acc99b5bc5b7"
+      },
+      {
+        "path": "gpu-worker/pipeline/storage.py",
+        "bytes": 20026,
+        "sha256": "3751e97969db605dca7a0c45a0ffc844702a0d706d121d20d8820acdb9659a12"
+      },
+      {
+        "path": "gpu-worker/pipeline/tracker_models.py",
+        "bytes": 17108,
+        "sha256": "bed103537a9aec540c0b05cf77627bc4d19842ceb316359f91b78bfb5850f439"
+      },
+      {
+        "path": "gpu-worker/pipeline/video_timeline.py",
+        "bytes": 19735,
+        "sha256": "dafcaf89e4a6436da035cba10e2cd20333d4228a6500fe464045ba93afd5bd56"
+      },
+      {
+        "path": "gpu-worker/renderer/period_renderer.py",
+        "bytes": 10868,
+        "sha256": "6a30ad0a7344a0a6a66018239efa5c6c3b179800c9d1ede636bfc1c7ce34946e"
+      },
+      {
+        "path": "gpu-worker/tests/integration/scratch_database.py",
+        "bytes": 1287,
+        "sha256": "f4bcb85309ff9f923ea3b3d937631c8101e3aeb4b8e0d4a49e09d08b003fafb3"
+      },
+      {
+        "path": "gpu-worker/tests/integration/test_expected_outcomes_http.py",
+        "bytes": 8173,
+        "sha256": "c06137dfa2a3555d3a21e6d91c5ee3db934e33b6b4c0b9263d46755a0fff677d"
+      },
+      {
+        "path": "gpu-worker/tests/integration/test_generic_label_producer_http.py",
+        "bytes": 13786,
+        "sha256": "2a867dc0aec421caefde31963fb9da37b05c850c6a26377cdf5ad560c2b9ff1d"
+      },
+      {
+        "path": "gpu-worker/tests/integration/test_pipeline_roundtrip.py",
+        "bytes": 23856,
+        "sha256": "f98123ce5ef419daa1c0352c2e4ddce6c8d56d0382556cbbcb486a30e40a8165"
+      },
+      {
+        "path": "gpu-worker/tests/integration/test_scratch_database.py",
+        "bytes": 1976,
+        "sha256": "603aaf35d62afc9283e542ff9536528759756f492532d968582f73c8544ab5ff"
+      },
+      {
+        "path": "gpu-worker/tests/test_actor_bindings.py",
+        "bytes": 13459,
+        "sha256": "a13612cfb32f8ed8431f1a3b9620918f61b4db976e70427ae6d2f09241f659e7"
+      },
+      {
+        "path": "gpu-worker/tests/test_annotation_snapshot.py",
+        "bytes": 2668,
+        "sha256": "889cfc9107341e3cfc7ca3137c8fb19c9e02213cd74e0c5a2e3fa744e0f89aa6"
+      },
+      {
+        "path": "gpu-worker/tests/test_event_removals.py",
+        "bytes": 6443,
+        "sha256": "10401b07b2b1f6e1781cafa44eda3924121de3747a54bda2757b4d64037df274"
+      },
+      {
+        "path": "gpu-worker/tests/test_expected_feature_export.py",
+        "bytes": 3471,
+        "sha256": "a60ec17abe05f49e28e76aa6af6ae8e332a9c589bc11910d73026854e861cbf4"
+      },
+      {
+        "path": "gpu-worker/tests/test_expected_outcomes.py",
+        "bytes": 41440,
+        "sha256": "bcfc9b556d160030f362f4bba6659d3580c5e07bcaeea3805aac6463b02e8685"
+      },
+      {
+        "path": "gpu-worker/tests/test_film_association.py",
+        "bytes": 17322,
+        "sha256": "2cd0fef58789f9a8885d916db95b8fdfd5077cefa0b470fa158af940ce66c5f7"
+      },
+      {
+        "path": "gpu-worker/tests/test_film_features.py",
+        "bytes": 5652,
+        "sha256": "8bf0b917bb12f13dee4465140186240725feffcd72713bd1244db594425b818b"
+      },
+      {
+        "path": "gpu-worker/tests/test_frame_reader.py",
+        "bytes": 3870,
+        "sha256": "8ff8a45deff857daf5dceb7aebf40f6a29a7bf09a6e021cedc8a9af9e1c89629"
+      },
+      {
+        "path": "gpu-worker/tests/test_game_film.py",
+        "bytes": 8723,
+        "sha256": "c30a8e3d011a2e94e6a1b12183f1e796eb99b088d83e8f6bdec18e3910826cde"
+      },
+      {
+        "path": "gpu-worker/tests/test_lane_windows.py",
+        "bytes": 7964,
+        "sha256": "bcb284626a83baa54105731f095224891d3450e5a39bee803fb12127bf4d86e6"
+      },
+      {
+        "path": "gpu-worker/tests/test_media_identity.py",
+        "bytes": 3071,
+        "sha256": "1ab3480eaf93a5850caccd9a94ac0df1426759d251c036eb467a23223ed7c502"
+      },
+      {
+        "path": "gpu-worker/tests/test_model_registry_client.py",
+        "bytes": 6789,
+        "sha256": "52edebed192fe71cb8e3a10c1b6813c82492ff24d9a2383017afd6173db4fc5b"
+      },
+      {
+        "path": "gpu-worker/tests/test_native_proxy_windows.py",
+        "bytes": 3506,
+        "sha256": "7ba48c3465f67ee2d385b370689f056767f34410e1f1ca0d9e81e3d437d6a8d9"
+      },
+      {
+        "path": "gpu-worker/tests/test_observed_position_products.py",
+        "bytes": 19414,
+        "sha256": "c46869557a684645f4912bad2dabb1c82bbc05ecffc36bd8b670b167ecdd234e"
+      },
+      {
+        "path": "gpu-worker/tests/test_observed_skill_outcomes.py",
+        "bytes": 8333,
+        "sha256": "9bdab1bc24de6d54e4b25b8c157f952b69d7217a1146021c8a5bc0053a0157bb"
+      },
+      {
+        "path": "gpu-worker/tests/test_orchestrator.py",
+        "bytes": 27236,
+        "sha256": "590c46a3e5d43128088a645051b864f2062848d0c8223c5e2f619d48464b976c"
+      },
+      {
+        "path": "gpu-worker/tests/test_overhaul_contracts.py",
+        "bytes": 22063,
+        "sha256": "360b75fcff680a4065540846c54a8e4249f2fea1384d7f85ae5aa8ee32885ddd"
+      },
+      {
+        "path": "gpu-worker/tests/test_period_renderer_window.py",
+        "bytes": 4876,
+        "sha256": "05d7cd943905d5c8e78e27d31f3967289eda3555547ad380977baae5d8489745"
+      },
+      {
+        "path": "gpu-worker/tests/test_pipeline_recovery.py",
+        "bytes": 19026,
+        "sha256": "f658eea1b15379ff4a4e16dcfc2bc7ec301efebcacc69d6e88126867ae92b693"
+      },
+      {
+        "path": "gpu-worker/tests/test_position_event_reconciliation.py",
+        "bytes": 10207,
+        "sha256": "23a039a5abaa4f76f957d68a56c21967ff6a5e15a77fb597c368bae7d3cc84be"
+      },
+      {
+        "path": "gpu-worker/tests/test_position_producers.py",
+        "bytes": 20716,
+        "sha256": "119e2f0f79a450bea7de1b6cf2fa12ec9291e48e45930e0503e066c9e0ec649c"
+      },
+      {
+        "path": "gpu-worker/tests/test_prediction_context_intake.py",
+        "bytes": 3443,
+        "sha256": "4d8643eac34aaeb636e952ee6b9ea38a3904ccb81051f6ef2f15dafd2eb7dd4e"
+      },
+      {
+        "path": "gpu-worker/tests/test_renderer.py",
+        "bytes": 12357,
+        "sha256": "b75aa15c04af600ab50624587e4fda4e94992f888eb5f4998826f2d6787f9dfe"
+      },
+      {
+        "path": "gpu-worker/tests/test_specialist_geometry.py",
+        "bytes": 12449,
+        "sha256": "9953082d8bebd1905051bda2535e7143f09d3905793bbee99274fd821cba1faa"
+      },
+      {
+        "path": "gpu-worker/tests/test_stage_render_window.py",
+        "bytes": 3592,
+        "sha256": "1363e7a1425eef58ae96aa308ee0f92f8cc98798d10cf270e2913b59dc2ce469"
+      },
+      {
+        "path": "gpu-worker/tests/test_storage.py",
+        "bytes": 4414,
+        "sha256": "01b09f2e6c6b3f09fa1fb58dc3290beeac6f9d41a35997ba378ea13a88dfd94c"
+      },
+      {
+        "path": "gpu-worker/tests/test_ttt_clock.py",
+        "bytes": 4680,
+        "sha256": "83c21bd4f2c529a930b1b56918dcdf74de380c5c685235eb67c71a76f1ec9a4d"
+      },
+      {
+        "path": "gpu-worker/tests/test_video_pts.py",
+        "bytes": 16258,
+        "sha256": "a53164da059ce0e7e540993b0471d17d80d250c49fecf7a7d5ab892e52c5fe20"
+      },
+      {
+        "path": "gpu-worker/training/expected_outcomes.py",
+        "bytes": 14919,
+        "sha256": "a1459b6539431a7338fe51d29b5f1530d4073db8f9342888679df93a1116ca66"
+      },
+      {
+        "path": "gpu-worker/training/prepare_expected_outcomes.py",
+        "bytes": 8291,
+        "sha256": "db3ffecb79e4f33d51be721210dccbfc015667b640fbc691df532fa68cba9905"
+      },
+      {
+        "path": "gpu-worker/training/verify_expected_outcomes.py",
+        "bytes": 10150,
+        "sha256": "6a2d2c6b9757f7dd538dbaef73d40f917c4a6ad7c92b5f9fba0c38b8ab970936"
+      },
+      {
+        "path": "scripts/build_labeling_bundle.py",
+        "bytes": 3714,
+        "sha256": "e30b409b5a2553fbf1372b7068ff2964025b3693c504b3fd415df886d9536a93"
+      },
+      {
+        "path": "scripts/deployment_readiness.py",
+        "bytes": 7181,
+        "sha256": "adeb6f945cd49f701ef40148f5d810de75fe21245bc1dda6b17baa5a583482bf"
+      },
+      {
+        "path": "tests_local/fixtures/prediction-context.json",
+        "bytes": 3418,
+        "sha256": "caf139246aa95cf6d7de2640917d5775705ab414950abba94bf5db9b44a29f6e"
+      },
+      {
+        "path": "tests_local/test_deployment_readiness.py",
+        "bytes": 6240,
+        "sha256": "776bb744ce87591ac9d6062ebf5d3745fc838b3e6e496f0aa104faed4c4c0720"
+      }
+    ]
+  },
+  "checks": [
+    {
+      "name": "backend_full",
+      "passed": 1024,
+      "skipped": 0,
+      "deselected": 0,
+      "seconds": 130.13,
+      "log": "runs/backend-final-reviewed-snapshot.log",
+      "log_sha256": "05364e35453f31e753c5c249dd3f6f2aed0b573f4153e01dc64fc3f30daf8ceb"
+    },
+    {
+      "name": "backend_final_deletion",
+      "passed": 5,
+      "skipped": 0,
+      "deselected": 0,
+      "seconds": 1.22,
+      "log": "runs/backend-final-deletion-followup.log",
+      "log_sha256": "da9311856373adad598c17bc937624ee225725c5154a2158351e38788d903eeb"
+    },
+    {
+      "name": "backend_worker_clock_followup",
+      "passed": 44,
+      "skipped": 0,
+      "deselected": 0,
+      "seconds": 5.91,
+      "log": "runs/backend-final-worker-clock-followup.log",
+      "log_sha256": "b04e6cd1ddcdb4246c185fa93f20ffb417334adf7aa219dc90c9728b5d517bbe"
+    },
+    {
+      "name": "worker_full",
+      "passed": 1764,
+      "skipped": 1,
+      "deselected": 3,
+      "seconds": 61.72,
+      "log": "runs/worker-final-native-reviewed-source.log",
+      "log_sha256": "a5ae7b769f908bc75e1f044c27528cb312f6fa1443e85d10891756f0c4172b21"
+    },
+    {
+      "name": "three_http_integrations",
+      "passed": 3,
+      "skipped": 0,
+      "deselected": 20,
+      "seconds": 57.58,
+      "log": "runs/continuation-all-three-integrations-final.log",
+      "log_sha256": "09d9271a50c085ed94d73cf6596932bf393ad03f87a9abc880dc79d7ed780f68"
+    },
+    {
+      "name": "frontend_units",
+      "passed": 541,
+      "skipped": 0,
+      "deselected": 0,
+      "seconds": 65.69,
+      "log": "runs/frontend-post-review-final.log",
+      "log_sha256": "31be033671ff09291b97f93c480e83c4fc12bef2021ef248699cf25e8212f840"
+    },
+    {
+      "name": "frontend_browser",
+      "passed": 22,
+      "skipped": 0,
+      "deselected": 0,
+      "seconds": 39.7,
+      "log": "runs/frontend-post-review-browser.log",
+      "log_sha256": "d51f8cb9a6f7308daa843f7b4a511f07e47eeb2c70d7bfa321de335abd41f62c"
+    },
+    {
+      "name": "local_tools",
+      "passed": 64,
+      "skipped": 0,
+      "deselected": 0,
+      "seconds": 21.16,
+      "log": "runs/local-tools-final-reviewed-snapshot.log",
+      "log_sha256": "c411a98cd68cd6c78eaeb3c287fcef4027479890e8c74c4a68fd5c087927bd6c"
+    }
+  ],
+  "other_checks": {
+    "backend_ruff": "passed",
+    "backend_format_files": 234,
+    "backend_mypy_files": 122,
+    "worker_ruff": "passed",
+    "frontend_eslint": "passed",
+    "frontend_production_build": "passed_17_static_routes",
+    "labeler_node_tests": 5,
+    "git_diff_check": "passed",
+    "worker_skip": "optional custom regime joblib-artifact test; joblib is not installed",
+    "frontend_browser_scope": "actual browser with mocked API contract routes",
+    "integration_scope": "actual local API/queue/worker transport with explicit synthetic protocol fixtures",
+    "counts_policy": "separate scoped runs; do not sum overlapping tests"
+  },
+  "real_practice_smoke": {
+    "report": "reports/overhaul/real-720p-engineering-smoke.json",
+    "source_seconds": 6.973633,
+    "native_frames": 209,
+    "worker_wall_seconds": 36.406,
+    "anonymous_fragments": 65,
+    "football_accuracy_qualified": false,
+    "preview_policy_note": "historical run preceded the reviewed-caption/native-window fixes"
+  },
+  "real_game_smoke": {
+    "report": "reports/overhaul/real-game-window-engineering-smoke.json",
+    "report_sha256": "c9be55306e576bfb9ac1c96560ed87687e12937af58039ffeeddcc89feae772a",
+    "job_id": "d6c455ec-8d26-48b3-925d-c40d1acc9b51",
+    "status": "succeeded",
+    "worker_wall_seconds": 140.938,
+    "scope": "real_720p_bounded_fullgame_window_smoke_rerun",
+    "limits": [
+      "bounded_20_second_derived_window_only",
+      "not_full_game_processed",
+      "not_1080p",
+      "not_p95",
+      "not_90_minute",
+      "not_football_accuracy"
+    ],
+    "active_playback_clips": 5,
+    "proxy_frames": 601,
+    "private_source_receipt_verified": true,
+    "exact_derived_tick_mappings_verified": true,
+    "anonymous_fragments": 161,
+    "withheld_raw_labels": 38,
+    "qualified_football_events_labels_metrics_identities": 0,
+    "known_observation_limit": "generic person detector also boxes poster pictures; not validated player tracking",
+    "original_clock_limit": "processing copy selected decoded best-effort display times; exact parent/native clocks recorded separately",
+    "prior_failed_attempt_preserved": true
+  },
+  "fullgame_source_inventory": {
+    "report": "reports/overhaul/fullgame-original-inventory.json",
+    "files": 6,
+    "resolution": [
+      1280,
+      720
+    ],
+    "files_over_90_minutes": 5,
+    "entire_game_processed": false,
+    "original_mist_index": {
+      "verified": true,
+      "non_discard_frames": 301948,
+      "origin_seconds": 0,
+      "displayed_first_five_verified": true
+    },
+    "original_index_scope": "packet index and bounded decoder check, not whole-game processing/accuracy"
+  },
+  "staff_labeling_package": {
+    "path": "reports/overhaul/Football-IQ-Staff-Labeling-2026-10-21-continuation-handoff.zip",
+    "files": 69,
+    "manifest_entries_verified": 67,
+    "bytes": 116225,
+    "sha256": "a11f3a0411edb84f93a88b6a2d75ea98965ec468e08e8fdb180e07e26ca2f771",
+    "crc_and_manifest_hashes_passed": true,
+    "film_included": false,
+    "weights_included": false,
+    "reviewed_labels_supplied": false
+  },
+  "production": {
+    "committed": false,
+    "pushed": false,
+    "deployed": false,
+    "existing_worker_28716_untouched": true,
+    "temporary_canary_apis_stopped": true,
+    "database_scope": "disposable loopback footiq_overhaul_completion only",
+    "compatible_authenticated_production_end_to_end_acceptance": false
+  },
+  "remaining": {
+    "ledger": "reports/overhaul/spec-coverage.md",
+    "implementation": [
+      "qualified automatic snap/terminal/nonplay/replay/team/role/identity and specialist producers",
+      "remaining QB outcome comparisons, OL combo/pull/stunt/shed and full trench replay products",
+      "remaining RB contact-density/gap and route/coverage products, defensive/special-teams products and conditioned case drilldowns"
+    ],
+    "acceptance": [
+      "actual staff-reviewed frozen labels and source/category confirmations",
+      "real trained bytes, task accuracy/calibration/baseline/identity/lane gates and approval",
+      "whole-game/sustained GPU/thermal/storage, five-minute p95 and 90-source-minute throughput",
+      "native 1080p and supplied-source audio tests remain separate from accepted 720p-for-now work",
+      "staff usability and compatible authenticated production upload-to-results acceptance"
+    ]
+  }
+}

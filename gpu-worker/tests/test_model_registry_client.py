@@ -42,7 +42,8 @@ def test_default_checkpoint_identity_includes_field_model(monkeypatch):
     monkeypatch.setattr(mrc, "resolve", lambda model_type: queried.append(model_type))
 
     assert mrc.resolved_identity() == {}
-    assert queried == ["detect", "ball", "coverage", "field"]
+    assert queried == ["detect", "ball", "coverage", "field", "expected_completion",
+                       "expected_rushing_gain", "expected_yac", "contextual_pressure"]
 
 
 def test_resolve_downloads_and_caches_artifact(

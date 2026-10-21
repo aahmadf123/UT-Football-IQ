@@ -82,6 +82,86 @@ def _stub_detectors() -> Any:
 STAGES = ["ingest", "segment", "calibrate", "detect", "track", "events", "labels", "metrics"]
 
 
+@pytest.mark.parametrize("period", [True, False])
+def test_render_receives_actual_effective_staff_snapshot(monkeypatch, period):
+    ctx = PipelineContext(video_id="vid", input_uri="file:///film.mp4", job_id="job")
+    ctx.video_path = Path("/film.mp4")
+    clip = {"id": "clip", "start_time": 0.0, "end_time": 1.0}
+    reviewed = {"offensive_formation": {"formation": "Pistol"}}
+    ctx.effective_annotations = {"clip": {
+        "label_data": {"offensive_formation": {"formation": "CLIP_METADATA_GUESS"}},
+        "human_labels": [{"source": "human", "annotated_by": "cf128509-d42d-4532-8c4d-67e44150d391",
+                          "label_type": "offensive_formation", "label_value": reviewed["offensive_formation"]}],
+    }}
+    ctx.clip_artifacts = {"clip": {"labels": {"labels": [
+        {"source": "human", "label_type": "offensive_formation",
+         "label_value": {"formation": "RAW_GUESS"}},
+    ]}}}
+    monkeypatch.setattr("pipeline.lightweight_config.use_period_renderer", lambda _: period)
+    with patch("renderer.period_renderer.run", return_value={}) as quick, patch(
+        "pipeline.stage_render.run", return_value={}
+    ) as full:
+        _run_clip_stage("render", ctx, clip)
+    rendered = quick if period else full
+    assert rendered.call_args.kwargs["reviewed_label_data"] == reviewed
+
+
+@pytest.mark.parametrize("reviewed", [False, True])
+def test_label_replay_cannot_launder_raw_clip_metadata(
+    synthetic_video, offline_env, tmp_path, monkeypatch, reviewed
+):
+    import uuid
+
+    from pipeline import orchestrator
+
+    clip = {"id": "clip-review", "start_time": 0.0, "end_time": 1.0,
+            "annotation_revision": 3,
+            "label_data": {"offensive_formation": {"formation": "MACHINE_METADATA"}}}
+    if reviewed:
+        clip["human_labels"] = [{"id": str(uuid.uuid4()), "source": "human",
+                                 "annotated_by": str(uuid.uuid4()),
+                                 "label_type": "offensive_formation",
+                                 "label_value": {"formation": "Pistol"}}]
+    monkeypatch.setattr(orchestrator, "_run_video_stage", lambda *_: {"clips": [dict(clip)]})
+    monkeypatch.setattr(orchestrator, "_run_clip_stage", lambda *_: {"labels": [
+        {"label_type": "offensive_formation", "source": "heuristic",
+         "label_value": {"formation": "RAW_GUESS"}},
+    ]})
+    sink = DirArtifactSink(tmp_path / "reviewed-labels")
+    result = run_pipeline("video", str(synthetic_video), stages=["segment", "labels"],
+                          artifact_sink=sink, revisions={"effective_annotations": [clip]})
+    assert result["failed_clip_stages"] == []
+    labels = sink.load("labels", "clip-review")["labels"]
+    assert labels == [{"label_type": "offensive_formation",
+                       "label_value": {"formation": "Pistol" if reviewed else "RAW_GUESS"},
+                       "source": "human" if reviewed else "heuristic"}]
+
+
+
+def test_registered_source_attestation_precedes_dependent_stages(synthetic_video, offline_env):
+    from pipeline.media_identity import content_identity
+
+    source = content_identity(synthetic_video)
+    uri = synthetic_video.as_uri()
+    calls = []
+    result = run_pipeline(
+        "registered-source",
+        uri,
+        stages=["ingest"],
+        lineage={
+            "source_registration": {
+                "storage_uri": uri,
+                "content_sha256": source["source_sha256"],
+                "size_bytes": source["source_bytes"],
+            }
+        },
+        progress_cb=lambda stage, clip_id, state, extra: calls.append((stage, state, extra)),
+    )
+    assert calls[0][:2] == ("source_identity", "verified")
+    assert calls[0][2]["source_identity"] == result["source_identity"]
+    assert result["source_identity"]["full_sha256"] == source["source_sha256"]
+
+
 def test_angle_calibration_and_tracking_use_clip_specific_regimes(monkeypatch) -> None:  # type: ignore[no-untyped-def]
     from pipeline import stage_calibrate, stage_track
 
@@ -553,10 +633,96 @@ def test_system_rewrites_of_an_annotated_clip_keep_checkpoints(
 def test_annotation_identity_keeps_only_what_staff_change() -> None:
     from pipeline.orchestrator import annotation_identity
 
-    record = {"id": "b", "annotation_revision": 3, "start_time": 1.0, "end_time": 2.0,
-              "human_events": [{"event_type": "snap"}], "label_data": {"cfbd": {}}, "storage_uri": "x"}
+    record = {
+        "id": "b",
+        "annotation_revision": 3,
+        "start_time": 1.0,
+        "end_time": 2.0,
+        "human_events": [{"event_type": "snap"}],
+        "label_data": {"cfbd": {}},
+        "storage_uri": "x",
+    }
     assert annotation_identity([record, {"id": "a"}]) == [
-        {"id": "a", "annotation_revision": None, "start_time": None, "end_time": None, "human_events": None},
-        {"id": "b", "annotation_revision": 3, "start_time": 1.0, "end_time": 2.0,
-         "human_events": [{"event_type": "snap"}]},
+        {
+            "id": "a",
+            "annotation_revision": None,
+            "start_time": None,
+            "end_time": None,
+            "human_events": None,
+            "removed_events": None,
+            "human_labels": None,
+        },
+        {
+            "id": "b",
+            "annotation_revision": 3,
+            "start_time": 1.0,
+            "end_time": 2.0,
+            "human_events": [{"event_type": "snap"}],
+            "removed_events": None,
+            "human_labels": None,
+        },
     ]
+    removed = {**record, "removed_events": [{"id": "old", "provenance": {"state": "superseded"}}]}
+    assert annotation_identity([removed]) != annotation_identity([record])
+    human = {**record, "human_labels": [{"id": "reviewed-label"}]}
+    assert annotation_identity([human]) != annotation_identity([record])
+
+
+def test_normal_expected_stage_exports_current_review_scope(
+    synthetic_video, offline_env, tmp_path, monkeypatch
+):
+    import runpy
+
+    from pipeline import model_registry_client, orchestrator, stage_expected_outcomes, storage
+
+    fixtures = runpy.run_path(str(Path(__file__).with_name("test_expected_outcomes.py")))
+    event, tracks = fixtures["_observed_release"]()
+    monkeypatch.setattr(storage, "LOCAL_STORAGE_ROOT", str(tmp_path / "export-store"))
+    monkeypatch.setattr(model_registry_client, "resolve", lambda _: None)
+    clip = {
+        "id": "clip-export",
+        "start_time": 0,
+        "end_time": 3,
+        "annotation_revision": 7,
+        "label_data": {"_observation_revision": 4},
+    }
+    monkeypatch.setattr(orchestrator, "_run_video_stage", lambda name, ctx: {"clips": [clip]})
+
+    def stage(name, ctx, current):
+        assert name == "expected_outcomes"
+        return stage_expected_outcomes.run(
+            current["id"],
+            ctx.job_id,
+            10,
+            tracklets=tracks,
+            events=[event],
+            analytics_safe=True,
+            persist=False,
+            lineage={
+                "session_id": "session",
+                "recording_id": ctx.video_id,
+                "canonical_play_id": current["id"],
+                "media_sha256": ctx.lineage["source_sha256"],
+            },
+        )
+
+    monkeypatch.setattr(orchestrator, "_run_clip_stage", stage)
+    result = run_pipeline(
+        "video-export",
+        str(synthetic_video),
+        job_id="job-export",
+        priority=10,
+        stages=["segment", "expected_outcomes"],
+        artifact_sink=NullArtifactSink(),
+        revisions={"effective_annotations": [clip]},
+    )
+    descriptor = result["expected_feature_export"]
+    path = storage.download_to_temp(descriptor["artifact_uri"])
+    import json
+
+    document = json.loads(path.read_bytes())
+    assert document["clip_revisions"] == {
+        "clip-export": {"annotation_revision": 7, "observation_revision": 4}
+    }
+    assert set(document["feature_snapshots"]) == {"clip-export:completion"}
+    assert len(json.dumps(descriptor)) < 2048

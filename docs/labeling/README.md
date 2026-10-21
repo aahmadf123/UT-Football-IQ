@@ -1,9 +1,15 @@
 # Staff labeling package
 
-Start with `reports/overhaul/labeling-package/sources.json` and the local
+Start with `reports/overhaul/labeling-package/sources-content-verified.json`
+when included, otherwise `reports/overhaul/labeling-package/sources.json`, and the local
 `tools/football-labeler/index.html` viewer. The package contains source metadata,
 empty drafts and reviewer assignments. It contains no footage, completed labels,
 assigned staff identities, confirmed source groups or claimed benchmark results.
+
+The continuation package includes actual full-content hashes for all 36 supplied
+recordings (25,300,873,296 bytes). The original unreviewed catalog is preserved.
+Verified bytes establish file identity; source categories, independent groups,
+football observations and reviewer assignments still need staff confirmation.
 
 Use the [local viewer launch and frame-index instructions](../../tools/football-labeler/README.md)
 to serve it on this computer; select the original films through its file picker.
@@ -20,6 +26,7 @@ the twelve-group held-out benchmark. Category balance may require more sources.
 
 | File | Purpose |
 | --- | --- |
+| `sources-content-verified.json` | The same unreviewed source catalog with all 36 full-content SHA-256 hashes verified locally. Use this when included. |
 | `sources.json` | Stable source IDs, local paths, exact probed sizes/durations/dimensions, rational frame rates, proposed group/category and pending hashes. |
 | `source-register.csv` | Spreadsheet version of the register. Edits to this CSV do not automatically change the JSON catalog. |
 | `review-assignments.csv` | Unassigned primary, independent secondary and adjudication passes. Fill in actual staff IDs and track progress. |
@@ -81,7 +88,9 @@ Recheck any size/hash mismatch before continuing.
 The helper was also exercised on the actual 8.67 MB practice source and 3.74 GB
 full-game source in 3.751 s total, using 1 MiB reads; the small evidence record is
 `reports/overhaul/labeling-hash-canary.json`. This verifies streaming execution,
-not annotation quality. The delivered base catalog remains hash pending.
+not annotation quality. The preserved base catalog remains hash pending; the
+separate `sources-content-verified.json` continuation catalog contains the actual
+full hashes for all 36 supplied originals.
 
 ## Freeze a completed primary review
 
@@ -137,6 +146,11 @@ python scripts/evaluate_overhaul_release.py runs/labeling/release-evidence.json 
 Preparing or freezing labels does not run the evaluation, train/promote a model,
 qualify tracking/identity, or satisfy the release gates. The generated package
 is deliberately unreviewed and remains outside production analytics.
+
+For the platform's structured role, geometry, possession and interaction review
+workflow, see [platform observations](platform-observations.md). Standalone target
+names and platform tracking IDs require verified source correspondence; they are
+not interchangeable simply because their labels look alike.
 
 To regenerate untouched templates, use a fresh directory:
 

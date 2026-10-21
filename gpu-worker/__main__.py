@@ -411,6 +411,13 @@ def process_pipeline_job(job: dict[str, Any]) -> None:
             control["action"] = "lease_lost"
 
     def progress_cb(stage: str, clip_id: str | None, status: str, extra: dict[str, Any]) -> None:
+        if stage == "source_identity" and extra.get("source_identity"):
+            # Commit full game identity before dependent prediction ingest.
+            accepted = _update_job_status(
+                job_id, "running", output_artifacts={"source_identity": extra["source_identity"]}
+            )
+            if accepted is False:
+                raise PipelineInterrupted("lease_lost")
         # Use bounded keys: the backend merges progress and caps JSON at
         # 64 KiB, so per-clip UUID keys cannot accumulate through a full game.
         key = "current_clip" if clip_id else stage
@@ -480,6 +487,10 @@ def process_pipeline_job(job: dict[str, Any]) -> None:
                 processing_profile=profile,
                 revisions=revisions,
                 lineage={
+                    "source_registration": {
+                        key: video_context.get(key)
+                        for key in ("storage_uri", "content_sha256", "size_bytes")
+                    },
                     "existing_clips": existing_clips,
                     "session_id": video_context.get("practice_session_id"),
                     "recording_id": video_id,
@@ -589,7 +600,7 @@ def _bounded_job_summary(
     compact["checkpoint"] = {
         key: value
         for key, value in (result.get("checkpoint") or {}).items()
-        if key in {"fingerprint", "source_sha256", "processing_profile"}
+        if key in {"fingerprint", "source_sha256", "source_bytes", "processing_profile"}
     }
     compact["clips"] = [
         {
@@ -1236,9 +1247,17 @@ def _dispatch(
             overlay_path.unlink(missing_ok=True)
 
     elif job_type == "train":
+        if input_artifacts.get("training_variant") == "verify_expected_outcomes":
+            from training.verify_expected_outcomes import verify_expected_outcomes_job
+
+            return verify_expected_outcomes_job(input_artifacts, job_id)
+        if input_artifacts.get("training_variant") == "expected_outcomes":
+            from training.expected_outcomes import train_expected_outcomes_job
+
+            return train_expected_outcomes_job(input_artifacts, job_id)
         if input_artifacts.get("training_variant") != "local_coverage":
             raise RuntimeError(
-                "Training requires the supported local_coverage variant and actual "
+                "Training requires local_coverage or expected_outcomes and actual "
                 "reviewed labels/features artifacts; automatic pseudo-label training is unavailable."
             )
         return _train_local_coverage(input_artifacts, job_id)
@@ -1256,7 +1275,7 @@ def _train_local_coverage(inputs: dict[str, Any], job_id: str) -> dict[str, Any]
     from pathlib import Path
 
     from pipeline import backend, storage
-    from pipeline.runtime import check_control
+    from pipeline.runtime import check_control, lease_payload
     from training.local_coverage import read_jsonl, train_candidate
 
     labels_uri, features_uri = inputs.get("labels_uri"), inputs.get("features_uri")
@@ -1266,6 +1285,12 @@ def _train_local_coverage(inputs: dict[str, Any], job_id: str) -> dict[str, Any]
     features_path = None
     try:
         features_path = storage.download_to_temp(str(features_uri))
+        if backend.BACKEND_API_URL:
+            hashes = inputs.get("manifest_hashes") or {}
+            for name, path in (("labels", labels_path), ("features", features_path)):
+                expected = hashes.get(f"{name}_sha256")
+                if not expected or hashlib.sha256(path.read_bytes()).hexdigest() != expected:
+                    raise ValueError("Candidate inference requires unchanged frozen manifest label/feature hashes")
         labels, features = read_jsonl(labels_path), read_jsonl(features_path)
         check_control()
         with tempfile.TemporaryDirectory(prefix="football-iq-training-") as temporary:
@@ -1290,18 +1315,19 @@ def _train_local_coverage(inputs: dict[str, Any], job_id: str) -> dict[str, Any]
                     "labels_uri": str(labels_uri),
                     "features_uri": str(features_uri),
                     "training_variant": "local_coverage",
+                    "job_id": job_id,
                     "artifact_sha256": checkpoint_sha,
                 }
             )
             model = backend.register_model_version(
                 model_name="local-coverage",
-                version=checkpoint_sha[:16],
+                version=f"{checkpoint_sha[:16]}-{job_id[:8]}-a{lease_payload(job_id).get('attempt_count')}",
                 model_type="coverage",
                 artifact_uri=artifact_uri,
                 metrics=metrics,
                 training_dataset_id=inputs.get("training_dataset_id"),
                 model_version_id=str(
-                    uuid.uuid5(uuid.NAMESPACE_URL, f"local-coverage:{checkpoint_sha}")
+                    uuid.uuid5(uuid.NAMESPACE_URL, f"local-coverage:{job_id}:{lease_payload(job_id).get('attempt_count')}:{checkpoint_sha}")
                 ),
             )
             if backend.BACKEND_API_URL and model is None:
@@ -1313,7 +1339,7 @@ def _train_local_coverage(inputs: dict[str, Any], job_id: str) -> dict[str, Any]
                 for prediction in json.loads(Path(result["predictions_path"]).read_text()):
                     check_control()
                     key = (
-                        f"candidate-prediction:{model['id']}:"
+                        f"candidate-prediction:{job_id}:{lease_payload(job_id).get('attempt_count')}:{model['id']}:"
                         f"{prediction['clip_id']}:{prediction['label_type']}"
                     )
                     label = backend.create_label(
@@ -1323,6 +1349,7 @@ def _train_local_coverage(inputs: dict[str, Any], job_id: str) -> dict[str, Any]
                         source="model",
                         model_version_id=model["id"],
                         label_id=str(uuid.uuid5(uuid.NAMESPACE_URL, key)),
+                        artifact_sha256=checkpoint_sha,
                     )
                     prediction_label_ids.append(label["id"])
             return {

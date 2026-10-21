@@ -1,4 +1,5 @@
 {
+  "expected_outcomes": {"same_session": "expected-outcomes-linear-v1", "nightly": "expected-outcomes-linear-v1"},
   "segment":    {"same_session": "optical-flow-fast", "nightly": "auto"},
   "calibrate":  {"same_session": "calib-hough-dlt",   "nightly": "calib-hough-dlt-kalman"},
   "calibrate_broadcast": {"same_session": "calib-numeral-dlt", "nightly": "calib-numeral-dlt"},

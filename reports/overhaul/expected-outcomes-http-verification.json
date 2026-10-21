@@ -1,0 +1,30 @@
+{
+  "verified_at_utc": "2026-10-21T18:39:58.354498+00:00",
+  "input_source": "synthetic_test",
+  "football_accuracy_verified": false,
+  "database_scope": "footiq_overhaul_completion@127.0.0.1:55432",
+  "transport": "actual loopback HTTP API, runtime registration, claims and fenced completion",
+  "training_job_id": "ab148041-bcdc-4b30-913b-d9ce62f68e22",
+  "training_attempt": 1,
+  "model_id": "f168c78e-4404-5224-8e9d-3d18495dfe3d",
+  "verification_job_id": "e86aee06-0931-4983-a621-f573d537680f",
+  "verification_challenge_id": "7a029273-b1cf-49dd-9b09-b8e7ccf3999c",
+  "verification_attempt": 1,
+  "trusted_execution": true,
+  "ordinary_staff_copied_live_fence_completion_status": 403,
+  "weights_reloaded_and_forward_outputs_matched": true,
+  "original_media_native_clocks_verified": true,
+  "verification_receipt_sha256": "f051fd5684ccd6d088d2adfd43d4d788429fd55efca2e032efceb795d4f37fc7",
+  "release_passed": false,
+  "missing_data_reasons": [
+    "independent_split_sample_minimums_missing_fixed_sideline",
+    "independently_confirmed_source_groups_missing",
+    "requires_240_distinct_heldout_canonical_plays",
+    "requires_12_independent_heldout_groups",
+    "requires_80_plays_and_four_groups_practice",
+    "requires_80_plays_and_four_groups_coach_game",
+    "requires_80_plays_and_four_groups_television",
+    "requires_20_percent_double_labeled_adjudicated_outcomes"
+  ],
+  "production_promotion_status": 422
+}

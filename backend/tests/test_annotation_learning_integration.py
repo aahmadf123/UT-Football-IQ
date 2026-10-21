@@ -291,7 +291,9 @@ async def test_actual_holdout_eval_gates_promotion_and_counts_abstentions(
     get_settings.cache_clear()
     model_path = local_object_path("artifacts", "models/coverage.json")
     model_path.parent.mkdir(parents=True)
-    model_path.write_text('{"model_type":"coverage","provenance":{"train_clip_ids":[]}}')
+    model_path.write_text(
+        '{"schema_version":1,"model_type":"coverage","provenance":{"train_clip_ids":[]}}'
+    )
     maker, actor_id, video_id = local_library
     async with maker() as db:
         actor = await db.get(User, actor_id)
@@ -346,7 +348,7 @@ async def test_actual_holdout_eval_gates_promotion_and_counts_abstentions(
         )
         db.add(model)
         await db.flush()
-        truths, predictions = [], []
+        truths, predictions, prediction_rows = [], [], []
         for index in range(20):
             clip = Clip(
                 id=uuid.uuid4(),
@@ -355,6 +357,7 @@ async def test_actual_holdout_eval_gates_promotion_and_counts_abstentions(
                 end_time=5,
                 label_data={},
                 provenance={"source": "real"},
+                capture_regime="fixed_sideline",
                 is_reviewed=True,
             )
             db.add(clip)
@@ -375,15 +378,41 @@ async def test_actual_holdout_eval_gates_promotion_and_counts_abstentions(
                 source="model",
                 model_version_id=model.id,
             )
-            db.add_all([truth, predicted])
+            db.add(truth)
             truths.append(truth.id)
             predictions.append(predicted.id)
+            prediction_rows.append(predicted)
         await db.flush()
         with pytest.raises(HTTPException, match="422"):
             await promote_model(db, model=model, stage=ModelStage.production, actor=actor)
         benchmark = await create_benchmark(
             db, label_ids=truths, actor=actor, name="Held-out Toledo coverage"
         )
+        from label_producer_helpers import publish_pipeline_predictions
+
+        video = await db.get(Video, video_id)
+        await publish_pipeline_predictions(db, actor, video, model, prediction_rows, monkeypatch)
+        model.training_dataset_id = None
+        with pytest.raises(HTTPException, match="frozen training snapshot baseline"):
+            await evaluate_model(
+                db,
+                model_id=model.id,
+                benchmark_id=uuid.UUID(benchmark["id"]),
+                prediction_label_ids=predictions,
+                actor=actor,
+            )
+        model.training_dataset_id = training_dataset.id
+        original_changelog = training_dataset.changelog
+        training_dataset.changelog = {}
+        with pytest.raises(HTTPException, match="hash-bound frozen training snapshot"):
+            await evaluate_model(
+                db,
+                model_id=model.id,
+                benchmark_id=uuid.UUID(benchmark["id"]),
+                prediction_label_ids=predictions,
+                actor=actor,
+            )
+        training_dataset.changelog = original_changelog
         # Later coach edits must not change the fitted-label baseline.
         for training_label in training_labels:
             training_label.label_value = {"shell": "cover_3"}
@@ -396,6 +425,7 @@ async def test_actual_holdout_eval_gates_promotion_and_counts_abstentions(
             actor=actor,
         )
         assert partial["accuracy"] == 0.5 and not partial["passed"]
+        assert "__abstained__" in partial["confusion_matrix"]["labels"]
         measured = await evaluate_model(
             db,
             model_id=model.id,
@@ -405,11 +435,55 @@ async def test_actual_holdout_eval_gates_promotion_and_counts_abstentions(
         )
         assert measured["accuracy"] == measured["macro_f1"] == 1
         assert measured["baseline_accuracy"] == 0.75
+        assert sum(map(sum, measured["confusion_matrix"]["counts"])) == 20
+        stored = await db.get(SystemSetting, f"learning:evaluation:{measured['id']}")
+        assert stored.value["confusion_matrix"] == measured["confusion_matrix"]
         assert measured["passed"]
+        assert measured["capture_regimes"] == ["fixed_sideline"]
+        assert measured["label_scope"]["slices"]["fixed_sideline"]["baseline_accuracy"] == 0.75
+        assert measured["baseline"]["definition"] == "training_population_majority_class"
+        assert (
+            measured["baseline"]["training_snapshot_sha256"]
+            == hashlib.sha256(training_body.encode()).hexdigest()
+        )
+        pristine = dict(stored.value)
+        for forged in [
+            {**pristine, "baseline_policy_version": None, "baseline_accuracy": None},
+            {**pristine, "baseline_accuracy": 0.0},
+            {**pristine, "capture_regimes": ["drone_follow"]},
+            {**pristine, "label_scope": {**pristine["label_scope"], "feature_schema_version": 2}},
+            {**pristine, "label_scope": {**pristine["label_scope"], "passed": False}},
+            {**pristine, "baseline": {**pristine["baseline"], "majority_class": "forged"}},
+        ]:
+            stored.value = forged
+            with pytest.raises(HTTPException, match="422"):
+                await promote_model(db, model=model, stage=ModelStage.production, actor=actor)
+            assert model.promoted_stage != ModelStage.production
+        stored.value = pristine
         await promote_model(db, model=model, stage=ModelStage.production, actor=actor)
         assert model.promoted_stage == ModelStage.production
         approved_sha = model.metrics["approved_artifact_sha256"]
         assert approved_sha == measured["artifact_sha256"]
+        approved_scope = model.metrics["label_publication_approvals"]["coverage_shell"]
+        assert approved_scope["capture_regimes"] == ["fixed_sideline"]
+        assert approved_scope["feature_schema_version"] == 1
+        assert approved_scope["artifact_sha256"] == approved_sha
+        assert approved_scope["evaluation_id"] == measured["id"]
+        from label_producer_helpers import evaluate_and_promote
+
+        await evaluate_and_promote(db, actor, model, benchmark["id"], predictions)
+        model.training_dataset_id = None
+        with pytest.raises(HTTPException, match="frozen training snapshot baseline"):
+            await evaluate_model(
+                db,
+                model_id=model.id,
+                benchmark_id=uuid.UUID(benchmark["id"]),
+                prediction_label_ids=predictions,
+                actor=actor,
+            )
+        assert model.promoted_stage == ModelStage.production
+        assert model.metrics["approved_artifact_sha256"] == approved_sha
+        model.training_dataset_id = training_dataset.id
         training_path.write_bytes((training_body + "{}\n").encode("utf-8"))
         with pytest.raises(HTTPException, match="422"):
             await promote_model(db, model=model, stage=ModelStage.production, actor=actor)

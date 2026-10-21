@@ -219,6 +219,63 @@ def patch_video_status(
 # ── Clips ─────────────────────────────────────────────────────────────────────
 
 
+def fetch_active_clips(video_id: str) -> list[dict[str, Any]]:
+    """Strict layout snapshot for compare-and-swap segmentation publication."""
+    if _offline():
+        return []
+    clips: list[dict[str, Any]] = []
+    with _client() as client:
+        while True:
+            response = client.get(
+                f"/api/v1/videos/{video_id}/clips", params={"offset": len(clips), "limit": 500}
+            )
+            response.raise_for_status()
+            page = response.json()
+            if not isinstance(page, list):
+                raise ValueError("Active clip snapshot response must be a list")
+            clips.extend(dict(clip) for clip in page)
+            if len(page) < 500:
+                return [clip for clip in clips if not clip.get("superseded")]
+
+
+def _clip_payload(values: dict[str, Any]) -> dict[str, Any]:
+    values = dict(values)
+    extra = values.pop("extra", None)
+    source = values.get("boundary_source", "model")
+    values["provenance"] = values.get("provenance") or {
+        "source": source if source in {"manual", "heuristic", "synthetic_test"} else "unvalidated",
+        "method": "play_segmentation",
+        "validated": source == "manual",
+    }
+    payload = {key: value for key, value in values.items() if value is not None}
+    payload.update({key: value for key, value in (extra or {}).items() if value is not None})
+    return payload
+
+
+def batch_create_clips(
+    video_id: str,
+    clips: list[dict[str, Any]],
+    *,
+    generation_id: str,
+    expected_active_clip_ids: list[str],
+) -> list[dict[str, Any]]:
+    """Publish a complete machine layout atomically; errors never fall back to partial writes."""
+    payloads = [_clip_payload(clip) for clip in clips]
+    if _offline():
+        return [_offline_record({"video_id": video_id, **clip}) for clip in payloads]
+    with _client() as client:
+        response = client.post(
+            f"/api/v1/videos/{video_id}/clips/batch",
+            json={
+                "generation_id": generation_id,
+                "expected_active_clip_ids": expected_active_clip_ids,
+                "clips": payloads,
+            },
+        )
+        response.raise_for_status()
+        return [dict(clip) for clip in response.json()["clips"]]
+
+
 def create_clip(
     video_id: str,
     start_time: float,
@@ -294,6 +351,56 @@ def patch_tracklet_provenance(tracklet_id: str, provenance: dict[str, Any]) -> N
         return
     with _client() as c:
         response = c.patch(f"/api/v1/tracklets/{tracklet_id}", json={"provenance": provenance})
+        response.raise_for_status()
+
+
+def patch_bound_manual_identity(track: dict[str, Any]) -> None:
+    """Persist only exact rebound manual lineage, verified again by the server."""
+    if _offline():
+        return
+    with _client() as client:
+        response = client.patch(
+            f"/api/v1/tracklets/{track['id']}",
+            json={
+                "player_id": track["player_id"],
+                "provenance": track["provenance"],
+            },
+        )
+        response.raise_for_status()
+
+
+def publish_actor_binding_review(
+    clip_id: str,
+    job_id: str,
+    revision: int,
+    issues: list[dict[str, Any]],
+    removal_issues: list[dict[str, Any]] | None = None,
+) -> None:
+    if _offline():
+        return
+    # Malformed authored actor values remain review-required, but are not
+    # allowed into the sidecar's typed UUID reference field.
+    import uuid
+
+    safe_issues = []
+    for issue in issues:
+        actor_ids = []
+        for value in issue.get("actor_ids", []):
+            try:
+                actor_ids.append(str(uuid.UUID(str(value))))
+            except (ValueError, TypeError, AttributeError):
+                continue
+        safe_issues.append({**issue, "actor_ids": actor_ids})
+    with _client() as client:
+        response = client.post(
+            f"/api/v1/clips/{clip_id}/actor-binding-review",
+            json={
+                "job_id": job_id,
+                "annotation_revision": revision,
+                "issues": safe_issues,
+                "removal_issues": removal_issues or [],
+            },
+        )
         response.raise_for_status()
 
 
@@ -539,13 +646,33 @@ def create_label(
     source: str = "model",
     model_version_id: str | None = None,
     label_id: str | None = None,
+    artifact_sha256: str | None = None,
 ) -> dict[str, Any]:
     """POST /api/v1/labels and return the created label dict."""
+    current_job = lease_headers().get("X-Job-ID")
+    if current_job or artifact_sha256:
+        label_value = {
+            **label_value,
+            "provenance": {
+                **(label_value.get("provenance") or {}),
+                **(
+                    {
+                        "job_id": current_job,
+                        "producer_attempt": lease_payload(current_job).get("attempt_count"),
+                    }
+                    if current_job
+                    else {}
+                ),
+                **({"artifact_sha256": artifact_sha256} if artifact_sha256 else {}),
+            },
+        }
     payload: dict[str, Any] = {
         "label_type": label_type,
         "label_value": label_value,
         "source": source,
     }
+    if current_job:
+        payload["job_id"] = current_job
     if label_id is not None:
         payload["id"] = label_id
     if clip_id is not None:
@@ -583,6 +710,7 @@ def create_metric(
     asymmetry_index: float | None = None,
     injury_risk_score: float | None = None,
     job_id: str | None = None,
+    model_version_id: str | None = None,
 ) -> dict[str, Any]:
     """POST /api/v1/metrics and return the created metric dict."""
     payload: dict[str, Any] = {
@@ -616,6 +744,8 @@ def create_metric(
         payload["injury_risk_score"] = injury_risk_score
     if job_id is not None:
         payload["job_id"] = job_id
+    if model_version_id is not None:
+        payload["model_version_id"] = model_version_id
     if _offline():
         return _offline_record(payload)
     with _client() as c:
@@ -702,8 +832,10 @@ def fetch_roster_for_video(video_id: str) -> list[dict[str, Any]]:
         return []
     if session_kind in ROSTER_SAFE_SESSION_KINDS:
         return players
-    return [{**player, "_identity_scope": "resolved_team_required", "_roster_team": "Toledo"}
-            for player in players]
+    return [
+        {**player, "_identity_scope": "resolved_team_required", "_roster_team": "Toledo"}
+        for player in players
+    ]
 
 
 def fetch_boundary_overrides(video_id: str) -> list[dict[str, Any]] | None:
@@ -719,7 +851,9 @@ def fetch_boundary_overrides(video_id: str) -> list[dict[str, Any]] | None:
     if not isinstance(payload, dict) or payload.get("active") is not True:
         return None
     clips = payload.get("clips")
-    if not isinstance(clips, list) or any(not isinstance(clip, dict) or not clip.get("id") for clip in clips):
+    if not isinstance(clips, list) or any(
+        not isinstance(clip, dict) or not clip.get("id") for clip in clips
+    ):
         raise ValueError("Active staff boundary override has no valid clip list")
     return clips
 
@@ -1023,13 +1157,16 @@ def fetch_annotation_snapshot(video_id: str) -> list[dict[str, Any]]:
     if not BACKEND_API_URL:
         return []
     # A failed read must fail the run rather than resume stale corrected data.
-    clips = _fetch_clips(video_id=video_id, limit=10000)
+    clips = _fetch_clips(video_id=video_id, limit=10001)
+    if len(clips) > 10000:
+        raise ValueError("Annotation snapshot exceeds 10000 clips; split the source library")
     records = [
         {
             key: clip.get(key)
             for key in (
                 "id",
                 "annotation_revision",
+                "canonical_play_id",
                 "start_time",
                 "end_time",
                 "calibration_version_id",
@@ -1046,17 +1183,91 @@ def fetch_annotation_snapshot(video_id: str) -> list[dict[str, Any]]:
         }
         for clip in clips
     ]
+    video = fetch_video_context(video_id)
     with _client() as client:
         for record in records:
+            record["video_id"] = video_id
+            record["registration_fingerprint"] = video.get("content_sha256")
             if (record.get("annotation_revision") or 0) <= 0:
                 continue
-            response = client.get(f"/api/v1/clips/{record['id']}/events")
-            response.raise_for_status()
-            record["human_events"] = [
-                event
-                for event in response.json()
-                if (event.get("attributes") or {}).get("source") == "human"
-            ]
+            human_events: list[dict[str, Any]] = []
+            seen: set[str] = set()
+            for offset in range(0, 100001, 500):
+                response = client.get(
+                    f"/api/v1/clips/{record['id']}/events",
+                    params={"limit": 500, "offset": offset, "human_only": True},
+                )
+                response.raise_for_status()
+                page = response.json()
+                if not isinstance(page, list) or any(
+                    not isinstance(event, dict) or not event.get("id") for event in page
+                ):
+                    raise ValueError("Invalid annotation event page")
+                if (
+                    len(page) > 500
+                    or len({str(event["id"]) for event in page}) != len(page)
+                    or any(str(event["id"]) in seen for event in page)
+                ):
+                    raise ValueError("Annotation pagination repeated or exceeded its page")
+                seen.update(str(event["id"]) for event in page)
+                human_events.extend(page)
+                if len(human_events) > 100000:
+                    raise ValueError("Annotation snapshot exceeds 100000 events per clip")
+                if len(page) < 500:
+                    break
+            human_labels: list[dict[str, Any]] = []
+            for source in ("human", "manual"):
+                label_ids: set[str] = set()
+                for offset in range(0, 100001, 500):
+                    response = client.get(
+                        f"/api/v1/clips/{record['id']}/labels",
+                        params={"limit": 500, "offset": offset, "source": source},
+                    )
+                    response.raise_for_status()
+                    page = response.json()
+                    if (
+                        not isinstance(page, list) or len(page) > 500
+                        or any(not isinstance(item, dict) or not item.get("id") for item in page)
+                        or len({str(item["id"]) for item in page}) != len(page)
+                        or any(str(item["id"]) in label_ids for item in page)
+                        or any(item.get("source") != source for item in page)
+                    ):
+                        raise ValueError("Invalid human label snapshot page")
+                    label_ids.update(str(item["id"]) for item in page)
+                    human_labels.extend(page)
+                    if len(human_labels) > 100000:
+                        raise ValueError("Annotation snapshot exceeds 100000 labels per clip")
+                    if len(page) < 500:
+                        break
+            removed_events = []
+            removed_seen = set()
+            for offset in range(0, 100001, 500):
+                response = client.get(
+                    f"/api/v1/clips/{record['id']}/removed-events",
+                    params={"limit": 500, "offset": offset},
+                )
+                response.raise_for_status()
+                page = response.json()
+                if (
+                    not isinstance(page, list)
+                    or len(page) > 500
+                    or any(not isinstance(item, dict) or not item.get("id") for item in page)
+                    or len({str(item["id"]) for item in page}) != len(page)
+                    or any(str(item["id"]) in removed_seen for item in page)
+                ):
+                    raise ValueError("Invalid removed event snapshot page")
+                removed_seen.update(str(item["id"]) for item in page)
+                removed_events.extend(page)
+                if len(removed_events) > 100000:
+                    raise ValueError("Removal snapshot exceeds 100000 events per clip")
+                if len(page) < 500:
+                    break
+            current = fetch_clip(str(record["id"]))
+            if current.get("annotation_revision") != record.get("annotation_revision"):
+                raise ValueError("Staff annotations changed during snapshot; retry processing")
+            record["human_events"] = human_events
+            record["human_labels"] = human_labels
+            record["removed_events"] = removed_events
     return sorted(records, key=lambda clip: str(clip["id"]))
 
 

@@ -24,7 +24,7 @@ import os
 import shutil
 import tempfile
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import httpx
@@ -44,6 +44,8 @@ class ResolvedModel:
     local_path: Path
     artifact_sha256: str | None = None
     validated: bool = False
+    approved_evaluation_id: str | None = None
+    publication_approvals: dict = field(default_factory=dict)
 
 
 _lock = threading.Lock()
@@ -51,7 +53,9 @@ _resolved: dict[str, ResolvedModel | None] = {}
 
 
 def resolved_identity(
-    model_types: tuple[str, ...] = ("detect", "ball", "coverage", "field"),
+    model_types: tuple[str, ...] = ("detect", "ball", "coverage", "field",
+                                    "expected_completion", "expected_rushing_gain",
+                                    "expected_yac", "contextual_pressure"),
 ) -> dict:
     """Snapshot served version ids and bytes for checkpoint invalidation."""
     from pipeline.runtime import model_provenance
@@ -62,6 +66,10 @@ def resolved_identity(
         if resolved is not None:
             identity[model_type] = {
                 "model_version_id": resolved.model_version_id,
+                "validated": resolved.validated,
+                "approved_artifact_sha256": resolved.artifact_sha256 if resolved.validated else None,
+                "approved_evaluation_id": resolved.approved_evaluation_id,
+                "publication_approvals": resolved.publication_approvals,
                 "model_sha256": model_provenance(
                     effective_variant=resolved.model_name, source="real",
                     model_path=str(resolved.local_path),
@@ -206,6 +214,8 @@ def resolve(model_type: str) -> ResolvedModel | None:
                     artifact_sha256=_approved_sha256(version)
                     or (version.get("metrics") or {}).get("artifact_sha256"),
                     validated=_approved_sha256(version) is not None,
+                    approved_evaluation_id=(version.get("metrics") or {}).get("approved_evaluation_id"),
+                    publication_approvals=(version.get("metrics") or {}).get("publication_approvals") or {},
                 )
                 log.info(
                     "model_registry_serving",

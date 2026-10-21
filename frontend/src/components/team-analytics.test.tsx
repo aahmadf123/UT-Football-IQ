@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { TeamAnalytics } from "./team-analytics";
+import { TeamAnalytics, analyticsExportRows } from "./team-analytics";
 import * as api from "@/lib/analytics-api";
 
 const navigation = vi.hoisted(() => ({ replace: vi.fn(), query: "position=WR&session_kind=practice&layout=analyst" }));
@@ -49,6 +49,28 @@ test("saved views persist current typed context and selected visibility", async 
   fireEvent.click(screen.getByRole("button", { name: "Save current view" }));
   await waitFor(() => expect(api.saveAnalysisView).toHaveBeenCalledWith(expect.objectContaining({ name: "Receivers", visibility: "private", filters: expect.objectContaining({ position: "WR", layout: "analyst" }) }), "staff"));
 });
+
+test("event evidence opens the selected source instant relative to the clip", async () => {
+  navigation.query = "position=QB&session_kind=practice&layout=analyst";
+  vi.mocked(api.queryAnalytics).mockResolvedValue({ ...result, groups: [{ ...result.groups[0],
+    metric_name: "time_to_throw", unit: "s", definition_version: "v1", evidence: [{ ...row, result_version: "run", tracklet_id: "qb", metric_packet: {
+      event_evidence: [{ event_id: "release", event_type: "throw", source: "staff", timestamp_seconds: 14 }],
+    } }],
+  }] });
+  vi.mocked(api.fetchPlayEvidence).mockResolvedValue({ play_id: "play-a", views: [
+    { clip_id: "clip-a", video_id: "video", start_seconds: 10, end_seconds: 20, camera_label: "Drone" },
+    { clip_id: "other-clip", video_id: "other-video", start_seconds: 100, end_seconds: 110, camera_label: "End zone" },
+  ], metrics: [] });
+  render(<TeamAnalytics />);
+  fireEvent.click(await screen.findByRole("button", { name: "Inspect throw at 14.00 seconds" }));
+  await screen.findByText(/Canonical play play-a/);
+  const url = new URL(screen.getByRole("link", { name: /^Drone/ }).getAttribute("href")!, "https://film.test");
+  expect(url.searchParams.get("t")).toBe("4");
+  expect(url.searchParams.get("position")).toBe("QB");
+  expect(url.searchParams.get("session_kind")).toBe("practice");
+  const alternate = new URL(screen.getByRole("link", { name: /^End zone/ }).getAttribute("href")!, "https://film.test");
+  expect(alternate.searchParams.get("t")).toBe("0");
+});
 test("query errors provide a working retry instead of placeholder charts", async () => {
   vi.mocked(api.queryAnalytics).mockRejectedValueOnce(new Error("Server unavailable"));
   render(<TeamAnalytics />);
@@ -80,3 +102,25 @@ test("definition failures have an explicit retry while film-linked measurements 
   expect(screen.queryByRole("button", { name: "Retry definitions" })).toBeNull();
 });
 
+
+
+test("opportunity-only cohorts retain denominator evidence and source-time film links", async () => {
+  vi.mocked(api.queryAnalytics).mockResolvedValue({ ...result, groups: [], opportunities: [{ kind: "routes", definition_version: "v1", eligible_count: 2, player_count: 1, evidence: [{ ...row, metric_packet: { source_start_seconds: 12 } }] }] });
+  render(<TeamAnalytics />);
+  fireEvent.click(await screen.findByText("Inspect opportunities"));
+  fireEvent.click(screen.getByRole("button", { name: "Inspect routes rep 1" }));
+  await screen.findByText(/Canonical play play-a/);
+  const url = new URL(screen.getByRole("link", { name: /^Drone/ }).getAttribute("href")!, "https://film.test");
+  expect(url.searchParams.get("t")).toBe("2");
+  expect(url.searchParams.get("position")).toBe("WR");
+});
+
+
+test("analysis exports retain opportunity and partial geometry evidence without fake scalars", () => {
+  const exported = analyticsExportRows({ ...result, groups: [], opportunities: [{ kind: "routes", definition_version: "v1", eligible_count: 1, player_count: 1, evidence: [row] }], products: [{ metric_name: "observed_separation", definition_version: "v1", unit: "yd", evidence: [{ ...row, metric_packet: { partial_observation: true } }] }] });
+  expect(exported[1][1]).toBe("spatial_evidence");
+  expect(exported[1][4]).toBeNull();
+  expect(exported[1][11]).toContain('"partial_observation":true');
+  expect(exported[2][1]).toBe("opportunity");
+  expect(exported[2][3]).toBe("routes");
+});

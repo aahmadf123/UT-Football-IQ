@@ -12,6 +12,7 @@ import cv2
 import numpy as np
 import pytest
 
+from pipeline import stage_render
 from pipeline.runtime import PipelineInterrupted, job_context
 from renderer import period_renderer
 from worker.media_process import run_checked
@@ -72,6 +73,34 @@ def test_period_overlay_exports_separately_from_clean_playback(
     patch_clip.assert_not_called()
     assert result["source_start_time_seconds"] == 1
     assert result["overlay_start_time_seconds"] == 0
+
+
+@pytest.mark.parametrize("full_resolution", [False, True])
+@pytest.mark.parametrize("staff_snapshot", [None, {"offensive_formation": {"formation": "Pistol"}}])
+def test_actual_encoded_preview_uses_staff_snapshot_only(
+    source: Path, tmp_path: Path, full_resolution: bool, staff_snapshot: dict | None,
+) -> None:
+    """Capture actual drawn captions while both normal encoders produce a movie."""
+    labels = [{"label_type": "offensive_formation", "label_value": {"formation": "RAW_GUESS"},
+               "source": "human", "qualification": "approved", "validated": True}]
+    output = tmp_path / "qualified-preview.mp4"
+    with patch("cv2.putText", wraps=cv2.putText) as captions:
+        if full_resolution:
+            stage_render._render(source, output, [], labels, [], True, 30,
+                                 frame_start=30, frame_end=33,
+                                 reviewed_label_data=staff_snapshot)
+        else:
+            period_renderer._render_reduced(source, output, [], labels, True, 30,
+                                            frame_start=30, frame_end=33,
+                                            reviewed_label_data=staff_snapshot)
+    text = [call.args[1] for call in captions.call_args_list]
+    assert all("RAW_GUESS" not in value for value in text)
+    assert text == (["STAFF  OFF: Pistol"] * 3 if staff_snapshot else [])
+    capture = cv2.VideoCapture(str(output))
+    try:
+        assert capture.isOpened() and int(capture.get(cv2.CAP_PROP_FRAME_COUNT)) == 3
+    finally:
+        capture.release()
 
 
 def test_missing_encoder_is_reported_without_promoting_unplayable_video(tmp_path: Path) -> None:

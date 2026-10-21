@@ -14,6 +14,7 @@ from app.database import get_db
 from app.deps import get_current_user, require_any_staff
 from app.models import Clip, CorrectionType, Label, Tracklet, TrackPoint, User
 from app.services.annotations import submit_correction
+from app.services.clip_state import lock_active_clip, require_active_clip
 
 log = structlog.get_logger(__name__)
 router = APIRouter(tags=["tracklets"])
@@ -140,7 +141,8 @@ async def list_tracklets_for_clip(
 ) -> list[TrackletResponse]:
     """List all tracklets for a clip (summary — no points)."""
     clip_result = await db.execute(select(Clip).where(Clip.id == clip_id))
-    if clip_result.scalar_one_or_none() is None:
+    target_clip = clip_result.scalar_one_or_none()
+    if target_clip is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Clip not found")
 
     result = await db.execute(
@@ -187,7 +189,8 @@ async def create_tracklet(
 ) -> TrackletResponse:
     """Store a new tracklet (with optional inline track points)."""
     clip_result = await db.execute(select(Clip).where(Clip.id == body.clip_id).with_for_update())
-    if clip_result.scalar_one_or_none() is None:
+    target_clip = clip_result.scalar_one_or_none()
+    if target_clip is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Clip not found")
 
     if body.id is not None:
@@ -201,6 +204,7 @@ async def create_tracklet(
                 raise HTTPException(409, "Output ID belongs to another result version")
             return TrackletResponse.from_orm_tracklet(existing)
 
+    require_active_clip(target_clip)
     tracklet = Tracklet(
         id=body.id or uuid.uuid4(),
         provenance={
@@ -275,6 +279,7 @@ async def update_tracklet(
     if tracklet is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tracklet not found")
 
+    await lock_active_clip(db, tracklet.clip_id)
     identity = body.model_dump(
         mode="json", exclude_unset=True, exclude={"track_confidence", "provenance"}
     )
@@ -307,6 +312,18 @@ async def update_tracklet(
         tracklet.track_confidence = body.track_confidence
     if body.provenance is not None:
         tracklet.provenance = {**(tracklet.provenance or {}), **body.provenance}
+        claim = body.provenance.get("manual_identity_binding")
+        if claim is not None:
+            from app.services.actor_bindings import verified_manual_identity
+
+            proof = await verified_manual_identity(db, tracklet.clip_id, tracklet, claim)
+            if worker_job_id is None or proof is None or str(body.player_id) != proof["player_id"]:
+                raise HTTPException(422, "Manual identity lineage is not backed by a source label")
+            tracklet.provenance = {
+                **tracklet.provenance,
+                "identity": {"source": "manual", "label_id": proof["label_id"]},
+                "manual_identity_binding": {**proof, "current_track_id": str(tracklet.id)},
+            }
 
     await db.flush()
     log.info("tracklet_updated", tracklet_id=str(tracklet_id))

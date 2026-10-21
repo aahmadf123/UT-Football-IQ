@@ -29,14 +29,17 @@ from app.models import (
     Clip,
     HeadOrientationReview,
     Metric,
+    ProcessingJob,
     Tracklet,
     User,
     UserRole,
 )
 from app.services.annotations import lock_output_id
+from app.services.clip_state import lock_active_clip, require_active_clip
 from app.services.metric_definitions import DEFINITION_VERSION, metric_definitions
 from app.services.metric_eligibility import automatic_exclusion
 from app.services.metric_policy import INVALID_SOURCES, metric_visibility, metric_visible
+from app.services.metric_publication import trusted_metric_job
 
 log = structlog.get_logger(__name__)
 router = APIRouter(prefix="/api/v1/metrics", tags=["metrics"])
@@ -59,6 +62,9 @@ HEAD_ORIENTATION_METRIC_NAMES: frozenset[str] = frozenset(
 # analytics_safe on ingest. A coach must review them before they leave the
 # experimental surface, exactly like head-orientation metrics.
 FRONTIER_METRIC_NAMES: frozenset[str] = frozenset({"xsep", "xyards", "xpressure"})
+EXPECTED_OUTCOME_METRIC_NAMES: frozenset[str] = frozenset(
+    {"expected_completion", "expected_rushing_gain", "expected_yac", "contextual_pressure"}
+)
 REVIEW_CANDIDATE_METRIC_NAMES: frozenset[str] = frozenset(
     {"effort_review_candidate", "pose_body_orientation_proxy", "workload_fusion"}
 )
@@ -208,6 +214,7 @@ async def create_metric(
     body: MetricCreate,
     db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _current_user: Annotated[User, Depends(require_analyst_or_above)],
+    producer_job: Annotated[ProcessingJob | None, Depends(trusted_metric_job)] = None,
 ) -> MetricResponse:
     """Store a computed metric for a clip.
 
@@ -232,6 +239,8 @@ async def create_metric(
     target_clip = clip_result.scalar_one_or_none()
     if target_clip is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Clip not found")
+
+    require_active_clip(target_clip)
 
     if body.tracklet_id is not None:
         t_result = await db.execute(select(Tracklet).where(Tracklet.id == body.tracklet_id))
@@ -270,7 +279,11 @@ async def create_metric(
             or (isinstance(provenance, dict) and provenance.get("validated") is True)
         )
     )
-    if effective_analytics_safe and source == "real":
+    if (
+        effective_analytics_safe
+        and source == "real"
+        and name_lower not in EXPECTED_OUTCOME_METRIC_NAMES
+    ):
         reason = await automatic_exclusion(
             db,
             clip=target_clip,
@@ -282,6 +295,43 @@ async def create_metric(
         if reason:
             effective_analytics_safe = False
             provenance = {**provenance, "eligibility": "excluded", "exclusion_reason": reason}
+
+    if name_lower in EXPECTED_OUTCOME_METRIC_NAMES:
+        reason = "expected_outcome_model_approval_required"
+        if source == "real" and body.experimental_flag is False and body.analytics_safe is True:
+            reason = await automatic_exclusion(
+                db,
+                clip=target_clip,
+                name=name_lower,
+                value=body.metric_value,
+                provenance=provenance,
+                model_id=body.model_version_id,
+                tracklet_id=body.tracklet_id,
+            )
+        effective_experimental = reason is not None
+        effective_analytics_safe = reason is None
+        if reason:
+            provenance = {**provenance, "eligibility": "excluded", "exclusion_reason": reason}
+
+    if source == "real" and effective_analytics_safe:
+        if (
+            producer_job is None
+            or body.job_id != producer_job.id
+            or producer_job.video_id != target_clip.video_id
+            or (producer_job.clip_id is not None and producer_job.clip_id != target_clip.id)
+        ):
+            raise HTTPException(
+                403, detail="Automatic metric publication requires its trusted pipeline job"
+            )
+        provenance = {
+            **provenance,
+            "producer": {
+                "job_id": str(producer_job.id),
+                "worker_id": producer_job.leased_by,
+                "attempt_count": producer_job.attempt_count,
+                "principal_id": str(_current_user.id),
+            },
+        }
 
     if body.job_id is not None:
         provenance = {**provenance, "publication_state": "pending"}
@@ -418,11 +468,20 @@ async def review_metric(
     metric = result.scalar_one_or_none()
     if metric is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Metric not found")
+    await lock_active_clip(db, metric.clip_id)
 
     if not metric.experimental_flag:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Only experimental metrics require a position-coach review",
+        )
+
+    if (
+        metric.metric_name.lower() in EXPECTED_OUTCOME_METRIC_NAMES
+        and body.review_action == "approve"
+    ):
+        raise HTTPException(
+            422, detail="Predictions require held-out model evaluation and human model promotion."
         )
 
     review = HeadOrientationReview(

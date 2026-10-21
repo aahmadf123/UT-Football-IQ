@@ -11,6 +11,7 @@ import json
 import math
 import subprocess
 from dataclasses import dataclass
+from fractions import Fraction
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -64,21 +65,29 @@ class VideoTimeline:
         if not self.timestamps:
             return max(0, int(seconds * self.fps))
         return max(0, min(len(self.timestamps) - 1,
-                          bisect.bisect_right(self.timestamps, seconds + 1e-6) - 1))
+                          bisect.bisect_right(self.timestamps, seconds) - 1))
 
     def window(self, start_seconds: float, end_seconds: float) -> tuple[int, int]:
         """Source-frame window, including the frame already visible at start."""
         if not self.timestamps:
             return max(0, int(start_seconds * self.fps)), max(0, math.ceil(end_seconds * self.fps))
         return self.frame_for_time(start_seconds), min(len(self.timestamps),
-                                                       bisect.bisect_left(self.timestamps, end_seconds - 1e-9))
+                                                       bisect.bisect_left(self.timestamps, end_seconds))
 
     def proxy_mapping(self, frame_start: int, frame_end: int, fps: float,
                       *, start_seconds: float | None = None, end_seconds: float | None = None) -> dict[str, Any]:
         """CFR proxy frame → actual source frame/PTS, preserving elapsed time."""
         start = self.timestamp(frame_start) if start_seconds is None else start_seconds
         end = self.timestamp(frame_end) if end_seconds is None else end_seconds
-        count = max(0, round(max(0., end - start) * fps))
+        if not math.isfinite(fps) or fps <= 0:
+            raise ValueError("Proxy frame rate must be finite and positive")
+        if not math.isfinite(start) or not math.isfinite(end):
+            raise ValueError("Proxy source times must be finite")
+        # A real source window shorter than half a CFR output interval still
+        # contains a picture. Keep that picture without widening the semantic
+        # source interval; measured duration validation allows one output frame.
+        count = (max(1, round((end - start) * fps))
+                 if end > start and frame_end > frame_start else 0)
         frames = [min(frame_end - 1, max(frame_start, self.frame_for_time(start + i / fps)))
                   for i in range(count)]
         return {"schema_version": 1, "source_start_seconds": start,
@@ -125,46 +134,102 @@ def _ffprobe_json(path: str, *args: str, timeout: float) -> dict[str, Any]:
 @lru_cache(maxsize=8)
 def _probe(path: str, size: int, modified_ns: int) -> VideoTimeline:
     del size, modified_ns
-    stream = _ffprobe_json(path, "-show_entries", "stream=avg_frame_rate,duration,nb_frames",
+    stream = _ffprobe_json(path, "-show_entries", "stream=avg_frame_rate,time_base,duration_ts,duration,nb_frames",
                            timeout=60)["streams"][0]
     numerator, denominator = str(stream["avg_frame_rate"]).split("/")
     fps = float(numerator) / float(denominator)
     if fps <= 0 or not math.isfinite(fps):
         fps = 30.
-    stream_duration = float(stream.get("duration") or 0)
+    try:
+        unit = Fraction(str(stream.get("time_base", "0")))
+    except (ValueError, ZeroDivisionError):
+        unit = Fraction(0)
+
+    def clock(record: dict[str, Any], exact: tuple[str, ...], decimal: tuple[str, ...],
+              *, positive: bool = False) -> int | Fraction | None:
+        # Keep the common path as integer ticks: no per-packet Fraction or
+        # rounded float allocation on full-game demux. Decimal values are a
+        # compatibility fallback only when exact fields/time_base are absent.
+        if unit > 0:
+            for key in exact:
+                value = record.get(key)
+                if type(value) is int or isinstance(value, str):
+                    try:
+                        tick = int(value)
+                    except ValueError:
+                        continue
+                    if not positive or tick > 0:
+                        return tick
+        for key in decimal:
+            value = record.get(key)
+            if type(value) not in (int, float, str):
+                continue
+            try:
+                seconds = Fraction(str(value))
+            except (ValueError, ZeroDivisionError):
+                continue
+            if not positive or seconds > 0:
+                return seconds / unit if unit > 0 else seconds
+        return None
+
+    def seconds(value: int | Fraction) -> float:
+        # Subtract the origin while still in integer/rational space before
+        # converting. Large nonzero source origins must not merge adjacent ticks.
+        return float(value * unit.numerator / unit.denominator) if unit > 0 else float(value)
+
+    stream_end = clock(stream, ("duration_ts",), ("duration",), positive=True)
+    stream_duration = seconds(stream_end) if stream_end is not None else 0.
     expected_frames = int(stream.get("nb_frames") or 0) or round(stream_duration * fps)
 
-    observed_tail: str | None
+    observed_tail: int | Fraction | None
+    raw: list[int | Fraction] = []
     if expected_frames <= 0 or expected_frames > FRAME_PROBE_LIMIT:
         # Demux only, no decode: seconds even for a full game. Packets come
         # in decode order; B-frames reorder for presentation. A packet's
         # duration follows decode order, so the final frame's is unknown and
         # the average frame interval stands in (one frame on a long film).
-        packets = _ffprobe_json(path, "-show_entries", "packet=pts_time", timeout=600).get("packets", [])
-        if any(p.get("pts_time") in (None, "N/A") for p in packets):
-            raise ValueError("Video has packets without usable presentation timestamps")
-        raw = sorted(float(p["pts_time"]) for p in packets)
+        packets = _ffprobe_json(path, "-show_entries", "packet=pts,pts_time,flags", timeout=600).get("packets", [])
+        for packet in packets:
+            # Explicit demux discard/preroll packets have no displayed frame.
+            # Filter before PTS validation/origin; negative displayed PTS and
+            # older ffprobe records without flags retain their native clock.
+            flags = packet.get("flags")
+            if isinstance(flags, str) and "D" in flags:
+                continue
+            timestamp = clock(packet, ("pts",), ("pts_time",))
+            if timestamp is None:
+                raise ValueError("Video has packets without usable presentation timestamps")
+            raw.append(timestamp)
+        raw.sort()
         observed_tail = None
     else:
         frames = _ffprobe_json(
             path, "-show_frames", "-show_entries",
-            "frame=best_effort_timestamp_time,pkt_duration_time,duration_time", timeout=120,
+            "frame=best_effort_timestamp,pts,best_effort_timestamp_time,pts_time,pkt_duration,duration,pkt_duration_time,duration_time", timeout=120,
         ).get("frames", [])
-        raw = [float(frame["best_effort_timestamp_time"]) for frame in frames]
+        for frame in frames:
+            timestamp = clock(frame, ("pts", "best_effort_timestamp"),
+                              ("pts_time", "best_effort_timestamp_time"))
+            if timestamp is None:
+                raise ValueError("Video has frames without usable presentation timestamps")
+            raw.append(timestamp)
         # FFmpeg 7 reports duration_time; earlier versions use pkt_duration_time.
         # Average FPS cannot infer the duration of a VFR recording's final frame.
-        observed_tail = (frames[-1].get("duration_time") or frames[-1].get("pkt_duration_time")) if frames else None
-    if not raw or not all(math.isfinite(t) for t in raw) or any(b <= a for a, b in zip(raw, raw[1:])):
+        observed_tail = clock(frames[-1], ("duration", "pkt_duration"),
+                              ("duration_time", "pkt_duration_time"), positive=True) if frames else None
+    if not raw or any(b <= a for a, b in zip(raw, raw[1:])):
         raise ValueError("Video has no usable strictly ordered presentation timestamps")
     origin = raw[0]
-    timestamps = tuple(t - origin for t in raw)
-    tail = float(observed_tail or (1 / fps))
+    timestamps = tuple(seconds(t - origin) for t in raw)
+    if not all(math.isfinite(t) for t in timestamps) or any(b <= a for a, b in zip(timestamps, timestamps[1:])):
+        raise ValueError("Video has no usable strictly ordered presentation timestamps")
+    tail = seconds(observed_tail) if observed_tail is not None else 1 / fps
     if not math.isfinite(tail) or tail <= 0:
         observed_tail = None
         tail = 1 / fps
     if not math.isfinite(stream_duration) or stream_duration < timestamps[-1]:
         stream_duration = 0.
-    frame_end = timestamps[-1] + tail
+    frame_end = seconds(raw[-1] - origin + observed_tail) if observed_tail is not None else timestamps[-1] + tail
     if stream_duration and (not observed_tail or abs(frame_end - stream_duration) <= 1.001e-6):
         # Decimal PTS/duration precision must not propose a clip microscopically
         # beyond the API's authoritative source duration. Larger observed tails
@@ -172,7 +237,7 @@ def _probe(path: str, size: int, modified_ns: int) -> VideoTimeline:
         duration = stream_duration
     else:
         duration = max(frame_end, stream_duration)
-    return VideoTimeline(timestamps, duration, fps, origin)
+    return VideoTimeline(timestamps, duration, fps, seconds(origin))
 
 
 def point_interval(previous: dict[str, Any], current: dict[str, Any], fps: float) -> float:
@@ -203,8 +268,16 @@ def current_index(cap: Any, timeline: VideoTimeline) -> int:
     import cv2
 
     seconds = float(cap.get(cv2.CAP_PROP_POS_MSEC)) / 1000.0
-    # Millisecond rounding must not drop a frame onto its predecessor.
-    return timeline.frame_for_time(seconds + 0.25 / max(timeline.fps, 1.0))
+    if not math.isfinite(seconds):
+        raise ValueError("Decoder has no finite presentation timestamp")
+    if not timeline.timestamps:
+        return timeline.frame_for_time(seconds)
+    # A decoded picture reports a source PTS, not an arbitrary playback time.
+    # Find its nearest observed timestamp: nominal-FPS tolerances can jump over
+    # distinct native frames only a single tick apart.
+    following = bisect.bisect_left(timeline.timestamps, seconds)
+    candidates = range(max(0, following - 1), min(len(timeline.timestamps), following + 1))
+    return min(candidates, key=lambda index: abs(timeline.timestamps[index] - seconds))
 
 
 def seek_to(cap: Any, timeline: VideoTimeline, frame: int) -> int | None:
@@ -234,10 +307,13 @@ def seek_to(cap: Any, timeline: VideoTimeline, frame: int) -> int | None:
         if not cap.grab():
             return None
         following = current_index(cap, timeline)
-        steps += 1
+        steps = steps + 1 if following <= index else 0
         if following <= index and steps > 4 * max(timeline.fps, 1.0) * (SEEK_MARGIN_S + 1):
             return None  # the capture is not advancing in time
-        index = max(following, index + 1) if following <= index else following
+        # Late/duplicate decoder timestamps cannot establish a new source index.
+        # Continue to the next actual timestamp rather than counting a picture.
+        if following > index:
+            index = following
     return index
 
 
@@ -278,8 +354,16 @@ def iter_frames(
         if not cap.grab():
             return
         following = current_index(cap, timeline)
-        # Equal timestamps (rare muxing glitches) still advance one place.
-        index = following if following > index else index + 1
+        stalled = 0
+        while following <= index:
+            check_control()
+            stalled += 1
+            if stalled > max(32, int(4 * max(timeline.fps, 1.0) * (SEEK_MARGIN_S + 1))):
+                raise ValueError("Decoder stopped advancing in presentation time")
+            if not cap.grab():
+                return
+            following = current_index(cap, timeline)
+        index = following
 
 
 def read_frames(cap: Any, timeline: VideoTimeline, indices: Any) -> dict[int, Any]:
@@ -298,11 +382,18 @@ def read_frames(cap: Any, timeline: VideoTimeline, indices: Any) -> dict[int, An
         )
         if far:
             index = seek_to(cap, timeline, target)
+        stalled = 0
         while index is not None and index < target:
+            check_control()
             if not cap.grab():
                 index = None
                 break
-            index = current_index(cap, timeline)
+            following = current_index(cap, timeline)
+            stalled = stalled + 1 if following <= index else 0
+            if stalled > max(32, int(4 * max(timeline.fps, 1.0) * (SEEK_MARGIN_S + 1))):
+                raise ValueError("Decoder stopped advancing in presentation time")
+            if following > index:
+                index = following
         if index is None:
             break
         if index == target:

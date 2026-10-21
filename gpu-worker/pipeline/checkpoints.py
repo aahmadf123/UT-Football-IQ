@@ -9,11 +9,14 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from pipeline.film_association import ASSOCIATION_VERSION
 from pipeline.media_contract import MEDIA_GENERATOR_VERSION, OVERLAY_GENERATOR_VERSION
+from pipeline.media_identity import content_identity
 
 # Schema 6 invalidates pre-versioned derivatives, sampled-frame tracking and
 # cut proposals that discarded short source intervals or skipped shot structure.
 CHECKPOINT_SCHEMA = 6
+OBSERVED_METRICS_VERSION = "unique-reviewed-source-clocks-2026-10-21.2"
 
 
 def file_digest(path: Path) -> str:
@@ -61,11 +64,11 @@ def checkpoint_identity(
     default_detector = Path(os.environ.get("MODEL_DETECT_PATH", "yolov8n.pt")).expanduser()
     if default_detector.is_file() and "MODEL_DETECT_PATH" not in weights:
         weights["MODEL_DETECT_PATH"] = file_digest(default_detector)
+    source_identity = content_identity(source)
     identity: dict[str, Any] = {
         "schema_version": CHECKPOINT_SCHEMA,
         "video_id": video_id,
-        "source_sha256": file_digest(source),
-        "source_bytes": source.stat().st_size,
+        **{key: value for key, value in source_identity.items() if key != "source_stat"},
         "processing_profile": profile,
         "stages": stages,
         "priority_bucket": "same_session" if priority >= 10 else "nightly",
@@ -75,11 +78,16 @@ def checkpoint_identity(
         "overlay_generator_version": OVERLAY_GENERATOR_VERSION,
         "tracker_inputs_version": "ecc-hsv-v1",
         "staff_boundary_audit_version": "shot-reset-v1",
+        "segmentation_version": ASSOCIATION_VERSION,
+        "observed_metrics_version": OBSERVED_METRICS_VERSION,
         "revisions": revisions or {},
     }
     identity["fingerprint"] = hashlib.sha256(
         json.dumps(identity, sort_keys=True, default=str).encode()
     ).hexdigest()
+    # File metadata only detects mutation during this run. Download temp-file
+    # inode/mtime changes must not invalidate a content-addressed checkpoint.
+    identity["source_stat"] = source_identity["source_stat"]
     return identity
 
 

@@ -100,8 +100,8 @@ def _make_label(*, clip_id: uuid.UUID, label_type: str = "offensive_formation") 
     lb.tracklet_id = None
     lb.label_type = label_type
     lb.label_value = {"name": "trips_right"}
-    lb.source = "model"
-    lb.annotated_by = None
+    lb.source = "human"
+    lb.annotated_by = uuid.uuid4()
     lb.dataset_version = None
     lb.created_at = datetime.now(UTC)
     return lb

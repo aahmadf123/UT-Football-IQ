@@ -378,11 +378,10 @@ class StubSegmenter(SegmenterBase):
 
 
 class GameFilmSegmenter(SegmenterBase):
-    """Edited coaches' game film: one clip per camera angle per play.
+    """Source-time shots, event proposals and conservative play associations.
 
-    Recovers the [scoreboard][sideline][end zone] structure with
-    :mod:`pipeline.game_film`. When the footage isn't edited game film
-    (practice clips, a raw single camera), delegates to ``fallback``.
+    Handles continuous practice, coach film, short extracts and television
+    without assuming card history or a fixed ordering of camera angles.
     After :meth:`segment`, ``clip_specs`` holds the per-angle clips (empty
     when the fallback was used) and ``structure`` the analysis summary.
     """
@@ -394,12 +393,18 @@ class GameFilmSegmenter(SegmenterBase):
         self.clip_specs: list[dict[str, Any]] = []
         self.structure: dict[str, Any] | None = None
         self.timeline: VideoTimeline | None = None
+        self.film_type = "unknown"
+        self.event_evidence: list[dict[str, Any]] = []
 
     def segment(self, video_path: Path) -> list[dict[str, Any]]:
         from pipeline import game_film
 
-        structure = game_film.analyze(video_path)
+        structure = game_film.analyze(video_path, timeline=self.timeline, film_type=self.film_type,
+                                      event_evidence=self.event_evidence)
         self.structure = structure.summary()
+        if structure.clip_specs:
+            self.clip_specs = structure.clip_specs
+            return []
         if structure.edited and structure.plays:
             self.clip_specs = game_film.play_clip_specs(structure)
             self.structure["format_strategy"] = "edited_coach_film"

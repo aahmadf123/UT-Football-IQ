@@ -59,3 +59,12 @@ test("field paths keep centered negative coordinates and never connect a shot cu
   fireEvent.keyDown(screen.getByRole("button", { name: "Inspect observed path 1" }), { key: "Enter" });
   expect(select).toHaveBeenCalledWith(expect.objectContaining({ metric_id: "route_depth" }));
 });
+
+test("measured paths and spacing stop at unknown shot markers and preserve shot zero", () => {
+  const series = [{ timestamp_seconds: 0, width_yards: 2, shot_id: 0 }, { timestamp_seconds: .05, width_yards: 9, shot_id: "unresolved" }, { timestamp_seconds: .1, width_yards: 3, shot_id: "00" }];
+  const spacing = qualifiedSpacingSeries([group("geometric_spacing", "yd", 2, { metric_packet: { series } })]);
+  expect(spacing[0].points.map((p) => p ? [p.seconds, p.shot] : null)).toEqual([[0, "0"], null, [.1, "0"]]);
+  for (const shot_id of ["unresolved", "missing", "n/a"]) {
+    expect(qualifiedFieldPaths([group("route_depth", "yd", 2, { metric_packet: { trajectory: [{ timestamp_seconds: 0, field_x: 50, field_y: 0, shot_id }] } })])).toEqual([]);
+  }
+});

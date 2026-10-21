@@ -65,6 +65,46 @@ def test_storage_ledger_is_discoverable_in_a_new_process(source: Path) -> None:
     assert second.load("ingest") == {"fps": 24}
 
 
+def test_observation_contract_change_refuses_stale_metric_checkpoint(
+    source: Path, monkeypatch
+) -> None:
+    from pipeline import checkpoints
+
+    options = {
+        "video_id": "clock-version",
+        "profile": "review",
+        "stages": ["metrics"],
+        "priority": 0,
+    }
+    old = checkpoint_identity(source, **options)
+    sink = StorageArtifactSink("clock-version")
+    sink.configure(old)
+    sink.write("metrics", {"time_to_throw": "old-candidate"})
+    monkeypatch.setattr(checkpoints, "OBSERVED_METRICS_VERSION", "next-reviewed-clock-contract")
+    current = checkpoint_identity(source, **options)
+    assert current["fingerprint"] != old["fingerprint"]
+    resumed = StorageArtifactSink("clock-version")
+    resumed.configure(current)
+    assert resumed.load("metrics") is None
+
+
+def test_reviewed_overlay_policy_refuses_old_burned_in_checkpoint(source: Path, monkeypatch) -> None:
+    from pipeline import checkpoints
+
+    options = {"video_id": "render-policy", "profile": "review", "stages": ["render"], "priority": 0}
+    with monkeypatch.context() as old_policy:
+        old_policy.setattr(checkpoints, "OVERLAY_GENERATOR_VERSION", "pts-overlay-v4")
+        old = checkpoint_identity(source, **options)
+    sink = StorageArtifactSink("render-policy")
+    sink.configure(old)
+    sink.write("render", {"overlay_uri": "local://old-raw-label-preview.mp4"})
+    current = checkpoint_identity(source, **options)
+    assert current["fingerprint"] != old["fingerprint"]
+    resumed = StorageArtifactSink("render-policy")
+    resumed.configure(current)
+    assert resumed.load("render") is None
+
+
 def test_source_model_and_annotation_changes_invalidate_checkpoints(
     source: Path,
     tmp_path: Path,
@@ -99,9 +139,17 @@ def test_corrupt_and_incompatible_checkpoints_are_never_resumed(
     assert sink.load("detect") is None
 
 
-@pytest.mark.parametrize("setting", ["DETECTION_CONF", "BALL_DETECTION_CONF",
-                                    "EXPERIMENTAL_FOOTBALL_METRICS", "POSE_EXPERIMENTAL_METRICS",
-                                    "OFFICIAL_SUPPRESSION_ENABLED", "REGIME_MODEL_PATH"])
+@pytest.mark.parametrize(
+    "setting",
+    [
+        "DETECTION_CONF",
+        "BALL_DETECTION_CONF",
+        "EXPERIMENTAL_FOOTBALL_METRICS",
+        "POSE_EXPERIMENTAL_METRICS",
+        "OFFICIAL_SUPPRESSION_ENABLED",
+        "REGIME_MODEL_PATH",
+    ],
+)
 def test_analysis_configuration_changes_invalidate_checkpoints(
     source: Path, monkeypatch: pytest.MonkeyPatch, setting: str
 ) -> None:
@@ -223,7 +271,9 @@ def test_event_write_persists_source_provenance_and_job_lineage(
     monkeypatch.setattr(backend, "BACKEND_API_URL", "")
     with job_context(lease={"job_id": "job", "worker_id": "worker", "lease_token": "token"}):
         event = backend.create_event(
-            "clip", "snap", attributes={
+            "clip",
+            "snap",
+            attributes={
                 "source": "synthetic_test",
                 "provenance": {"source": "synthetic_test", "validated": False},
             },
@@ -269,8 +319,10 @@ def test_worker_status_write_includes_attempt_fence(monkeypatch: pytest.MonkeyPa
 
 def test_coach_boundaries_survive_reprocessing(monkeypatch: pytest.MonkeyPatch) -> None:
     ctx = orchestrator.PipelineContext("video", "file:///unused.mp4")
-    clips = [{"id": "reviewed", "start_time": 4, "end_time": 9, "boundary_source": "manual"},
-             {"id": "other", "start_time": 12, "end_time": 16, "boundary_source": "heuristic"}]
+    clips = [
+        {"id": "reviewed", "start_time": 4, "end_time": 9, "boundary_source": "manual"},
+        {"id": "other", "start_time": 12, "end_time": 16, "boundary_source": "heuristic"},
+    ]
     ctx.lineage = {"existing_clips": clips}
     with patch("pipeline.stage_segment.run", side_effect=AssertionError("replaced coach cuts")):
         result = orchestrator._run_video_stage("segment", ctx)
@@ -279,22 +331,38 @@ def test_coach_boundaries_survive_reprocessing(monkeypatch: pytest.MonkeyPatch) 
 
 
 def test_large_job_summary_keeps_database_payload_bounded() -> None:
-    result = {"stage_states": {f"detect:{i}": {"status": "succeeded"} for i in range(2000)},
-              "clips": [{"id": str(i)} for i in range(2000)], "clip_count": 2000,
-              "failed_clip_stages": [], "failed_video_stages": [],
-              "checkpoint": {"fingerprint": "run"}, "result_state": "complete"}
-    with patch.object(storage, "upload_bytes", return_value="local://artifacts/full.json") as upload:
+    result = {
+        "stage_states": {f"detect:{i}": {"status": "succeeded"} for i in range(2000)},
+        "clips": [{"id": str(i)} for i in range(2000)],
+        "clip_count": 2000,
+        "failed_clip_stages": [],
+        "failed_video_stages": [],
+        "checkpoint": {"fingerprint": "run"},
+        "result_state": "complete",
+        "expected_feature_export": {
+            "artifact_uri": "local://artifacts/feature.json",
+            "sha256": "a" * 64,
+            "row_count": 2,
+        },
+    }
+    with patch.object(
+        storage, "upload_bytes", return_value="local://artifacts/full.json"
+    ) as upload:
         compact = worker_main._bounded_job_summary(result, "job")
     assert len(json.dumps(compact).encode()) < 48 * 1024
     assert compact["clip_count"] == 2000
+    assert compact["expected_feature_export"] == result["expected_feature_export"]
     assert compact["clips_truncated"] is True
     assert compact["summary_artifact_uri"] == "local://artifacts/full.json"
     assert json.loads(upload.call_args.args[0])["clips"] == result["clips"]
 
 
 def test_interrupted_summary_does_not_publish_after_cancel() -> None:
-    result = {"stage_states": {f"detect:{i}": {"status": "succeeded"} for i in range(2000)},
-              "interrupted_action": "cancel", "checkpoint": {"fingerprint": "run"}}
+    result = {
+        "stage_states": {f"detect:{i}": {"status": "succeeded"} for i in range(2000)},
+        "interrupted_action": "cancel",
+        "checkpoint": {"fingerprint": "run"},
+    }
     with patch.object(storage, "upload_bytes") as upload:
         compact = worker_main._bounded_job_summary(result, "job", publish=False)
     upload.assert_not_called()
@@ -302,12 +370,20 @@ def test_interrupted_summary_does_not_publish_after_cancel() -> None:
 
 
 def test_dispatch_nested_artifacts_preserve_profile_and_revisions() -> None:
-    job = worker_main._db_row_to_job({
-        "id": "job", "video_id": "video", "job_type": "pipeline",
-        "input_artifacts": {"inputUri": "local://raw-video/film.mp4", "inputArtifacts": {
-            "processing_profile": "detailed", "correction_revision": 7,
-        }},
-    })
+    job = worker_main._db_row_to_job(
+        {
+            "id": "job",
+            "video_id": "video",
+            "job_type": "pipeline",
+            "input_artifacts": {
+                "inputUri": "local://raw-video/film.mp4",
+                "inputArtifacts": {
+                    "processing_profile": "detailed",
+                    "correction_revision": 7,
+                },
+            },
+        }
+    )
     assert job["inputArtifacts"]["processing_profile"] == "detailed"
     assert job["inputArtifacts"]["correction_revision"] == 7
 
@@ -330,34 +406,64 @@ def test_media_outputs_are_immutable_across_attempts(source: Path) -> None:
 
 @pytest.mark.parametrize("pipeline_error", [None, RuntimeError("stage unavailable")])
 def test_rejected_terminal_attempt_cannot_publish_video_status(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, pipeline_error: Exception | None,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    pipeline_error: Exception | None,
 ) -> None:
     monkeypatch.setenv("PIPELINE_CHECKPOINT_ROOT", str(tmp_path))
-    job = {"jobId": "job", "videoId": "video", "inputUri": "file:///fixture.mp4",
-           "leaseToken": "stale", "attemptCount": 1, "inputArtifacts": {}}
-    with patch.object(orchestrator, "run_pipeline", return_value={"result_state": "complete"},
-                      side_effect=pipeline_error), \
-         patch.object(worker_main, "_update_job_status", return_value=False), \
-         patch("pipeline.backend.fetch_annotation_snapshot", return_value=[]), \
-         patch("pipeline.backend.fetch_video_context", return_value={}), \
-         patch("pipeline.backend.fetch_roster_for_video", return_value=[]), \
-         patch("pipeline.backend.patch_video_status") as video_status:
+    job = {
+        "jobId": "job",
+        "videoId": "video",
+        "inputUri": "file:///fixture.mp4",
+        "leaseToken": "stale",
+        "attemptCount": 1,
+        "inputArtifacts": {},
+    }
+    with (
+        patch.object(
+            orchestrator,
+            "run_pipeline",
+            return_value={"result_state": "complete"},
+            side_effect=pipeline_error,
+        ),
+        patch.object(worker_main, "_update_job_status", return_value=False),
+        patch("pipeline.backend.fetch_annotation_snapshot", return_value=[]),
+        patch("pipeline.backend.fetch_video_context", return_value={}),
+        patch("pipeline.backend.fetch_roster_for_video", return_value=[]),
+        patch("pipeline.backend.patch_video_status") as video_status,
+    ):
         worker_main.process_pipeline_job(job)
     video_status.assert_not_called()
 
 
 def test_completed_analysis_without_usable_playback_cannot_mark_film_ready(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("PIPELINE_CHECKPOINT_ROOT", str(tmp_path))
-    job = {"jobId": "job", "videoId": "video", "inputUri": "file:///fixture.mp4",
-           "leaseToken": "current", "attemptCount": 1, "inputArtifacts": {}}
-    with patch.object(orchestrator, "run_pipeline", return_value={
-        "result_state": "complete", "clip_count": 0, "playback_ready": False,
-    }), patch.object(worker_main, "_update_job_status", return_value=True), \
-         patch("pipeline.backend.fetch_annotation_snapshot", return_value=[]), \
-         patch("pipeline.backend.fetch_video_context", return_value={}), \
-         patch("pipeline.backend.fetch_roster_for_video", return_value=[]), \
-         patch("pipeline.backend.patch_video_status") as video_status:
+    job = {
+        "jobId": "job",
+        "videoId": "video",
+        "inputUri": "file:///fixture.mp4",
+        "leaseToken": "current",
+        "attemptCount": 1,
+        "inputArtifacts": {},
+    }
+    with (
+        patch.object(
+            orchestrator,
+            "run_pipeline",
+            return_value={
+                "result_state": "complete",
+                "clip_count": 0,
+                "playback_ready": False,
+            },
+        ),
+        patch.object(worker_main, "_update_job_status", return_value=True),
+        patch("pipeline.backend.fetch_annotation_snapshot", return_value=[]),
+        patch("pipeline.backend.fetch_video_context", return_value={}),
+        patch("pipeline.backend.fetch_roster_for_video", return_value=[]),
+        patch("pipeline.backend.patch_video_status") as video_status,
+    ):
         worker_main.process_pipeline_job(job)
     video_status.assert_called_once_with("video", "uploaded")

@@ -12,6 +12,7 @@ from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
 from app.main import app
 from app.models import Metric, User, UserRole
 from fastapi.testclient import TestClient
@@ -29,7 +30,12 @@ def _make_user(role: UserRole) -> User:
 # ── metrics router: frontier names forced experimental ──────────────────────────
 
 
-def test_frontier_metric_forced_experimental_on_create() -> None:
+@pytest.mark.parametrize(
+    "metric_name",
+    ["xsep", "expected_completion", "expected_rushing_gain", "expected_yac", "contextual_pressure"],
+)
+@pytest.mark.parametrize("source", ["manual", "human", "real"])
+def test_frontier_metric_forced_experimental_on_create(metric_name: str, source: str) -> None:
     from app.database import get_db
     from app.deps import get_current_user
 
@@ -65,11 +71,12 @@ def test_frontier_metric_forced_experimental_on_create() -> None:
             "/api/v1/metrics",
             json={
                 "clip_id": str(clip.id),
-                "metric_name": "xsep",
+                "metric_name": metric_name,
                 "metric_value": {"yards": 2.3, "source": "tracking", "sample_size": 12},
                 # Worker (incorrectly) tries to publish it as trusted:
                 "experimental_flag": False,
                 "analytics_safe": True,
+                "provenance": {"source": source, "validated": True},
             },
         )
     app.dependency_overrides.clear()

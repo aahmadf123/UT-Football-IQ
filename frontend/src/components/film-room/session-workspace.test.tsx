@@ -21,6 +21,8 @@ vi.mock("@/lib/api", () => ({
   addSessionRecording: vi.fn(), createSession: vi.fn(),
 }));
 
+import * as api from "@/lib/api";
+import type { ApiClip, ApiSession } from "@/lib/types";
 import { SessionWorkspace } from "./session-workspace";
 
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
@@ -50,4 +52,13 @@ describe("session workspace", () => {
     await waitFor(() => expect(fixtures.match).toHaveBeenCalledWith("s-1", { clip_ids: ["c-v-1", "c-v-2"], title: "Team rep 12" }, "coach-token"));
     await waitFor(() => expect(screen.getByRole("heading", { name: "Team rep 12" })).toBeTruthy());
   });
+});
+
+
+test("unresolved source windows stay watchable with a source-window label", async () => {
+  vi.mocked(api.fetchSession).mockResolvedValueOnce({ ...fixtures.session, play_count: 0, source_window_count: 1, plays: [{ id: "window", count_eligible: false, sequence: 1, views: [{ id: "view", clip_id: "c-v-1", video_id: "v-1", camera_label: "Sideline" }] }] } as unknown as ApiSession);
+  vi.mocked(api.fetchClipsForVideo).mockImplementationOnce(async () => [{ id: "c-v-1", video_id: "v-1", start_time: 0, end_time: 8, play_number: 1, is_reviewed: false, created_at: "2026-10-21T00:00:00Z", label_data: { canonical_count_eligible: false } } as ApiClip]);
+  render(<SessionWorkspace initialSessionId="s-1" onSelect={vi.fn()} />);
+  await screen.findByRole("heading", { name: "Source window 1" });
+  expect(screen.getByRole("link", { name: /^Sideline$/ }).getAttribute("href")).toContain("clipId=c-v-1");
 });

@@ -4,8 +4,9 @@
  * Every main page must load without console errors, failed API calls or
  * raw error text (status codes, JSON bodies, stack traces) on screen.
  */
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page, type Request } from "@playwright/test";
 import { LIVE_API_URL } from "../playwright.live.config";
+import { readReleaseIdentity } from "../src/lib/release-probe";
 
 const EMAIL = process.env.E2E_EMAIL ?? "";
 const PASSWORD = process.env.E2E_PASSWORD ?? "";
@@ -38,8 +39,21 @@ interface Problem {
   text: string;
 }
 
-function watch(page: Page, current: () => string): Problem[] {
+function watch(page: Page, current: () => string, pending: Set<Request>): Problem[] {
   const problems: Problem[] = [];
+  page.on("request", (request) => {
+    // Alerts intentionally keep an SSE connection open. Readiness concerns
+    // finite data requests; a healthy stream must not stall every page.
+    if (request.url().startsWith(LIVE_API_URL)
+      && !request.headers().accept?.includes("text/event-stream")) pending.add(request);
+  });
+  page.on("requestfinished", (request) => pending.delete(request));
+  page.on("requestfailed", (request) => {
+    pending.delete(request);
+    if (request.url().startsWith(LIVE_API_URL) && request.failure()?.errorText !== "net::ERR_ABORTED") {
+      problems.push({ page: current(), kind: "network", text: request.url().slice(LIVE_API_URL.length, LIVE_API_URL.length + 160) });
+    }
+  });
   page.on("console", (message) => {
     if (message.type() === "error") {
       problems.push({ page: current(), kind: "console", text: message.text().slice(0, 300) });
@@ -66,8 +80,7 @@ async function signIn(page: Page): Promise<string> {
   await page.getByLabel("Email").fill(EMAIL);
   await page.getByLabel("Password").fill(PASSWORD);
   await page.getByRole("button", { name: "Sign in" }).click();
-  // Fail at once, and say why, when the site rejects the login (wrong
-  // E2E_EMAIL / E2E_PASSWORD secrets) instead of timing out on the URL.
+  // Report the actual rejection, including a restarting server, before crawling.
   // (Next.js keeps an empty role="alert" route announcer on every page.)
   const rejected = page.getByRole("alert").filter({ hasText: /\S/ }).first();
   let outcome = "waiting";
@@ -81,19 +94,22 @@ async function signIn(page: Page): Promise<string> {
       { timeout: 120_000, intervals: [500] },
     )
     .not.toBe("waiting");
-  expect(outcome, "Check the E2E_EMAIL and E2E_PASSWORD repository secrets.").toBe("signed-in");
+  expect(outcome, "Sign in must complete before crawling the platform.").toBe("signed-in");
   const token = await page.evaluate(() => {
     const raw = window.localStorage.getItem("football-iq-auth-v1");
     return raw ? (JSON.parse(raw).token as string | undefined) ?? null : null;
   });
   expect(token, "signing in stores a session").toBeTruthy();
+  if (process.env.GITHUB_ACTIONS === "true") process.stdout.write(`::add-mask::${token}\n`);
   return token as string;
 }
 
 /** Wait for loading indicators to settle, so late errors are caught. */
-async function settle(page: Page): Promise<void> {
-  await page.waitForLoadState("networkidle", { timeout: 30_000 }).catch(() => undefined);
-  await page.waitForTimeout(1500);
+async function settle(page: Page, pending: Set<Request>): Promise<void> {
+  await expect(page.locator("h1, h2").first()).toBeVisible();
+  await expect.poll(() => pending.size, { timeout: 20_000, intervals: [250, 500] }).toBe(0);
+  await page.waitForTimeout(1000);
+  await expect.poll(() => pending.size, { timeout: 20_000, intervals: [250, 500] }).toBe(0);
 }
 
 test.describe("deployed platform", () => {
@@ -106,10 +122,8 @@ test.describe("deployed platform", () => {
     await expect
       .poll(
         async () => {
-          const response = await request.get(`${LIVE_API_URL}/api/v1/system/version`);
-          if (!response.ok()) return `HTTP ${response.status()}`;
-          const body = (await response.json()) as { git_sha?: string };
-          return expected ? body.git_sha : "up";
+          const identity = await readReleaseIdentity(() => request.get(`${LIVE_API_URL}/api/v1/system/version`));
+          return identity ? (expected ? identity : "up") : "unavailable";
         },
         { timeout: expected ? 840_000 : 120_000, intervals: [15_000] },
       )
@@ -120,8 +134,8 @@ test.describe("deployed platform", () => {
     await expect
       .poll(
         async () => {
-          const response = await request.get(`${LIVE_API_URL}/api/v1/system/version`);
-          steady = response.ok() ? steady + 1 : 0;
+          const identity = await readReleaseIdentity(() => request.get(`${LIVE_API_URL}/api/v1/system/version`));
+          steady = identity && (!expected || identity === expected) ? steady + 1 : 0;
           return steady;
         },
         { timeout: 300_000, intervals: [10_000] },
@@ -130,8 +144,10 @@ test.describe("deployed platform", () => {
   });
 
   test("every page loads cleanly for the team account", async ({ page }) => {
+    test.setTimeout(600_000);
     let current = "/login/";
-    const problems = watch(page, () => current);
+    const pending = new Set<Request>();
+    const problems = watch(page, () => current, pending);
     const token = await signIn(page);
 
     const headers = { Authorization: `Bearer ${token}` };
@@ -147,7 +163,7 @@ test.describe("deployed platform", () => {
     for (const route of routes) {
       current = route;
       await page.goto(route, { waitUntil: "domcontentloaded" });
-      await settle(page);
+      await settle(page, pending);
       const text = await page.evaluate(() => document.body.innerText);
       const raw = text.match(RAW_ERROR);
       if (raw && raw.index !== undefined) {

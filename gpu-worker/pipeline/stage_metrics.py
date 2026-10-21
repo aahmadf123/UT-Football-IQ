@@ -1,47 +1,15 @@
-"""Stage 9 — Metric Computation (Phase 2 enhanced).
+"""Observed position metrics and explicitly experimental specialist evidence.
 
-Computes analytics metrics from tracking + calibration data.
-Metrics are suppressed (is_suppressed=True) when analytics_safe is False.
-
-Phase 1 metrics:
-  - cushion_at_snap          — defender distance to nearest WR at snap
-  - separation_at_throw      — WR distance from nearest defender at throw event
-  - max_speed                — max speed (yd/s) per tracklet
-  - distance_traveled        — total distance (yd) per tracklet
-  - time_to_throw            — frames from snap to throw event
-  - dropback_depth           — QB field_x change from snap to throw
-
-Phase 2 additions — Ball Carrier Analytics:
-  - speed_at_contact         — ball carrier speed at first contact event
-  - pre_contact_yards        — yards gained before first contact
-  - post_contact_yards       — yards gained after first contact
-  - broken_tackles           — count of post-contact continued forward movement
-  - cutback_timing           — time from handoff to lateral direction change
-  - vision_decisiveness      — time from handoff to gap commitment
-
-Phase 2 additions — QB Decision Metrics:
-  - dropback_type            — 3-step, 5-step, 7-step, sprint-out, RPO
-  - release_point_hash       — left / middle / right hash at release
-  - checkdown_timing         — time from first read to checkdown target
-  - target_location          — front shoulder, back shoulder, upfield
-
-Phase 2 additions — Practice Tempo & Effort:
-  - sprint_to_ball           — max sprint distance to the ball after snap
-  - formation_speed          — time from huddle break to set
-  - return_to_huddle_speed   — speed returning to huddle after play
-  - downfield_blocking       — whether skill players engage downfield
-  - rep_count                — number of plays in a period
-  - time_between_plays       — seconds between end of one play and snap of next
-  - effort_review_candidate  — per-tracklet effort z-score + coach-review flag
-
-All metric_value dicts include a `confidence` field.
-Metrics with field coords require analytics_safe=True on the calibration.
-
-Output: `metrics` rows written to the backend.
+Source-clock producers require reviewed events, resolved roles and supported
+trajectories. Spatial products require safe calibration. New specialist outputs
+remain experimental until an artifact-bound held-out evaluation approves their
+film population. Missing possession, pressure coverage, geometry or interaction
+evidence is unavailable; proximity and movement are not football outcomes.
 """
 
 from __future__ import annotations
 
+import json
 import math
 import os
 from typing import Any
@@ -54,10 +22,79 @@ from pipeline.metrics import kinematics
 from pipeline.metrics.effort_zscore import evaluate_effort_candidate
 from pipeline.metrics.physical import physical_profile
 from pipeline.metrics.workload_fusion import evaluate_workload_candidate
+from pipeline.position_evidence import canonical_shot, evidence, number, qualified
 from pipeline.runtime import PipelineInterrupted, check_control
 from pipeline.video_timeline import VideoTimeline, point_interval
 
 log = structlog.get_logger(__name__)
+
+
+def _event_source(event):
+    return (
+        event.get("source")
+        or (event.get("provenance") or {}).get("source")
+        or (event.get("attributes") or {}).get("source")
+    )
+
+
+def _unique_clock(events, aliases):
+    if any(
+        event.get("event_type") == "prediction_clock_review_required"
+        and isinstance((event.get("attributes") or {}).get("clock_family"), str)
+        and (event.get("attributes") or {}).get("clock_family") in aliases
+        for event in events
+    ):
+        return None
+    candidates = [
+        event
+        for event in events
+        if isinstance(event.get("event_type"), str)
+        and event.get("event_type") in aliases
+        and (event.get("provenance") or {}).get("state")
+        not in ("superseded", "pending", "suppressed")
+        and (event.get("provenance") or {}).get("publication_state")
+        not in ("pending", "superseded", "suppressed")
+        and (
+            event.get("event_type") != "release"
+            or (event.get("attributes") or {}).get("forward_pass") is True
+            or (event.get("attributes") or {}).get("release_type") == "forward_pass"
+        )
+    ]
+    reviewed = [event for event in candidates if _event_source(event) in ("human", "manual")]
+    unique = {}
+    for index, event in enumerate(reviewed or candidates):
+        identifier = event.get("id")
+        identity = (
+            identifier if isinstance(identifier, str) and identifier else ("anonymous", index)
+        )
+        signature = json.dumps(event, sort_keys=True, default=str)
+        if identity in unique and unique[identity][0] != signature:
+            return None
+        unique[identity] = (signature, event)
+    return next(iter(unique.values()))[1] if len(unique) == 1 else None
+
+
+def _declared_clock(event):
+    clocks = [
+        value["timebase"]
+        for value in (event.get("attributes") or {}, event.get("provenance") or {})
+        if "timebase" in value
+    ]
+    if (
+        any(not isinstance(clock, str) or clock not in {"clip", "recording"} for clock in clocks)
+        or len(set(clocks)) > 1
+    ):
+        return None
+    return clocks[0] if clocks else None
+
+
+def _known_clock_shot(event):
+    values = [
+        canonical_shot(value["shot_id"])
+        for value in (event, event.get("attributes") or {}, event.get("provenance") or {})
+        if "shot_id" in value
+    ]
+    return values[0] if values and None not in values and len(set(values)) == 1 else None
 
 
 def run(
@@ -75,37 +112,45 @@ def run(
     """Compute metrics for a clip and write them to the backend."""
     log.info("stage_metrics_start", clip_id=clip_id, analytics_safe=analytics_safe)
 
-    snap_event = next((e for e in events if e.get("event_type") == "snap"), None)
-    throw_event = next((e for e in events if e.get("event_type") == "throw"), None)
-    contact_event = next((e for e in events if e.get("event_type") == "contact"), None)
-    handoff_event = next(
-        (e for e in events if e.get("event_type") in ("handoff", "mesh_point")),
-        None,
-    )
-    end_event = next(
-        (e for e in events if e.get("event_type") in ("end_of_play", "tackle")),
-        None,
+    snap_event = _unique_clock(events, {"snap"})
+    throw_event = _unique_clock(
+        events, {"throw", "pass_release", "forward_pass_release", "release"}
     )
 
     snap_frame = snap_event.get("frame_number") if snap_event else None
     throw_frame = throw_event.get("frame_number") if throw_event else None
-    contact_frame = contact_event.get("frame_number") if contact_event else None
-    handoff_frame = handoff_event.get("frame_number") if handoff_event else None
-    end_frame = end_event.get("frame_number") if end_event else None
 
     suppressed = not analytics_safe
     reason = "calibration_not_safe" if suppressed else None
 
     metrics: list[dict[str, Any]] = []
-    explicit_qb_ids = {str((event.get("attributes") or {}).get("qb_id")) for event in events
-                       if (event.get("attributes") or {}).get("qb_id") is not None}
-    qb_tracks = [t for t in tracklets if str(t.get("id")) in explicit_qb_ids
-                 or (t.get("observed_role") == "QB" and t.get("role_resolved") is True)]
+    explicit_qb_ids = {
+        str((event.get("attributes") or {}).get("qb_id"))
+        for event in events
+        if (event.get("attributes") or {}).get("qb_id") is not None
+    }
+    qb_tracks = [
+        t
+        for t in tracklets
+        if str(t.get("id")) in explicit_qb_ids
+        or (t.get("observed_role") == "QB" and t.get("role_resolved") is True)
+    ]
     qb_track_id = qb_tracks[0].get("id") if len(qb_tracks) == 1 else None
 
     # ── Time to throw ─────────────────────────────────────────────────────
-    if throw_frame is not None and snap_frame is not None and fps > 0 and throw_frame >= snap_frame:
-        first, last = snap_event.get("timestamp_seconds"), throw_event.get("timestamp_seconds")
+    if (
+        isinstance(throw_frame, int)
+        and not isinstance(throw_frame, bool)
+        and isinstance(snap_frame, int)
+        and not isinstance(snap_frame, bool)
+        and snap_frame >= 0
+        and fps > 0
+        and throw_frame >= snap_frame
+    ):
+        first, last = (
+            number(snap_event.get("timestamp_seconds")),
+            number(throw_event.get("timestamp_seconds")),
+        )
         if timeline is not None:
             first, last = timeline.timestamp(snap_frame), timeline.timestamp(throw_frame)
         ttt = (
@@ -113,29 +158,96 @@ def run(
             if first is not None and last is not None
             else (throw_frame - snap_frame) / fps
         )
-        metrics.append(
-            {
-                "metric_name": "time_to_throw",
-                "tracklet_id": qb_track_id,
-                "metric_value": {
-                    "seconds": round(ttt, 3),
-                    "source": "real",
-                    "measurement": "observed_events",
-                    "review_required": any(
-                        e.get("source") != "human" for e in (snap_event, throw_event)
-                    ),
-                },
-                "unit": "s",
-                "is_suppressed": False,
-                "suppression_reason": None,
-            }
-        )
+        if math.isfinite(ttt) and ttt >= 0:
+            metrics.append(
+                {
+                    "metric_name": "time_to_throw",
+                    "tracklet_id": qb_track_id,
+                    "metric_value": {
+                        "seconds": round(ttt, 3),
+                        "source": "real",
+                        "measurement": "observed_events",
+                        "event_evidence": evidence(
+                            [
+                                {**snap_event, "timestamp_seconds": first},
+                                {**throw_event, "timestamp_seconds": last},
+                            ],
+                            timeline,
+                        ),
+                        "source_start_seconds": first,
+                        "source_end_seconds": last,
+                        "review_required": True,
+                    },
+                    "unit": "s",
+                    "experimental_flag": True,
+                    "is_suppressed": False,
+                    "suppression_reason": None,
+                }
+            )
 
     from pipeline.qb_observations import observed_qb_durations
 
-    metrics.extend(observed_qb_durations(tracklets, events, fps, timeline))
+    qb_metrics = observed_qb_durations(
+        tracklets,
+        events,
+        fps,
+        timeline,
+        attacking_direction=attacking_direction,
+    )
+    metrics.extend(
+        m
+        for m in qb_metrics
+        if analytics_safe
+        or m["metric_name"]
+        in {
+            "ball_holding_duration",
+            "time_to_first_pressure",
+        }
+    )
+
+    from pipeline.run_observations import observed_interactions, observed_runs
+
+    if analytics_safe:
+        metrics.extend(observed_runs(tracklets, events, timeline, attacking_direction))
+    metrics.extend(observed_interactions(tracklets, events, timeline))
+
+    from pipeline.observed_position_products import observed_position_products
+
+    metrics.extend(
+        observed_position_products(
+            tracklets,
+            events,
+            timeline,
+            attacking_direction=attacking_direction,
+            analytics_safe=analytics_safe,
+        )
+    )
 
     # ── Per-tracklet metrics (require field coords → analytics_safe) ──────
+    from pipeline.specialist_geometry import specialist_geometry
+
+    metrics.extend(
+        specialist_geometry(
+            tracklets,
+            events,
+            timeline,
+            analytics_safe=analytics_safe,
+            attacking_direction=attacking_direction,
+        )
+    )
+
+    from pipeline.observed_skill_outcomes import observed_skill_outcomes
+
+    metrics.extend(
+        observed_skill_outcomes(
+            tracklets,
+            events,
+            timeline=timeline,
+            analytics_safe=analytics_safe,
+            attacking_direction=attacking_direction,
+        )
+    )
+
     for t in tracklets:
         pts = sorted(t.get("track_points", []), key=lambda p: p.get("frame_number", 0))
         if len(pts) < 2:
@@ -157,11 +269,25 @@ def run(
                 # predates it and stays for render callouts.
                 "tracklet_id": t.get("id"),
                 "metric_name": "distance_traveled",
-                "metric_value": {"yards": round(dist, 2), "track_id": track_id, "confidence": 0.7,
-                                 "trajectory": [{key: point.get(key) for key in (
-                                     "frame_number", "timestamp_seconds", "field_x", "field_y",
-                                     "visibility_state", "shot_id"
-                                 )} for point in pts]},
+                "metric_value": {
+                    "yards": round(dist, 2),
+                    "track_id": track_id,
+                    "confidence": 0.7,
+                    "trajectory": [
+                        {
+                            key: point.get(key)
+                            for key in (
+                                "frame_number",
+                                "timestamp_seconds",
+                                "field_x",
+                                "field_y",
+                                "visibility_state",
+                                "shot_id",
+                            )
+                        }
+                        for point in pts
+                    ],
+                },
                 "unit": "yd",
                 "is_suppressed": suppressed,
                 "suppression_reason": reason,
@@ -267,16 +393,8 @@ def run(
 
     # ── Ball Carrier Analytics ────────────────────────────────────────────
     experimental = os.environ.get("EXPERIMENTAL_FOOTBALL_METRICS", "0") == "1"
-    if experimental and snap_frame is not None and contact_frame is not None and not suppressed:
-        bc_metrics = _ball_carrier_analytics(
-            tracklets,
-            snap_frame,
-            contact_frame,
-            handoff_frame,
-            end_frame,
-            fps,
-        )
-        metrics.extend(bc_metrics)
+    # Carrier products above require explicit possession/contact events. The
+    # legacy most-moving-track heuristic is never a production carrier source.
 
     # ── QB Decision Metrics ───────────────────────────────────────────────
     if experimental and snap_frame is not None and throw_frame is not None and not suppressed:
@@ -305,10 +423,15 @@ def run(
         if m["metric_name"] != "time_to_throw":
             m["experimental_flag"] = True
             m["metric_value"].update(
-                source="real", measurement="tracking_observation", review_required=True
+                source="real",
+                measurement="qualified_participation_event"
+                if m["metric_name"] == "position_opportunity"
+                else "tracking_observation",
+                review_required=True,
             )
         synthetic = any(
-            p.get("source") == "synthetic_test"
+            (t.get("provenance") or {}).get("source") == "synthetic_test"
+            or p.get("source") == "synthetic_test"
             for t in tracklets
             for p in t.get("track_points", [])
         )
@@ -321,20 +444,65 @@ def run(
         m["metric_value"].setdefault("definition_version", "2026-10-21.1")
         m["metric_value"].setdefault(
             "required_evidence",
-            ["snap", "pass_release", "source_timestamps"] if m["metric_name"] == "time_to_throw"
+            ["snap", "pass_release", "source_timestamps"]
+            if m["metric_name"] == "time_to_throw"
             else ["tracking", "field_calibration", "supported_film_model_validation"],
         )
         if m["metric_name"] == "time_to_throw" and not synthetic:
-            human_events = all(e and e.get("source") in {"human", "manual"}
-                               for e in (snap_event, throw_event))
-            measured_times = all(isinstance(e.get("timestamp_seconds"), (int, float))
-                                 and math.isfinite(e["timestamp_seconds"])
-                                 for e in (snap_event, throw_event))
-            if human_events and measured_times:
+            measured_times = all(
+                isinstance(e.get("timestamp_seconds"), (int, float))
+                and not isinstance(e.get("timestamp_seconds"), bool)
+                and math.isfinite(e["timestamp_seconds"])
+                and e["timestamp_seconds"] >= 0
+                for e in (snap_event, throw_event)
+            )
+            human_events = all(
+                qualified(e) and _event_source(e) in {"human", "manual"}
+                for e in (snap_event, throw_event)
+            )
+            clocks = [_declared_clock(e) for e in (snap_event, throw_event)]
+            same_shot = _known_clock_shot(snap_event) is not None and _known_clock_shot(
+                snap_event
+            ) == _known_clock_shot(throw_event)
+            clock_support = None not in clocks and (
+                clocks[0] == clocks[1] or timeline is not None and timeline.verified
+            )
+            if timeline is not None:
+                clock_support = (
+                    clock_support
+                    and measured_times
+                    and timeline.verified
+                    and all(
+                        0 <= e["frame_number"] < len(timeline.timestamps)
+                        and (
+                            abs(e["timestamp_seconds"] - timeline.timestamp(e["frame_number"]))
+                            <= 0.002
+                            if clock == "recording"
+                            else e["timestamp_seconds"]
+                            <= timeline.timestamp(e["frame_number"]) + 0.002
+                        )
+                        for e, clock in zip((snap_event, throw_event), clocks)
+                    )
+                )
+                if measured_times and clocks == ["clip", "clip"]:
+                    offsets = [
+                        timeline.timestamp(e["frame_number"]) - e["timestamp_seconds"]
+                        for e in (snap_event, throw_event)
+                    ]
+                    clock_support = clock_support and abs(offsets[0] - offsets[1]) <= 0.002
+            if (
+                human_events
+                and measured_times
+                and same_shot
+                and clock_support
+                and m["metric_value"]["seconds"] > 0
+            ):
                 m["analytics_safe"] = True
+                m["experimental_flag"] = False
                 m["metric_value"]["review_required"] = False
                 m["metric_value"]["provenance"].update(
-                    validated=True, validation_source="human_event_timestamps",
+                    validated=True,
+                    validation_source="human_event_timestamps",
                 )
         try:
             payload: dict[str, Any] = {

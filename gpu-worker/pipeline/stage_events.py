@@ -22,6 +22,7 @@ is still expected — coaches can PATCH events via the API.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 import numpy as np
@@ -71,6 +72,7 @@ def run(
     end_of_play_frame: int | None = None,
     goal_line_x: float | None = None,
     timeline: VideoTimeline | None = None,
+    event_filter: Callable[[list[dict[str, Any]]], list[dict[str, Any]]] | None = None,
 ) -> dict[str, Any]:
     """Detect events in a clip and persist them.
 
@@ -120,10 +122,22 @@ def run(
         if timeline is not None and event.get("frame_number") is not None:
             event["timestamp_seconds"] = timeline.timestamp(event["frame_number"])
         attributes = event.setdefault("attributes", {})
+        from pipeline.position_evidence import canonical_shot
+
+        frame_detections = detections.get(event.get("frame_number"), detections.get(str(event.get("frame_number")), []))
+        shots = {canonical_shot(detection.get("shot_id")) for detection in frame_detections}
+        if len(shots) == 1 and None not in shots:
+            attributes["shot_id"] = event["shot_id"] = next(iter(shots))
+        elif frame_detections:
+            attributes.pop("shot_id", None)
+            event.pop("shot_id", None)
+        attributes["timebase"] = "recording"
         attributes["timestamp_verified"] = timeline.verified if timeline is not None else False
         source = "synthetic_test" if synthetic else "heuristic"
         attributes.update(source=source, review_required=True,
                           provenance={"source": source, "validated": False})
+    if event_filter is not None:
+        events = event_filter(events)
     event_ids = _persist(clip_id, events)
     log.info(
         "stage_events_done",
@@ -482,6 +496,7 @@ def _persist(clip_id: str, events: list[dict[str, Any]]) -> list[str]:
                 attributes=ev.get("attributes"),
             )
             event_ids.append(resp["id"])
+            ev["id"] = resp["id"]
         except PipelineInterrupted:
             raise
         except Exception as exc:

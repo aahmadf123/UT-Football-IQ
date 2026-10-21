@@ -1,10 +1,12 @@
 """Clips router — play segmentation, clip CRUD, and boundary corrections."""
 
+import hashlib
+import json
 import uuid
 from typing import Annotated, Any, cast
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy import CursorResult, func, select, update
 from sqlalchemy import cast as sql_cast
@@ -23,6 +25,7 @@ from app.models import (
     CorrectionType,
     Metric,
     PlayView,
+    ProcessingJob,
     SessionKind,
     SideOfBall,
     User,
@@ -36,7 +39,12 @@ from app.services.annotations import (
     touch_annotation,
     touch_observations,
 )
-from app.services.clip_state import active_clip, lock_boundary_scope
+from app.services.clip_state import (
+    active_clip,
+    layout_is_protected,
+    lock_boundary_scope,
+    require_active_clip,
+)
 from app.services.metric_policy import metric_visibility
 
 # Recognized clip-level possession values (must match SideOfBall enum).
@@ -411,6 +419,24 @@ async def create_clip(
     if isinstance(video.duration_seconds, (float, int)) and body.end_time > video.duration_seconds:
         raise HTTPException(422, detail="Clip boundary exceeds recording duration")
 
+    clip = _build_clip(video_id, body, video, machine_cut)
+    db.add(clip)
+    await db.flush()
+    if isinstance(video.practice_session_id, uuid.UUID):
+        from app.routers.sessions import ensure_recording_plays
+
+        await ensure_recording_plays(db, video)
+    log.info(
+        "clip_created",
+        clip_id=str(clip.id),
+        video_id=str(video_id),
+        session_kind=str(clip.session_kind) if clip.session_kind else None,
+        our_possession=str(clip.our_possession) if clip.our_possession else None,
+    )
+    return ClipResponse.from_orm_clip(clip)
+
+
+def _build_clip(video_id: uuid.UUID, body: ClipCreate, video: Video, machine_cut: bool) -> Clip:
     # Promote label_data["side_of_ball"] into the typed column when no
     # explicit value was supplied (forward-looking version of the
     # migration's 0010 backfill).
@@ -483,20 +509,164 @@ async def create_clip(
         if machine_cut
         else body.provenance,
     )
-    db.add(clip)
-    await db.flush()
-    if isinstance(video.practice_session_id, uuid.UUID):
-        from app.routers.sessions import ensure_recording_plays
+    return clip
 
-        await ensure_recording_plays(db, video)
-    log.info(
-        "clip_created",
-        clip_id=str(clip.id),
-        video_id=str(video_id),
-        session_kind=str(clip.session_kind) if clip.session_kind else None,
-        our_possession=str(clip.our_possession) if clip.our_possession else None,
+
+class ClipBatchCreate(BaseModel):
+    generation_id: str = Field(min_length=1, max_length=128)
+    expected_active_clip_ids: list[uuid.UUID] = Field(max_length=10000)
+    clips: list[ClipCreate] = Field(min_length=1, max_length=10000)
+
+
+@router.post("/api/v1/videos/{video_id}/clips/batch")
+async def create_clip_batch(
+    video_id: uuid.UUID,
+    body: ClipBatchCreate,
+    request: Request,
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
+    user: Annotated[User, Depends(require_any_staff)],
+) -> dict[str, Any]:
+    """Publish a complete cut layout in one transaction; retain every original.
+
+    Cut readiness is independent of later specialist analysis. A protected prior
+    layout is never recut automatically, so complete results keep their IDs.
+    """
+    await lock_boundary_scope(db, video_id)
+    video = await db.get(Video, video_id)
+    if video is None:
+        raise HTTPException(404, "Video not found")
+    job_header = request.headers.get("x-job-id")
+    if job_header:
+        job = await db.get(ProcessingJob, uuid.UUID(job_header))
+        if job is None or job.video_id != video_id or any(c.job_id != job.id for c in body.clips):
+            raise HTTPException(409, "Worker result does not belong to this recording/attempt")
+    manifest = hashlib.sha256(
+        json.dumps(
+            [clip.model_dump(mode="json") for clip in body.clips],
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode()
+    ).hexdigest()
+    historical = list(
+        (
+            await db.execute(
+                select(Clip)
+                .where(
+                    Clip.video_id == video_id,
+                    Clip.provenance["segmentation_generation"].astext == body.generation_id,
+                )
+                .order_by(Clip.start_time, Clip.id)
+            )
+        )
+        .scalars()
+        .all()
     )
-    return ClipResponse.from_orm_clip(clip)
+    if historical:
+        if len(historical) != len(body.clips) or any(
+            (c.provenance or {}).get("segmentation_manifest") != manifest
+            or (c.provenance or {}).get("state") == "superseded"
+            for c in historical
+        ):
+            raise HTTPException(409, "Segmentation generation is stale or has conflicting content")
+        return {
+            "generation_id": body.generation_id,
+            "clips": [
+                ClipResponse.from_orm_clip(c).model_dump(mode="json")
+                for c in sorted(
+                    historical, key=lambda c: (c.provenance or {}).get("segmentation_index", 0)
+                )
+            ],
+        }
+    active = list(
+        (
+            await db.execute(
+                select(Clip)
+                .where(
+                    Clip.video_id == video_id,
+                    active_clip(),
+                )
+                .order_by(Clip.start_time, Clip.id)
+                .with_for_update()
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if len(set(body.expected_active_clip_ids)) != len(body.expected_active_clip_ids) or {
+        c.id for c in active
+    } != set(body.expected_active_clip_ids):
+        raise HTTPException(409, "Recording layout changed; reload its active clips")
+    windows = [(c.start_time, c.end_time) for c in body.clips]
+    if len(set(windows)) != len(windows):
+        raise HTTPException(422, "Duplicate source windows in proposed layout")
+    supplied_ids = [clip.id for clip in body.clips if clip.id is not None]
+    if len(set(supplied_ids)) != len(supplied_ids):
+        raise HTTPException(422, "Duplicate output IDs in proposed layout")
+    if not video.duration_seconds or video.duration_seconds <= 0:
+        raise HTTPException(422, "A verified source duration is required before replacing cuts")
+    # Context/action windows may overlap. Their union must retain the complete
+    # source so an omitted setup, tail, aborted snap or uncertain shot is not lost.
+    tolerance = min(0.1, 1 / video.fps) if video.fps and video.fps > 0 else 0.04
+    covered_until = 0.0
+    for start, end in sorted(windows):
+        if start > covered_until + tolerance:
+            raise HTTPException(422, "Proposed layout leaves an uncovered source interval")
+        covered_until = max(covered_until, end)
+    if covered_until < video.duration_seconds - tolerance:
+        raise HTTPException(422, "Proposed layout omits the source tail")
+    for index, clip in enumerate(body.clips):
+        if clip.boundary_source not in _MACHINE_BOUNDARY_SOURCES:
+            raise HTTPException(422, "Batch publication is for machine cuts only")
+        if clip.start_time >= clip.end_time or (
+            video.duration_seconds is not None and clip.end_time > video.duration_seconds
+        ):
+            raise HTTPException(422, "Invalid or out-of-recording clip boundary")
+        if clip.id is None:
+            clip.id = uuid.uuid5(video_id, f"{body.generation_id}:{index}")
+        existing = await db.get(Clip, clip.id)
+        if existing is not None:
+            raise HTTPException(409, "Proposed output ID already belongs to an existing clip")
+    if len({clip.id for clip in body.clips}) != len(body.clips):
+        raise HTTPException(422, "Duplicate output IDs in proposed layout")
+    if active and sorted(windows) == sorted((c.start_time, c.end_time) for c in active):
+        # Preserve result/identity/correction bindings when only processing changed.
+        return {
+            "generation_id": body.generation_id,
+            "clips": [ClipResponse.from_orm_clip(c).model_dump(mode="json") for c in active],
+        }
+    if await layout_is_protected(db, video_id, active):
+        raise HTTPException(
+            409, "Staff or published results protect this layout; reuse boundary-overrides"
+        )
+    # A savepoint also makes atomicity explicit for callers with an outer
+    # transaction: any insert/grouping failure restores the entire old layout.
+    async with db.begin_nested():
+        for old in active:
+            old.provenance = {
+                **(old.provenance or {}),
+                "state": "superseded",
+                "superseded_by_segmentation": body.generation_id,
+                "replacement_clip_ids": [str(clip.id) for clip in body.clips],
+            }
+        new_clips = []
+        for index, clip in enumerate(body.clips):
+            clip.provenance = {
+                **(clip.provenance or {}),
+                "segmentation_generation": body.generation_id,
+                "segmentation_manifest": manifest,
+                "segmentation_index": index,
+                "state": "current",
+            }
+            record = _build_clip(video_id, clip, video, True)
+            db.add(record)
+            new_clips.append(record)
+        await db.flush()
+        if video.practice_session_id:
+            from app.routers.sessions import ensure_recording_plays
+
+            await ensure_recording_plays(db, video)
+        published = [ClipResponse.from_orm_clip(clip).model_dump(mode="json") for clip in new_clips]
+    return {"generation_id": body.generation_id, "clips": published}
 
 
 class ClipFinalizeResponse(BaseModel):
@@ -570,6 +740,7 @@ async def update_clip(
     if clip is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Clip not found")
     check_revision(clip, body.expected_revision)
+    require_active_clip(clip)
     before = {"start_seconds": clip.start_time, "end_seconds": clip.end_time}
     metadata_fields = (
         "personnel_grouping",

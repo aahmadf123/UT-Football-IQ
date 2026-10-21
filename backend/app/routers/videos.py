@@ -162,6 +162,7 @@ class VideoResponse(BaseModel):
     filename: str
     storage_uri: str
     size_bytes: int | None = None
+    content_sha256: str | None = None
     status: VideoStatus
     duration_seconds: float | None
     fps: float | None
@@ -193,6 +194,7 @@ class VideoResponse(BaseModel):
             filename=v.filename,
             storage_uri=v.storage_uri,
             size_bytes=v.size_bytes if isinstance(v.size_bytes, int) else None,
+            content_sha256=v.content_sha256 if isinstance(v.content_sha256, str) else None,
             status=v.status,
             duration_seconds=v.duration_seconds,
             fps=v.fps,

@@ -1,12 +1,13 @@
 """Local human-label snapshots and measured model evaluation; no hosted training."""
 
+import hashlib
 import time
 import uuid
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field
+from fastapi.responses import FileResponse, Response
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -55,6 +56,23 @@ class TrainingCreate(BaseModel):
     features_uri: str = Field(min_length=1, max_length=2048)
 
 
+class ExpectedOutcomesTrainingCreate(BaseModel):
+    training_variant: Literal["expected_outcomes"]
+    manifest_path: str = Field(min_length=1, max_length=2048)
+    manifest_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    output_dir: str = Field(min_length=1, max_length=2048)
+    task: Literal["completion", "rushing_gain", "yac", "pressure"] | None = None
+
+    model_config = {"extra": "forbid"}
+
+    @field_validator("manifest_path", "output_dir")
+    @classmethod
+    def worker_path(cls, value: str) -> str:
+        if not value.strip() or any(ord(character) < 32 for character in value):
+            raise ValueError("Choose a nonempty path on the connected processor")
+        return value
+
+
 class SessionSplit(BaseModel):
     session_id: uuid.UUID
     split: Literal["train", "calibration", "holdout"]
@@ -67,6 +85,22 @@ class ManifestCreate(BaseModel):
 
 class CandidateEvaluationCreate(BaseModel):
     benchmark_id: uuid.UUID
+
+
+@router.post("/expected-outcomes/{model_id}/evaluate", status_code=201)
+async def evaluate_expected_candidate(
+    model_id: uuid.UUID,
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
+    user: Annotated[User, Depends(require_analyst_or_above)],
+) -> dict[str, Any]:
+    from app.services.expected_outcomes import evaluate_expected_outcomes
+
+    model = (
+        await db.execute(select(ModelVersion).where(ModelVersion.id == model_id).with_for_update())
+    ).scalar_one_or_none()
+    if model is None:
+        raise HTTPException(404, detail="Model not found")
+    return await evaluate_expected_outcomes(db, model, user)
 
 
 @router.post("/feature-manifests/preview")
@@ -142,16 +176,30 @@ async def candidates(
     )
     output = []
     for model in models:
-        count = (
-            await db.execute(
-                select(func.count(func.distinct(Label.clip_id))).where(
-                    Label.model_version_id == model.id,
-                    Label.clip_id.in_(clip_ids),
-                    Label.source == "model",
-                    Label.label_value["provenance"]["source"].astext == "real",
+        labels = list(
+            (
+                await db.execute(
+                    select(Label).where(
+                        Label.model_version_id == model.id,
+                        Label.clip_id.in_(clip_ids),
+                        Label.source == "model",
+                        Label.label_value["provenance"]["source"].astext == "real",
+                    )
                 )
             )
-        ).scalar_one()
+            .scalars()
+            .all()
+        )
+        from app.services.label_publication import require_label_proof
+
+        qualified = set()
+        for label in labels:
+            try:
+                await require_label_proof(db, label, model)
+            except HTTPException:
+                continue
+            qualified.add(label.clip_id)
+        count = len(qualified)
         output.append(
             {
                 "id": str(model.id),
@@ -207,10 +255,12 @@ async def evaluate_candidate(
 
 @router.post("/train", status_code=201)
 async def train(
-    body: TrainingCreate,
+    body: TrainingCreate | ExpectedOutcomesTrainingCreate,
     db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _user: Annotated[User, Depends(require_analyst_or_above)],
 ) -> dict[str, str]:
+    if isinstance(body, ExpectedOutcomesTrainingCreate):
+        return await _queue_expected_outcomes(body, db, _user)
     dataset = (
         await db.execute(
             select(TrainingDataset)
@@ -271,11 +321,61 @@ async def train(
             "training_dataset_id": str(dataset.id),
             "labels_uri": combined_uri,
             "features_uri": body.features_uri,
+            "manifest_hashes": (dataset.changelog or {}).get("hashes", {}),
+            "manifest_id": (dataset.changelog or {}).get("manifest_id"),
         },
     )
     db.add(job)
     await db.flush()
     return {"job_id": str(job.id), "status": "queued", "training_variant": body.training_variant}
+
+
+async def _queue_expected_outcomes(
+    body: ExpectedOutcomesTrainingCreate, db: AsyncSession, user: User
+) -> dict[str, str]:
+    """Preserve worker-local paths; a hosted API cannot read a staff laptop's files."""
+    payload = body.model_dump(exclude_none=True)
+    # Serialize requests targeting one folder, including competing tasks/manifests.
+    lock_key = int.from_bytes(hashlib.sha256(body.output_dir.encode()).digest()[:8], signed=True)
+    await db.execute(select(func.pg_advisory_xact_lock(lock_key)))
+    active = (
+        (
+            await db.execute(
+                select(ProcessingJob).where(
+                    ProcessingJob.job_type == JobType.train,
+                    ProcessingJob.status.in_(
+                        (JobStatus.queued, JobStatus.running, JobStatus.paused)
+                    ),
+                    ProcessingJob.input_artifacts["training_variant"].astext == "expected_outcomes",
+                    ProcessingJob.input_artifacts["output_dir"].astext == body.output_dir,
+                )
+            )
+        )
+        .scalars()
+        .first()
+    )
+    if active is not None:
+        if active.input_artifacts != payload:
+            raise HTTPException(
+                409, detail="Another training request already uses this candidate folder."
+            )
+        return {
+            "job_id": str(active.id),
+            "status": active.status.value,
+            "training_variant": "expected_outcomes",
+        }
+    await require_workload_capacity("learning.train")(user=user, db=db)
+    job = ProcessingJob(
+        id=uuid.uuid4(),
+        job_type=JobType.train,
+        status=JobStatus.queued,
+        priority=0,
+        pipeline_mode=PipelineMode.nightly,
+        input_artifacts=payload,
+    )
+    db.add(job)
+    await db.flush()
+    return {"job_id": str(job.id), "status": "queued", "training_variant": "expected_outcomes"}
 
 
 @router.post("/benchmarks", status_code=201)
@@ -355,6 +455,50 @@ async def rollback(
         raise HTTPException(404, detail="Model not found")
     await promote_model(db, model=model, stage=ModelStage.production, actor=user)
     return {"model_id": str(model.id), "stage": model.promoted_stage.value}
+
+
+@router.get("/expected-outcomes/features/{job_id}/download")
+async def expected_features_download(
+    job_id: uuid.UUID,
+    request: Request,
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
+    _user: Annotated[User, Depends(require_analyst_or_above)],
+) -> dict[str, Any]:
+    from app.services.expected_feature_exports import feature_export_download
+
+    result = await feature_export_download(db, job_id)
+    if result["download_url"].startswith("/"):
+        result["download_url"] = str(request.base_url).rstrip("/") + result["download_url"]
+    return result
+
+
+@router.get("/expected-outcomes/features/{job_id}/file", include_in_schema=False)
+async def expected_features_file(
+    job_id: uuid.UUID,
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
+    exp: str = Query(...),
+    sig: str = Query(...),
+) -> Response:
+    from app.services.expected_feature_exports import feature_export_download
+
+    job = await db.get(ProcessingJob, job_id)
+    descriptor = ((job.output_artifacts or {}).get("expected_feature_export") or {}) if job else {}
+    digest = descriptor.get("sha256") if isinstance(descriptor, dict) else None
+    if not digest or not verify_stream_signature(
+        "expected-feature-export", f"{job_id}/{digest}", exp, sig
+    ):
+        raise HTTPException(403, "Invalid or expired feature export link")
+    # Recheck current clip revisions and trusted job attestation at download time.
+    # These are the exact bounded, hash-checked local/S3 bytes, with no model inference.
+    result = await feature_export_download(db, job_id, include_content=True)
+    return Response(
+        result["content"],
+        media_type="application/json",
+        headers={
+            "Content-Disposition": f'attachment; filename="{result["filename"]}"',
+            "Cache-Control": "private, no-store",
+        },
+    )
 
 
 @router.get("/datasets/{dataset_id}/download")

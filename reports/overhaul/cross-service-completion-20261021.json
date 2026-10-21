@@ -1,0 +1,78 @@
+{
+  "verified_at_utc": "2026-10-21T17:55:12.415737+00:00",
+  "input_source": "synthetic_test",
+  "football_accuracy_verified": false,
+  "database_scope": "footiq_overhaul_completion@127.0.0.1:55432",
+  "video_id": "37174b17-911c-47ff-a780-af31bdb18238",
+  "job_id": "b0b21f52-d816-4f26-8e78-ad7b2172e2fc",
+  "reviewed_rerun_job_id": "3abb2d8a-a203-468f-af8d-96af3efc89cb",
+  "job_status": "succeeded",
+  "atomic_publications": [
+    {
+      "generation_id": "121ca26c5919aac3f15b2ce334dce8da18d3530b9b26b6a04ab545cb4714a7b7",
+      "expected_active_clip_ids": [],
+      "published_ids": [
+        "0d168bba-a888-5897-bc1d-4fce20cb9bdf"
+      ]
+    }
+  ],
+  "stale_layout_status": 409,
+  "clip_count": 1,
+  "persisted_synthetic_tracklet_count": 8,
+  "synthetic_tracks_published": false,
+  "browser_codec": "h264/yuv420p",
+  "model_routing": {
+    "ball": "yolov8n-ball",
+    "detect": "stub",
+    "calibrate": "calib-hough-dlt",
+    "expected_outcomes": "expected-outcomes-linear-v1"
+  },
+  "expected_outcome_suppression": [
+    {
+      "completion": {
+        "task": "completion",
+        "value": null,
+        "suppressed": true,
+        "reason": "Field mapping is not analytics-safe",
+        "experimental": true,
+        "analytics_safe": false,
+        "validated": false
+      },
+      "rushing_gain": {
+        "task": "rushing_gain",
+        "value": null,
+        "suppressed": true,
+        "reason": "Field mapping is not analytics-safe",
+        "experimental": true,
+        "analytics_safe": false,
+        "validated": false
+      },
+      "yac": {
+        "task": "yac",
+        "value": null,
+        "suppressed": true,
+        "reason": "Field mapping is not analytics-safe",
+        "experimental": true,
+        "analytics_safe": false,
+        "validated": false
+      },
+      "pressure": {
+        "task": "pressure",
+        "value": null,
+        "suppressed": true,
+        "reason": "Field mapping is not analytics-safe",
+        "experimental": true,
+        "analytics_safe": false,
+        "validated": false
+      }
+    }
+  ],
+  "stage_progress_keys": [
+    "calibrate",
+    "completed_clip_stages",
+    "current_clip",
+    "detect",
+    "ingest",
+    "segment"
+  ]
+}

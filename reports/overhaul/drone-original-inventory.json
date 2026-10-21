@@ -1,0 +1,2196 @@
+{
+  "observed_at_utc": "2026-10-21T19:22:59.179064+00:00",
+  "source_root": "C:\\Users\\firas\\OneDrive - University of Toledo\\Drone Footage",
+  "source_count": 30,
+  "source_total_bytes": 300495546,
+  "operation": "Read-only ffprobe metadata plus every source full-byte SHA256 read and CPU single-thread frame decode/native PTS audit; originals not moved/edited; no GPU/model/processor controls used.",
+  "ffprobe_path": "C:\\Users\\firas\\AppData\\Local\\Microsoft\\WinGet\\Packages\\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\\ffmpeg-9.0.2-full_build\\bin\\ffprobe.EXE",
+  "rows": [
+    {
+      "path": "C:\\Users\\firas\\OneDrive - University of Toledo\\Drone Footage\\Dji 20260416110000 0257 D.mp4",
+      "size_bytes": 8666433,
+      "modified_ns": 1779770881000000000,
+      "attributes_before": 32,
+      "offline_before": false,
+      "recall_on_data_access_before": false,
+      "returncode": 0,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "index": 0,
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 1280,
+            "height": 720,
+            "pix_fmt": "yuv420p",
+            "r_frame_rate": "30000/1001",
+            "avg_frame_rate": "30000/1001",
+            "time_base": "1/90000",
+            "start_time": "0.000000",
+            "duration": "10.310300",
+            "nb_frames": "309"
+          }
+        ],
+        "format": {
+          "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
+          "start_time": "0.000000",
+          "duration": "10.310300",
+          "size": "8666433"
+        }
+      },
+      "stat_unchanged": true,
+      "attributes_after": 32,
+      "probe_elapsed_seconds": 0.103,
+      "sha256": "84a872911984225277b3b5f5fc3d8d0eee2e7270f2c342a977dd229a884e8d25",
+      "full_frame_decode_returncode": 0,
+      "decode_stderr": "",
+      "decoded_frame_count": 309,
+      "pts_frame_count": 309,
+      "decoded_dimensions": [
+        [
+          1280,
+          720
+        ]
+      ],
+      "first_pts_seconds": 0.0,
+      "last_pts_seconds": 10.276933,
+      "strictly_increasing_pts": true,
+      "min_pts_step_seconds": 0.03336599999999912,
+      "max_pts_step_seconds": 0.03336700000000015,
+      "mean_pts_step_seconds": 0.03336666558441558,
+      "full_read_decode_seconds": 1.453,
+      "stat_unchanged_full_read": true
+    },
+    {
+      "path": "C:\\Users\\firas\\OneDrive - University of Toledo\\Drone Footage\\Dji 20260416110028 0258 D.mp4",
+      "size_bytes": 8901173,
+      "modified_ns": 1779770881000000000,
+      "attributes_before": 32,
+      "offline_before": false,
+      "recall_on_data_access_before": false,
+      "returncode": 0,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "index": 0,
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 1280,
+            "height": 720,
+            "pix_fmt": "yuv420p",
+            "r_frame_rate": "30000/1001",
+            "avg_frame_rate": "30000/1001",
+            "time_base": "1/90000",
+            "start_time": "0.000000",
+            "duration": "10.310300",
+            "nb_frames": "309"
+          }
+        ],
+        "format": {
+          "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
+          "start_time": "0.000000",
+          "duration": "10.310300",
+          "size": "8901173"
+        }
+      },
+      "stat_unchanged": true,
+      "attributes_after": 32,
+      "probe_elapsed_seconds": 0.102,
+      "sha256": "fd6c6c400fdbf272114deab7a36bbb6cf353264332c1bab97a78f77f70b63c68",
+      "full_frame_decode_returncode": 0,
+      "decode_stderr": "",
+      "decoded_frame_count": 309,
+      "pts_frame_count": 309,
+      "decoded_dimensions": [
+        [
+          1280,
+          720
+        ]
+      ],
+      "first_pts_seconds": 0.0,
+      "last_pts_seconds": 10.276933,
+      "strictly_increasing_pts": true,
+      "min_pts_step_seconds": 0.03336599999999912,
+      "max_pts_step_seconds": 0.03336700000000015,
+      "mean_pts_step_seconds": 0.03336666558441558,
+      "full_read_decode_seconds": 1.438,
+      "stat_unchanged_full_read": true
+    },
+    {
+      "path": "C:\\Users\\firas\\OneDrive - University of Toledo\\Drone Footage\\Dji 20260416110101 0259 D.mp4",
+      "size_bytes": 11468833,
+      "modified_ns": 1779770882000000000,
+      "attributes_before": 32,
+      "offline_before": false,
+      "recall_on_data_access_before": false,
+      "returncode": 0,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "index": 0,
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 1280,
+            "height": 720,
+            "pix_fmt": "yuv420p",
+            "r_frame_rate": "30000/1001",
+            "avg_frame_rate": "30000/1001",
+            "time_base": "1/90000",
+            "start_time": "0.000000",
+            "duration": "13.380033",
+            "nb_frames": "401"
+          }
+        ],
+        "format": {
+          "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
+          "start_time": "0.000000",
+          "duration": "13.380033",
+          "size": "11468833"
+        }
+      },
+      "stat_unchanged": true,
+      "attributes_after": 32,
+      "probe_elapsed_seconds": 0.1,
+      "sha256": "a8a56d8a8d1c0533201819fb4c05928e76f9f91e607c89e3745542fdebaddb20",
+      "full_frame_decode_returncode": 0,
+      "decode_stderr": "",
+      "decoded_frame_count": 401,
+      "pts_frame_count": 401,
+      "decoded_dimensions": [
+        [
+          1280,
+          720
+        ]
+      ],
+      "first_pts_seconds": 0.0,
+      "last_pts_seconds": 13.346667,
+      "strictly_increasing_pts": true,
+      "min_pts_step_seconds": 0.03336599999999912,
+      "max_pts_step_seconds": 0.03336700000000015,
+      "mean_pts_step_seconds": 0.0333666675,
+      "full_read_decode_seconds": 1.813,
+      "stat_unchanged_full_read": true
+    },
+    {
+      "path": "C:\\Users\\firas\\OneDrive - University of Toledo\\Drone Footage\\Dji 20260416110140 0260 D.mp4",
+      "size_bytes": 9567244,
+      "modified_ns": 1779770882000000000,
+      "attributes_before": 32,
+      "offline_before": false,
+      "recall_on_data_access_before": false,
+      "returncode": 0,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "index": 0,
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 1280,
+            "height": 720,
+            "pix_fmt": "yuv420p",
+            "r_frame_rate": "30000/1001",
+            "avg_frame_rate": "30000/1001",
+            "time_base": "1/90000",
+            "start_time": "0.000000",
+            "duration": "11.277933",
+            "nb_frames": "338"
+          }
+        ],
+        "format": {
+          "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
+          "start_time": "0.000000",
+          "duration": "11.277933",
+          "size": "9567244"
+        }
+      },
+      "stat_unchanged": true,
+      "attributes_after": 32,
+      "probe_elapsed_seconds": 0.095,
+      "sha256": "705aa2ded33edb9482f83ec3c089de6393ef51fef2815908d398e236596d3d47",
+      "full_frame_decode_returncode": 0,
+      "decode_stderr": "",
+      "decoded_frame_count": 338,
+      "pts_frame_count": 338,
+      "decoded_dimensions": [
+        [
+          1280,
+          720
+        ]
+      ],
+      "first_pts_seconds": 0.0,
+      "last_pts_seconds": 11.244567,
+      "strictly_increasing_pts": true,
+      "min_pts_step_seconds": 0.03336599999999912,
+      "max_pts_step_seconds": 0.03336700000000015,
+      "mean_pts_step_seconds": 0.03336666765578635,
+      "full_read_decode_seconds": 1.516,
+      "stat_unchanged_full_read": true
+    },
+    {
+      "path": "C:\\Users\\firas\\OneDrive - University of Toledo\\Drone Footage\\Dji 20260416110213 0261 D.mp4",
+      "size_bytes": 10525621,
+      "modified_ns": 1779770882000000000,
+      "attributes_before": 32,
+      "offline_before": false,
+      "recall_on_data_access_before": false,
+      "returncode": 0,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "index": 0,
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 1280,
+            "height": 720,
+            "pix_fmt": "yuv420p",
+            "r_frame_rate": "30000/1001",
+            "avg_frame_rate": "30000/1001",
+            "time_base": "1/90000",
+            "start_time": "0.000000",
+            "duration": "12.712700",
+            "nb_frames": "381"
+          }
+        ],
+        "format": {
+          "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
+          "start_time": "0.000000",
+          "duration": "12.712700",
+          "size": "10525621"
+        }
+      },
+      "stat_unchanged": true,
+      "attributes_after": 32,
+      "probe_elapsed_seconds": 0.097,
+      "sha256": "b103430adcc663139db173e41352c6ea3b349cb8d750ff6785c3c77b82253074",
+      "full_frame_decode_returncode": 0,
+      "decode_stderr": "",
+      "decoded_frame_count": 381,
+      "pts_frame_count": 381,
+      "decoded_dimensions": [
+        [
+          1280,
+          720
+        ]
+      ],
+      "first_pts_seconds": 0.0,
+      "last_pts_seconds": 12.679333,
+      "strictly_increasing_pts": true,
+      "min_pts_step_seconds": 0.03336599999999912,
+      "max_pts_step_seconds": 0.03336700000000015,
+      "mean_pts_step_seconds": 0.033366665789473685,
+      "full_read_decode_seconds": 1.844,
+      "stat_unchanged_full_read": true
+    },
+    {
+      "path": "C:\\Users\\firas\\OneDrive - University of Toledo\\Drone Footage\\Dji 20260416110254 0262 D.mp4",
+      "size_bytes": 9869029,
+      "modified_ns": 1779770882000000000,
+      "attributes_before": 32,
+      "offline_before": false,
+      "recall_on_data_access_before": false,
+      "returncode": 0,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "index": 0,
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 1280,
+            "height": 720,
+            "pix_fmt": "yuv420p",
+            "r_frame_rate": "30000/1001",
+            "avg_frame_rate": "30000/1001",
+            "time_base": "1/90000",
+            "start_time": "0.000000",
+            "duration": "12.078733",
+            "nb_frames": "362"
+          }
+        ],
+        "format": {
+          "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
+          "start_time": "0.000000",
+          "duration": "12.078733",
+          "size": "9869029"
+        }
+      },
+      "stat_unchanged": true,
+      "attributes_after": 32,
+      "probe_elapsed_seconds": 0.094,
+      "sha256": "c2adb2275d73445fe120fb87a8537c5596b3361602d9e2ee182cc1b5202f22e1",
+      "full_frame_decode_returncode": 0,
+      "decode_stderr": "",
+      "decoded_frame_count": 362,
+      "pts_frame_count": 362,
+      "decoded_dimensions": [
+        [
+          1280,
+          720
+        ]
+      ],
+      "first_pts_seconds": 0.0,
+      "last_pts_seconds": 12.045367,
+      "strictly_increasing_pts": true,
+      "min_pts_step_seconds": 0.03336599999999912,
+      "max_pts_step_seconds": 0.03336700000000015,
+      "mean_pts_step_seconds": 0.0333666675900277,
+      "full_read_decode_seconds": 1.703,
+      "stat_unchanged_full_read": true
+    },
+    {
+      "path": "C:\\Users\\firas\\OneDrive - University of Toledo\\Drone Footage\\Dji 20260416110327 0263 D.mp4",
+      "size_bytes": 9365182,
+      "modified_ns": 1779770882000000000,
+      "attributes_before": 32,
+      "offline_before": false,
+      "recall_on_data_access_before": false,
+      "returncode": 0,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "index": 0,
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 1280,
+            "height": 720,
+            "pix_fmt": "yuv420p",
+            "r_frame_rate": "30000/1001",
+            "avg_frame_rate": "30000/1001",
+            "time_base": "1/90000",
+            "start_time": "0.000000",
+            "duration": "11.878533",
+            "nb_frames": "356"
+          }
+        ],
+        "format": {
+          "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
+          "start_time": "0.000000",
+          "duration": "11.878533",
+          "size": "9365182"
+        }
+      },
+      "stat_unchanged": true,
+      "attributes_after": 32,
+      "probe_elapsed_seconds": 0.091,
+      "sha256": "c636c1a1312b9ca567a269a86980a0f1ce0dfc29704209a9d47825175bb0dd50",
+      "full_frame_decode_returncode": 0,
+      "decode_stderr": "",
+      "decoded_frame_count": 356,
+      "pts_frame_count": 356,
+      "decoded_dimensions": [
+        [
+          1280,
+          720
+        ]
+      ],
+      "first_pts_seconds": 0.0,
+      "last_pts_seconds": 11.845167,
+      "strictly_increasing_pts": true,
+      "min_pts_step_seconds": 0.03336599999999912,
+      "max_pts_step_seconds": 0.03336700000000015,
+      "mean_pts_step_seconds": 0.0333666676056338,
+      "full_read_decode_seconds": 1.593,
+      "stat_unchanged_full_read": true
+    },
+    {
+      "path": "C:\\Users\\firas\\OneDrive - University of Toledo\\Drone Footage\\Dji 20260416110358 0264 D.mp4",
+      "size_bytes": 8325382,
+      "modified_ns": 1779770882000000000,
+      "attributes_before": 32,
+      "offline_before": false,
+      "recall_on_data_access_before": false,
+      "returncode": 0,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "index": 0,
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 1280,
+            "height": 720,
+            "pix_fmt": "yuv420p",
+            "r_frame_rate": "30000/1001",
+            "avg_frame_rate": "30000/1001",
+            "time_base": "1/90000",
+            "start_time": "0.000000",
+            "duration": "9.576233",
+            "nb_frames": "287"
+          }
+        ],
+        "format": {
+          "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
+          "start_time": "0.000000",
+          "duration": "9.576233",
+          "size": "8325382"
+        }
+      },
+      "stat_unchanged": true,
+      "attributes_after": 32,
+      "probe_elapsed_seconds": 0.085,
+      "sha256": "3e35ec34bbd3a7571ba35480b3f7488a8aa36e7f5891ce93f4e9d26447536ea5",
+      "full_frame_decode_returncode": 0,
+      "decode_stderr": "",
+      "decoded_frame_count": 287,
+      "pts_frame_count": 287,
+      "decoded_dimensions": [
+        [
+          1280,
+          720
+        ]
+      ],
+      "first_pts_seconds": 0.0,
+      "last_pts_seconds": 9.542867,
+      "strictly_increasing_pts": true,
+      "min_pts_step_seconds": 0.03336599999999912,
+      "max_pts_step_seconds": 0.03336700000000015,
+      "mean_pts_step_seconds": 0.03336666783216783,
+      "full_read_decode_seconds": 1.328,
+      "stat_unchanged_full_read": true
+    },
+    {
+      "path": "C:\\Users\\firas\\OneDrive - University of Toledo\\Drone Footage\\Dji 20260416110429 0265 D.mp4",
+      "size_bytes": 11290171,
+      "modified_ns": 1779770882000000000,
+      "attributes_before": 32,
+      "offline_before": false,
+      "recall_on_data_access_before": false,
+      "returncode": 0,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "index": 0,
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 1280,
+            "height": 720,
+            "pix_fmt": "yuv420p",
+            "r_frame_rate": "30000/1001",
+            "avg_frame_rate": "30000/1001",
+            "time_base": "1/90000",
+            "start_time": "0.000000",
+            "duration": "12.979633",
+            "nb_frames": "389"
+          }
+        ],
+        "format": {
+          "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
+          "start_time": "0.000000",
+          "duration": "12.979633",
+          "size": "11290171"
+        }
+      },
+      "stat_unchanged": true,
+      "attributes_after": 32,
+      "probe_elapsed_seconds": 0.086,
+      "sha256": "0f15ccf56e4fa0999f106232cfa8f0472903456a9edff1707704d4d1d5fd9a6b",
+      "full_frame_decode_returncode": 0,
+      "decode_stderr": "",
+      "decoded_frame_count": 389,
+      "pts_frame_count": 389,
+      "decoded_dimensions": [
+        [
+          1280,
+          720
+        ]
+      ],
+      "first_pts_seconds": 0.0,
+      "last_pts_seconds": 12.946267,
+      "strictly_increasing_pts": true,
+      "min_pts_step_seconds": 0.03336599999999912,
+      "max_pts_step_seconds": 0.03336700000000015,
+      "mean_pts_step_seconds": 0.0333666675257732,
+      "full_read_decode_seconds": 2.078,
+      "stat_unchanged_full_read": true
+    },
+    {
+      "path": "C:\\Users\\firas\\OneDrive - University of Toledo\\Drone Footage\\Dji 20260416110504 0266 D.mp4",
+      "size_bytes": 10015146,
+      "modified_ns": 1779770882000000000,
+      "attributes_before": 32,
+      "offline_before": false,
+      "recall_on_data_access_before": false,
+      "returncode": 0,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "index": 0,
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 1280,
+            "height": 720,
+            "pix_fmt": "yuv420p",
+            "r_frame_rate": "30000/1001",
+            "avg_frame_rate": "30000/1001",
+            "time_base": "1/90000",
+            "start_time": "0.000000",
+            "duration": "11.511500",
+            "nb_frames": "345"
+          }
+        ],
+        "format": {
+          "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
+          "start_time": "0.000000",
+          "duration": "11.511500",
+          "size": "10015146"
+        }
+      },
+      "stat_unchanged": true,
+      "attributes_after": 32,
+      "probe_elapsed_seconds": 0.072,
+      "sha256": "2359655582c01ad4809337bff30e2ae31972a58823315e6c9b388b4b369c769f",
+      "full_frame_decode_returncode": 0,
+      "decode_stderr": "",
+      "decoded_frame_count": 345,
+      "pts_frame_count": 345,
+      "decoded_dimensions": [
+        [
+          1280,
+          720
+        ]
+      ],
+      "first_pts_seconds": 0.0,
+      "last_pts_seconds": 11.478133,
+      "strictly_increasing_pts": true,
+      "min_pts_step_seconds": 0.03336599999999912,
+      "max_pts_step_seconds": 0.03336700000000015,
+      "mean_pts_step_seconds": 0.033366665697674415,
+      "full_read_decode_seconds": 1.844,
+      "stat_unchanged_full_read": true
+    },
+    {
+      "path": "C:\\Users\\firas\\OneDrive - University of Toledo\\Drone Footage\\Dji 20260416110548 0267 D.mp4",
+      "size_bytes": 10844935,
+      "modified_ns": 1779770882000000000,
+      "attributes_before": 32,
+      "offline_before": false,
+      "recall_on_data_access_before": false,
+      "returncode": 0,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "index": 0,
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 1280,
+            "height": 720,
+            "pix_fmt": "yuv420p",
+            "r_frame_rate": "30000/1001",
+            "avg_frame_rate": "30000/1001",
+            "time_base": "1/90000",
+            "start_time": "0.000000",
+            "duration": "14.014000",
+            "nb_frames": "420"
+          }
+        ],
+        "format": {
+          "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
+          "start_time": "0.000000",
+          "duration": "14.014000",
+          "size": "10844935"
+        }
+      },
+      "stat_unchanged": true,
+      "attributes_after": 32,
+      "probe_elapsed_seconds": 0.081,
+      "sha256": "daf7dfbef4951f1ae9f721745eceb1bc3486b45d59e81cfffab44ffc7e559387",
+      "full_frame_decode_returncode": 0,
+      "decode_stderr": "",
+      "decoded_frame_count": 420,
+      "pts_frame_count": 420,
+      "decoded_dimensions": [
+        [
+          1280,
+          720
+        ]
+      ],
+      "first_pts_seconds": 0.0,
+      "last_pts_seconds": 13.980633,
+      "strictly_increasing_pts": true,
+      "min_pts_step_seconds": 0.03336599999999912,
+      "max_pts_step_seconds": 0.03336700000000015,
+      "mean_pts_step_seconds": 0.03336666587112171,
+      "full_read_decode_seconds": 2.125,
+      "stat_unchanged_full_read": true
+    },
+    {
+      "path": "C:\\Users\\firas\\OneDrive - University of Toledo\\Drone Footage\\Dji 20260416110621 0268 D.mp4",
+      "size_bytes": 14823229,
+      "modified_ns": 1779770883000000000,
+      "attributes_before": 32,
+      "offline_before": false,
+      "recall_on_data_access_before": false,
+      "returncode": 0,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "index": 0,
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 1280,
+            "height": 720,
+            "pix_fmt": "yuv420p",
+            "r_frame_rate": "30000/1001",
+            "avg_frame_rate": "30000/1001",
+            "time_base": "1/90000",
+            "start_time": "0.000000",
+            "duration": "17.817800",
+            "nb_frames": "534"
+          }
+        ],
+        "format": {
+          "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
+          "start_time": "0.000000",
+          "duration": "17.817800",
+          "size": "14823229"
+        }
+      },
+      "stat_unchanged": true,
+      "attributes_after": 32,
+      "probe_elapsed_seconds": 0.077,
+      "sha256": "3d303135d4ad0b03130887922e95795a84d4955c5bae1c8228db462708e96398",
+      "full_frame_decode_returncode": 0,
+      "decode_stderr": "",
+      "decoded_frame_count": 534,
+      "pts_frame_count": 534,
+      "decoded_dimensions": [
+        [
+          1280,
+          720
+        ]
+      ],
+      "first_pts_seconds": 0.0,
+      "last_pts_seconds": 17.784433,
+      "strictly_increasing_pts": true,
+      "min_pts_step_seconds": 0.03336599999999734,
+      "max_pts_step_seconds": 0.03336700000000192,
+      "mean_pts_step_seconds": 0.0333666660412758,
+      "full_read_decode_seconds": 2.563,
+      "stat_unchanged_full_read": true
+    },
+    {
+      "path": "C:\\Users\\firas\\OneDrive - University of Toledo\\Drone Footage\\Dji 20260416110700 0269 D.mp4",
+      "size_bytes": 10539992,
+      "modified_ns": 1779770883000000000,
+      "attributes_before": 32,
+      "offline_before": false,
+      "recall_on_data_access_before": false,
+      "returncode": 0,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "index": 0,
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 1280,
+            "height": 720,
+            "pix_fmt": "yuv420p",
+            "r_frame_rate": "30000/1001",
+            "avg_frame_rate": "30000/1001",
+            "time_base": "1/90000",
+            "start_time": "0.000000",
+            "duration": "13.179833",
+            "nb_frames": "395"
+          }
+        ],
+        "format": {
+          "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
+          "start_time": "0.000000",
+          "duration": "13.179833",
+          "size": "10539992"
+        }
+      },
+      "stat_unchanged": true,
+      "attributes_after": 32,
+      "probe_elapsed_seconds": 0.081,
+      "sha256": "0dcaca272fae1346d8b1d6ea5170a92c3f4b839354373b9869008772da374882",
+      "full_frame_decode_returncode": 0,
+      "decode_stderr": "",
+      "decoded_frame_count": 395,
+      "pts_frame_count": 395,
+      "decoded_dimensions": [
+        [
+          1280,
+          720
+        ]
+      ],
+      "first_pts_seconds": 0.0,
+      "last_pts_seconds": 13.146467,
+      "strictly_increasing_pts": true,
+      "min_pts_step_seconds": 0.03336599999999912,
+      "max_pts_step_seconds": 0.03336700000000015,
+      "mean_pts_step_seconds": 0.03336666751269035,
+      "full_read_decode_seconds": 1.797,
+      "stat_unchanged_full_read": true
+    },
+    {
+      "path": "C:\\Users\\firas\\OneDrive - University of Toledo\\Drone Footage\\Dji 20260416110733 0270 D.mp4",
+      "size_bytes": 9651917,
+      "modified_ns": 1779770883000000000,
+      "attributes_before": 32,
+      "offline_before": false,
+      "recall_on_data_access_before": false,
+      "returncode": 0,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "index": 0,
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 1280,
+            "height": 720,
+            "pix_fmt": "yuv420p",
+            "r_frame_rate": "30000/1001",
+            "avg_frame_rate": "30000/1001",
+            "time_base": "1/90000",
+            "start_time": "0.000000",
+            "duration": "12.545867",
+            "nb_frames": "376"
+          }
+        ],
+        "format": {
+          "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
+          "start_time": "0.000000",
+          "duration": "12.545867",
+          "size": "9651917"
+        }
+      },
+      "stat_unchanged": true,
+      "attributes_after": 32,
+      "probe_elapsed_seconds": 0.077,
+      "sha256": "c72ca28c47367da776af178123a7c5e68d3bb917b1a643b098f7e5c4076c1ad1",
+      "full_frame_decode_returncode": 0,
+      "decode_stderr": "",
+      "decoded_frame_count": 376,
+      "pts_frame_count": 376,
+      "decoded_dimensions": [
+        [
+          1280,
+          720
+        ]
+      ],
+      "first_pts_seconds": 0.0,
+      "last_pts_seconds": 12.5125,
+      "strictly_increasing_pts": true,
+      "min_pts_step_seconds": 0.03336599999999912,
+      "max_pts_step_seconds": 0.03336700000000015,
+      "mean_pts_step_seconds": 0.03336666666666666,
+      "full_read_decode_seconds": 1.75,
+      "stat_unchanged_full_read": true
+    },
+    {
+      "path": "C:\\Users\\firas\\OneDrive - University of Toledo\\Drone Footage\\Dji 20260416110813 0271 D.mp4",
+      "size_bytes": 9425846,
+      "modified_ns": 1779770884000000000,
+      "attributes_before": 32,
+      "offline_before": false,
+      "recall_on_data_access_before": false,
+      "returncode": 0,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "index": 0,
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 1280,
+            "height": 720,
+            "pix_fmt": "yuv420p",
+            "r_frame_rate": "30000/1001",
+            "avg_frame_rate": "30000/1001",
+            "time_base": "1/90000",
+            "start_time": "0.000000",
+            "duration": "11.344667",
+            "nb_frames": "340"
+          }
+        ],
+        "format": {
+          "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
+          "start_time": "0.000000",
+          "duration": "11.344667",
+          "size": "9425846"
+        }
+      },
+      "stat_unchanged": true,
+      "attributes_after": 32,
+      "probe_elapsed_seconds": 0.077,
+      "sha256": "c716a1efef7b52ada4d5101acea3fdd047ef21768c1fd9bf6ec3dbc23898588e",
+      "full_frame_decode_returncode": 0,
+      "decode_stderr": "",
+      "decoded_frame_count": 340,
+      "pts_frame_count": 340,
+      "decoded_dimensions": [
+        [
+          1280,
+          720
+        ]
+      ],
+      "first_pts_seconds": 0.0,
+      "last_pts_seconds": 11.3113,
+      "strictly_increasing_pts": true,
+      "min_pts_step_seconds": 0.03336599999999912,
+      "max_pts_step_seconds": 0.03336700000000015,
+      "mean_pts_step_seconds": 0.03336666666666666,
+      "full_read_decode_seconds": 1.625,
+      "stat_unchanged_full_read": true
+    },
+    {
+      "path": "C:\\Users\\firas\\OneDrive - University of Toledo\\Drone Footage\\Dji 20260416110857 0272 D.mp4",
+      "size_bytes": 8931764,
+      "modified_ns": 1779770884000000000,
+      "attributes_before": 32,
+      "offline_before": false,
+      "recall_on_data_access_before": false,
+      "returncode": 0,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "index": 0,
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 1280,
+            "height": 720,
+            "pix_fmt": "yuv420p",
+            "r_frame_rate": "30000/1001",
+            "avg_frame_rate": "30000/1001",
+            "time_base": "1/90000",
+            "start_time": "0.000000",
+            "duration": "11.411400",
+            "nb_frames": "342"
+          }
+        ],
+        "format": {
+          "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
+          "start_time": "0.000000",
+          "duration": "11.411400",
+          "size": "8931764"
+        }
+      },
+      "stat_unchanged": true,
+      "attributes_after": 32,
+      "probe_elapsed_seconds": 0.084,
+      "sha256": "a46f5d7e05c872c13173dd775a3efb5824867e2ac1b30f4305cd12d81dd81f15",
+      "full_frame_decode_returncode": 0,
+      "decode_stderr": "",
+      "decoded_frame_count": 342,
+      "pts_frame_count": 342,
+      "decoded_dimensions": [
+        [
+          1280,
+          720
+        ]
+      ],
+      "first_pts_seconds": 0.0,
+      "last_pts_seconds": 11.378033,
+      "strictly_increasing_pts": true,
+      "min_pts_step_seconds": 0.03336599999999912,
+      "max_pts_step_seconds": 0.03336700000000015,
+      "mean_pts_step_seconds": 0.03336666568914956,
+      "full_read_decode_seconds": 1.703,
+      "stat_unchanged_full_read": true
+    },
+    {
+      "path": "C:\\Users\\firas\\OneDrive - University of Toledo\\Drone Footage\\Dji 20260416110929 0273 D.mp4",
+      "size_bytes": 7876870,
+      "modified_ns": 1779770884000000000,
+      "attributes_before": 32,
+      "offline_before": false,
+      "recall_on_data_access_before": false,
+      "returncode": 0,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "index": 0,
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 1280,
+            "height": 720,
+            "pix_fmt": "yuv420p",
+            "r_frame_rate": "30000/1001",
+            "avg_frame_rate": "30000/1001",
+            "time_base": "1/90000",
+            "start_time": "0.000000",
+            "duration": "9.609600",
+            "nb_frames": "288"
+          }
+        ],
+        "format": {
+          "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
+          "start_time": "0.000000",
+          "duration": "9.609600",
+          "size": "7876870"
+        }
+      },
+      "stat_unchanged": true,
+      "attributes_after": 32,
+      "probe_elapsed_seconds": 0.077,
+      "sha256": "e4952ed9b745f9a3c55440d0b05cf9b91ab9ca8f87bf26b63783b23d4c950c02",
+      "full_frame_decode_returncode": 0,
+      "decode_stderr": "",
+      "decoded_frame_count": 288,
+      "pts_frame_count": 288,
+      "decoded_dimensions": [
+        [
+          1280,
+          720
+        ]
+      ],
+      "first_pts_seconds": 0.0,
+      "last_pts_seconds": 9.576233,
+      "strictly_increasing_pts": true,
+      "min_pts_step_seconds": 0.03336599999999912,
+      "max_pts_step_seconds": 0.03336700000000015,
+      "mean_pts_step_seconds": 0.03336666550522648,
+      "full_read_decode_seconds": 1.453,
+      "stat_unchanged_full_read": true
+    },
+    {
+      "path": "C:\\Users\\firas\\OneDrive - University of Toledo\\Drone Footage\\Dji 20260416110958 0274 D.mp4",
+      "size_bytes": 5734873,
+      "modified_ns": 1779770884000000000,
+      "attributes_before": 32,
+      "offline_before": false,
+      "recall_on_data_access_before": false,
+      "returncode": 0,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "index": 0,
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 1280,
+            "height": 720,
+            "pix_fmt": "yuv420p",
+            "r_frame_rate": "30000/1001",
+            "avg_frame_rate": "30000/1001",
+            "time_base": "1/90000",
+            "start_time": "0.000000",
+            "duration": "6.973633",
+            "nb_frames": "209"
+          }
+        ],
+        "format": {
+          "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
+          "start_time": "0.000000",
+          "duration": "6.973633",
+          "size": "5734873"
+        }
+      },
+      "stat_unchanged": true,
+      "attributes_after": 32,
+      "probe_elapsed_seconds": 0.079,
+      "sha256": "cc19ae61940d7c3f59536cfed2271c94291742d0adaf658a4d8f772428c74a18",
+      "full_frame_decode_returncode": 0,
+      "decode_stderr": "",
+      "decoded_frame_count": 209,
+      "pts_frame_count": 209,
+      "decoded_dimensions": [
+        [
+          1280,
+          720
+        ]
+      ],
+      "first_pts_seconds": 0.0,
+      "last_pts_seconds": 6.940267,
+      "strictly_increasing_pts": true,
+      "min_pts_step_seconds": 0.03336599999999998,
+      "max_pts_step_seconds": 0.03336700000000015,
+      "mean_pts_step_seconds": 0.03336666826923077,
+      "full_read_decode_seconds": 1.062,
+      "stat_unchanged_full_read": true
+    },
+    {
+      "path": "C:\\Users\\firas\\OneDrive - University of Toledo\\Drone Footage\\Dji 20260416111026 0275 D.mp4",
+      "size_bytes": 10379516,
+      "modified_ns": 1779770884000000000,
+      "attributes_before": 32,
+      "offline_before": false,
+      "recall_on_data_access_before": false,
+      "returncode": 0,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "index": 0,
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 1280,
+            "height": 720,
+            "pix_fmt": "yuv420p",
+            "r_frame_rate": "30000/1001",
+            "avg_frame_rate": "30000/1001",
+            "time_base": "1/90000",
+            "start_time": "0.000000",
+            "duration": "12.412400",
+            "nb_frames": "372"
+          }
+        ],
+        "format": {
+          "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
+          "start_time": "0.000000",
+          "duration": "12.412400",
+          "size": "10379516"
+        }
+      },
+      "stat_unchanged": true,
+      "attributes_after": 32,
+      "probe_elapsed_seconds": 0.075,
+      "sha256": "562a8e48d218493332ebdfbb59073be0565cb999c201dbc5a4d4675461672614",
+      "full_frame_decode_returncode": 0,
+      "decode_stderr": "",
+      "decoded_frame_count": 372,
+      "pts_frame_count": 372,
+      "decoded_dimensions": [
+        [
+          1280,
+          720
+        ]
+      ],
+      "first_pts_seconds": 0.0,
+      "last_pts_seconds": 12.379033,
+      "strictly_increasing_pts": true,
+      "min_pts_step_seconds": 0.03336599999999912,
+      "max_pts_step_seconds": 0.03336700000000015,
+      "mean_pts_step_seconds": 0.03336666576819407,
+      "full_read_decode_seconds": 1.703,
+      "stat_unchanged_full_read": true
+    },
+    {
+      "path": "C:\\Users\\firas\\OneDrive - University of Toledo\\Drone Footage\\Dji 20260416111101 0276 D.mp4",
+      "size_bytes": 8188220,
+      "modified_ns": 1779770884000000000,
+      "attributes_before": 32,
+      "offline_before": false,
+      "recall_on_data_access_before": false,
+      "returncode": 0,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "index": 0,
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 1280,
+            "height": 720,
+            "pix_fmt": "yuv420p",
+            "r_frame_rate": "30000/1001",
+            "avg_frame_rate": "30000/1001",
+            "time_base": "1/90000",
+            "start_time": "0.000000",
+            "duration": "10.310300",
+            "nb_frames": "309"
+          }
+        ],
+        "format": {
+          "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
+          "start_time": "0.000000",
+          "duration": "10.310300",
+          "size": "8188220"
+        }
+      },
+      "stat_unchanged": true,
+      "attributes_after": 32,
+      "probe_elapsed_seconds": 0.087,
+      "sha256": "8c809b02db12b330cc9502740016daf41804e35d850769157d7764fa850f1dbb",
+      "full_frame_decode_returncode": 0,
+      "decode_stderr": "",
+      "decoded_frame_count": 309,
+      "pts_frame_count": 309,
+      "decoded_dimensions": [
+        [
+          1280,
+          720
+        ]
+      ],
+      "first_pts_seconds": 0.0,
+      "last_pts_seconds": 10.276933,
+      "strictly_increasing_pts": true,
+      "min_pts_step_seconds": 0.03336599999999912,
+      "max_pts_step_seconds": 0.03336700000000015,
+      "mean_pts_step_seconds": 0.03336666558441558,
+      "full_read_decode_seconds": 1.531,
+      "stat_unchanged_full_read": true
+    },
+    {
+      "path": "C:\\Users\\firas\\OneDrive - University of Toledo\\Drone Footage\\Dji 20260416111143 0277 D.mp4",
+      "size_bytes": 13732576,
+      "modified_ns": 1779770884000000000,
+      "attributes_before": 32,
+      "offline_before": false,
+      "recall_on_data_access_before": false,
+      "returncode": 0,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "index": 0,
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 1280,
+            "height": 720,
+            "pix_fmt": "yuv420p",
+            "r_frame_rate": "30000/1001",
+            "avg_frame_rate": "30000/1001",
+            "time_base": "1/90000",
+            "start_time": "0.000000",
+            "duration": "17.083733",
+            "nb_frames": "512"
+          }
+        ],
+        "format": {
+          "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
+          "start_time": "0.000000",
+          "duration": "17.083733",
+          "size": "13732576"
+        }
+      },
+      "stat_unchanged": true,
+      "attributes_after": 32,
+      "probe_elapsed_seconds": 0.085,
+      "sha256": "eae59c71f9168125a0f1f87d6f07cf0a095b95e9a475ffd88180ed9b1f0917c7",
+      "full_frame_decode_returncode": 0,
+      "decode_stderr": "",
+      "decoded_frame_count": 512,
+      "pts_frame_count": 512,
+      "decoded_dimensions": [
+        [
+          1280,
+          720
+        ]
+      ],
+      "first_pts_seconds": 0.0,
+      "last_pts_seconds": 17.050367,
+      "strictly_increasing_pts": true,
+      "min_pts_step_seconds": 0.03336599999999734,
+      "max_pts_step_seconds": 0.03336700000000192,
+      "mean_pts_step_seconds": 0.03336666731898239,
+      "full_read_decode_seconds": 2.718,
+      "stat_unchanged_full_read": true
+    },
+    {
+      "path": "C:\\Users\\firas\\OneDrive - University of Toledo\\Drone Footage\\Dji 20260416111218 0278 D.mp4",
+      "size_bytes": 12482801,
+      "modified_ns": 1779770884000000000,
+      "attributes_before": 32,
+      "offline_before": false,
+      "recall_on_data_access_before": false,
+      "returncode": 0,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "index": 0,
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 1280,
+            "height": 720,
+            "pix_fmt": "yuv420p",
+            "r_frame_rate": "30000/1001",
+            "avg_frame_rate": "30000/1001",
+            "time_base": "1/90000",
+            "start_time": "0.000000",
+            "duration": "15.949267",
+            "nb_frames": "478"
+          }
+        ],
+        "format": {
+          "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
+          "start_time": "0.000000",
+          "duration": "15.949267",
+          "size": "12482801"
+        }
+      },
+      "stat_unchanged": true,
+      "attributes_after": 32,
+      "probe_elapsed_seconds": 0.082,
+      "sha256": "57373f9b7e0a0f00b63d974fc225515574b814835247d57734bded9783edb494",
+      "full_frame_decode_returncode": 0,
+      "decode_stderr": "",
+      "decoded_frame_count": 478,
+      "pts_frame_count": 478,
+      "decoded_dimensions": [
+        [
+          1280,
+          720
+        ]
+      ],
+      "first_pts_seconds": 0.0,
+      "last_pts_seconds": 15.9159,
+      "strictly_increasing_pts": true,
+      "min_pts_step_seconds": 0.03336599999999912,
+      "max_pts_step_seconds": 0.03336700000000015,
+      "mean_pts_step_seconds": 0.03336666666666667,
+      "full_read_decode_seconds": 2.484,
+      "stat_unchanged_full_read": true
+    },
+    {
+      "path": "C:\\Users\\firas\\OneDrive - University of Toledo\\Drone Footage\\Dji 20260416111256 0279 D.mp4",
+      "size_bytes": 7395380,
+      "modified_ns": 1779770884000000000,
+      "attributes_before": 32,
+      "offline_before": false,
+      "recall_on_data_access_before": false,
+      "returncode": 0,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "index": 0,
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 1280,
+            "height": 720,
+            "pix_fmt": "yuv420p",
+            "r_frame_rate": "30000/1001",
+            "avg_frame_rate": "30000/1001",
+            "time_base": "1/90000",
+            "start_time": "0.000000",
+            "duration": "9.542867",
+            "nb_frames": "286"
+          }
+        ],
+        "format": {
+          "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
+          "start_time": "0.000000",
+          "duration": "9.542867",
+          "size": "7395380"
+        }
+      },
+      "stat_unchanged": true,
+      "attributes_after": 32,
+      "probe_elapsed_seconds": 0.091,
+      "sha256": "e608ce2a19837dae32e0161670c7d8999765f51ab543565a539aaca2e464e8cb",
+      "full_frame_decode_returncode": 0,
+      "decode_stderr": "",
+      "decoded_frame_count": 286,
+      "pts_frame_count": 286,
+      "decoded_dimensions": [
+        [
+          1280,
+          720
+        ]
+      ],
+      "first_pts_seconds": 0.0,
+      "last_pts_seconds": 9.5095,
+      "strictly_increasing_pts": true,
+      "min_pts_step_seconds": 0.03336599999999912,
+      "max_pts_step_seconds": 0.03336700000000015,
+      "mean_pts_step_seconds": 0.03336666666666666,
+      "full_read_decode_seconds": 1.734,
+      "stat_unchanged_full_read": true
+    },
+    {
+      "path": "C:\\Users\\firas\\OneDrive - University of Toledo\\Drone Footage\\Dji 20260416111327 0280 D.mp4",
+      "size_bytes": 10154508,
+      "modified_ns": 1779770884000000000,
+      "attributes_before": 32,
+      "offline_before": false,
+      "recall_on_data_access_before": false,
+      "returncode": 0,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "index": 0,
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 1280,
+            "height": 720,
+            "pix_fmt": "yuv420p",
+            "r_frame_rate": "30000/1001",
+            "avg_frame_rate": "30000/1001",
+            "time_base": "1/90000",
+            "start_time": "0.000000",
+            "duration": "12.679333",
+            "nb_frames": "380"
+          }
+        ],
+        "format": {
+          "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
+          "start_time": "0.000000",
+          "duration": "12.679333",
+          "size": "10154508"
+        }
+      },
+      "stat_unchanged": true,
+      "attributes_after": 32,
+      "probe_elapsed_seconds": 0.09,
+      "sha256": "6426a78db3f65624ca26092a4e1f925985a441a9d5c2a363f28a833b1876e352",
+      "full_frame_decode_returncode": 0,
+      "decode_stderr": "",
+      "decoded_frame_count": 380,
+      "pts_frame_count": 380,
+      "decoded_dimensions": [
+        [
+          1280,
+          720
+        ]
+      ],
+      "first_pts_seconds": 0.0,
+      "last_pts_seconds": 12.645967,
+      "strictly_increasing_pts": true,
+      "min_pts_step_seconds": 0.03336599999999912,
+      "max_pts_step_seconds": 0.03336700000000015,
+      "mean_pts_step_seconds": 0.03336666754617414,
+      "full_read_decode_seconds": 2.172,
+      "stat_unchanged_full_read": true
+    },
+    {
+      "path": "C:\\Users\\firas\\OneDrive - University of Toledo\\Drone Footage\\Dji 20260416111402 0281 D.mp4",
+      "size_bytes": 10449834,
+      "modified_ns": 1779770885000000000,
+      "attributes_before": 32,
+      "offline_before": false,
+      "recall_on_data_access_before": false,
+      "returncode": 0,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "index": 0,
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 1280,
+            "height": 720,
+            "pix_fmt": "yuv420p",
+            "r_frame_rate": "30000/1001",
+            "avg_frame_rate": "30000/1001",
+            "time_base": "1/90000",
+            "start_time": "0.000000",
+            "duration": "12.579233",
+            "nb_frames": "377"
+          }
+        ],
+        "format": {
+          "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
+          "start_time": "0.000000",
+          "duration": "12.579233",
+          "size": "10449834"
+        }
+      },
+      "stat_unchanged": true,
+      "attributes_after": 32,
+      "probe_elapsed_seconds": 0.079,
+      "sha256": "4e25bf31be00ef0da887173eed73094ac5af8e0c5ba3a4b6be274dbc282d783f",
+      "full_frame_decode_returncode": 0,
+      "decode_stderr": "",
+      "decoded_frame_count": 377,
+      "pts_frame_count": 377,
+      "decoded_dimensions": [
+        [
+          1280,
+          720
+        ]
+      ],
+      "first_pts_seconds": 0.0,
+      "last_pts_seconds": 12.545867,
+      "strictly_increasing_pts": true,
+      "min_pts_step_seconds": 0.03336599999999912,
+      "max_pts_step_seconds": 0.03336700000000015,
+      "mean_pts_step_seconds": 0.03336666755319149,
+      "full_read_decode_seconds": 1.796,
+      "stat_unchanged_full_read": true
+    },
+    {
+      "path": "C:\\Users\\firas\\OneDrive - University of Toledo\\Drone Footage\\Dji 20260416111445 0282 D.mp4",
+      "size_bytes": 18315841,
+      "modified_ns": 1779770885000000000,
+      "attributes_before": 32,
+      "offline_before": false,
+      "recall_on_data_access_before": false,
+      "returncode": 0,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "index": 0,
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 1280,
+            "height": 720,
+            "pix_fmt": "yuv420p",
+            "r_frame_rate": "30000/1001",
+            "avg_frame_rate": "30000/1001",
+            "time_base": "1/90000",
+            "start_time": "0.000000",
+            "duration": "23.623600",
+            "nb_frames": "708"
+          }
+        ],
+        "format": {
+          "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
+          "start_time": "0.000000",
+          "duration": "23.623600",
+          "size": "18315841"
+        }
+      },
+      "stat_unchanged": true,
+      "attributes_after": 32,
+      "probe_elapsed_seconds": 0.078,
+      "sha256": "477452a5af83e3d8e14337ec879cc1cdc3f4caafb82bf2bd0ef41c65a49ac727",
+      "full_frame_decode_returncode": 0,
+      "decode_stderr": "",
+      "decoded_frame_count": 708,
+      "pts_frame_count": 708,
+      "decoded_dimensions": [
+        [
+          1280,
+          720
+        ]
+      ],
+      "first_pts_seconds": 0.0,
+      "last_pts_seconds": 23.590233,
+      "strictly_increasing_pts": true,
+      "min_pts_step_seconds": 0.03336599999999734,
+      "max_pts_step_seconds": 0.03336700000000192,
+      "mean_pts_step_seconds": 0.03336666619519095,
+      "full_read_decode_seconds": 3.25,
+      "stat_unchanged_full_read": true
+    },
+    {
+      "path": "C:\\Users\\firas\\OneDrive - University of Toledo\\Drone Footage\\Dji 20260416111511 0283 D.mp4",
+      "size_bytes": 8822657,
+      "modified_ns": 1779770885000000000,
+      "attributes_before": 32,
+      "offline_before": false,
+      "recall_on_data_access_before": false,
+      "returncode": 0,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "index": 0,
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 1280,
+            "height": 720,
+            "pix_fmt": "yuv420p",
+            "r_frame_rate": "30000/1001",
+            "avg_frame_rate": "30000/1001",
+            "time_base": "1/90000",
+            "start_time": "0.000000",
+            "duration": "11.111100",
+            "nb_frames": "333"
+          }
+        ],
+        "format": {
+          "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
+          "start_time": "0.000000",
+          "duration": "11.111100",
+          "size": "8822657"
+        }
+      },
+      "stat_unchanged": true,
+      "attributes_after": 32,
+      "probe_elapsed_seconds": 0.078,
+      "sha256": "8a70b7d7d08efcd3c5d4e0ccb1594c34ef86d1e902ea6ff3b00a95d0bd2f4a36",
+      "full_frame_decode_returncode": 0,
+      "decode_stderr": "",
+      "decoded_frame_count": 333,
+      "pts_frame_count": 333,
+      "decoded_dimensions": [
+        [
+          1280,
+          720
+        ]
+      ],
+      "first_pts_seconds": 0.0,
+      "last_pts_seconds": 11.077733,
+      "strictly_increasing_pts": true,
+      "min_pts_step_seconds": 0.03336599999999912,
+      "max_pts_step_seconds": 0.03336700000000015,
+      "mean_pts_step_seconds": 0.033366665662650605,
+      "full_read_decode_seconds": 1.469,
+      "stat_unchanged_full_read": true
+    },
+    {
+      "path": "C:\\Users\\firas\\OneDrive - University of Toledo\\Drone Footage\\Dji 20260416111539 0284 D.mp4",
+      "size_bytes": 7331490,
+      "modified_ns": 1779770885000000000,
+      "attributes_before": 32,
+      "offline_before": false,
+      "recall_on_data_access_before": false,
+      "returncode": 0,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "index": 0,
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 1280,
+            "height": 720,
+            "pix_fmt": "yuv420p",
+            "r_frame_rate": "30000/1001",
+            "avg_frame_rate": "30000/1001",
+            "time_base": "1/90000",
+            "start_time": "0.000000",
+            "duration": "8.575233",
+            "nb_frames": "257"
+          }
+        ],
+        "format": {
+          "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
+          "start_time": "0.000000",
+          "duration": "8.575233",
+          "size": "7331490"
+        }
+      },
+      "stat_unchanged": true,
+      "attributes_after": 32,
+      "probe_elapsed_seconds": 0.07,
+      "sha256": "aa87144455a12063beaef209df5e38b12a98ef17ad84a679c6958ad432ccd8ae",
+      "full_frame_decode_returncode": 0,
+      "decode_stderr": "",
+      "decoded_frame_count": 257,
+      "pts_frame_count": 257,
+      "decoded_dimensions": [
+        [
+          1280,
+          720
+        ]
+      ],
+      "first_pts_seconds": 0.0,
+      "last_pts_seconds": 8.541867,
+      "strictly_increasing_pts": true,
+      "min_pts_step_seconds": 0.03336599999999912,
+      "max_pts_step_seconds": 0.03336700000000015,
+      "mean_pts_step_seconds": 0.03336666796875,
+      "full_read_decode_seconds": 1.406,
+      "stat_unchanged_full_read": true
+    },
+    {
+      "path": "C:\\Users\\firas\\OneDrive - University of Toledo\\Drone Footage\\Dji 20260416111607 0285 D.mp4",
+      "size_bytes": 9457444,
+      "modified_ns": 1779770885000000000,
+      "attributes_before": 32,
+      "offline_before": false,
+      "recall_on_data_access_before": false,
+      "returncode": 0,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "index": 0,
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 1280,
+            "height": 720,
+            "pix_fmt": "yuv420p",
+            "r_frame_rate": "30000/1001",
+            "avg_frame_rate": "30000/1001",
+            "time_base": "1/90000",
+            "start_time": "0.000000",
+            "duration": "12.412400",
+            "nb_frames": "372"
+          }
+        ],
+        "format": {
+          "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
+          "start_time": "0.000000",
+          "duration": "12.412400",
+          "size": "9457444"
+        }
+      },
+      "stat_unchanged": true,
+      "attributes_after": 32,
+      "probe_elapsed_seconds": 0.073,
+      "sha256": "3c823114391d789bbbe5cf6f9a31047cb0dae0fd90388594b2817a78cfc6562a",
+      "full_frame_decode_returncode": 0,
+      "decode_stderr": "",
+      "decoded_frame_count": 372,
+      "pts_frame_count": 372,
+      "decoded_dimensions": [
+        [
+          1280,
+          720
+        ]
+      ],
+      "first_pts_seconds": 0.0,
+      "last_pts_seconds": 12.379033,
+      "strictly_increasing_pts": true,
+      "min_pts_step_seconds": 0.03336599999999912,
+      "max_pts_step_seconds": 0.03336700000000015,
+      "mean_pts_step_seconds": 0.03336666576819407,
+      "full_read_decode_seconds": 1.704,
+      "stat_unchanged_full_read": true
+    },
+    {
+      "path": "C:\\Users\\firas\\OneDrive - University of Toledo\\Drone Footage\\Dji 20260416111644 0286 D.mp4",
+      "size_bytes": 7961639,
+      "modified_ns": 1779770885000000000,
+      "attributes_before": 32,
+      "offline_before": false,
+      "recall_on_data_access_before": false,
+      "returncode": 0,
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "index": 0,
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 1280,
+            "height": 720,
+            "pix_fmt": "yuv420p",
+            "r_frame_rate": "30000/1001",
+            "avg_frame_rate": "30000/1001",
+            "time_base": "1/90000",
+            "start_time": "0.000000",
+            "duration": "10.010000",
+            "nb_frames": "300"
+          }
+        ],
+        "format": {
+          "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
+          "start_time": "0.000000",
+          "duration": "10.010000",
+          "size": "7961639"
+        }
+      },
+      "stat_unchanged": true,
+      "attributes_after": 32,
+      "probe_elapsed_seconds": 0.071,
+      "sha256": "5f2f5096d1e7246d7418c2b042752226cfa895095b8d9c29fb40612ca611f1fe",
+      "full_frame_decode_returncode": 0,
+      "decode_stderr": "",
+      "decoded_frame_count": 300,
+      "pts_frame_count": 300,
+      "decoded_dimensions": [
+        [
+          1280,
+          720
+        ]
+      ],
+      "first_pts_seconds": 0.0,
+      "last_pts_seconds": 9.976633,
+      "strictly_increasing_pts": true,
+      "min_pts_step_seconds": 0.03336599999999912,
+      "max_pts_step_seconds": 0.03336700000000015,
+      "mean_pts_step_seconds": 0.03336666555183947,
+      "full_read_decode_seconds": 1.344,
+      "stat_unchanged_full_read": true
+    }
+  ],
+  "folder_file_count": 30,
+  "folder_non_mp4_files": [],
+  "verification_started_at_utc": "2026-10-21T19:25:49.170657+00:00",
+  "verification_finished_at_utc": "2026-10-21T19:26:16.630885+00:00",
+  "total_duration_seconds": 369.202164,
+  "continuous_1080p_at_least_300_seconds_candidates": [],
+  "summary": {
+    "all_full_reads_succeeded": true,
+    "all_frame_decodes_succeeded": true,
+    "all_pts_present_and_increasing": true,
+    "all_stats_unchanged": true,
+    "unique_sha256_count": 30,
+    "decoded_frames_total": 11065
+  },
+  "existing_verified_catalog_comparison": {
+    "observed_at_utc": "2026-10-21T19:27:31.658712+00:00",
+    "catalog_path": "reports\\overhaul\\labeling-package\\sources-content-verified.json",
+    "catalog_sha256": "996e52fab5db5e72bb05acc2b2f14d31d52374f54331375b919bb3ac6075a939",
+    "catalog_source_count": 36,
+    "same_full_sha256_count": 30,
+    "same_full_sha256_bytes": 300495546,
+    "new_source_bytes_count": 0,
+    "new_source_bytes": 0,
+    "matches": [
+      {
+        "path": "C:\\Users\\firas\\OneDrive - University of Toledo\\Drone Footage\\Dji 20260416110000 0257 D.mp4",
+        "sha256": "84a872911984225277b3b5f5fc3d8d0eee2e7270f2c342a977dd229a884e8d25",
+        "size_bytes": 8666433,
+        "catalog_matches": [
+          {
+            "source_id": "source-75c6f29c06e0d83c",
+            "path": "C:\\Users\\firas\\UT-Football-IQ\\Drone Footage\\Dji 20260416110000 0257 D.mp4",
+            "bytes": 8666433,
+            "category_status": "proposed",
+            "group_status": "proposed",
+            "source_context_confirmed": false
+          }
+        ]
+      },
+      {
+        "path": "C:\\Users\\firas\\OneDrive - University of Toledo\\Drone Footage\\Dji 20260416110028 0258 D.mp4",
+        "sha256": "fd6c6c400fdbf272114deab7a36bbb6cf353264332c1bab97a78f77f70b63c68",
+        "size_bytes": 8901173,
+        "catalog_matches": [
+          {
+            "source_id": "source-3ed2b5d1faa3589b",
+            "path": "C:\\Users\\firas\\UT-Football-IQ\\Drone Footage\\Dji 20260416110028 0258 D.mp4",
+            "bytes": 8901173,
+            "category_status": "proposed",
+            "group_status": "proposed",
+            "source_context_confirmed": false
+          }
+        ]
+      },
+      {
+        "path": "C:\\Users\\firas\\OneDrive - University of Toledo\\Drone Footage\\Dji 20260416110101 0259 D.mp4",
+        "sha256": "a8a56d8a8d1c0533201819fb4c05928e76f9f91e607c89e3745542fdebaddb20",
+        "size_bytes": 11468833,
+        "catalog_matches": [
+          {
+            "source_id": "source-567107c6ceaa4b05",
+            "path": "C:\\Users\\firas\\UT-Football-IQ\\Drone Footage\\Dji 20260416110101 0259 D.mp4",
+            "bytes": 11468833,
+            "category_status": "proposed",
+            "group_status": "proposed",
+            "source_context_confirmed": false
+          }
+        ]
+      },
+      {
+        "path": "C:\\Users\\firas\\OneDrive - University of Toledo\\Drone Footage\\Dji 20260416110140 0260 D.mp4",
+        "sha256": "705aa2ded33edb9482f83ec3c089de6393ef51fef2815908d398e236596d3d47",
+        "size_bytes": 9567244,
+        "catalog_matches": [
+          {
+            "source_id": "source-d2fd94ba4c4620bc",
+            "path": "C:\\Users\\firas\\UT-Football-IQ\\Drone Footage\\Dji 20260416110140 0260 D.mp4",
+            "bytes": 9567244,
+            "category_status": "proposed",
+            "group_status": "proposed",
+            "source_context_confirmed": false
+          }
+        ]
+      },
+      {
+        "path": "C:\\Users\\firas\\OneDrive - University of Toledo\\Drone Footage\\Dji 20260416110213 0261 D.mp4",
+        "sha256": "b103430adcc663139db173e41352c6ea3b349cb8d750ff6785c3c77b82253074",
+        "size_bytes": 10525621,
+        "catalog_matches": [
+          {
+            "source_id": "source-923b24ccc5012d62",
+            "path": "C:\\Users\\firas\\UT-Football-IQ\\Drone Footage\\Dji 20260416110213 0261 D.mp4",
+            "bytes": 10525621,
+            "category_status": "proposed",
+            "group_status": "proposed",
+            "source_context_confirmed": false
+          }
+        ]
+      },
+      {
+        "path": "C:\\Users\\firas\\OneDrive - University of Toledo\\Drone Footage\\Dji 20260416110254 0262 D.mp4",
+        "sha256": "c2adb2275d73445fe120fb87a8537c5596b3361602d9e2ee182cc1b5202f22e1",
+        "size_bytes": 9869029,
+        "catalog_matches": [
+          {
+            "source_id": "source-6fd6f1256668bf07",
+            "path": "C:\\Users\\firas\\UT-Football-IQ\\Drone Footage\\Dji 20260416110254 0262 D.mp4",
+            "bytes": 9869029,
+            "category_status": "proposed",
+            "group_status": "proposed",
+            "source_context_confirmed": false
+          }
+        ]
+      },
+      {
+        "path": "C:\\Users\\firas\\OneDrive - University of Toledo\\Drone Footage\\Dji 20260416110327 0263 D.mp4",
+        "sha256": "c636c1a1312b9ca567a269a86980a0f1ce0dfc29704209a9d47825175bb0dd50",
+        "size_bytes": 9365182,
+        "catalog_matches": [
+          {
+            "source_id": "source-cb8c77cd53b89875",
+            "path": "C:\\Users\\firas\\UT-Football-IQ\\Drone Footage\\Dji 20260416110327 0263 D.mp4",
+            "bytes": 9365182,
+            "category_status": "proposed",
+            "group_status": "proposed",
+            "source_context_confirmed": false
+          }
+        ]
+      },
+      {
+        "path": "C:\\Users\\firas\\OneDrive - University of Toledo\\Drone Footage\\Dji 20260416110358 0264 D.mp4",
+        "sha256": "3e35ec34bbd3a7571ba35480b3f7488a8aa36e7f5891ce93f4e9d26447536ea5",
+        "size_bytes": 8325382,
+        "catalog_matches": [
+          {
+            "source_id": "source-ce43db8f53a81e6c",
+            "path": "C:\\Users\\firas\\UT-Football-IQ\\Drone Footage\\Dji 20260416110358 0264 D.mp4",
+            "bytes": 8325382,
+            "category_status": "proposed",
+            "group_status": "proposed",
+            "source_context_confirmed": false
+          }
+        ]
+      },
+      {
+        "path": "C:\\Users\\firas\\OneDrive - University of Toledo\\Drone Footage\\Dji 20260416110429 0265 D.mp4",
+        "sha256": "0f15ccf56e4fa0999f106232cfa8f0472903456a9edff1707704d4d1d5fd9a6b",
+        "size_bytes": 11290171,
+        "catalog_matches": [
+          {
+            "source_id": "source-2f90740143d0d1fb",
+            "path": "C:\\Users\\firas\\UT-Football-IQ\\Drone Footage\\Dji 20260416110429 0265 D.mp4",
+            "bytes": 11290171,
+            "category_status": "proposed",
+            "group_status": "proposed",
+            "source_context_confirmed": false
+          }
+        ]
+      },
+      {
+        "path": "C:\\Users\\firas\\OneDrive - University of Toledo\\Drone Footage\\Dji 20260416110504 0266 D.mp4",
+        "sha256": "2359655582c01ad4809337bff30e2ae31972a58823315e6c9b388b4b369c769f",
+        "size_bytes": 10015146,
+        "catalog_matches": [
+          {
+            "source_id": "source-18290ee8654377df",
+            "path": "C:\\Users\\firas\\UT-Football-IQ\\Drone Footage\\Dji 20260416110504 0266 D.mp4",
+            "bytes": 10015146,
+            "category_status": "proposed",
+            "group_status": "proposed",
+            "source_context_confirmed": false
+          }
+        ]
+      },
+      {
+        "path": "C:\\Users\\firas\\OneDrive - University of Toledo\\Drone Footage\\Dji 20260416110548 0267 D.mp4",
+        "sha256": "daf7dfbef4951f1ae9f721745eceb1bc3486b45d59e81cfffab44ffc7e559387",
+        "size_bytes": 10844935,
+        "catalog_matches": [
+          {
+            "source_id": "source-6115a5dc873540b5",
+            "path": "C:\\Users\\firas\\UT-Football-IQ\\Drone Footage\\Dji 20260416110548 0267 D.mp4",
+            "bytes": 10844935,
+            "category_status": "proposed",
+            "group_status": "proposed",
+            "source_context_confirmed": false
+          }
+        ]
+      },
+      {
+        "path": "C:\\Users\\firas\\OneDrive - University of Toledo\\Drone Footage\\Dji 20260416110621 0268 D.mp4",
+        "sha256": "3d303135d4ad0b03130887922e95795a84d4955c5bae1c8228db462708e96398",
+        "size_bytes": 14823229,
+        "catalog_matches": [
+          {
+            "source_id": "source-5d8ea49792376d51",
+            "path": "C:\\Users\\firas\\UT-Football-IQ\\Drone Footage\\Dji 20260416110621 0268 D.mp4",
+            "bytes": 14823229,
+            "category_status": "proposed",
+            "group_status": "proposed",
+            "source_context_confirmed": false
+          }
+        ]
+      },
+      {
+        "path": "C:\\Users\\firas\\OneDrive - University of Toledo\\Drone Footage\\Dji 20260416110700 0269 D.mp4",
+        "sha256": "0dcaca272fae1346d8b1d6ea5170a92c3f4b839354373b9869008772da374882",
+        "size_bytes": 10539992,
+        "catalog_matches": [
+          {
+            "source_id": "source-ab673eaa785ffc60",
+            "path": "C:\\Users\\firas\\UT-Football-IQ\\Drone Footage\\Dji 20260416110700 0269 D.mp4",
+            "bytes": 10539992,
+            "category_status": "proposed",
+            "group_status": "proposed",
+            "source_context_confirmed": false
+          }
+        ]
+      },
+      {
+        "path": "C:\\Users\\firas\\OneDrive - University of Toledo\\Drone Footage\\Dji 20260416110733 0270 D.mp4",
+        "sha256": "c72ca28c47367da776af178123a7c5e68d3bb917b1a643b098f7e5c4076c1ad1",
+        "size_bytes": 9651917,
+        "catalog_matches": [
+          {
+            "source_id": "source-394b06ca33d5bf42",
+            "path": "C:\\Users\\firas\\UT-Football-IQ\\Drone Footage\\Dji 20260416110733 0270 D.mp4",
+            "bytes": 9651917,
+            "category_status": "proposed",
+            "group_status": "proposed",
+            "source_context_confirmed": false
+          }
+        ]
+      },
+      {
+        "path": "C:\\Users\\firas\\OneDrive - University of Toledo\\Drone Footage\\Dji 20260416110813 0271 D.mp4",
+        "sha256": "c716a1efef7b52ada4d5101acea3fdd047ef21768c1fd9bf6ec3dbc23898588e",
+        "size_bytes": 9425846,
+        "catalog_matches": [
+          {
+            "source_id": "source-bbf2c64974738771",
+            "path": "C:\\Users\\firas\\UT-Football-IQ\\Drone Footage\\Dji 20260416110813 0271 D.mp4",
+            "bytes": 9425846,
+            "category_status": "proposed",
+            "group_status": "proposed",
+            "source_context_confirmed": false
+          }
+        ]
+      },
+      {
+        "path": "C:\\Users\\firas\\OneDrive - University of Toledo\\Drone Footage\\Dji 20260416110857 0272 D.mp4",
+        "sha256": "a46f5d7e05c872c13173dd775a3efb5824867e2ac1b30f4305cd12d81dd81f15",
+        "size_bytes": 8931764,
+        "catalog_matches": [
+          {
+            "source_id": "source-67a9fe4ef4cf4515",
+            "path": "C:\\Users\\firas\\UT-Football-IQ\\Drone Footage\\Dji 20260416110857 0272 D.mp4",
+            "bytes": 8931764,
+            "category_status": "proposed",
+            "group_status": "proposed",
+            "source_context_confirmed": false
+          }
+        ]
+      },
+      {
+        "path": "C:\\Users\\firas\\OneDrive - University of Toledo\\Drone Footage\\Dji 20260416110929 0273 D.mp4",
+        "sha256": "e4952ed9b745f9a3c55440d0b05cf9b91ab9ca8f87bf26b63783b23d4c950c02",
+        "size_bytes": 7876870,
+        "catalog_matches": [
+          {
+            "source_id": "source-808ce7db9c454f7c",
+            "path": "C:\\Users\\firas\\UT-Football-IQ\\Drone Footage\\Dji 20260416110929 0273 D.mp4",
+            "bytes": 7876870,
+            "category_status": "proposed",
+            "group_status": "proposed",
+            "source_context_confirmed": false
+          }
+        ]
+      },
+      {
+        "path": "C:\\Users\\firas\\OneDrive - University of Toledo\\Drone Footage\\Dji 20260416110958 0274 D.mp4",
+        "sha256": "cc19ae61940d7c3f59536cfed2271c94291742d0adaf658a4d8f772428c74a18",
+        "size_bytes": 5734873,
+        "catalog_matches": [
+          {
+            "source_id": "source-73d2629359e55083",
+            "path": "C:\\Users\\firas\\UT-Football-IQ\\Drone Footage\\Dji 20260416110958 0274 D.mp4",
+            "bytes": 5734873,
+            "category_status": "proposed",
+            "group_status": "proposed",
+            "source_context_confirmed": false
+          }
+        ]
+      },
+      {
+        "path": "C:\\Users\\firas\\OneDrive - University of Toledo\\Drone Footage\\Dji 20260416111026 0275 D.mp4",
+        "sha256": "562a8e48d218493332ebdfbb59073be0565cb999c201dbc5a4d4675461672614",
+        "size_bytes": 10379516,
+        "catalog_matches": [
+          {
+            "source_id": "source-d1a0acf75c931fd9",
+            "path": "C:\\Users\\firas\\UT-Football-IQ\\Drone Footage\\Dji 20260416111026 0275 D.mp4",
+            "bytes": 10379516,
+            "category_status": "proposed",
+            "group_status": "proposed",
+            "source_context_confirmed": false
+          }
+        ]
+      },
+      {
+        "path": "C:\\Users\\firas\\OneDrive - University of Toledo\\Drone Footage\\Dji 20260416111101 0276 D.mp4",
+        "sha256": "8c809b02db12b330cc9502740016daf41804e35d850769157d7764fa850f1dbb",
+        "size_bytes": 8188220,
+        "catalog_matches": [
+          {
+            "source_id": "source-e5d35522d85d8acc",
+            "path": "C:\\Users\\firas\\UT-Football-IQ\\Drone Footage\\Dji 20260416111101 0276 D.mp4",
+            "bytes": 8188220,
+            "category_status": "proposed",
+            "group_status": "proposed",
+            "source_context_confirmed": false
+          }
+        ]
+      },
+      {
+        "path": "C:\\Users\\firas\\OneDrive - University of Toledo\\Drone Footage\\Dji 20260416111143 0277 D.mp4",
+        "sha256": "eae59c71f9168125a0f1f87d6f07cf0a095b95e9a475ffd88180ed9b1f0917c7",
+        "size_bytes": 13732576,
+        "catalog_matches": [
+          {
+            "source_id": "source-acf8783ad875c788",
+            "path": "C:\\Users\\firas\\UT-Football-IQ\\Drone Footage\\Dji 20260416111143 0277 D.mp4",
+            "bytes": 13732576,
+            "category_status": "proposed",
+            "group_status": "proposed",
+            "source_context_confirmed": false
+          }
+        ]
+      },
+      {
+        "path": "C:\\Users\\firas\\OneDrive - University of Toledo\\Drone Footage\\Dji 20260416111218 0278 D.mp4",
+        "sha256": "57373f9b7e0a0f00b63d974fc225515574b814835247d57734bded9783edb494",
+        "size_bytes": 12482801,
+        "catalog_matches": [
+          {
+            "source_id": "source-b8d6c419f8c8a792",
+            "path": "C:\\Users\\firas\\UT-Football-IQ\\Drone Footage\\Dji 20260416111218 0278 D.mp4",
+            "bytes": 12482801,
+            "category_status": "proposed",
+            "group_status": "proposed",
+            "source_context_confirmed": false
+          }
+        ]
+      },
+      {
+        "path": "C:\\Users\\firas\\OneDrive - University of Toledo\\Drone Footage\\Dji 20260416111256 0279 D.mp4",
+        "sha256": "e608ce2a19837dae32e0161670c7d8999765f51ab543565a539aaca2e464e8cb",
+        "size_bytes": 7395380,
+        "catalog_matches": [
+          {
+            "source_id": "source-bad895a0c468419a",
+            "path": "C:\\Users\\firas\\UT-Football-IQ\\Drone Footage\\Dji 20260416111256 0279 D.mp4",
+            "bytes": 7395380,
+            "category_status": "proposed",
+            "group_status": "proposed",
+            "source_context_confirmed": false
+          }
+        ]
+      },
+      {
+        "path": "C:\\Users\\firas\\OneDrive - University of Toledo\\Drone Footage\\Dji 20260416111327 0280 D.mp4",
+        "sha256": "6426a78db3f65624ca26092a4e1f925985a441a9d5c2a363f28a833b1876e352",
+        "size_bytes": 10154508,
+        "catalog_matches": [
+          {
+            "source_id": "source-b145c585bcfe69cc",
+            "path": "C:\\Users\\firas\\UT-Football-IQ\\Drone Footage\\Dji 20260416111327 0280 D.mp4",
+            "bytes": 10154508,
+            "category_status": "proposed",
+            "group_status": "proposed",
+            "source_context_confirmed": false
+          }
+        ]
+      },
+      {
+        "path": "C:\\Users\\firas\\OneDrive - University of Toledo\\Drone Footage\\Dji 20260416111402 0281 D.mp4",
+        "sha256": "4e25bf31be00ef0da887173eed73094ac5af8e0c5ba3a4b6be274dbc282d783f",
+        "size_bytes": 10449834,
+        "catalog_matches": [
+          {
+            "source_id": "source-681083ca6cd78912",
+            "path": "C:\\Users\\firas\\UT-Football-IQ\\Drone Footage\\Dji 20260416111402 0281 D.mp4",
+            "bytes": 10449834,
+            "category_status": "proposed",
+            "group_status": "proposed",
+            "source_context_confirmed": false
+          }
+        ]
+      },
+      {
+        "path": "C:\\Users\\firas\\OneDrive - University of Toledo\\Drone Footage\\Dji 20260416111445 0282 D.mp4",
+        "sha256": "477452a5af83e3d8e14337ec879cc1cdc3f4caafb82bf2bd0ef41c65a49ac727",
+        "size_bytes": 18315841,
+        "catalog_matches": [
+          {
+            "source_id": "source-2cb326fa4405a380",
+            "path": "C:\\Users\\firas\\UT-Football-IQ\\Drone Footage\\Dji 20260416111445 0282 D.mp4",
+            "bytes": 18315841,
+            "category_status": "proposed",
+            "group_status": "proposed",
+            "source_context_confirmed": false
+          }
+        ]
+      },
+      {
+        "path": "C:\\Users\\firas\\OneDrive - University of Toledo\\Drone Footage\\Dji 20260416111511 0283 D.mp4",
+        "sha256": "8a70b7d7d08efcd3c5d4e0ccb1594c34ef86d1e902ea6ff3b00a95d0bd2f4a36",
+        "size_bytes": 8822657,
+        "catalog_matches": [
+          {
+            "source_id": "source-40bec7681acf2c46",
+            "path": "C:\\Users\\firas\\UT-Football-IQ\\Drone Footage\\Dji 20260416111511 0283 D.mp4",
+            "bytes": 8822657,
+            "category_status": "proposed",
+            "group_status": "proposed",
+            "source_context_confirmed": false
+          }
+        ]
+      },
+      {
+        "path": "C:\\Users\\firas\\OneDrive - University of Toledo\\Drone Footage\\Dji 20260416111539 0284 D.mp4",
+        "sha256": "aa87144455a12063beaef209df5e38b12a98ef17ad84a679c6958ad432ccd8ae",
+        "size_bytes": 7331490,
+        "catalog_matches": [
+          {
+            "source_id": "source-237dd118dc3081f4",
+            "path": "C:\\Users\\firas\\UT-Football-IQ\\Drone Footage\\Dji 20260416111539 0284 D.mp4",
+            "bytes": 7331490,
+            "category_status": "proposed",
+            "group_status": "proposed",
+            "source_context_confirmed": false
+          }
+        ]
+      },
+      {
+        "path": "C:\\Users\\firas\\OneDrive - University of Toledo\\Drone Footage\\Dji 20260416111607 0285 D.mp4",
+        "sha256": "3c823114391d789bbbe5cf6f9a31047cb0dae0fd90388594b2817a78cfc6562a",
+        "size_bytes": 9457444,
+        "catalog_matches": [
+          {
+            "source_id": "source-29488456c08079d1",
+            "path": "C:\\Users\\firas\\UT-Football-IQ\\Drone Footage\\Dji 20260416111607 0285 D.mp4",
+            "bytes": 9457444,
+            "category_status": "proposed",
+            "group_status": "proposed",
+            "source_context_confirmed": false
+          }
+        ]
+      },
+      {
+        "path": "C:\\Users\\firas\\OneDrive - University of Toledo\\Drone Footage\\Dji 20260416111644 0286 D.mp4",
+        "sha256": "5f2f5096d1e7246d7418c2b042752226cfa895095b8d9c29fb40612ca611f1fe",
+        "size_bytes": 7961639,
+        "catalog_matches": [
+          {
+            "source_id": "source-8a65602da0d0fa61",
+            "path": "C:\\Users\\firas\\UT-Football-IQ\\Drone Footage\\Dji 20260416111644 0286 D.mp4",
+            "bytes": 7961639,
+            "category_status": "proposed",
+            "group_status": "proposed",
+            "source_context_confirmed": false
+          }
+        ]
+      }
+    ]
+  }
+}

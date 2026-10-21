@@ -33,6 +33,7 @@ import { CorrectionsPanel } from "./corrections-panel";
 import { ReviewMetadataPanel } from "./review-metadata-panel";
 import { RecordingReview } from "./recording-review";
 import { CorrectionHistory } from "./correction-history";
+import { ActorBindingReviewNotice } from "./actor-binding-review";
 import { FieldInset } from "./field-inset";
 import { OverlayCanvas, eventTimeSeconds, useOverlayStyle, type OverlayStyle } from "./overlay-canvas";
 import { VideoTransport } from "./video-transport";
@@ -45,7 +46,7 @@ import { EmptyState } from "@/components/composite/empty-state";
 import { StatLine } from "@/components/composite/stat-chip";
 import { cn } from "@/lib/utils";
 import { friendlyMessage } from "@/lib/api-error";
-import { filmReviewHref, safeReturnHref } from "@/lib/analysis-context";
+import { filmReviewHref, recordingReviewHref, safeReturnHref } from "@/lib/analysis-context";
 import { Input } from "@/components/ui/input";
 import { SavedFilmViews } from "@/components/film-room/saved-film-views";
 import { ClipBoundaryTools } from "./clip-boundary-tools";
@@ -604,17 +605,17 @@ function ClipReviewReady({
 
   return (
     <div className="flex flex-col gap-5" data-testid="review-workspace" data-layout={layout}>
-      {clip.provenance?.state === "superseded" ? <div role="status" className="rounded border border-border-soft bg-secondary/30 p-3 text-sm"><p>This boundary version was replaced. The original remains available for reference.</p><div className="mt-2 flex flex-wrap gap-2">{(Array.isArray(clip.provenance.replacement_clip_ids) ? clip.provenance.replacement_clip_ids : []).filter((id): id is string => typeof id === "string").map((id, index) => <Button asChild variant="outline" size="sm" key={id}><Link href={filmReviewHref(new URLSearchParams(searchParams.toString()), id)}>Open replacement {index + 1}</Link></Button>)}</div></div> : null}
+      {clip.provenance?.state === "superseded" ? <div role="status" className="rounded border border-border-soft bg-secondary/30 p-3 text-sm"><p>This boundary version was replaced. The original remains available for reference.</p><div className="mt-2 flex flex-wrap gap-2"><Button asChild variant="outline" size="sm"><Link href={recordingReviewHref(new URLSearchParams(searchParams.toString()), video.id)}>Open current recording</Link></Button>{(Array.isArray(clip.provenance.replacement_clip_ids) ? clip.provenance.replacement_clip_ids : []).filter((id): id is string => typeof id === "string").slice(0, 3).map((id, index) => <Button asChild variant="outline" size="sm" key={id}><Link href={filmReviewHref(new URLSearchParams(searchParams.toString()), id)}>Open replacement {index + 1}</Link></Button>)}</div></div> : null}
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <nav aria-label="Breadcrumb" className="mb-2 flex items-center gap-2 text-[0.65rem] font-semibold uppercase tracking-[0.18em] text-muted-foreground"><Film className="size-3.5 text-primary" /> <Link href="/film-room/" className="hover:text-foreground">Film room</Link> <ChevronRight className="size-3" /> <Link href={`/film-room/?tab=review&videoId=${encodeURIComponent(video.id)}`} className="hover:text-foreground">Review plays</Link> <ChevronRight className="size-3" /> <span aria-current="page">Play</span></nav>
           <h2 className="max-w-3xl break-words text-xl font-semibold tracking-tight">{video.filename}</h2>
-          <p className="mt-1 text-sm text-muted-foreground">{video.camera_label || "Camera view"} · {sessionKindLabel}{clipIndex >= 0 && sequence.length ? ` · ${playlistIndex >= 0 ? "Playlist play" : "Play"} ${clipIndex + 1} of ${sequence.length}` : ""}</p>
+          <p className="mt-1 text-sm text-muted-foreground">{video.camera_label || "Camera view"} · {sessionKindLabel}{clipIndex >= 0 && sequence.length ? ` · ${playlistIndex >= 0 ? "Playlist item" : "Review item"} ${clipIndex + 1} of ${sequence.length}` : ""}</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <div role="group" aria-label="Film layout" className="flex gap-1">{["coach", "analyst"].map((value) => <Button key={value} size="sm" variant={layout === value ? "secondary" : "ghost"} aria-pressed={layout === value} onClick={() => changeLayout(value)}>{value === "coach" ? "Coach" : "Analyst"}</Button>)}</div>
           <Button size="sm" variant="ghost" aria-expanded={inspectorOpen} onClick={toggleInspector}>{inspectorOpen ? "Hide inspector" : "Show inspector"}</Button>
-          <Button asChild variant="ghost" size="sm"><Link href={`/clip-review/?videoId=${encodeURIComponent(video.id)}`}>Watch full recording</Link></Button>
+          <Button asChild variant="ghost" size="sm"><Link href={recordingReviewHref(new URLSearchParams(searchParams.toString()), video.id)}>Watch full recording</Link></Button>
           <Button asChild variant="outline" size="sm"><Link href={backHref}><ArrowLeft className="size-3.5" /> Back</Link></Button>
         </div>
       </div>
@@ -828,6 +829,7 @@ function ClipReviewReady({
         <div hidden={sideTab !== "tag"}>
           <Card className="gap-0 border-border-soft py-4 shadow-none">
             <CardContent className="px-4">
+          {clip.provenance?.state !== "superseded" ? <>
           <ReviewMetadataPanel key={`${clip.id}-${clip.annotation_revision ?? 0}`} clip={clip} onSaved={onRefresh} onNext={goNextClip} />
 
               <Timed clock={clock} everyMs={500}>
@@ -845,7 +847,9 @@ function ClipReviewReady({
                   />
                 )}
               </Timed>
+          </> : <p className="mb-3 text-sm text-muted-foreground">This preserved version is read-only. Open the current recording to make staff edits.</p>}
               <CorrectionHistory clipId={clip.id} annotationRevision={clip.annotation_revision} />
+              {clip.provenance?.state !== "superseded" && <ActorBindingReviewNotice key={`actor-review:${clip.id}`} clipId={clip.id} annotationRevision={clip.annotation_revision} tracks={overlayPayload?.tracklets ?? EMPTY_TRACKLETS} clipStart={clip.start_time} clipEnd={clip.end_time} onSaved={onRefresh} />}
               <ClipBoundaryTools key={clip.id} clip={clip} siblings={siblingClips} readLocalTime={getLiveLocalTime} onChanged={onRefresh} />
               <OverlaySummary
                 overlayState={overlayState}
@@ -1019,8 +1023,8 @@ const PlayQueue = memo(function PlayQueue({
   if (items.length === 0) {
     return <p className="rounded-lg border border-dashed border-border-soft p-4 text-xs text-muted-foreground">No plays match this selection.</p>;
   }
-  return <nav aria-label="Plays in this recording" className="rounded-lg border border-border-soft bg-secondary/20 p-3">
-    <div className="mb-2 flex items-center justify-between gap-2"><h3 className="flex items-center gap-2 text-xs font-semibold"><Film className="size-3.5 text-primary" /> {playlist ? "Playlist" : "Play sequence"}</h3><span className="text-[0.65rem] text-muted-foreground">{items.length} plays · [ / ] keys</span></div>
+  return <nav aria-label="Review items in this recording" className="rounded-lg border border-border-soft bg-secondary/20 p-3">
+    <div className="mb-2 flex items-center justify-between gap-2"><h3 className="flex items-center gap-2 text-xs font-semibold"><Film className="size-3.5 text-primary" /> {playlist ? "Playlist" : "Review sequence"}</h3><span className="text-[0.65rem] text-muted-foreground">{items.length} review items · [ / ] keys</span></div>
     <ol className="flex flex-col gap-1">{items.map((item, index) => {
       const current = item.id === currentClipId;
       const params = new URLSearchParams(searchParams.toString());
@@ -1028,7 +1032,7 @@ const PlayQueue = memo(function PlayQueue({
       params.delete("t");
       if (playlist) params.set("playlist", playlistParam);
       return <li key={item.id}><Link ref={current ? currentRef : undefined} href={`/clip-review/?${params.toString()}`} aria-current={current ? "page" : undefined} className={cn("flex items-center justify-between gap-2 rounded-md border px-2.5 py-2 transition-colors", current ? "border-primary/60 bg-primary/10" : "border-transparent hover:border-border-soft hover:bg-accent/40")}>
-        <span className="min-w-0"><span className={cn("block text-xs font-semibold", current && "text-primary")}>Play {item.play_number ?? index + 1}{clipView(item) ? <span className="ml-1 font-normal text-muted-foreground">· {viewLabel(clipView(item)!)}</span> : null}</span><span className="mt-0.5 block truncate font-mono text-[0.65rem] text-muted-foreground">{situationLabel(item) ?? `${item.start_time.toFixed(1)}–${item.end_time.toFixed(1)}s`}</span></span>
+        <span className="min-w-0"><span className={cn("block text-xs font-semibold", current && "text-primary")}>{item.label_data?.canonical_count_eligible === false ? "Source window" : "Play"} {item.play_number ?? index + 1}{clipView(item) ? <span className="ml-1 font-normal text-muted-foreground">· {viewLabel(clipView(item)!)}</span> : null}</span><span className="mt-0.5 block truncate font-mono text-[0.65rem] text-muted-foreground">{situationLabel(item) ?? `${item.start_time.toFixed(1)}–${item.end_time.toFixed(1)}s`}</span></span>
         {item.is_reviewed ? <Check aria-label="Reviewed" className="size-3.5 shrink-0 text-status-ok" /> : <span className="size-1.5 shrink-0 rounded-full bg-muted-foreground/40" />}
       </Link></li>;
     })}</ol>
@@ -1420,8 +1424,9 @@ function OverlaySummary({
                 <strong>{lb.label_type}</strong>
                 {": "}
                 <span className="text-xs text-muted-foreground">
-                  {summarizeLabelValue(lb.label_value)} · {lb.source}
+                  {summarizeLabelValue(lb.label_value)}
                 </span>
+                <span className="ml-2 rounded border border-border-soft px-1.5 py-0.5 text-[0.65rem] text-muted-foreground">{lb.qualification === "human_reviewed" ? "Staff reviewed annotation" : lb.qualification === "model_approved" ? "Approved model output" : "Unverified annotation"}</span>
               </li>
             ))}
           </ul>

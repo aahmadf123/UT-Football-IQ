@@ -72,6 +72,10 @@ def _backend_python() -> str:
 
 @pytest.fixture(scope="module")
 def backend(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
+    from pipeline import backend as pipeline_backend
+    from pipeline import model_registry_client, model_router, storage
+    from worker import auth as worker_auth
+
     database_url = os.environ.get("DATABASE_URL", "")
     if not database_url:
         pytest.skip("DATABASE_URL not configured")
@@ -88,6 +92,7 @@ def backend(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
         "LOCAL_STORAGE_ROOT": str(storage_root),
         "PUBLIC_API_BASE_URL": base,
         "SCHEDULER_ENABLED": "0",
+        "SEED_WORKER_EMAIL": _WORKER["email"],
     }
     python = _backend_python()
 
@@ -126,6 +131,7 @@ def backend(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
         stdout=log_handle,
         stderr=subprocess.STDOUT,
     )
+    runtime_patch = pytest.MonkeyPatch()
     try:
         deadline = time.time() + 30
         while time.time() < deadline:
@@ -139,26 +145,38 @@ def backend(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
             raise RuntimeError("backend did not become healthy")
 
         # Point this process's worker-side modules at the live backend.
-        os.environ["BACKEND_API_URL"] = base
-        os.environ["WORKER_EMAIL"] = _WORKER["email"]
-        os.environ["WORKER_PASSWORD"] = _WORKER["password"]
-        os.environ["STORAGE_BACKEND"] = "local"
-        os.environ["LOCAL_STORAGE_ROOT"] = str(storage_root)
+        runtime_patch.setenv("BACKEND_API_URL", base)
+        runtime_patch.setenv("WORKER_EMAIL", _WORKER["email"])
+        runtime_patch.setenv("WORKER_PASSWORD", _WORKER["password"])
+        runtime_patch.setenv("STORAGE_BACKEND", "local")
+        runtime_patch.setenv("LOCAL_STORAGE_ROOT", str(storage_root))
         # Deterministic segmentation + detection: this test verifies
         # cross-service wiring, not model quality (the optical-flow segmenter
         # has no stable behaviour on tiny synthetic clips, and real YOLO finds
         # no people in one — real-footage acceptance covers both).
-        os.environ["PIPELINE_LOCAL_DETECT_VARIANT"] = "stub"
-        os.environ["PIPELINE_DEVICE"] = "cpu"
-        os.environ["PIPELINE_CHECKPOINT_ROOT"] = str(storage_root / "checkpoints")
+        runtime_patch.setenv("PIPELINE_LOCAL_DETECT_VARIANT", "stub")
+        runtime_patch.setenv("PIPELINE_DEVICE", "cpu")
+        runtime_patch.setenv("PIPELINE_CHECKPOINT_ROOT", str(storage_root / "checkpoints"))
         routing = storage_root / "stub-routing.json"
         routing.write_text(_STUB_ROUTING)
-        os.environ["MODEL_ROUTING_CONFIG"] = str(routing)
+        runtime_patch.setenv("MODEL_ROUTING_CONFIG", str(routing))
+        # Modules are shared when both transport suites run in one process.
+        # Bind this fixture's real server/store, never the previous torn-down
+        # server or its authentication/model caches.
+        runtime_patch.setattr(pipeline_backend, "BACKEND_API_URL", base)
+        runtime_patch.setattr(storage, "LOCAL_STORAGE_ROOT", str(storage_root))
+        worker_auth.invalidate()
+        model_registry_client.reset_cache()
+        model_router.reload_routing()
         yield base
     finally:
         proc.terminate()
         proc.wait(timeout=10)
         log_handle.close()
+        runtime_patch.undo()
+        worker_auth.invalidate()
+        model_registry_client.reset_cache()
+        model_router.reload_routing()
 
 
 def _synthetic_video(path: Path) -> None:
@@ -210,7 +228,34 @@ def _poll(fetch, accept, *, timeout: float = 30.0, interval: float = 0.25):  # n
     return value
 
 
-def test_full_round_trip(backend: str, tmp_path: Path) -> None:
+def test_full_round_trip(backend: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from pipeline import backend as pipeline_backend
+    from pipeline import stage_expected_outcomes
+
+    batch_calls, expected_calls = [], []
+    publish_batch = pipeline_backend.batch_create_clips
+    expected_run = stage_expected_outcomes.run
+
+    def observe_batch(*args, **kwargs):
+        published = publish_batch(*args, **kwargs)
+        batch_calls.append(
+            {
+                "generation_id": kwargs["generation_id"],
+                "expected_active_clip_ids": kwargs["expected_active_clip_ids"],
+                "published_ids": [item["id"] for item in published],
+            }
+        )
+        return published
+
+    def observe_expected(*args, **kwargs):
+        result = expected_run(*args, **kwargs)
+        expected_calls.append(result)
+        return result
+
+    # Observe actual calls without replacing the real HTTP publication or
+    # routed stage execution. No model availability or output is invented.
+    monkeypatch.setattr(pipeline_backend, "batch_create_clips", observe_batch)
+    monkeypatch.setattr(stage_expected_outcomes, "run", observe_expected)
     client = httpx.Client(base_url=backend, timeout=120)
 
     login = client.post("/api/v1/auth/login", json=_ADMIN)
@@ -264,10 +309,17 @@ async def main():
                                       user=url.username, password=url.password,
                                       database=url.database)
     try:
+        queued_priority = await connection.fetchval(
+            "SELECT COALESCE(MAX(priority),0) FROM processing_jobs "
+            "WHERE status='queued' AND id <> $1",
+            uuid.UUID(os.environ['ROUNDTRIP_JOB_ID']))
+        if queued_priority >= 2147483647:
+            raise RuntimeError('Scratch queue contains another maximum-priority job')
         await connection.execute(
-            'UPDATE processing_jobs SET priority = (SELECT COALESCE(MAX(priority),0)+1 '
-            'FROM processing_jobs), pipeline_mode = $2 WHERE id = $1',
-            uuid.UUID(os.environ['ROUNDTRIP_JOB_ID']), 'same_session')
+            'UPDATE processing_jobs SET priority = $4, pipeline_mode = $2, input_artifacts = '
+            "COALESCE(input_artifacts,'{}'::jsonb) || $3::jsonb WHERE id = $1",
+            uuid.UUID(os.environ['ROUNDTRIP_JOB_ID']), 'same_session',
+            '{"auto_detailed_analysis":false}', max(10, queued_priority + 1))
     finally:
         await connection.close()
 asyncio.run(main())
@@ -282,6 +334,9 @@ asyncio.run(main())
     # One worker cycle in-process: claim the job and run it.
     worker_main = _load_worker_main()
     with httpx.Client() as worker_client:
+        # Match normal processor startup: protected source attestations require
+        # a runtime actually registered by the configured service principal.
+        worker_main.register_worker(worker_client)
         claimed = worker_main.claim_db_job(worker_client)
     assert claimed is not None and str(claimed["id"]) == str(job_id)
     worker_main.process_job(worker_main._db_row_to_job(claimed))
@@ -302,6 +357,98 @@ asyncio.run(main())
         lambda c: isinstance(c, list) and bool(c),
     )
     assert clips, "no clips created"
+    assert batch_calls, "segmentation did not use atomic clips/batch publication"
+    assert set(batch_calls[-1]["published_ids"]) == {clip["id"] for clip in clips}
+    assert batch_calls[-1]["expected_active_clip_ids"] == []
+    assert all(
+        (clip.get("provenance") or {}).get("segmentation_generation")
+        == batch_calls[-1]["generation_id"]
+        for clip in clips
+    )
+
+    # A stale complete-layout compare-and-swap must reject without mutating
+    # this recording. This is a real request to the real transactional route.
+    conflict = client.post(
+        f"/api/v1/videos/{video_id}/clips/batch",
+        headers=auth,
+        json={
+            "generation_id": f"stale-{uuid.uuid4()}",
+            "expected_active_clip_ids": [],
+            "clips": [
+                {
+                    "start_time": 0,
+                    "end_time": 4,
+                    "boundary_source": "synthetic_test",
+                    "provenance": {"source": "synthetic_test"},
+                }
+            ],
+        },
+    )
+    assert conflict.status_code == 409, conflict.text
+    assert {
+        clip["id"] for clip in client.get(f"/api/v1/videos/{video_id}/clips", headers=auth).json()
+    } == {clip["id"] for clip in clips}
+
+    first_job = job
+    assert any(
+        value.get("reason") == "logical_play_unresolved"
+        for key, value in (first_job["output_artifacts"] or {}).get("stage_states", {}).items()
+        if key.startswith("expected_outcomes:")
+    )
+    # A second staff-reviewed phase uses the same explicitly synthetic input.
+    # Staff author the single test window through the real API; source trust
+    # remains synthetic and no football label/model approval is asserted.
+    reviewed = client.patch(
+        f"/api/v1/clips/{clips[0]['id']}",
+        headers=auth,
+        json={
+            "is_reviewed": True,
+            "label_data": {
+                "canonical_count_eligible": True,
+                "logical_play_status": "synthetic_transport_fixture",
+                "source": "synthetic_test",
+            },
+        },
+    )
+    reviewed.raise_for_status()
+    rerun = client.post(
+        "/api/v1/jobs",
+        headers=auth,
+        json={
+            "video_id": video_id,
+            "job_type": "pipeline",
+            "priority": int(claimed["priority"]) + 100,
+            "pipeline_mode": "same_session",
+            "processing_profile": "quick",
+            "input_artifacts": {"auto_detailed_analysis": False},
+        },
+    )
+    rerun.raise_for_status()
+    rerun_id = rerun.json()["id"]
+    _poll(
+        lambda: client.get(f"/api/v1/jobs/{rerun_id}", headers=auth).json(),
+        lambda value: value.get("status") == "queued",
+    )
+    with httpx.Client() as worker_client:
+        reviewed_claim = worker_main.claim_db_job(worker_client)
+    assert reviewed_claim is not None and str(reviewed_claim["id"]) == str(rerun_id)
+    worker_main.process_job(worker_main._db_row_to_job(reviewed_claim))
+    job = _poll(
+        lambda: client.get(f"/api/v1/jobs/{rerun_id}", headers=auth).json(),
+        lambda value: value.get("status") in {"succeeded", "failed"},
+    )
+    assert job["status"] == "succeeded", job.get("error_message")
+    assert expected_calls, "new expected-outcomes stage was never dispatched after staff review"
+    assert any(
+        key.startswith("expected_outcomes:") and value.get("status") == "succeeded"
+        for key, value in (job["output_artifacts"] or {}).get("stage_states", {}).items()
+    )
+    assert (job["output_artifacts"] or {}).get("model_routing", {}).get("expected_outcomes")
+    for output in expected_calls:
+        assert output["predictions"]
+        for prediction in output["predictions"].values():
+            assert prediction["suppressed"] is True and prediction["value"] is None
+            assert prediction["reason"] and prediction["validated"] is False
 
     overlays = client.get(f"/api/v1/clips/{clips[0]['id']}/overlays", headers=auth).json()
     assert "calibration" in overlays
@@ -358,11 +505,60 @@ asyncio.run(main())
     for clip in clips:
         tracklets = client.get(f"/api/v1/clips/{clip['id']}/tracklets", headers=auth).json()
         assert tracklets == [], "unpublished synthetic tracks leaked into normal clip reads"
-        clean_path = Path(os.environ["LOCAL_STORAGE_ROOT"]) / clip["storage_uri"].removeprefix("local://")
-        probe = json.loads(subprocess.check_output([
-            "ffprobe", "-v", "error", "-select_streams", "v:0",
-            "-show_entries", "stream=codec_name,pix_fmt", "-of", "json", str(clean_path),
-        ], text=True))
+        clean_path = Path(os.environ["LOCAL_STORAGE_ROOT"]) / clip["storage_uri"].removeprefix(
+            "local://"
+        )
+        probe = json.loads(
+            subprocess.check_output(
+                [
+                    "ffprobe",
+                    "-v",
+                    "error",
+                    "-select_streams",
+                    "v:0",
+                    "-show_entries",
+                    "stream=codec_name,pix_fmt",
+                    "-of",
+                    "json",
+                    str(clean_path),
+                ],
+                text=True,
+            )
+        )
         assert probe["streams"][0] == {"codec_name": "h264", "pix_fmt": "yuv420p"}
 
     _ = uuid.UUID(video_id)  # ids are real UUIDs end-to-end
+
+    evidence_path = os.environ.get("ROUNDTRIP_EVIDENCE_PATH")
+    if evidence_path:
+        Path(evidence_path).write_text(
+            json.dumps(
+                {
+                    "verified_at_utc": __import__("datetime")
+                    .datetime.now(__import__("datetime").UTC)
+                    .isoformat(),
+                    "input_source": "synthetic_test",
+                    "football_accuracy_verified": False,
+                    "database_scope": os.environ.get(
+                        "ROUNDTRIP_DATABASE_SCOPE", "configured_scratch_database"
+                    ),
+                    "video_id": video_id,
+                    "job_id": job_id,
+                    "reviewed_rerun_job_id": rerun_id,
+                    "job_status": job["status"],
+                    "atomic_publications": batch_calls,
+                    "stale_layout_status": conflict.status_code,
+                    "clip_count": len(clips),
+                    "persisted_synthetic_tracklet_count": len(tracklet_ids),
+                    "synthetic_tracks_published": False,
+                    "browser_codec": "h264/yuv420p",
+                    "model_routing": (job["output_artifacts"] or {}).get("model_routing"),
+                    "expected_outcome_suppression": [
+                        output["predictions"] for output in expected_calls
+                    ],
+                    "stage_progress_keys": sorted(job["progress"]),
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )

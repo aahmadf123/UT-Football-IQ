@@ -1,0 +1,71 @@
+{
+  "observed_at_utc": "2026-10-21T16:50:03.854635+00:00",
+  "scope": "read_only_public_probes",
+  "merge_sha": "7bb3793cd9be08e44a609510c093612a8fd7c02a",
+  "frontend_http_status": 200,
+  "canonical_cors_preflight": {
+    "status": 204,
+    "allow_origin": "https://ut-football-iq.vercel.app"
+  },
+  "checks": [
+    {
+      "path": "/edge/health",
+      "status": 200,
+      "cors_origin": "https://ut-football-iq.vercel.app",
+      "body": {
+        "status": "ok",
+        "environment": "production"
+      }
+    },
+    {
+      "path": "/health",
+      "status": 200,
+      "cors_origin": "https://ut-football-iq.vercel.app",
+      "body": {
+        "status": "ok",
+        "service": "football-iq-backend",
+        "environment": "production",
+        "uptime_seconds": 905.1
+      }
+    },
+    {
+      "path": "/ready",
+      "status": 200,
+      "cors_origin": "https://ut-football-iq.vercel.app",
+      "body": {
+        "status": "ready",
+        "checks": {
+          "database": "ok"
+        }
+      }
+    },
+    {
+      "path": "/api/v1/system/version",
+      "status": 200,
+      "cors_origin": "https://ut-football-iq.vercel.app",
+      "body": {
+        "git_sha": "7bb3793cd9be08e44a609510c093612a8fd7c02a"
+      }
+    },
+    {
+      "path": "/api/v1/metrics/definitions",
+      "status": 401,
+      "cors_origin": "https://ut-football-iq.vercel.app",
+      "body": {
+        "detail": "Not authenticated"
+      }
+    },
+    {
+      "path": "/api/v1/system/release-inventory",
+      "status": 401,
+      "cors_origin": "https://ut-football-iq.vercel.app",
+      "body": {
+        "detail": "Not authenticated"
+      }
+    }
+  ],
+  "limitations": [
+    "No production login, upload or write performed.",
+    "Database health is reachability only; authenticated schema/worker inventory still requires staff access."
+  ]
+}

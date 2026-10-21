@@ -1,0 +1,238 @@
+{
+  "observed_at_utc": "2026-10-21T20:41:17.062544+00:00",
+  "original_path": "C:\\Users\\firas\\OneDrive - University of Toledo\\UT Game Film 2026\\26 01 OHTO FULL GAME @ MIST.mp4",
+  "stream": [
+    {
+      "time_base": "1/60000",
+      "start_pts": 0,
+      "start_time": "0.000000"
+    }
+  ],
+  "first_decoded_frames": [
+    {
+      "pts": 0,
+      "pkt_dts": 0,
+      "best_effort_timestamp": 0,
+      "side_data_list": [
+        {
+          "side_data_type": "H.26[45] User Data Unregistered SEI message"
+        }
+      ]
+    },
+    {
+      "pts": 1001,
+      "pkt_dts": 1001,
+      "best_effort_timestamp": 1001,
+      "side_data_list": [
+        {
+          "side_data_type": "H.26[45] User Data Unregistered SEI message"
+        }
+      ]
+    },
+    {
+      "pts": 2002,
+      "pkt_dts": 2002,
+      "best_effort_timestamp": 2002,
+      "side_data_list": [
+        {
+          "side_data_type": "H.26[45] User Data Unregistered SEI message"
+        }
+      ]
+    },
+    {
+      "pts": 3003,
+      "pkt_dts": 3003,
+      "best_effort_timestamp": 3003,
+      "side_data_list": [
+        {
+          "side_data_type": "H.26[45] User Data Unregistered SEI message"
+        }
+      ]
+    },
+    {
+      "pts": 4004,
+      "pkt_dts": 4004,
+      "best_effort_timestamp": 4004,
+      "side_data_list": [
+        {
+          "side_data_type": "H.26[45] User Data Unregistered SEI message"
+        }
+      ]
+    },
+    {
+      "pts": 5005,
+      "pkt_dts": 5005,
+      "best_effort_timestamp": 5005,
+      "side_data_list": [
+        {
+          "side_data_type": "H.26[45] User Data Unregistered SEI message"
+        }
+      ]
+    },
+    {
+      "pts": 6006,
+      "pkt_dts": 6006,
+      "best_effort_timestamp": 6006,
+      "side_data_list": [
+        {
+          "side_data_type": "H.26[45] User Data Unregistered SEI message"
+        }
+      ]
+    },
+    {
+      "pts": 7007,
+      "pkt_dts": 7007,
+      "best_effort_timestamp": 7007,
+      "side_data_list": [
+        {
+          "side_data_type": "H.26[45] User Data Unregistered SEI message"
+        }
+      ]
+    },
+    {
+      "pts": 8008,
+      "pkt_dts": 8008,
+      "best_effort_timestamp": 8008,
+      "side_data_list": [
+        {
+          "side_data_type": "H.26[45] User Data Unregistered SEI message"
+        }
+      ]
+    },
+    {
+      "pts": 9009,
+      "best_effort_timestamp": 9009,
+      "side_data_list": [
+        {
+          "side_data_type": "H.26[45] User Data Unregistered SEI message"
+        }
+      ]
+    }
+  ],
+  "opencv_first_five": [
+    {
+      "grab_ordinal": 0,
+      "ok": true,
+      "pos_msec": 0.0,
+      "pos_frames": 1.0,
+      "floor_index_using_normalized_timeline": 0,
+      "floor_index_using_unshifted_packet_seconds": 2
+    },
+    {
+      "grab_ordinal": 1,
+      "ok": true,
+      "pos_msec": 16.683333333333334,
+      "pos_frames": 2.0,
+      "floor_index_using_normalized_timeline": 1,
+      "floor_index_using_unshifted_packet_seconds": 3
+    },
+    {
+      "grab_ordinal": 2,
+      "ok": true,
+      "pos_msec": 33.36666666666667,
+      "pos_frames": 3.0,
+      "floor_index_using_normalized_timeline": 2,
+      "floor_index_using_unshifted_packet_seconds": 4
+    },
+    {
+      "grab_ordinal": 3,
+      "ok": true,
+      "pos_msec": 50.050000000000004,
+      "pos_frames": 4.0,
+      "floor_index_using_normalized_timeline": 3,
+      "floor_index_using_unshifted_packet_seconds": 5
+    },
+    {
+      "grab_ordinal": 4,
+      "ok": true,
+      "pos_msec": 66.73333333333333,
+      "pos_frames": 5.0,
+      "floor_index_using_normalized_timeline": 4,
+      "floor_index_using_unshifted_packet_seconds": 6
+    }
+  ],
+  "original_packet_origin_tick": -2002,
+  "original_first_eight_sorted_pts_ticks": [
+    -2002,
+    -1001,
+    0,
+    1001,
+    2002,
+    3003,
+    4004,
+    5005
+  ],
+  "first_eight_normalized_seconds": [
+    0.0,
+    0.016683333333333335,
+    0.03336666666666667,
+    0.05005,
+    0.06673333333333334,
+    0.08341666666666667,
+    0.1001,
+    0.11678333333333334
+  ],
+  "scope": "bounded CPU decode first5pictures, metadata/demux only; no fullpipeline",
+  "source_unchanged": true,
+  "first_eight_native_packets_with_flags": [
+    {
+      "pts": 0,
+      "dts": -3003,
+      "duration": 1001,
+      "flags": "K__"
+    },
+    {
+      "pts": -2002,
+      "dts": -2002,
+      "duration": 1001,
+      "flags": "_D_"
+    },
+    {
+      "pts": -1001,
+      "dts": -1001,
+      "duration": 1001,
+      "flags": "_D_"
+    },
+    {
+      "pts": 3003,
+      "dts": 0,
+      "duration": 1001,
+      "flags": "___"
+    },
+    {
+      "pts": 1001,
+      "dts": 1001,
+      "duration": 1001,
+      "flags": "___"
+    },
+    {
+      "pts": 2002,
+      "dts": 2002,
+      "duration": 1001,
+      "flags": "___"
+    },
+    {
+      "pts": 6006,
+      "dts": 3003,
+      "duration": 1001,
+      "flags": "___"
+    },
+    {
+      "pts": 4004,
+      "dts": 4004,
+      "duration": 1001,
+      "flags": "___"
+    }
+  ],
+  "finding": "Negative PTS preroll packets are marked discard (_D_) and are not first displayed pictures; old packet timeline included them and normalized minPTS, shifting packet/image binding. Fullpipeline correctness remains unproven until qualified packet selection matches decoder.",
+  "full_packet_flag_demux": {
+    "seconds": 11.28200000000652,
+    "packet_count": 301950,
+    "discard_packet_count": 2,
+    "non_discard_packet_count": 301948,
+    "discard_pts": [
+      -2002,
+      -1001
+    ]
+  }
+}

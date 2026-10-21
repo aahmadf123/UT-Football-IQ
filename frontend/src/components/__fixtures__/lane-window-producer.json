@@ -1,0 +1,659 @@
+{
+  "source": "synthetic_test",
+  "football_accuracy_verified": false,
+  "producer": "pipeline.lane_windows.lane_windows using actual measured_lanes body snapshots",
+  "rows": [
+    {
+      "metric_name": "gap_clear_timeline",
+      "tracklet_id": null,
+      "unit": "source_interval",
+      "is_suppressed": false,
+      "experimental_flag": true,
+      "metric_value": {
+        "definition_version": "2026-10-21.1",
+        "gap_label": "left_A",
+        "subject_id": "left_A",
+        "initial_pair": [
+          "lg",
+          "c"
+        ],
+        "y_min": 0.0,
+        "y_max": 2.0,
+        "timestamp_seconds": 0.0,
+        "width_yards": 0,
+        "clear_intervals": [],
+        "event_id": "geometry-0",
+        "visibility_state": "observed",
+        "series": [
+          {
+            "timestamp_seconds": 0.0,
+            "width_yards": 0,
+            "clear_intervals": [],
+            "event_id": "geometry-0",
+            "visibility_state": "observed",
+            "shot_id": "shot",
+            "break_before": true
+          },
+          {
+            "timestamp_seconds": 0.1,
+            "width_yards": 1.2000000000000002,
+            "clear_intervals": [
+              {
+                "y_min": 0.4,
+                "y_max": 1.6
+              }
+            ],
+            "event_id": "geometry-1",
+            "visibility_state": "observed",
+            "shot_id": "shot",
+            "break_before": false
+          },
+          {
+            "timestamp_seconds": 0.2,
+            "width_yards": 1.2000000000000002,
+            "clear_intervals": [
+              {
+                "y_min": 0.4,
+                "y_max": 1.6
+              }
+            ],
+            "event_id": "geometry-2",
+            "visibility_state": "observed",
+            "shot_id": "shot",
+            "break_before": false
+          },
+          {
+            "timestamp_seconds": 0.3,
+            "width_yards": 0,
+            "clear_intervals": [],
+            "event_id": "geometry-3",
+            "visibility_state": "observed",
+            "shot_id": "shot",
+            "break_before": false
+          },
+          {
+            "timestamp_seconds": 0.4,
+            "width_yards": 1.2000000000000002,
+            "clear_intervals": [
+              {
+                "y_min": 0.4,
+                "y_max": 1.6
+              }
+            ],
+            "event_id": "geometry-4",
+            "visibility_state": "observed",
+            "shot_id": "shot",
+            "break_before": false
+          }
+        ],
+        "series_interpolation": "none",
+        "measurement_region": {
+          "cross_section": "LOS",
+          "los_x": 50.0,
+          "y_min": 0.0,
+          "y_max": 2.0
+        },
+        "source_start_seconds": 0.0,
+        "source_end_seconds": 0.4,
+        "attacking_direction": 1,
+        "definition_basis": "largest_contiguous_free_interval_within_original_center_split",
+        "occupancy_complete": true,
+        "body_ids": [
+          "c",
+          "defender",
+          "lg",
+          "lt",
+          "rg",
+          "rt"
+        ],
+        "event_evidence": [
+          {
+            "event_id": "geometry-0",
+            "event_type": "snap",
+            "timestamp_seconds": 0.0,
+            "source": "human",
+            "shot_id": "shot"
+          },
+          {
+            "event_id": "geometry-1",
+            "event_type": "geometry_observation",
+            "timestamp_seconds": 0.1,
+            "source": "human",
+            "shot_id": "shot"
+          },
+          {
+            "event_id": "geometry-2",
+            "event_type": "geometry_observation",
+            "timestamp_seconds": 0.2,
+            "source": "human",
+            "shot_id": "shot"
+          },
+          {
+            "event_id": "geometry-3",
+            "event_type": "geometry_observation",
+            "timestamp_seconds": 0.3,
+            "source": "human",
+            "shot_id": "shot"
+          },
+          {
+            "event_id": "geometry-4",
+            "event_type": "geometry_observation",
+            "timestamp_seconds": 0.4,
+            "source": "human",
+            "shot_id": "shot"
+          }
+        ],
+        "required_evidence": [
+          "original_lineman_roles",
+          "qualified_snap",
+          "qualified_los",
+          "attacking_direction",
+          "measured_field_body_extents",
+          "complete_defender_occupancy",
+          "source_timestamps",
+          "width_validation"
+        ],
+        "snap_seconds": 0.0,
+        "opening_threshold_yards": 0.0,
+        "threshold_operator": ">",
+        "threshold_definition": "strictly_positive_clear_LOS_section",
+        "transition_clock_kind": "interval_censored_between_measured_snapshots",
+        "continuous_openness_claimed": false,
+        "openings": [
+          {
+            "lower_seconds": 0.0,
+            "upper_seconds": 0.1,
+            "left_censored": false
+          },
+          {
+            "lower_seconds": 0.3,
+            "upper_seconds": 0.4,
+            "left_censored": false
+          }
+        ],
+        "closures": [
+          {
+            "lower_seconds": 0.2,
+            "upper_seconds": 0.3,
+            "right_censored": false
+          },
+          {
+            "lower_seconds": 0.4,
+            "upper_seconds": null,
+            "right_censored": true
+          }
+        ],
+        "unknown_clock_observations": 0
+      }
+    },
+    {
+      "metric_name": "clear_lane_width_at_handoff",
+      "tracklet_id": "runner",
+      "unit": "yd",
+      "is_suppressed": false,
+      "experimental_flag": true,
+      "metric_value": {
+        "definition_version": "2026-10-21.1",
+        "gap_label": "left_A",
+        "subject_id": "left_A",
+        "initial_pair": [
+          "lg",
+          "c"
+        ],
+        "y_min": 0.0,
+        "y_max": 2.0,
+        "timestamp_seconds": 0.0,
+        "width_yards": 1.2000000000000002,
+        "clear_intervals": [],
+        "event_id": "geometry-0",
+        "visibility_state": "observed",
+        "series": [
+          {
+            "timestamp_seconds": 0.0,
+            "width_yards": 0,
+            "clear_intervals": [],
+            "event_id": "geometry-0",
+            "visibility_state": "observed",
+            "shot_id": "shot",
+            "break_before": true
+          },
+          {
+            "timestamp_seconds": 0.1,
+            "width_yards": 1.2000000000000002,
+            "clear_intervals": [
+              {
+                "y_min": 0.4,
+                "y_max": 1.6
+              }
+            ],
+            "event_id": "geometry-1",
+            "visibility_state": "observed",
+            "shot_id": "shot",
+            "break_before": false
+          },
+          {
+            "timestamp_seconds": 0.2,
+            "width_yards": 1.2000000000000002,
+            "clear_intervals": [
+              {
+                "y_min": 0.4,
+                "y_max": 1.6
+              }
+            ],
+            "event_id": "geometry-2",
+            "visibility_state": "observed",
+            "shot_id": "shot",
+            "break_before": false
+          },
+          {
+            "timestamp_seconds": 0.3,
+            "width_yards": 0,
+            "clear_intervals": [],
+            "event_id": "geometry-3",
+            "visibility_state": "observed",
+            "shot_id": "shot",
+            "break_before": false
+          },
+          {
+            "timestamp_seconds": 0.4,
+            "width_yards": 1.2000000000000002,
+            "clear_intervals": [
+              {
+                "y_min": 0.4,
+                "y_max": 1.6
+              }
+            ],
+            "event_id": "geometry-4",
+            "visibility_state": "observed",
+            "shot_id": "shot",
+            "break_before": false
+          }
+        ],
+        "series_interpolation": "none",
+        "measurement_region": {
+          "cross_section": "LOS",
+          "los_x": 50.0,
+          "y_min": 0.0,
+          "y_max": 2.0
+        },
+        "source_start_seconds": 0.0,
+        "source_end_seconds": 0.4,
+        "attacking_direction": 1,
+        "definition_basis": "largest_contiguous_free_interval_within_original_center_split",
+        "occupancy_complete": true,
+        "body_ids": [
+          "c",
+          "defender",
+          "lg",
+          "lt",
+          "rg",
+          "rt"
+        ],
+        "event_evidence": [
+          {
+            "event_id": "geometry-0",
+            "event_type": "snap",
+            "timestamp_seconds": 0.0,
+            "source": "human",
+            "shot_id": "shot"
+          },
+          {
+            "event_id": "geometry-1",
+            "event_type": "geometry_observation",
+            "timestamp_seconds": 0.1,
+            "source": "human",
+            "shot_id": "shot"
+          },
+          {
+            "event_id": "geometry-2",
+            "event_type": "geometry_observation",
+            "timestamp_seconds": 0.2,
+            "source": "human",
+            "shot_id": "shot"
+          },
+          {
+            "event_id": "geometry-3",
+            "event_type": "geometry_observation",
+            "timestamp_seconds": 0.3,
+            "source": "human",
+            "shot_id": "shot"
+          },
+          {
+            "event_id": "geometry-4",
+            "event_type": "geometry_observation",
+            "timestamp_seconds": 0.4,
+            "source": "human",
+            "shot_id": "shot"
+          },
+          {
+            "event_id": "handoff",
+            "event_type": "handoff",
+            "timestamp_seconds": 0.1,
+            "source": "human",
+            "shot_id": "shot"
+          }
+        ],
+        "required_evidence": [
+          "original_lineman_roles",
+          "qualified_snap",
+          "qualified_los",
+          "attacking_direction",
+          "measured_field_body_extents",
+          "complete_defender_occupancy",
+          "source_timestamps",
+          "width_validation"
+        ],
+        "snap_seconds": 0.0,
+        "opening_threshold_yards": 0.0,
+        "threshold_operator": ">",
+        "threshold_definition": "strictly_positive_clear_LOS_section",
+        "transition_clock_kind": "interval_censored_between_measured_snapshots",
+        "continuous_openness_claimed": false,
+        "openings": [
+          {
+            "lower_seconds": 0.0,
+            "upper_seconds": 0.1,
+            "left_censored": false
+          },
+          {
+            "lower_seconds": 0.3,
+            "upper_seconds": 0.4,
+            "left_censored": false
+          }
+        ],
+        "closures": [
+          {
+            "lower_seconds": 0.2,
+            "upper_seconds": 0.3,
+            "right_censored": false
+          },
+          {
+            "lower_seconds": 0.4,
+            "upper_seconds": null,
+            "right_censored": true
+          }
+        ],
+        "unknown_clock_observations": 0,
+        "alignment_event": "handoff",
+        "alignment_seconds": 0.1,
+        "alignment_event_id": "handoff",
+        "carrier_id": "runner",
+        "actual_entry": null,
+        "measurement_event_id": "geometry-1"
+      }
+    },
+    {
+      "metric_name": "clear_lane_width_at_entry",
+      "tracklet_id": "runner",
+      "unit": "yd",
+      "is_suppressed": false,
+      "experimental_flag": true,
+      "metric_value": {
+        "definition_version": "2026-10-21.1",
+        "gap_label": "left_A",
+        "subject_id": "left_A",
+        "initial_pair": [
+          "lg",
+          "c"
+        ],
+        "y_min": 0.0,
+        "y_max": 2.0,
+        "timestamp_seconds": 0.0,
+        "width_yards": 1.2000000000000002,
+        "clear_intervals": [],
+        "event_id": "geometry-0",
+        "visibility_state": "observed",
+        "series": [
+          {
+            "timestamp_seconds": 0.0,
+            "width_yards": 0,
+            "clear_intervals": [],
+            "event_id": "geometry-0",
+            "visibility_state": "observed",
+            "shot_id": "shot",
+            "break_before": true
+          },
+          {
+            "timestamp_seconds": 0.1,
+            "width_yards": 1.2000000000000002,
+            "clear_intervals": [
+              {
+                "y_min": 0.4,
+                "y_max": 1.6
+              }
+            ],
+            "event_id": "geometry-1",
+            "visibility_state": "observed",
+            "shot_id": "shot",
+            "break_before": false
+          },
+          {
+            "timestamp_seconds": 0.2,
+            "width_yards": 1.2000000000000002,
+            "clear_intervals": [
+              {
+                "y_min": 0.4,
+                "y_max": 1.6
+              }
+            ],
+            "event_id": "geometry-2",
+            "visibility_state": "observed",
+            "shot_id": "shot",
+            "break_before": false
+          },
+          {
+            "timestamp_seconds": 0.3,
+            "width_yards": 0,
+            "clear_intervals": [],
+            "event_id": "geometry-3",
+            "visibility_state": "observed",
+            "shot_id": "shot",
+            "break_before": false
+          },
+          {
+            "timestamp_seconds": 0.4,
+            "width_yards": 1.2000000000000002,
+            "clear_intervals": [
+              {
+                "y_min": 0.4,
+                "y_max": 1.6
+              }
+            ],
+            "event_id": "geometry-4",
+            "visibility_state": "observed",
+            "shot_id": "shot",
+            "break_before": false
+          }
+        ],
+        "series_interpolation": "none",
+        "measurement_region": {
+          "cross_section": "LOS",
+          "los_x": 50.0,
+          "y_min": 0.0,
+          "y_max": 2.0
+        },
+        "source_start_seconds": 0.0,
+        "source_end_seconds": 0.4,
+        "attacking_direction": 1,
+        "definition_basis": "largest_contiguous_free_interval_within_original_center_split",
+        "occupancy_complete": true,
+        "body_ids": [
+          "c",
+          "defender",
+          "lg",
+          "lt",
+          "rg",
+          "rt"
+        ],
+        "event_evidence": [
+          {
+            "event_id": "geometry-0",
+            "event_type": "snap",
+            "timestamp_seconds": 0.0,
+            "source": "human",
+            "shot_id": "shot"
+          },
+          {
+            "event_id": "geometry-1",
+            "event_type": "geometry_observation",
+            "timestamp_seconds": 0.1,
+            "source": "human",
+            "shot_id": "shot"
+          },
+          {
+            "event_id": "geometry-2",
+            "event_type": "geometry_observation",
+            "timestamp_seconds": 0.2,
+            "source": "human",
+            "shot_id": "shot"
+          },
+          {
+            "event_id": "geometry-3",
+            "event_type": "geometry_observation",
+            "timestamp_seconds": 0.3,
+            "source": "human",
+            "shot_id": "shot"
+          },
+          {
+            "event_id": "geometry-4",
+            "event_type": "geometry_observation",
+            "timestamp_seconds": 0.4,
+            "source": "human",
+            "shot_id": "shot"
+          },
+          {
+            "event_id": "handoff",
+            "event_type": "handoff",
+            "timestamp_seconds": 0.1,
+            "source": "human",
+            "shot_id": "shot"
+          }
+        ],
+        "required_evidence": [
+          "original_lineman_roles",
+          "qualified_snap",
+          "qualified_los",
+          "attacking_direction",
+          "measured_field_body_extents",
+          "complete_defender_occupancy",
+          "source_timestamps",
+          "width_validation"
+        ],
+        "snap_seconds": 0.0,
+        "opening_threshold_yards": 0.0,
+        "threshold_operator": ">",
+        "threshold_definition": "strictly_positive_clear_LOS_section",
+        "transition_clock_kind": "interval_censored_between_measured_snapshots",
+        "continuous_openness_claimed": false,
+        "openings": [
+          {
+            "lower_seconds": 0.0,
+            "upper_seconds": 0.1,
+            "left_censored": false
+          },
+          {
+            "lower_seconds": 0.3,
+            "upper_seconds": 0.4,
+            "left_censored": false
+          }
+        ],
+        "closures": [
+          {
+            "lower_seconds": 0.2,
+            "upper_seconds": 0.3,
+            "right_censored": false
+          },
+          {
+            "lower_seconds": 0.4,
+            "upper_seconds": null,
+            "right_censored": true
+          }
+        ],
+        "unknown_clock_observations": 0,
+        "alignment_event": "entry",
+        "alignment_seconds": 0.2,
+        "alignment_event_id": "handoff",
+        "carrier_id": "runner",
+        "actual_entry": {
+          "definition_version": "2026-10-21.1",
+          "track_id": "runner",
+          "los_x": 50.0,
+          "attacking_direction": 1,
+          "source_start_seconds": 0.1,
+          "source_end_seconds": 0.2,
+          "trajectory_source_start_seconds": 0.1,
+          "trajectory_source_end_seconds": 0.4,
+          "terminal_event": null,
+          "event_evidence": [
+            {
+              "event_id": "geometry-0",
+              "event_type": "snap",
+              "timestamp_seconds": 0.0,
+              "source": "human",
+              "shot_id": "shot"
+            },
+            {
+              "event_id": "handoff",
+              "event_type": "handoff",
+              "timestamp_seconds": 0.1,
+              "source": "human",
+              "shot_id": "shot"
+            }
+          ],
+          "trajectory": [
+            {
+              "timestamp_seconds": 0.1,
+              "frame_number": 1,
+              "field_x": 49.9,
+              "field_y": 1.0,
+              "shot_id": "shot",
+              "visibility_state": "observed"
+            },
+            {
+              "timestamp_seconds": 0.2,
+              "frame_number": 2,
+              "field_x": 50.0,
+              "field_y": 1.0,
+              "shot_id": "shot",
+              "visibility_state": "observed"
+            },
+            {
+              "timestamp_seconds": 0.3,
+              "frame_number": 3,
+              "field_x": 50.099999999999994,
+              "field_y": 1.0,
+              "shot_id": "shot",
+              "visibility_state": "observed"
+            },
+            {
+              "timestamp_seconds": 0.4,
+              "frame_number": 4,
+              "field_x": 50.199999999999996,
+              "field_y": 1.0,
+              "shot_id": "shot",
+              "visibility_state": "observed"
+            }
+          ],
+          "opportunity": "observed_carry",
+          "opportunity_event_id": "handoff",
+          "required_evidence": [
+            "identified_carrier",
+            "qualified_snap",
+            "original_lineman_roles",
+            "qualified_los",
+            "attacking_direction",
+            "continuous_los_crossing"
+          ],
+          "entry_seconds": 0.2,
+          "entry_field_y": 1.0,
+          "gap_label": "left_A",
+          "intended_gap": null,
+          "gap_basis": "original_observed_formation",
+          "value": 1,
+          "subject_id": "left_A"
+        },
+        "measurement_event_id": "geometry-2"
+      }
+    }
+  ]
+}

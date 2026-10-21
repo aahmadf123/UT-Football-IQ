@@ -15,7 +15,12 @@ from app.deps import require_coach_or_above
 from app.models import Clip, ClipEdit, CoachCorrection, CorrectionType, Play, PlayView, User, Video
 from app.routers.clips import ClipResponse, attach_play_context
 from app.services.annotations import annotation_revision, check_revision, touch_annotation
-from app.services.clip_state import active_clip, clip_is_active, lock_boundary_scope
+from app.services.clip_state import (
+    active_clip,
+    clip_is_active,
+    layout_is_protected,
+    lock_boundary_scope,
+)
 
 router = APIRouter(tags=["clips"])
 
@@ -473,7 +478,7 @@ async def boundary_overrides(
         .scalars()
         .all()
     )
-    has_overrides = active is not None or any(clip.boundary_source == "manual" for clip in clips)
+    has_overrides = active is not None or await layout_is_protected(db, video_id, clips)
     return {
         "active": has_overrides,
         "clips": [ClipResponse.from_orm_clip(clip).model_dump(mode="json") for clip in clips]

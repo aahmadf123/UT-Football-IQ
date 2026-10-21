@@ -4,8 +4,7 @@ Renders an annotated video overlay on top of each clip:
   - Player bounding boxes with track IDs
   - Coloured motion trails (recent track history per player)
   - Formation / front / play-direction HUD line with a direction arrow
-  - Per-player metric callouts (separation, cushion, speed) — only when
-    ``analytics_safe`` (suppressed metrics are never drawn)
+  - Reviewed staff formation / front / direction annotations
   - Calibration warning banner when ``analytics_safe=False``
 
 (An on-field yard-line grid deliberately isn't drawn: it needs a trusted
@@ -34,6 +33,7 @@ import structlog
 from pipeline import object_store
 from pipeline.media_contract import OVERLAY_GENERATOR_VERSION, validate_duration
 from pipeline.observations import bounded_frame_observations
+from pipeline.reviewed_labels import reviewed_hud
 from pipeline.runtime import PipelineInterrupted, check_control
 from pipeline.video_timeline import VideoTimeline, iter_frames
 from renderer.field_minimap import draw_field_minimap
@@ -51,36 +51,6 @@ TRACK_COLORS = [
 
 #: How many frames of history each motion trail shows (~0.5 s at 30 fps).
 TRAIL_FRAMES = 15
-
-#: Metric names surfaced as per-player callouts, in preference order.
-_CALLOUT_METRICS = ("separation", "cushion", "speed", "max_speed")
-
-
-def _metric_callouts(
-    tracklets: list[dict[str, Any]], metrics: list[dict[str, Any]]
-) -> dict[int, str]:
-    """Map tracklet *index* → short callout text from coach-facing metrics.
-
-    Only called when ``analytics_safe`` — suppressed metrics never render.
-    """
-    index_by_id = {str(t.get("id")): i for i, t in enumerate(tracklets)}
-    callouts: dict[int, str] = {}
-    for name in _CALLOUT_METRICS:
-        for m in metrics:
-            value = m.get("metric_value") or {}
-            provenance = value.get("provenance", {})
-            if (m.get("metric_name") != name or m.get("is_suppressed") or m.get("experimental_flag")
-                    or (isinstance(provenance, dict) and provenance.get("validated") is False)):
-                continue
-            idx = index_by_id.get(str(m.get("tracklet_id")))
-            if idx is None or idx in callouts:
-                continue
-            scalar = value.get("value", value.get("yards", value.get("yds_per_s")))
-            if isinstance(scalar, (int, float)):
-                unit = m.get("unit") or ""
-                callouts[idx] = f"{name} {scalar:.1f}{unit[:3]}"
-    return callouts
-
 
 def _draw_direction_arrow(frame: Any, direction: str, w: int, h: int) -> None:
     """Small play-direction arrow next to the HUD line."""
@@ -107,6 +77,7 @@ def run(
     timeline: VideoTimeline | None = None,
     start_seconds: float | None = None,
     end_seconds: float | None = None,
+    reviewed_label_data: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Render overlay video and upload to the object store."""
     log.info("stage_render_start", clip_id=clip_id)
@@ -115,7 +86,8 @@ def run(
         out_path = Path(tmp_dir) / "overlay.mp4"
         mapping = _render(video_path, out_path, tracklets, labels, metrics, analytics_safe, fps,
                           frame_start=frame_start, frame_end=frame_end, timeline=timeline,
-                          start_seconds=start_seconds, end_seconds=end_seconds)
+                          start_seconds=start_seconds, end_seconds=end_seconds,
+                          reviewed_label_data=reviewed_label_data)
         validation = None
         if mapping:
             validation = validate_duration(
@@ -145,6 +117,7 @@ def _render(
     timeline: VideoTimeline | None = None,
     start_seconds: float | None = None,
     end_seconds: float | None = None,
+    reviewed_label_data: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     from pipeline.hwaccel import nvdec_video_capture
 
@@ -200,14 +173,13 @@ def _render(
         centers.sort(key=lambda c: c[0])
         track_centers.append(centers)
 
-    # Per-track metric callout (shown only when analytics_safe): the first
-    # coach-facing scalar found among separation / cushion / speed.
-    callouts = _metric_callouts(tracklets, metrics) if analytics_safe else {}
+    # In-flight metrics lack completed private publication/approval receipts.
+    # The qualified interactive API supplies numeric callouts after publication;
+    # freezing local flags into a movie would bypass that shared policy.
 
-    # Pre-compute label text
-    formation = _label_value(labels, "offensive_formation", "formation", "—")
-    front = _label_value(labels, "defensive_front", "front", "—")
-    direction = _label_value(labels, "play_direction", "direction", "—")
+    # Candidate label flags cannot prove completed server approval here. Only
+    # the dispatcher's effective staff annotation snapshot may enter the movie.
+    hud, direction = reviewed_hud(reviewed_label_data)
 
     try:
         # Frames by timestamp, never by counting (see video_timeline); an
@@ -223,9 +195,9 @@ def _render(
                             (10, 20), FONT, 0.55, (255, 255, 255), 1)
 
             # ── Formation HUD + play-direction arrow ──────────────────────────
-            hud = f"OFF: {formation}  DEF: {front}  DIR: {direction}"
-            cv2.putText(frame, hud, (10, h - 12), FONT, 0.5, (255, 255, 255), 1)
-            _draw_direction_arrow(frame, direction, w, h)
+            if hud:
+                cv2.putText(frame, hud, (10, h - 12), FONT, 0.5, (255, 255, 255), 1)
+                _draw_direction_arrow(frame, direction, w, h)
 
             # ── Motion trails (recent history per visible track) ──────────────
             for centers in track_centers:
@@ -234,14 +206,11 @@ def _render(
                 for a, b in zip(trail, trail[1:]):
                     cv2.line(frame, a, b, (255, 255, 255), 1, cv2.LINE_AA)
 
-            # ── Player boxes + metric callouts ────────────────────────────────
+            # ── Player boxes ─────────────────────────────────────────────────
             for bbox, color, tid in frame_tracks.get(frame_idx, []):
                 x1, y1, x2, y2 = [int(v) for v in bbox]
                 cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
                 cv2.putText(frame, f"T{tid}", (x1, y1 - 4), FONT, 0.4, color, 1)
-                callout = callouts.get(tid)
-                if callout:
-                    cv2.putText(frame, callout, (x1, y2 + 14), FONT, 0.4, (255, 255, 255), 1)
 
             if analytics_safe:
                 draw_field_minimap(frame, field_positions.get(frame_idx, []))
@@ -297,18 +266,6 @@ def _transcode_to_h264(input_path: Path, output_path: Path) -> None:
         process.kill()
         process.communicate()
         raise
-
-
-def _label_value(
-    labels: list[dict[str, Any]],
-    label_type: str,
-    key: str,
-    default: str,
-) -> str:
-    for lb in labels:
-        if lb.get("label_type") == label_type:
-            return str(lb.get("label_value", {}).get(key, default))
-    return default
 
 
 def _update_clip_overlay(clip_id: str, overlay_uri: str, backend_api_url: str) -> None:

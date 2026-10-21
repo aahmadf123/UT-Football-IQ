@@ -68,6 +68,7 @@ CLIP_STAGES: tuple[str, ...] = (
     "coverage",
     "oline",
     "pressure",
+    "expected_outcomes",
     "render",
     "render_hls",
 )
@@ -252,7 +253,7 @@ class PipelineContext:
 #: ``annotation_revision`` moves on every staff edit; the rest of the record
 #: (official play-by-play, playback-proxy paths, provenance) is rewritten by
 #: the system on every run and must not invalidate checkpoints.
-ANNOTATION_IDENTITY_KEYS = ("id", "annotation_revision", "start_time", "end_time", "human_events")
+ANNOTATION_IDENTITY_KEYS = ("id", "annotation_revision", "start_time", "end_time", "human_events", "removed_events", "human_labels")
 
 
 def annotation_identity(annotations: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -325,6 +326,87 @@ def _slice_detections(
     return {f: dets for f, dets in detections.items() if start_frame <= int(f) < end_frame}
 
 
+def _normalize_interval_clock(event: dict[str, Any], timebase: str, offset: float) -> bool:
+    """Interval bounds follow the reviewed event clock unless explicitly stated."""
+    from pipeline.position_evidence import number
+
+    attrs = event.setdefault("attributes", {})
+    if "start_seconds" not in attrs and "end_seconds" not in attrs:
+        return True
+    first, last = number(attrs.get("start_seconds")), number(attrs.get("end_seconds"))
+    clock = attrs.get("interval_timebase", timebase)
+    if first is None and event.get("event_type") == "position_participation":
+        first = number(event.get("timestamp_seconds"))
+        if first is not None and timebase == "clip" and clock == "recording":
+            first += offset
+    if first is None or last is None or last <= first or clock not in {"clip", "recording"}:
+        return False
+    if clock == "clip":
+        first, last = first + offset, last + offset
+    attrs.update(start_seconds=first, end_seconds=last, interval_timebase="recording")
+    return True
+
+
+MULTIPLE_REVIEWED_EVENT_TYPES = {
+    # Named prediction clocks retain all distinct human IDs. Ambiguity must
+    # reach the outcome extractor instead of choosing a source-time winner.
+    "snap", "throw", "pass_release", "forward_pass_release", "catch", "handoff",
+    "pressure_observation", "geometry_observation", "pressure", "contact", "first_contact",
+    "engagement_start", "engagement_end", "chip_end", "route_start",
+    "position_participation", "position_role", "te_usage", "first_movement",
+    "kick", "punt", "landing", "protection_envelope", "receiver_release", "route_break",
+    "pass_target", "pass_result", "reception", "possession_end", "carrier_cut", "tackle_outcome",
+}
+
+
+def _reviewed_event_identity(item: dict[str, Any]) -> Any:
+    attrs = item.get("attributes") or {}
+    return item.get("id") or (
+        item.get("timestamp_seconds"), attrs.get("start_seconds"), attrs.get("end_seconds"),
+        attrs.get("interaction_id"), attrs.get("qb_id"), attrs.get("blocker_id"),
+        attrs.get("actor_id"), attrs.get("opponent_id"), attrs.get("operation_id"), attrs.get("state"),
+    )
+
+
+def _discard_reviewed_event(events: list[dict[str, Any]], event: dict[str, Any]) -> None:
+    """An invalid multi-actor correction invalidates only its own observation."""
+    multiple = event.get("event_type") in MULTIPLE_REVIEWED_EVENT_TYPES
+    events[:] = [
+        item for item in events
+        if item.get("event_type") != event.get("event_type")
+        or (multiple and _reviewed_event_identity(item) != _reviewed_event_identity(event))
+    ]
+    kind = event.get("event_type")
+    if kind in {"snap", "handoff", "catch", "throw", "pass_release", "forward_pass_release"}:
+        # Keep negative evidence independent of automatic event IDs. A refused
+        # staff clock must not silently fall back to an approved machine clock.
+        events.append({
+            "id": f"prediction-clock-review-required:{event.get('id')}",
+            "event_type": "prediction_clock_review_required",
+            "source": "human",
+            "attributes": {
+                "clock_family": "pass_release" if kind in {"throw", "pass_release", "forward_pass_release"} else kind,
+                "source_event_id": event.get("id"),
+            },
+        })
+
+
+def _merge_reviewed_event(events: list[dict[str, Any]], event: dict[str, Any]) -> None:
+    """Scalar corrections replace their type; observations retain distinct IDs."""
+    multiple = event.get("event_type") in MULTIPLE_REVIEWED_EVENT_TYPES
+    events[:] = [
+        item
+        for item in events
+        if item.get("event_type") != event.get("event_type")
+        or (
+            multiple
+            and item.get("source") in {"human", "manual"}
+            and _reviewed_event_identity(item) != _reviewed_event_identity(event)
+        )
+    ]
+    events.append(event)
+
+
 def _offense_direction(labels: list[dict[str, Any]]) -> int | None:
     """The measured attacking direction, or ``None`` when it was not resolved.
 
@@ -346,8 +428,9 @@ def _offense_direction(labels: list[dict[str, Any]]) -> int | None:
 # ── Stage runners ─────────────────────────────────────────────────────────────
 
 
-def _staff_layout_artifacts(ctx: PipelineContext, clips: list[dict[str, Any]],
-                            boundary_model: str) -> dict[str, Any]:
+def _staff_layout_artifacts(
+    ctx: PipelineContext, clips: list[dict[str, Any]], boundary_model: str
+) -> dict[str, Any]:
     """Audit camera cuts without changing authoritative staff play windows."""
     from pipeline.game_film import detect_shots
 
@@ -377,18 +460,33 @@ def _staff_layout_artifacts(ctx: PipelineContext, clips: list[dict[str, Any]],
         except (KeyError, TypeError, ValueError):
             crosses_cut = True
             after_cut_without_view = True
-        if (not shots or crosses_cut or unknown_merge or after_cut_without_view
-                or provenance.get("spatial_calibration_requires_review") is True):
+        if (
+            not shots
+            or crosses_cut
+            or unknown_merge
+            or after_cut_without_view
+            or provenance.get("spatial_calibration_requires_review") is True
+        ):
             unresolved.append(str(clip["id"]))
     ctx.clips = clips
     ctx.spatial_analytics_disabled = _requires_angle_specific_calibration(clips, ctx.capture_regime)
-    return {"clips": clips, "clip_count": len(clips), "boundary_model": boundary_model,
-            "data_source": "manual", "spatial_analytics_disabled": ctx.spatial_analytics_disabled,
-            "spatially_unresolved_clip_ids": unresolved,
-            "game_film": {"shot_boundaries_seconds": cuts,
-                          "boundary_semantics": "camera_shots_are_not_football_events",
-                          "shot_audit": "decoded_source" if shots else "source_unavailable",
-                          "format_strategy": "staff_layout_camera_audit"}}
+    return {
+        "clips": clips,
+        "clip_count": len(clips),
+        "boundary_model": boundary_model,
+        "data_source": "manual" if any(
+            clip.get("boundary_source") == "manual" or (clip.get("annotation_revision") or 0) > 0
+            or clip.get("human_events") for clip in clips
+        ) else "preserved",
+        "spatial_analytics_disabled": ctx.spatial_analytics_disabled,
+        "spatially_unresolved_clip_ids": unresolved,
+        "game_film": {
+            "shot_boundaries_seconds": cuts,
+            "boundary_semantics": "camera_shots_are_not_football_events",
+            "shot_audit": "decoded_source" if shots else "source_unavailable",
+            "format_strategy": "staff_layout_camera_audit",
+        },
+    }
 
 
 def _run_video_stage(stage: str, ctx: PipelineContext) -> dict[str, Any]:
@@ -413,20 +511,30 @@ def _run_video_stage(stage: str, ctx: PipelineContext) -> dict[str, Any]:
 
     if stage == "segment":
         from pipeline import backend
+
         override_clips = backend.fetch_boundary_overrides(ctx.video_id)
         if override_clips is not None:
             return _staff_layout_artifacts(ctx, override_clips, "staff-edited-layout")
         # Coach-edited cuts are authoritative. Reprocessing may refresh
         # analytics, but must not replace the reviewed play layout.
-        existing = ctx.lineage.get("existing_clips") or []
-        if existing and any(clip.get("boundary_source") == "manual" for clip in existing):
+        existing = [clip for clip in ctx.lineage.get("existing_clips", [])
+                    if clip.get("id") and not clip.get("superseded")]
+        # Identity/event/label corrections are attached to machine clip IDs too.
+        # Anchor the entire active layout rather than orphaning any correction
+        # or mixing newly generated windows with overlapping retained windows.
+        if any(clip.get("boundary_source") == "manual" or (clip.get("annotation_revision") or 0) > 0
+               or clip.get("human_events") for clip in existing):
             return _staff_layout_artifacts(
-                ctx, [clip for clip in existing if clip.get("id")], "coach-reviewed-layout"
+                ctx, existing, "coach-reviewed-layout"
             )
         from pipeline import stage_segment
 
         artifacts = stage_segment.run(
-            ctx.video_id, local_uri, ctx.job_id, priority=ctx.priority, timeline=ctx.timeline,
+            ctx.video_id,
+            local_uri,
+            ctx.job_id,
+            priority=ctx.priority,
+            timeline=ctx.timeline,
             processing_profile=ctx.processing_profile,
         )
         ctx.clips = [c for c in artifacts.get("clips", []) if c.get("id")]
@@ -490,7 +598,9 @@ def _run_video_stage(stage: str, ctx: PipelineContext) -> dict[str, Any]:
             numeral_used = False
             # Angle clips route separately from whole-video calibration, whose
             # default (the drone's Kalman line fit) must not change.
-            variant = local_model_variant("calibrate_broadcast", ctx.priority, ctx.processing_profile)
+            variant = local_model_variant(
+                "calibrate_broadcast", ctx.priority, ctx.processing_profile
+            )
             if variant == model_router.CALIB_NUMERAL_DLT:
                 from pipeline.field_model import get_field_detector
 
@@ -659,13 +769,24 @@ def _run_clip_stage(stage: str, ctx: PipelineContext, clip: dict[str, Any]) -> d
     from pipeline.lightweight_config import local_model_variant
 
     clip_id = str(clip["id"])
-    if ((clip.get("label_data") or {}).get("canonical_count_eligible") is False
-            and stage in {"metrics", "routes", "coverage", "oline", "pressure", "pose"}):
+    if (clip.get("label_data") or {}).get("canonical_count_eligible") is False and stage in {
+        "metrics",
+        "routes",
+        "coverage",
+        "oline",
+        "pressure",
+        "pose",
+        "expected_outcomes",
+    }:
         return {"skipped": True, "reason": "logical_play_unresolved"}
     per_clip = ctx.clip_artifacts.setdefault(clip_id, {})
     tracklets: list[dict[str, Any]] = per_clip.get("track", {}).get("tracklets", [])
     events_list: list[dict[str, Any]] = per_clip.get("events", {}).get("events", [])
     labels_list: list[dict[str, Any]] = per_clip.get("labels", {}).get("labels", [])
+    if stage in {"metrics", "oline", "expected_outcomes"}:
+        from pipeline.observed_position_products import hydrate_position_roles
+
+        tracklets = hydrate_position_roles(tracklets, events_list, labels_list)
     metrics_list: list[dict[str, Any]] = per_clip.get("metrics", {}).get("metrics", [])
     pose_metrics: dict[str, Any] = per_clip.get("pose", {}).get("pose_metrics", {})
     start_frame, end_frame = _clip_frame_window(clip, ctx.fps, ctx.timeline)
@@ -674,7 +795,9 @@ def _run_clip_stage(stage: str, ctx: PipelineContext, clip: dict[str, Any]) -> d
         calibration = ctx.calibration
     clip_homography = calibration.get("homography")
     clip_calibration_series = calibration.get("calibration_series") or []
-    clip_regime = clip.get("capture_regime") or calibration.get("capture_regime") or ctx.capture_regime
+    clip_regime = (
+        clip.get("capture_regime") or calibration.get("capture_regime") or ctx.capture_regime
+    )
     analytics_safe = bool(calibration.get("analytics_safe", ctx.analytics_safe))
     unresolved_spatial = (ctx.stage_artifacts.get("segment") or {}).get(
         "spatially_unresolved_clip_ids", []
@@ -693,15 +816,24 @@ def _run_clip_stage(stage: str, ctx: PipelineContext, clip: dict[str, Any]) -> d
         # Shot changes reset tracking independently of logical play boundaries.
         # Television replays and angle switches can share a play, never a track.
         from bisect import bisect_right
+
         shots = ((ctx.stage_artifacts.get("segment") or {}).get("game_film") or {}).get(
             "shot_boundaries_seconds", []
         )
         if shots:
             clip_dets = {
-                frame: [{**d, "shot_id": bisect_right(
-                    shots, d.get("timestamp_seconds") if d.get("timestamp_seconds") is not None
-                    else int(frame) / ctx.fps
-                )} for d in detections]
+                frame: [
+                    {
+                        **d,
+                        "shot_id": str(bisect_right(
+                            shots,
+                            d.get("timestamp_seconds")
+                            if d.get("timestamp_seconds") is not None
+                            else int(frame) / ctx.fps,
+                        )),
+                    }
+                    for d in detections
+                ]
                 for frame, detections in clip_dets.items()
             }
         return stage_track.run(
@@ -777,7 +909,23 @@ def _run_clip_stage(stage: str, ctx: PipelineContext, clip: dict[str, Any]) -> d
         # stage_labels, which consumes events and therefore cannot precede them.
         # Both are genuine ordering constraints, not oversights -- see the note
         # on CLIP_STAGES.
-        return stage_events.run(
+        removed = ctx.effective_annotations.get(clip_id, {}).get("removed_events") or []
+        removal_issues = []
+
+        def remove_rejected_proposals(proposals):
+            from pipeline.event_removals import suppress_removed_proposals
+
+            corrected = ctx.effective_annotations[clip_id]
+            kept, issues = suppress_removed_proposals(proposals, removed, tracklets, {
+                "video_id": ctx.video_id, "clip_id": clip_id,
+                "start_time": corrected.get("start_time"), "end_time": corrected.get("end_time"),
+                "registration_fingerprint": corrected.get("registration_fingerprint"),
+                "media_sha256": ctx.lineage.get("source_sha256"),
+            }, ctx.timeline)
+            removal_issues.extend(issues)
+            return kept
+
+        result = stage_events.run(
             clip_id,
             clip_dets,
             ctx.fps,
@@ -786,7 +934,10 @@ def _run_clip_stage(stage: str, ctx: PipelineContext, clip: dict[str, Any]) -> d
             ball_detections=_ball_only(clip_dets),
             homography=clip_homography,
             timeline=ctx.timeline,
+            event_filter=remove_rejected_proposals if removed else None,
         )
+        result["event_removal_review_required"] = removal_issues
+        return result
 
     if stage == "labels":
         from pipeline import stage_labels
@@ -836,7 +987,16 @@ def _run_clip_stage(stage: str, ctx: PipelineContext, clip: dict[str, Any]) -> d
     if stage == "oline":
         from pipeline import stage_oline
 
-        return stage_oline.run(clip_id, tracklets, events_list, analytics_safe, ctx.fps, ctx.job_id)
+        return stage_oline.run(
+            clip_id,
+            tracklets,
+            events_list,
+            analytics_safe,
+            ctx.fps,
+            ctx.job_id,
+            attacking_direction=_offense_direction(labels_list),
+            timeline=ctx.timeline,
+        )
 
     if stage == "pressure":
         from pipeline import stage_pressure
@@ -853,6 +1013,33 @@ def _run_clip_stage(stage: str, ctx: PipelineContext, clip: dict[str, Any]) -> d
             distance_yards=clip.get("distance"),
         )
 
+    if stage == "expected_outcomes":
+        from pipeline import stage_expected_outcomes
+
+        lineage = {key: ctx.lineage[key] for key in ("session_id", "game_id", "recording_id")
+                   if ctx.lineage.get(key)}
+        canonical = clip.get("canonical_play_id")
+        if not canonical:
+            prior = next((item for item in ctx.lineage.get("existing_clips", [])
+                          if str(item.get("id")) == clip_id), {})
+            canonical = prior.get("canonical_play_id")
+        if not canonical:
+            from pipeline import backend
+
+            if backend.BACKEND_API_URL:
+                canonical = backend.fetch_clip(clip_id).get("canonical_play_id")
+        if canonical:
+            lineage["canonical_play_id"] = str(canonical)
+        if ctx.lineage.get("source_sha256"):
+            lineage["media_sha256"] = ctx.lineage["source_sha256"]
+        return stage_expected_outcomes.run(
+            clip_id, ctx.job_id, ctx.priority, tracklets=tracklets, events=events_list,
+            lineage=lineage, analytics_safe=analytics_safe, timeline=ctx.timeline,
+            attacking_direction=_offense_direction(labels_list), down=clip.get("down"),
+            distance_yards=clip.get("distance"),
+            capture_regime=clip_regime or "unknown",
+        )
+
     if stage == "render":
         from pipeline import stage_render
         from pipeline.backend import BACKEND_API_URL
@@ -861,6 +1048,11 @@ def _run_clip_stage(stage: str, ctx: PipelineContext, clip: dict[str, Any]) -> d
 
         if ctx.video_path is None:
             return {"render_skipped": True, "reason": "no_video_path"}
+        from pipeline.reviewed_labels import reviewed_label_data as select_reviewed_hud
+
+        reviewed_label_data = select_reviewed_hud(
+            ctx.effective_annotations.get(clip_id, {}).get("human_labels") or []
+        )
         if use_period_renderer(ctx.priority):
             return period_renderer.run(
                 clip_id,
@@ -874,6 +1066,7 @@ def _run_clip_stage(stage: str, ctx: PipelineContext, clip: dict[str, Any]) -> d
                 timeline=ctx.timeline,
                 start_seconds=clip.get("start_time"),
                 end_seconds=clip.get("end_time"),
+                reviewed_label_data=reviewed_label_data,
             )
         return stage_render.run(
             clip_id,
@@ -889,6 +1082,7 @@ def _run_clip_stage(stage: str, ctx: PipelineContext, clip: dict[str, Any]) -> d
             timeline=ctx.timeline,
             start_seconds=clip.get("start_time"),
             end_seconds=clip.get("end_time"),
+            reviewed_label_data=reviewed_label_data,
         )
 
     if stage == "render_hls":
@@ -996,7 +1190,48 @@ def run_pipeline(
             per_clip[stage] = artifacts
             if stage == "events":
                 corrected = ctx.effective_annotations.get(clip_id, {})
-                for original in corrected.get("human_events") or []:
+                from pipeline.event_removals import suppress_removed_proposals
+
+                artifacts["events"], removal_issues = suppress_removed_proposals(
+                    artifacts.get("events") or [], corrected.get("removed_events") or [],
+                    per_clip.get("track", {}).get("tracklets", []),
+                    {"video_id": ctx.video_id, "clip_id": clip_id,
+                     "start_time": corrected.get("start_time"), "end_time": corrected.get("end_time"),
+                     "registration_fingerprint": corrected.get("registration_fingerprint"),
+                     "media_sha256": ctx.lineage.get("source_sha256")}, ctx.timeline,
+                )
+                artifacts["event_removal_review_required"] = list({
+                    (issue.get("event_id"), issue.get("reason")): issue
+                    for issue in (artifacts.get("event_removal_review_required") or []) + removal_issues
+                }.values())
+                from pipeline.actor_bindings import rebind_reviewed_events
+
+                reviewed, bound_tracks, binding_issues = rebind_reviewed_events(
+                    corrected.get("human_events") or [],
+                    per_clip.get("track", {}).get("tracklets", []),
+                    {
+                        "video_id": ctx.video_id,
+                        "clip_id": clip_id,
+                        "start_time": corrected.get("start_time"),
+                        "end_time": corrected.get("end_time"),
+                        "registration_fingerprint": corrected.get("registration_fingerprint"),
+                        "media_sha256": ctx.lineage.get("source_sha256"),
+                    },
+                )
+                if "track" in per_clip:
+                    per_clip["track"]["tracklets"] = bound_tracks
+                    from pipeline.backend import patch_bound_manual_identity
+
+                    for bound in bound_tracks:
+                        if (bound.get("provenance") or {}).get("manual_identity_binding"):
+                            patch_bound_manual_identity(bound)
+                artifacts.setdefault("event_review_required", []).extend(binding_issues)
+                for issue in binding_issues:
+                    rejected = next((e for e in corrected.get("human_events", [])
+                                     if e.get("id") == issue["event_id"]), None)
+                    if rejected:
+                        _discard_reviewed_event(artifacts.setdefault("events", []), rejected)
+                for original in reviewed:
                     event = {
                         **original,
                         "attributes": dict(original.get("attributes") or {}),
@@ -1007,11 +1242,22 @@ def run_pipeline(
                     timebase = event["attributes"].get("timebase", "unknown")
                     events = artifacts.setdefault("events", [])
                     if timebase == "unknown":
-                        events[:] = [
-                            item for item in events if item.get("event_type") != event["event_type"]
-                        ]
+                        _discard_reviewed_event(events, event)
                         artifacts.setdefault("event_review_required", []).append(
                             {"event_id": event.get("id"), "reason": "event_timebase_unknown"}
+                        )
+                        continue
+                    if not _normalize_interval_clock(
+                        event,
+                        timebase,
+                        float(corrected.get("start_time") or 0),
+                    ):
+                        _discard_reviewed_event(events, event)
+                        artifacts.setdefault("event_review_required", []).append(
+                            {
+                                "event_id": event.get("id"),
+                                "reason": "interval_timebase_or_bounds_invalid",
+                            }
                         )
                         continue
                     if timebase == "clip":
@@ -1044,13 +1290,22 @@ def run_pipeline(
                                 event["frame_number"]
                             )
                     events = artifacts.setdefault("events", [])
-                    events[:] = [
-                        item for item in events if item.get("event_type") != event["event_type"]
-                    ]
-                    events.append(event)
+                    _merge_reviewed_event(events, event)
                 artifacts["event_count"] = len(artifacts.get("events") or [])
+                if corrected.get("human_events") or corrected.get("removed_events"):
+                    from pipeline.backend import publish_actor_binding_review
+
+                    publish_actor_binding_review(
+                        clip_id, ctx.job_id, corrected.get("annotation_revision") or 0,
+                        artifacts.get("event_review_required") or [],
+                        artifacts.get("event_removal_review_required") or [],
+                    )
             if stage == "labels":
-                corrected = ctx.effective_annotations.get(clip_id, {}).get("label_data") or {}
+                from pipeline.reviewed_labels import reviewed_label_data
+
+                corrected = reviewed_label_data(
+                    ctx.effective_annotations.get(clip_id, {}).get("human_labels") or []
+                )
                 for label_type, label_value in corrected.items():
                     if label_type.startswith("_") or not isinstance(label_value, dict):
                         continue
@@ -1140,8 +1395,10 @@ def run_pipeline(
                 stage = "playback_proxy"
                 cached = sink.load(stage, clip_id)
                 if cached is not None and current_playback(
-                    cached.get("playback") or {}, identity.get("source_sha256"),
-                    float(clip.get("start_time") or 0), float(clip["end_time"]),
+                    cached.get("playback") or {},
+                    identity.get("source_sha256"),
+                    float(clip.get("start_time") or 0),
+                    float(clip["end_time"]),
                 ):
                     path = storage.resolve_readable_path(cached.get("playback_uri", ""))
                     if path is None or path.is_file():
@@ -1160,10 +1417,11 @@ def run_pipeline(
                 )
                 media = (previous.get("provenance") or {}).get("playback") or {}
                 existing_uri = previous.get("storage_uri")
-                if (
-                    existing_uri
-                    and current_playback(media, identity.get("source_sha256"),
-                                         float(clip.get("start_time") or 0), float(clip["end_time"]))
+                if existing_uri and current_playback(
+                    media,
+                    identity.get("source_sha256"),
+                    float(clip.get("start_time") or 0),
+                    float(clip["end_time"]),
                 ):
                     path = storage.resolve_readable_path(existing_uri)
                     if path is None or path.is_file():
@@ -1191,6 +1449,8 @@ def run_pipeline(
                     report(stage, clip_id, "failed", error=str(exc))
         finally:
             session.close()
+
+    source_receipt: dict[str, Any] | None = None
 
     def summary() -> dict[str, Any]:
         errors = failed_video_stages + failed_clip_stages
@@ -1221,6 +1481,7 @@ def run_pipeline(
             and not errors
             and bool((ctx.model_provenance.get("detect") or {}).get("validated", False)),
             "checkpoint": identity,
+            **({"source_identity": source_receipt} if source_receipt else {}),
             "capture_regime": ctx.capture_regime,
             "regime_confidence": ctx.regime_confidence,
             "analytics_safe": ctx.analytics_safe and source == "real",
@@ -1292,6 +1553,14 @@ def run_pipeline(
             ),
             "production_models": model_lineage,
         }
+        if "expected_outcomes" in stage_list:
+            from dataclasses import asdict
+
+            from pipeline.expected_outcomes.data import DEFINITIONS
+
+            revision_inputs["expected_outcome_definitions"] = {
+                name: asdict(definition) for name, definition in DEFINITIONS.items()
+            }
         identity = checkpoint_identity(
             ctx.video_path,
             video_id=video_id,
@@ -1308,7 +1577,15 @@ def run_pipeline(
                 },
             },
         )
+        from pipeline.media_identity import registered_source_receipt
+
+        initial_receipt = registered_source_receipt(
+            ctx.video_path, identity, video_id, input_uri, ctx.lineage.get("source_registration")
+        )
+        if initial_receipt:
+            report("source_identity", None, "verified", source_identity=initial_receipt)
         sink.configure(identity)
+        ctx.lineage["source_sha256"] = identity["source_sha256"]
         set_checkpoint_identity(
             str(identity["fingerprint"]), f"{video_id}:{identity['source_sha256']}"
         )
@@ -1407,6 +1684,9 @@ def run_pipeline(
                         break
                 check_control()
                 _score_clip_uncertainty(ctx, clip_id)
+        source_receipt = registered_source_receipt(
+            ctx.video_path, identity, video_id, input_uri, ctx.lineage.get("source_registration")
+        )
     except PipelineInterrupted as exc:
         interrupted = exc.action
     finally:
@@ -1414,6 +1694,19 @@ def run_pipeline(
             ctx.video_path.unlink(missing_ok=True)
 
     result = summary()
+    if not interrupted:
+        check_control()
+        from pipeline.expected_outcomes.export import export_feature_snapshots
+
+        expected_export = export_feature_snapshots(ctx.clip_artifacts, video_id=video_id, job_id=ctx.job_id,
+            source_uri=input_uri, media_sha256=identity["source_sha256"],
+            source_clock_verified=ctx.timeline is not None and ctx.timeline.verified is True,
+            clip_revisions={str(clip["id"]): {
+                "annotation_revision": (ctx.effective_annotations.get(str(clip["id"])) or clip).get("annotation_revision", 0),
+                "observation_revision": ((ctx.effective_annotations.get(str(clip["id"])) or clip).get("label_data") or {}).get("_observation_revision", 0),
+            } for clip in ctx.clips})
+        if expected_export:
+            result["expected_feature_export"] = expected_export
     feature_packets = [
         packet
         for artifacts in ctx.clip_artifacts.values()
@@ -1460,15 +1753,15 @@ def _fold_cached_video_stage(stage: str, ctx: PipelineContext, cached: dict[str,
         ctx.clips = [c for c in cached.get("clips", []) if c.get("id")]
         ctx.spatial_analytics_disabled = bool(
             cached.get("spatial_analytics_disabled")
-            or _requires_angle_specific_calibration(
-                cached.get("game_film"), ctx.capture_regime
-            )
+            or _requires_angle_specific_calibration(cached.get("game_film"), ctx.capture_regime)
         )
     elif stage == "calibrate":
         ctx.spatial_analytics_disabled = bool(
             cached.get("spatial_analytics_disabled", ctx.spatial_analytics_disabled)
         )
-        ctx.analytics_safe = bool(cached.get("analytics_safe", False)) and not ctx.spatial_analytics_disabled
+        ctx.analytics_safe = (
+            bool(cached.get("analytics_safe", False)) and not ctx.spatial_analytics_disabled
+        )
         ctx.calibration = cached
         # Mirror of the live branch above. Miss this and a resumed run loses the
         # homography, so every spatial metric silently degrades on exactly the
@@ -1506,15 +1799,13 @@ def _requires_angle_specific_calibration(source: Any, capture_regime: str | None
             view
             for clip in source
             if isinstance(clip, dict)
-            if (view := (clip.get("label_data") or {}).get("view"))
-            in {"sideline", "endzone"}
+            if (view := (clip.get("label_data") or {}).get("view")) in {"sideline", "endzone"}
         }
         views.update(
             regime.removeprefix("fixed_")
             for clip in source
             if isinstance(clip, dict)
-            if (regime := clip.get("capture_regime"))
-            in {"fixed_sideline", "fixed_endzone"}
+            if (regime := clip.get("capture_regime")) in {"fixed_sideline", "fixed_endzone"}
         )
     else:
         return False

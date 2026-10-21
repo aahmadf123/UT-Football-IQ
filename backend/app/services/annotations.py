@@ -27,7 +27,7 @@ from app.models import (
     User,
     Video,
 )
-from app.services.clip_state import lock_boundary_scope
+from app.services.clip_state import lock_boundary_scope, require_active_clip
 
 TAG_TYPES = {
     CorrectionType.formation_tag: "offensive_formation",
@@ -210,6 +210,7 @@ async def submit_correction(
     if clip is None:
         raise HTTPException(404, detail="Clip not found")
     check_revision(clip, expected_revision)
+    require_active_clip(clip)
     value = {k: v for k, v in corrected_value.items() if not k.startswith("_")}
     if not value:
         raise HTTPException(422, detail="A correction must include a corrected value")
@@ -305,6 +306,10 @@ async def submit_correction(
         )
         if event_id and event is None:
             raise HTTPException(404, detail="Event not found in this clip")
+        if event is not None and (event.provenance or {}).get("state") == "superseded":
+            raise HTTPException(
+                409, detail="Removed observations are preserved in history and cannot be edited"
+            )
         event_type = value.get("event_type", event.event_type if event else None)
         if not isinstance(event_type, str) or not event_type.strip() or len(event_type) > 100:
             raise HTTPException(422, detail="event_type is required")
@@ -342,6 +347,11 @@ async def submit_correction(
             event.timestamp_seconds = _number(value["timestamp_seconds"], "timestamp_seconds")
             if timebase == "clip" and event.timestamp_seconds > clip.end_time - clip.start_time:
                 raise HTTPException(422, detail="Event timestamp exceeds clip duration")
+            if (
+                timebase == "recording"
+                and not clip.start_time <= event.timestamp_seconds <= clip.end_time
+            ):
+                raise HTTPException(422, detail="Event source timestamp is outside this clip")
             if "frame_number" not in value:
                 event.frame_number = None
         if "frame_number" in value:
@@ -359,6 +369,17 @@ async def submit_correction(
         }
         event.created_by = actor.id
         event.provenance = {"source": "manual", "validated": True, "timebase": timebase}
+        from app.services.actor_bindings import capture_actor_bindings
+
+        # Ignore all client binding metadata. Only the server reads source
+        # tracks and manual labels; later workers receive this immutable proof.
+        event.attributes = {
+            k: v
+            for k, v in event.attributes.items()
+            if k not in {"actor_bindings", "actor_binding_lineage", "manual_identity_binding"}
+        }
+        binding = await capture_actor_bindings(db, clip, event.attributes)
+        event.provenance = {**event.provenance, "actor_bindings": binding}
         value["event_id"] = str(event.id)
     else:
         label_type = TAG_TYPES[correction_type]

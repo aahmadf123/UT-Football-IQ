@@ -54,21 +54,26 @@ const GROUP_BY_POSITION: Record<string, string> = {
   SLOT: "WR",
   TE: "TE",
   OL: "OL",
+  OT: "OL", OG: "OL", LT: "OL", LG: "OL", RG: "OL", RT: "OL",
   C: "OL",
   G: "OL",
   T: "OL",
   DL: "DL",
+  NT: "DL", EDGE: "EDGE",
   DE: "DL",
   DT: "DL",
   LB: "LB",
   MLB: "LB",
   OLB: "LB",
+  ILB: "LB",
   CB: "DB",
   S: "DB",
+  SAF: "DB",
   FS: "DB",
   SS: "DB",
   DB: "DB",
   K: "ST",
+  PK: "ST", KR: "ST", PR: "ST", ST: "ST",
   P: "ST",
   LS: "ST",
   RET: "ST",
@@ -93,6 +98,7 @@ function deriveGroup(position: string | null, positionGroup: string | null): str
   // position can restore the specific group without guessing for ATH rows.
   if (positionGroup && positionGroup.trim().toUpperCase() !== "SKILL") return positionGroup;
   const listedGroup = position && GROUP_BY_POSITION[position.trim().toUpperCase()];
+  if (positionGroup?.trim().toUpperCase() === "SKILL" && !["RB", "WR", "TE"].includes(listedGroup || "")) return "Skill";
   return listedGroup || positionGroup || "Unassigned";
 }
 
