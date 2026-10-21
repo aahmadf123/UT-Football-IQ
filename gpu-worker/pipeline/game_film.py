@@ -126,10 +126,14 @@ def _ffmpeg_frames(video_path: Path, fps: float, size: tuple[int, int]) -> Any:
     w, h = size
     frame_bytes = w * h * 3
     for hwaccel in (["-hwaccel", "cuda"], []):
+        from pipeline.thermal import cpu_threads
+
         cmd = [
             "ffmpeg",
             "-v",
             "error",
+            "-threads",
+            str(cpu_threads()),
             *hwaccel,
             "-i",
             str(video_path),

@@ -43,11 +43,20 @@ def job_context(
         _control.reset(control_token)
 
 
-def check_control() -> None:
+def _raise_on_control() -> None:
     callback = _control.get()
     action = callback() if callback is not None else None
     if action:
         raise PipelineInterrupted(action)
+
+
+def check_control() -> None:
+    """Honour cancel/pause, and pause while the GPU is too hot (see thermal)."""
+    _raise_on_control()
+    if _control.get() is not None:  # only inside a job, never in tests' bare calls
+        from pipeline.thermal import governor
+
+        governor.pace(_raise_on_control)
 
 
 def lease_headers() -> dict[str, str]:

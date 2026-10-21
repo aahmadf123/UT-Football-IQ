@@ -1521,10 +1521,21 @@ def main() -> None:
     except Exception as exc:
         log.warning("metrics_server_start_failed", port=metrics_port, error=str(exc))
 
+    # A laptop worker must not run its machine into a thermal power-off.
+    from pipeline.thermal import (
+        GPU_COOL_C,
+        GPU_HOT_C,
+        limit_library_threads,
+        lower_process_priority,
+    )
+
+    lower_process_priority()
     log.info(
         "gpu_worker_starting",
         worker_id=_worker_id(),
         poll_interval=POLL_INTERVAL,
+        cpu_threads=limit_library_threads(),
+        gpu_cool_down_c=[GPU_HOT_C, GPU_COOL_C],
     )
     set_worker_up(True)
     record_heartbeat()
