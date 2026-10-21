@@ -288,6 +288,15 @@ def patch_tracklet_player(tracklet_id: str, player_id: str) -> None:
         raise
 
 
+def patch_tracklet_provenance(tracklet_id: str, provenance: dict[str, Any]) -> None:
+    """Persist unresolved identity evidence without inventing an association."""
+    if _offline():
+        return
+    with _client() as c:
+        response = c.patch(f"/api/v1/tracklets/{tracklet_id}", json={"provenance": provenance})
+        response.raise_for_status()
+
+
 def patch_clip_storage_uri(
     clip_id: str, storage_uri: str, *, playback: dict[str, Any] | None = None
 ) -> None:
@@ -661,24 +670,11 @@ ROSTER_SAFE_SESSION_KINDS = frozenset({"practice", "scrimmage"})
 
 
 def fetch_roster_for_video(video_id: str) -> list[dict[str, Any]]:
-    """The active roster, but only when every player on the field is on it.
+    """Load candidates for every format with an explicit assignment scope.
 
-    ``stage_reid`` maps an OCR'd jersey number straight to a roster player, with
-    no notion of which team the tracklet belongs to -- and it cannot have one,
-    because team classification runs in ``stage_labels``, two stages later, and
-    is unsupervised anyway: it separates two teams without knowing which is
-    ours.
-
-    On game film that turns a correct read into a wrong attribution. An
-    opponent's 12 becomes our 12, gets PATCHed onto the tracklet, and flows into
-    the workload and health rollups against an athlete who was not on the field.
-    Wrong identity is worse than none: no identity suppresses cleanly
-    downstream, whereas a confident wrong one is indistinguishable from a right
-    one.
-
-    So the roster is withheld unless the session is intra-squad. Unknown counts
-    as unsafe -- a null ``session_kind`` may well be game film, and the cost of
-    guessing wrong is corrupted per-athlete history.
+    Games and unknown sessions require independently resolved team membership
+    before a jersey can resolve to a Toledo athlete. Keeping the candidates
+    available makes that possible without attributing an opponent by number.
     """
     if not BACKEND_API_URL:
         return []
@@ -687,20 +683,45 @@ def fetch_roster_for_video(video_id: str) -> list[dict[str, Any]]:
             resp = c.get(f"/api/v1/videos/{video_id}")
             resp.raise_for_status()
             session_kind = (resp.json() or {}).get("session_kind")
+            scoped = c.get(f"/api/v1/roster-assignments/for-video/{video_id}")
+            if scoped.status_code == 404:
+                players = None  # Backward-compatible only for older API versions.
+            else:
+                scoped.raise_for_status()
+                players = scoped.json()
     except PipelineInterrupted:
         raise
     except Exception as exc:
         log.warning("video_session_kind_fetch_failed", video_id=video_id, error=str(exc))
         return []
 
-    if session_kind not in ROSTER_SAFE_SESSION_KINDS:
-        log.info(
-            "roster_withheld_multi_team_session",
-            video_id=video_id,
-            session_kind=session_kind,
-        )
+    if players is None:
+        players = fetch_roster()
+    if not isinstance(players, list):
+        log.warning("video_roster_unexpected_shape", video_id=video_id)
         return []
-    return fetch_roster()
+    if session_kind in ROSTER_SAFE_SESSION_KINDS:
+        return players
+    return [{**player, "_identity_scope": "resolved_team_required", "_roster_team": "Toledo"}
+            for player in players]
+
+
+def fetch_boundary_overrides(video_id: str) -> list[dict[str, Any]] | None:
+    """Authoritative active staff windows; a failed lookup must not erase them."""
+    if not BACKEND_API_URL:
+        return None
+    with _client() as c:
+        response = c.get(f"/api/v1/videos/{video_id}/boundary-overrides")
+        if response.status_code == 404:
+            return None
+        response.raise_for_status()
+        payload = response.json()
+    if not isinstance(payload, dict) or payload.get("active") is not True:
+        return None
+    clips = payload.get("clips")
+    if not isinstance(clips, list) or any(not isinstance(clip, dict) or not clip.get("id") for clip in clips):
+        raise ValueError("Active staff boundary override has no valid clip list")
+    return clips
 
 
 def fetch_roster() -> list[dict[str, Any]]:

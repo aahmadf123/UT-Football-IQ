@@ -22,6 +22,7 @@ from pipeline import backend
 
 def _response(payload: Any, status: int = 200) -> MagicMock:
     resp = MagicMock()
+    resp.status_code = status
     resp.json.return_value = payload
     resp.raise_for_status.side_effect = None if status < 400 else RuntimeError("boom")
     return resp
@@ -140,7 +141,7 @@ class TestRosterReachesStageReid:
         assert run.call_args.kwargs["roster"] == [{"id": "p1"}]
 
 
-class TestGameFilmDoesNotGetTheRoster:
+class TestGameFilmGetsTeamScopedCandidates:
     """stage_reid maps an OCR'd number straight to a roster player.
 
     It has no notion of which team a tracklet belongs to and cannot have one:
@@ -152,11 +153,15 @@ class TestGameFilmDoesNotGetTheRoster:
 
     def _fetch(self, session_kind: Any) -> list[dict[str, Any]]:
         players = [{"id": "p1", "jersey_number": 12}]
+        client = _with_client(_response({"session_kind": session_kind}))
+        client.__enter__.return_value.get.side_effect = [
+            _response({"session_kind": session_kind}), _response(players),
+        ]
         with (
             patch.object(backend, "BACKEND_API_URL", "http://api"),
             patch.object(
                 backend, "_client",
-                return_value=_with_client(_response({"session_kind": session_kind})),
+                return_value=client,
             ),
             patch.object(backend, "fetch_roster", return_value=players),
         ):
@@ -167,14 +172,16 @@ class TestGameFilmDoesNotGetTheRoster:
         # Everyone on the field is ours, including the scout team.
         assert self._fetch(kind) == [{"id": "p1", "jersey_number": 12}]
 
-    def test_game_film_does_not(self) -> None:
-        # An opponent's 12 would otherwise become our 12.
-        assert self._fetch("game") == []
+    def test_game_film_requires_resolved_team_membership(self) -> None:
+        players = self._fetch("game")
+        assert players[0]["_identity_scope"] == "resolved_team_required"
+        from pipeline.stage_reid import roster_candidates
+        assert roster_candidates({"team_label": "offense"}, players) == []
 
     def test_an_unknown_session_kind_is_treated_as_unsafe(self) -> None:
         # A null may well be game film, and the cost of guessing wrong is
         # corrupted per-athlete history.
-        assert self._fetch(None) == []
+        assert self._fetch(None)[0]["_identity_scope"] == "resolved_team_required"
 
     def test_a_failed_lookup_withholds_rather_than_assumes(self) -> None:
         client = MagicMock()
@@ -184,3 +191,15 @@ class TestGameFilmDoesNotGetTheRoster:
             patch.object(backend, "_client", return_value=client),
         ):
             assert backend.fetch_roster_for_video("vid-1") == []
+
+    def test_older_backend_falls_back_only_on_endpoint_404(self) -> None:
+        client = _with_client(_response({"session_kind": "game"}))
+        client.__enter__.return_value.get.side_effect = [
+            _response({"session_kind": "game"}), _response({}, status=404),
+        ]
+        with patch.object(backend, "BACKEND_API_URL", "http://api"), patch.object(
+            backend, "_client", return_value=client
+        ), patch.object(backend, "fetch_roster", return_value=[{"id": "player"}]) as legacy:
+            result = backend.fetch_roster_for_video("video")
+        legacy.assert_called_once()
+        assert result[0]["_identity_scope"] == "resolved_team_required"

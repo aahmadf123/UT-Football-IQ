@@ -41,8 +41,11 @@ _TABLES = [
         "field_calibrations",
         "clips",
         "processing_jobs",
+        "plays",
+        "play_views",
         "tracklets",
         "metrics",
+        "labels",
         "player_workload_daily",
     )
 ]
@@ -156,6 +159,8 @@ async def _seed(maker: async_sessionmaker[AsyncSession]) -> dict[str, Any]:
                 tracklet_id=t.id,
                 metric_name="physical_profile",
                 metric_value=value,
+                analytics_safe=True,
+                provenance={"source": "real", "validated": True},
             )
 
         session.add_all(
@@ -192,14 +197,16 @@ async def test_weekly_team_rates_count_toledo_tracks_only(db) -> None:
     # Only Toledo's defense counts in the game; the opponent's 11 yd/s is out.
     assert game_weeks[0].reps == 1 and game_weeks[0].top_speed_p90_yps == pytest.approx(6.5)
     practice = [w for (week, kind), w in by_key.items() if kind == "practice"]
-    assert sum(w.reps for w in practice) == 3  # identified WR twice + unidentified DB
+    assert (
+        sum(w.reps for w in practice) == 2
+    )  # unknown identity is excluded from deduplicated totals
 
 
 async def test_position_groups_show_week_over_week_change(db) -> None:
     await _seed(db)
     out = await _dashboard(db, UserRole.analyst)
     groups = {g.position_group: g for g in out.position_groups}
-    assert set(groups) >= {"SKILL", "LB", "DB"}  # DB comes from the track's own role
+    assert set(groups) == {"SKILL", "LB"}  # unresolved DB cannot be deduplicated
     skill = groups["SKILL"]
     assert len(skill.weekly) == 2
     assert skill.change["top_speed_p90_yps"] == pytest.approx(1.0)

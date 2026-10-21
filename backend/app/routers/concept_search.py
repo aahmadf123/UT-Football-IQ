@@ -61,6 +61,7 @@ from app.routers.search import (
     _resolve_production_model_version,
     _run_vector_search,
 )
+from app.services.clip_state import active_clip
 
 log = structlog.get_logger(__name__)
 router = APIRouter(prefix="/api/v1/concept-search", tags=["concept-search"])
@@ -170,7 +171,7 @@ def _centroid(vectors: list[list[float]]) -> list[float] | None:
 
 @router.get("", response_model=ConceptSearchResponse)
 async def concept_search(
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _current_user: Annotated[User, Depends(require_coach_or_above)],
     q: str = Query(..., min_length=1, max_length=256, description="Free-text concept query"),
     k: int = Query(default=20, ge=1, le=50),
@@ -221,6 +222,7 @@ async def concept_search(
     # ── 1. Grounded metadata matches ──────────────────────────────────────
     grounded_q = (
         select(Clip.id, Clip.label_data, Clip.confidence)
+        .where(active_clip())
         .where(_grounded_predicate(matches))
         .order_by(Clip.created_at.desc())
         .limit(k)

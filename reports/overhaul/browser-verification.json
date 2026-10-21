@@ -1,0 +1,23 @@
+{
+  "scope": "real_local_api_and_media",
+  "playback": {
+    "wall_seconds": 1.1,
+    "media_seconds": 1.1132900000000001,
+    "width": 960,
+    "height": 540,
+    "readyState": 4,
+    "rate": 1
+  },
+  "field_view": {
+    "quiet_default": true,
+    "bottom_right": true,
+    "width_fraction": 0.21999414519906324,
+    "no_quiet_labels": true,
+    "controls_hidden_at_rest": true,
+    "expand_and_move_work": true,
+    "retained_in_fullscreen": true
+  },
+  "layout_preserves_time": true,
+  "tablet_no_overflow": true,
+  "browser_errors": []
+}

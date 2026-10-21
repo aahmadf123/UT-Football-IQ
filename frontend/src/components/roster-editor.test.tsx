@@ -1,15 +1,16 @@
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
-const clients = vi.hoisted(() => ({ update: vi.fn(), create: vi.fn(), import: vi.fn(), refresh: vi.fn() }));
+const clients = vi.hoisted(() => ({ fetch: vi.fn(), update: vi.fn(), create: vi.fn(), import: vi.fn(), refresh: vi.fn() }));
 vi.mock("@/lib/app-state", () => ({ useAppState: () => ({ authToken: "admin-token", refreshData: clients.refresh }) }));
 vi.mock("@/lib/api", () => ({
-  fetchPlayer: vi.fn(async () => ({ id: "player-1", first_name: "Jordan", last_name: "Smith", jersey_number: 12, position: "QB", position_group: "QB", is_active: true })),
+  fetchPlayer: clients.fetch,
   createPlayer: clients.create, updatePlayer: clients.update, importPlayers: clients.import,
 }));
 
 import { RosterEditor, RosterImport } from "./roster-editor";
 
+beforeEach(() => clients.fetch.mockResolvedValue({ id: "player-1", first_name: "Jordan", last_name: "Smith", jersey_number: 12, position: "QB", position_group: "QB", is_active: true }));
 afterEach(() => { cleanup(); vi.resetAllMocks(); });
 
 describe("roster changes", () => {
@@ -23,6 +24,17 @@ describe("roster changes", () => {
     expect(clients.create).not.toHaveBeenCalled();
     await waitFor(() => expect(clients.refresh).toHaveBeenCalled());
     expect(close).toHaveBeenCalled();
+  });
+
+  test.each(["RB", "WR", "TE"])("saves the distinct %s coaching group on the existing player", async (group) => {
+    render(<RosterEditor playerId="player-1" onClose={vi.fn()} />);
+    await waitFor(() => expect((screen.getByLabelText("First name") as HTMLInputElement).value).toBe("Jordan"));
+    fireEvent.change(screen.getByLabelText("Position"), { target: { value: group } });
+    fireEvent.change(screen.getByLabelText("Coaching group"), { target: { value: group } });
+    expect((screen.getByLabelText("Coaching group") as HTMLSelectElement).value).toBe(group);
+    fireEvent.click(screen.getByRole("button", { name: "Save player" }));
+    await waitFor(() => expect(clients.update).toHaveBeenCalledWith("player-1", expect.objectContaining({ position: group, position_group: group }), "admin-token"));
+    expect(clients.create).not.toHaveBeenCalled();
   });
 
   test("CSV conflicts keep the import action disabled after preview", async () => {

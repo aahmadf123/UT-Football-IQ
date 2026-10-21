@@ -20,6 +20,7 @@ running YOLO + IoU path keeps working untouched.
 
 from __future__ import annotations
 
+import math
 from abc import ABC, abstractmethod
 from typing import Any
 
@@ -191,6 +192,8 @@ class _Track:
             "source": det.get("source", "real"),
             "timestamp_seconds": det.get("timestamp_seconds"),
             "timestamp_verified": det.get("timestamp_verified", False),
+            "shot_id": det.get("shot_id"),
+            "visibility_state": det.get("visibility_state", "observed"),
         }
         if detection_has_mask(det):
             point["mask"] = {
@@ -228,6 +231,7 @@ class IoUTracker(TrackerBase):
     ) -> None:
         self.iou_threshold = iou_threshold
         self.max_lost_frames = max_lost_frames
+        self.max_lost_seconds: float | None = None
 
     def track(
         self,
@@ -238,6 +242,7 @@ class IoUTracker(TrackerBase):
             score_fn=lambda track, det: bbox_iou(track.bbox, det["bbox"]),
             threshold=self.iou_threshold,
             max_lost_frames=self.max_lost_frames,
+            max_lost_seconds=self.max_lost_seconds,
         )
 
 
@@ -264,6 +269,7 @@ class SAM3MaskTracker(TrackerBase):
     ) -> None:
         self.iou_threshold = iou_threshold
         self.max_lost_frames = max_lost_frames
+        self.max_lost_seconds: float | None = None
         # ``mask_weight`` ∈ [0, 1]: how much the mask-overlap term
         # contributes to the combined score relative to bbox IoU.
         self.mask_weight = max(0.0, min(1.0, mask_weight))
@@ -284,6 +290,7 @@ class SAM3MaskTracker(TrackerBase):
             score_fn=self._score,
             threshold=self.iou_threshold,
             max_lost_frames=self.max_lost_frames,
+            max_lost_seconds=self.max_lost_seconds,
         )
 
 
@@ -328,6 +335,7 @@ def _run_association(
     score_fn,
     threshold: float,
     max_lost_frames: int,
+    max_lost_seconds: float | None = None,
 ) -> list[TrackResult]:
     """Frame-by-frame greedy association driver shared by every tracker."""
     active: list[_Track] = []
@@ -339,6 +347,17 @@ def _run_association(
             d for d in detections_by_frame.get(str(frame_idx), [])
             if d.get("class", "player") == "player"
         ]
+
+        # Expire BEFORE matching. Sparse inference may jump hundreds of source
+        # frames in a single iteration; counting sampled dict entries reconnects
+        # a newly visible player to a stale box at the same image location.
+        live = []
+        for track in active:
+            if track_expired(track, frame_idx, frame_dets, max_lost_frames, max_lost_seconds):
+                closed.append(track)
+            else:
+                live.append(track)
+        active = live
 
         if active and frame_dets:
             cost = [[score_fn(t, d) for d in frame_dets] for t in active]
@@ -374,6 +393,24 @@ def _run_association(
 
     closed.extend(active)
     return [t.finalise() for t in closed]
+
+
+def track_expired(track: Any, frame: int, detections: list[dict[str, Any]],
+                  max_frames: int, max_seconds: float | None = None) -> bool:
+    """Expire sparse source observations and never associate across a shot."""
+    previous = track.points[-1]
+    for detection in detections:
+        if (detection.get("shot_id") is not None and previous.get("shot_id") is not None
+                and detection["shot_id"] != previous["shot_id"]):
+            return True
+    if max_seconds is not None:
+        before = previous.get("timestamp_seconds")
+        now = next((d.get("timestamp_seconds") for d in detections
+                    if d.get("timestamp_seconds") is not None), None)
+        if (isinstance(before, (int, float)) and isinstance(now, (int, float))
+                and math.isfinite(before) and math.isfinite(now)):
+            return now < before or now - before > max_seconds
+    return frame - track.last_frame > max_frames
 
 
 # ── Factory ───────────────────────────────────────────────────────────────────

@@ -1,10 +1,11 @@
 import { FootballShell } from "@/components/shell/app-shell";
-import { GameSummaryView } from "@/components/game-summary-view";
+import { TeamAnalytics } from "@/components/team-analytics";
+import { Suspense } from "react";
 
 export default function TeamStatsPage() {
   return (
     <FootballShell activePage="team-stats">
-      <GameSummaryView />
+      <Suspense fallback={<p role="status">Opening team analysis…</p>}><TeamAnalytics /></Suspense>
     </FootballShell>
   );
 }

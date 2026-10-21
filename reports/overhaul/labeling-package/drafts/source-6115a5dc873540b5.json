@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "evidence_kind": "annotation_draft",
+  "reviewed": false,
+  "source_id": "source-6115a5dc873540b5",
+  "media_sha256": null,
+  "source_category": "practice",
+  "source_group_id": "practice-2026-04-16",
+  "source_context_confirmed": false,
+  "reviewer_id": "",
+  "review_pass": "primary",
+  "plays": [],
+  "notes": "Unreviewed empty template. Add only observations verified against original source time."
+}

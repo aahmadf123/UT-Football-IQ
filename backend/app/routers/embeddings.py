@@ -120,7 +120,7 @@ class PlayEmbeddingResponse(BaseModel):
 )
 async def create_play_embedding(
     payload: PlayEmbeddingCreate,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _current_user: Annotated[User, Depends(require_any_staff)],
 ) -> PlayEmbeddingResponse:
     """Upsert a play embedding for a clip.
@@ -198,7 +198,7 @@ async def create_play_embedding(
     response_model=list[PlayEmbeddingResponse],
 )
 async def list_play_embeddings(
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _current_user: Annotated[User, Depends(get_current_user)],
     clip_id: uuid.UUID | None = Query(default=None),
     model_version_id: uuid.UUID | None = Query(default=None),

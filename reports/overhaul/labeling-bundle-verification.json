@@ -1,0 +1,10 @@
+{
+  "archive": "reports\\overhaul\\Football-IQ-Staff-Labeling-2026-10-21.zip",
+  "sha256": "37cb54b4d1dffcd23c7c52bbd25dd13bc66766720738b4c547e35d029851bc87",
+  "crc_valid": true,
+  "file_hashes_valid": true,
+  "no_media_or_weights": true,
+  "standalone_extracted_labeling_tests": 19,
+  "standalone_extracted_core_tests": 5,
+  "labels_unreviewed": true
+}

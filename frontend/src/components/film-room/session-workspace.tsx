@@ -163,7 +163,11 @@ function SessionPlays({ session, onUpdate, canEdit }: { session: ApiSession; onU
   const [existingPlayId, setExistingPlayId] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [playQuery, setPlayQuery] = useState("");
+  const [showAllPlays, setShowAllPlays] = useState(false);
   const recordingIds = session.recordings.map((recording) => recording.id).join(",");
+  const independent = clips.filter((clip) => !session.plays.some((play) => play.views.some((view) => view.clip_id === clip.id)));
+  const filtered = independent.filter((clip) => `${clip.play_number ?? ""} ${session.recordings.find((recording) => recording.id === clip.video_id)?.camera_label ?? ""}`.toLowerCase().includes(playQuery.toLowerCase()));
 
   useEffect(() => {
     let cancelled = false;
@@ -191,6 +195,7 @@ function SessionPlays({ session, onUpdate, canEdit }: { session: ApiSession; onU
   }
 
   return <Card><CardHeader><h2 className="text-base font-semibold">Plays across camera angles</h2><p className="text-sm text-muted-foreground">Connect views of the same play after checking each recording. Matching is manual; recording clocks may differ.</p></CardHeader><CardContent className="flex flex-col gap-4">
+    {independent.length ? <section aria-label="Playable session reps"><label className="mb-3 flex flex-col gap-1.5 text-xs text-muted-foreground">Find a rep<Input type="search" value={playQuery} onChange={(event) => setPlayQuery(event.target.value)} placeholder="Play number or camera" /></label><div className="grid gap-2 sm:grid-cols-2">{(showAllPlays ? filtered : filtered.slice(0, 12)).map((clip) => <Link key={clip.id} className="flex items-center justify-between gap-3 rounded border border-border-soft px-3 py-3 text-sm hover:border-primary/40" href={`/clip-review/?${new URLSearchParams({ clipId: clip.id, sessionId: session.id, from: `/film-room/?sessionId=${session.id}` })}`}><span>Play {clip.play_number ?? "—"}<span className="ml-2 text-xs text-muted-foreground">{session.recordings.find((recording) => recording.id === clip.video_id)?.camera_label || "Camera view"} · {(clip.end_time - clip.start_time).toFixed(1)}s</span></span><ArrowRight className="size-4 shrink-0" /></Link>)}</div>{filtered.length > 12 ? <Button variant="ghost" size="sm" className="mt-2" onClick={() => setShowAllPlays((value) => !value)}>{showAllPlays ? "Show recent reps" : `Show all ${filtered.length} reps`}</Button> : null}{filtered.length === 0 ? <p className="text-sm text-muted-foreground">No reps match this search.</p> : null}</section> : null}
     {session.plays.length ? session.plays.map((play, index) => <div key={play.id} className="rounded-lg border border-border-soft p-4"><h3 className="font-medium">{play.title || `Play ${play.sequence ?? index + 1}`}</h3><div className="mt-3 flex flex-wrap gap-2">{play.views.map((view) => <Button key={view.id} asChild variant="outline" size="sm"><Link href={`/clip-review/?clipId=${view.clip_id}`}>{view.camera_label || session.recordings.find((recording) => recording.id === view.video_id)?.camera_label || "View recording"}<ArrowRight className="size-3.5" /></Link></Button>)}</div></div>) : <p className="text-sm text-muted-foreground">No camera views have been matched yet. Each recording remains available to review on its own.</p>}
     {error ? <p role="alert" className="text-sm text-status-danger">{error}</p> : null}
     {canEdit && clips.length > 0 ? <details className="rounded-lg border border-border-soft p-4"><summary className="cursor-pointer text-sm font-medium">Match play views</summary><form onSubmit={match} className="mt-4 flex flex-col gap-4">

@@ -70,6 +70,7 @@ def run(
     pose_metrics: dict[str, Any] | None = None,
     *,
     timeline: VideoTimeline | None = None,
+    attacking_direction: int | None = None,
 ) -> dict[str, Any]:
     """Compute metrics for a clip and write them to the backend."""
     log.info("stage_metrics_start", clip_id=clip_id, analytics_safe=analytics_safe)
@@ -96,6 +97,11 @@ def run(
     reason = "calibration_not_safe" if suppressed else None
 
     metrics: list[dict[str, Any]] = []
+    explicit_qb_ids = {str((event.get("attributes") or {}).get("qb_id")) for event in events
+                       if (event.get("attributes") or {}).get("qb_id") is not None}
+    qb_tracks = [t for t in tracklets if str(t.get("id")) in explicit_qb_ids
+                 or (t.get("observed_role") == "QB" and t.get("role_resolved") is True)]
+    qb_track_id = qb_tracks[0].get("id") if len(qb_tracks) == 1 else None
 
     # ── Time to throw ─────────────────────────────────────────────────────
     if throw_frame is not None and snap_frame is not None and fps > 0 and throw_frame >= snap_frame:
@@ -110,6 +116,7 @@ def run(
         metrics.append(
             {
                 "metric_name": "time_to_throw",
+                "tracklet_id": qb_track_id,
                 "metric_value": {
                     "seconds": round(ttt, 3),
                     "source": "real",
@@ -123,6 +130,10 @@ def run(
                 "suppression_reason": None,
             }
         )
+
+    from pipeline.qb_observations import observed_qb_durations
+
+    metrics.extend(observed_qb_durations(tracklets, events, fps, timeline))
 
     # ── Per-tracklet metrics (require field coords → analytics_safe) ──────
     for t in tracklets:
@@ -146,7 +157,11 @@ def run(
                 # predates it and stays for render callouts.
                 "tracklet_id": t.get("id"),
                 "metric_name": "distance_traveled",
-                "metric_value": {"yards": round(dist, 2), "track_id": track_id, "confidence": 0.7},
+                "metric_value": {"yards": round(dist, 2), "track_id": track_id, "confidence": 0.7,
+                                 "trajectory": [{key: point.get(key) for key in (
+                                     "frame_number", "timestamp_seconds", "field_x", "field_y",
+                                     "visibility_state", "shot_id"
+                                 )} for point in pts]},
                 "unit": "yd",
                 "is_suppressed": suppressed,
                 "suppression_reason": reason,
@@ -200,20 +215,22 @@ def run(
             throw_frame is not None
             and snap_pt
             and not suppressed
-            and t.get("position_group") == "QB"
-            and t.get("side_of_ball") == "offense"
+            and t.get("id") == qb_track_id
+            and attacking_direction in (1, -1)
         ):
             throw_pt = _point_at_frame(pts, throw_frame)
             if throw_pt:
-                depth = abs((throw_pt.get("field_x") or 0) - (snap_pt.get("field_x") or 0))
-                if depth > 1.0:
+                depth = (snap_pt["field_x"] - throw_pt["field_x"]) * attacking_direction
+                if math.isfinite(depth):
                     metrics.append(
                         {
                             "metric_name": "dropback_depth",
+                            "tracklet_id": t.get("id"),
                             "metric_value": {
                                 "yards": round(depth, 2),
                                 "track_id": track_id,
                                 "confidence": 0.65,
+                                "attacking_direction": attacking_direction,
                             },
                             "unit": "yd",
                             "is_suppressed": False,
@@ -301,6 +318,24 @@ def run(
             "source": m["metric_value"]["source"],
             "validated": False,
         }
+        m["metric_value"].setdefault("definition_version", "2026-10-21.1")
+        m["metric_value"].setdefault(
+            "required_evidence",
+            ["snap", "pass_release", "source_timestamps"] if m["metric_name"] == "time_to_throw"
+            else ["tracking", "field_calibration", "supported_film_model_validation"],
+        )
+        if m["metric_name"] == "time_to_throw" and not synthetic:
+            human_events = all(e and e.get("source") in {"human", "manual"}
+                               for e in (snap_event, throw_event))
+            measured_times = all(isinstance(e.get("timestamp_seconds"), (int, float))
+                                 and math.isfinite(e["timestamp_seconds"])
+                                 for e in (snap_event, throw_event))
+            if human_events and measured_times:
+                m["analytics_safe"] = True
+                m["metric_value"]["review_required"] = False
+                m["metric_value"]["provenance"].update(
+                    validated=True, validation_source="human_event_timestamps",
+                )
         try:
             payload: dict[str, Any] = {
                 "clip_id": clip_id,

@@ -123,7 +123,7 @@ class JobStatusItem(BaseModel):
 
 @router.get("/status", response_model=list[VideoInboxItem])
 async def get_inbox_status(
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     current_user: Annotated[User, Depends(require_any_staff)],
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
@@ -156,7 +156,7 @@ async def get_inbox_status(
 @router.get("/status/{job_id}", response_model=JobStatusItem)
 async def get_job_status(
     job_id: uuid.UUID,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _current_user: Annotated[User, Depends(require_any_staff)],
 ) -> JobStatusItem:
     """Return the status of a single processing job."""
@@ -169,7 +169,7 @@ async def get_job_status(
 
 @router.get("/jobs", response_model=list[JobStatusItem])
 async def list_active_jobs(
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _current_user: Annotated[User, Depends(require_any_staff)],
     video_id: uuid.UUID | None = Query(default=None),
     same_session_only: bool = Query(default=False),

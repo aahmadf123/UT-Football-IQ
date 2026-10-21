@@ -1,0 +1,21 @@
+{
+  "purpose": "Actual source streaming hash execution; no label or accuracy claims",
+  "elapsed_seconds": 3.751,
+  "read_chunk_bytes": 1048576,
+  "sources": [
+    {
+      "id": "source-75c6f29c06e0d83c",
+      "filename": "Dji 20260416110000 0257 D.mp4",
+      "bytes": 8666433,
+      "media_sha256": "84a872911984225277b3b5f5fc3d8d0eee2e7270f2c342a977dd229a884e8d25",
+      "context_confirmed": false
+    },
+    {
+      "id": "source-959c4d7b116e6ca1",
+      "filename": "26 01 OHTO FULL GAME @ MIST.mp4",
+      "bytes": 3742691239,
+      "media_sha256": "7cc11a129c88c78fd6d0f4d7c9fe394d5b13ba10fefa95667a007f536843756e",
+      "context_confirmed": false
+    }
+  ]
+}

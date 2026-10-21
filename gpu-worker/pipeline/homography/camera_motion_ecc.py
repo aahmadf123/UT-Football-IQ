@@ -78,6 +78,7 @@ def estimate_warp(
     motion_type: str = "affine",
     max_iters: int = 50,
     eps: float = 1e-4,
+    initial_warp: np.ndarray | None = None,
 ) -> tuple[np.ndarray, bool]:
     """Estimate the inter-frame affine warp between ``prev`` and ``cur`` via ECC.
 
@@ -93,7 +94,8 @@ def estimate_warp(
         return np.hstack([np.eye(2), np.zeros((2, 1))]), False
 
     mode = cv2.MOTION_AFFINE if motion_type == "affine" else cv2.MOTION_EUCLIDEAN
-    warp = np.eye(2, 3, dtype=np.float32)
+    warp = (np.eye(2, 3, dtype=np.float32) if initial_warp is None
+            else np.asarray(initial_warp, dtype=np.float32).reshape(2, 3).copy())
     criteria = (
         cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT,
         int(max_iters),

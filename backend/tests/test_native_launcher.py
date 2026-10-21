@@ -44,7 +44,14 @@ def test_crashed_launcher_releases_os_lock(tmp_path):
         "print('locked', flush=True); sys.stdin.read(1)"
     )
     child = subprocess.Popen(  # noqa: S603 - fixed Python test code, no shell or user input
-        [sys.executable, "-c", script, str(tmp_path)],
+        [
+            getattr(sys, "_base_executable", sys.executable)
+            if sys.platform == "win32"
+            else sys.executable,
+            "-c",
+            script,
+            str(tmp_path),
+        ],
         cwd=ROOT,
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,

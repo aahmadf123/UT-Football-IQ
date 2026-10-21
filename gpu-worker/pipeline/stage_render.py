@@ -23,6 +23,7 @@ from __future__ import annotations
 import os
 import subprocess
 import tempfile
+import uuid
 from collections import Counter
 from pathlib import Path
 from typing import Any
@@ -31,8 +32,11 @@ import cv2
 import structlog
 
 from pipeline import object_store
+from pipeline.media_contract import OVERLAY_GENERATOR_VERSION, validate_duration
+from pipeline.observations import bounded_frame_observations
 from pipeline.runtime import PipelineInterrupted, check_control
 from pipeline.video_timeline import VideoTimeline, iter_frames
+from renderer.field_minimap import draw_field_minimap
 
 log = structlog.get_logger(__name__)
 
@@ -112,12 +116,19 @@ def run(
         mapping = _render(video_path, out_path, tracklets, labels, metrics, analytics_safe, fps,
                           frame_start=frame_start, frame_end=frame_end, timeline=timeline,
                           start_seconds=start_seconds, end_seconds=end_seconds)
-
-        object_key = f"overlays/{clip_id}/overlay.mp4"
+        validation = None
+        if mapping:
+            validation = validate_duration(
+                out_path, mapping["source_end_seconds"] - mapping["source_start_seconds"], fps
+            )
+        generation = f"{OVERLAY_GENERATOR_VERSION}/{uuid.uuid4().hex}"
+        object_key = f"overlays/{clip_id}/{generation}/overlay.mp4"
         overlay_uri = object_store.upload_file(out_path, object_key, content_type="video/mp4")
 
     log.info("stage_render_done", clip_id=clip_id, overlay_uri=overlay_uri)
-    return {"overlay_uri": overlay_uri, "proxy_timeline": mapping}
+    return {"overlay_uri": overlay_uri, "proxy_timeline": mapping,
+            "generator_version": OVERLAY_GENERATOR_VERSION, "generation_id": generation,
+            "duration_validation": validation}
 
 
 def _render(
@@ -170,16 +181,19 @@ def _render(
 
     # Pre-build track lookup: frame → list of (bbox, color, track_id)
     frame_tracks: dict[int, list[tuple[list[float], tuple[int, int, int], int]]] = {}
+    field_positions: dict[int, list[dict[str, Any]]] = {}
     # Per-track ordered box centers for motion trails: index → [(frame, cx, cy)]
     track_centers: list[list[tuple[int, int, int]]] = []
     for i, t in enumerate(tracklets):
         color = TRACK_COLORS[i % len(TRACK_COLORS)]
         centers: list[tuple[int, int, int]] = []
-        for pt in t.get("track_points", []):
+        for pt in bounded_frame_observations(t, timeline, fps):
             fn = pt.get("frame_number", 0)
             bbox = pt.get("bbox")
             if bbox:
                 frame_tracks.setdefault(fn, []).append((bbox, color, i))
+                if analytics_safe and pt.get("field_x") is not None and pt.get("field_y") is not None:
+                    field_positions.setdefault(fn, []).append({**pt, "team_label": t.get("team_label", "unknown")})
                 cx = int((bbox[0] + bbox[2]) / 2)
                 cy = int((bbox[1] + bbox[3]) / 2)
                 centers.append((int(fn), cx, cy))
@@ -228,6 +242,9 @@ def _render(
                 callout = callouts.get(tid)
                 if callout:
                     cv2.putText(frame, callout, (x1, y2 + 14), FONT, 0.4, (255, 255, 255), 1)
+
+            if analytics_safe:
+                draw_field_minimap(frame, field_positions.get(frame_idx, []))
 
             for _ in range(copies.get(frame_idx, 0) if copies is not None else 1):
                 check_control()

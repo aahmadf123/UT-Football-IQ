@@ -22,3 +22,7 @@ declare namespace Cloudflare {
     ENVIRONMENT: string;
   }
 }
+declare module "*.jsonc?raw" {
+  const content: string;
+  export default content;
+}

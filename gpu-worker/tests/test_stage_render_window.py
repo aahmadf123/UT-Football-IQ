@@ -44,7 +44,7 @@ def test_overlay_draws_each_box_on_its_own_frame_despite_undecodable_frames(tmp_
         "cv2.VideoWriter", return_value=writer
     ), patch("pipeline.stage_render._transcode_to_h264"), patch(
         "pipeline.stage_render.cv2.rectangle", side_effect=rectangle
-    ):
+    ), patch("pipeline.stage_render.draw_field_minimap"):
         _render(Path("source.mp4"), tmp_path / "overlay.mp4", [track], [], [], True, 30,
                 frame_start=100, frame_end=104)
     assert 102 in drawn and 103 not in drawn

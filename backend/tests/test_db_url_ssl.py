@@ -11,6 +11,7 @@ _BASE = "postgresql+asyncpg://user:p%40ss@db.example.com:5432/footiq"
 
 
 def _settings(**kwargs: str) -> Settings:
+    kwargs.setdefault("database_sync_url", "")
     return Settings(secret_key="x" * 32, **kwargs)  # type: ignore[arg-type]
 
 

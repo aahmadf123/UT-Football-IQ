@@ -1,0 +1,16 @@
+{
+  "scope": "real_local_source_and_UI_with_automation_entered_draft_labels",
+  "football_accuracy": "not_evaluated",
+  "draft_labels_not_release_evidence": true,
+  "source_id": "source-75c6f29c06e0d83c",
+  "drawn_actual_pts": [
+    0.967633,
+    1.001
+  ],
+  "native_frame_index": true,
+  "canvas_geometry_exact_desktop_and_small": true,
+  "draft_export_unreviewed": true,
+  "draft_autosave_restore": true,
+  "secondary_starts_independently": true,
+  "browser_errors": []
+}

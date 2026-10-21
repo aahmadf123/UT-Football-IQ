@@ -105,7 +105,7 @@ async def _load_system_response(db: AsyncSession) -> SystemSettingsResponse:
 
 @router.get("/system", response_model=SystemSettingsResponse)
 async def get_system_settings(
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _current_user: Annotated[User, Depends(get_current_user)],
 ) -> SystemSettingsResponse:
     """Return full system settings (config + model sensitivity).
@@ -119,7 +119,7 @@ async def get_system_settings(
 @router.patch("/system", response_model=SystemSettingsResponse)
 async def update_system_settings(
     body: SystemSettingsUpdate,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     current_user: Annotated[User, Depends(require_admin)],
 ) -> SystemSettingsResponse:
     """Admin-only partial update of system settings.
@@ -155,7 +155,7 @@ async def update_system_settings(
 
 @router.get("/me", response_model=UserPreferences)
 async def get_my_preferences(
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     current_user: Annotated[User, Depends(get_current_user)],
 ) -> UserPreferences:
     raw = await _load_user_setting(db, current_user.id, USER_PREFERENCES_KEY)
@@ -165,7 +165,7 @@ async def get_my_preferences(
 @router.patch("/me", response_model=UserPreferences)
 async def update_my_preferences(
     body: UserPreferencesUpdate,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     current_user: Annotated[User, Depends(get_current_user)],
 ) -> UserPreferences:
     current_raw = await _load_user_setting(db, current_user.id, USER_PREFERENCES_KEY)

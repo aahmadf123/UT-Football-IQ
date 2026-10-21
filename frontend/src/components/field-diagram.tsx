@@ -24,15 +24,19 @@ export interface FieldMarker {
 }
 
 const FIELD_LENGTH = 120; // 100 yards + two 10-yard end zones
-const FIELD_WIDTH = 53.3; // NCAA field width in yards
+const FIELD_WIDTH = 160 / 3; // NCAA field width in yards
 const PX_PER_YARD = 8;
 
 export function FieldDiagram({
   markers = [],
   className,
+  compact = false,
+  quiet = false,
 }: {
   markers?: FieldMarker[];
   className?: string;
+  compact?: boolean;
+  quiet?: boolean;
 }) {
   const w = FIELD_LENGTH * PX_PER_YARD;
   const h = FIELD_WIDTH * PX_PER_YARD;
@@ -49,16 +53,16 @@ export function FieldDiagram({
       style={{ width: "100%", height: "auto", display: "block", borderRadius: 8 }}
     >
       {/* Turf */}
-      <rect x={0} y={0} width={w} height={h} fill="#1f6b3a" />
+      <rect x={0} y={0} width={w} height={h} fill="#1f6b3a" opacity={quiet ? 0.22 : 1} />
       {/* End zones */}
-      <rect x={0} y={0} width={10 * PX_PER_YARD} height={h} fill="#15397f" opacity={0.85} />
+      <rect x={0} y={0} width={10 * PX_PER_YARD} height={h} fill="#15397f" opacity={quiet ? 0.2 : 0.85} />
       <rect
         x={110 * PX_PER_YARD}
         y={0}
         width={10 * PX_PER_YARD}
         height={h}
         fill="#15397f"
-        opacity={0.85}
+        opacity={quiet ? 0.2 : 0.85}
       />
       {/* Yard lines */}
       {yardLines.map((yard) => {
@@ -72,7 +76,7 @@ export function FieldDiagram({
             x2={x}
             y2={h}
             stroke="#ffffff"
-            strokeOpacity={isGoal ? 0.95 : 0.55}
+            strokeOpacity={quiet ? isGoal ? 0.5 : 0.23 : isGoal ? 0.95 : 0.55}
             strokeWidth={isGoal ? 2 : 1}
           />
         );
@@ -81,9 +85,9 @@ export function FieldDiagram({
       {yardLines.map((yard) => {
         const x = yard * PX_PER_YARD;
         return (
-          <g key={`hash-${yard}`} stroke="#ffffff" strokeOpacity={0.7} strokeWidth={1}>
+          <g key={`hash-${yard}`} stroke="#ffffff" strokeOpacity={quiet ? 0.24 : 0.7} strokeWidth={1}>
             <line x1={x - 3} y1={20 * PX_PER_YARD} x2={x + 3} y2={20 * PX_PER_YARD} />
-            <line x1={x - 3} y1={33.3 * PX_PER_YARD} x2={x + 3} y2={33.3 * PX_PER_YARD} />
+            <line x1={x - 3} y1={(FIELD_WIDTH - 20) * PX_PER_YARD} x2={x + 3} y2={(FIELD_WIDTH - 20) * PX_PER_YARD} />
           </g>
         );
       })}
@@ -93,7 +97,7 @@ export function FieldDiagram({
           <circle
             cx={(m.x / 100) * (100 * PX_PER_YARD) + 10 * PX_PER_YARD}
             cy={(m.y / FIELD_WIDTH) * h}
-            r={5}
+            r={compact ? 8 : 5}
             fill={m.color ?? "#ffd20a"}
             stroke="#0b1c3f"
             strokeWidth={1}
@@ -103,7 +107,7 @@ export function FieldDiagram({
               x={(m.x / 100) * (100 * PX_PER_YARD) + 10 * PX_PER_YARD}
               y={(m.y / FIELD_WIDTH) * h - 8}
               fill="#ffffff"
-              fontSize={11}
+              fontSize={compact ? 20 : 11}
               textAnchor="middle"
             >
               {m.label}

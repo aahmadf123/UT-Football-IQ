@@ -243,7 +243,7 @@ class AsymmetryEntry(BaseModel):
 )
 async def create_pose_keypoints(
     body: PoseKeypointsCreate,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _current_user: Annotated[User, Depends(require_coach_or_above)],
 ) -> PoseKeypointsResponse:
     """Store raw pose keypoints for a tracklet frame.
@@ -280,7 +280,7 @@ async def create_pose_keypoints(
 
 @router.get("/keypoints", response_model=list[PoseKeypointsResponse])
 async def list_pose_keypoints(
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     current_user: Annotated[User, Depends(get_current_user)],
     tracklet_id: uuid.UUID | None = Query(default=None),
     limit: int = Query(default=50, ge=1, le=500),
@@ -310,7 +310,7 @@ async def list_pose_keypoints(
 @router.get("/keypoints/{keypoint_id}", response_model=PoseKeypointsResponse)
 async def get_pose_keypoints(
     keypoint_id: uuid.UUID,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     current_user: Annotated[User, Depends(get_current_user)],
 ) -> PoseKeypointsResponse:
     """Get a single pose-keypoints row by ID.
@@ -333,7 +333,7 @@ async def get_pose_keypoints(
 
 @router.get("/metrics/pending", response_model=list[PoseMetricSummary])
 async def list_pending_pose_metrics(
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _current_user: Annotated[User, Depends(require_coach_or_above)],
     position_group: str | None = Query(
         default=None,
@@ -378,7 +378,7 @@ async def list_pending_pose_metrics(
 async def review_pose_metric(
     metric_id: uuid.UUID,
     body: ReviewCreate,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     current_user: Annotated[User, Depends(require_coach_or_above)],
 ) -> ReviewResponse:
     """Position-coach review of a pose biomechanics metric.
@@ -448,7 +448,7 @@ async def review_pose_metric(
 
 @router.get("/asymmetry", response_model=list[AsymmetryEntry])
 async def get_asymmetry_trends(
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _current_user: Annotated[User, Depends(require_sportsperformance_or_above)],
     player_id: uuid.UUID | None = Query(default=None),
     limit: int = Query(default=100, ge=1, le=500),

@@ -9,9 +9,11 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-# Schema 4 invalidates outputs produced before persisted track provenance and
-# strict presentation-time source bounds became part of the stage contract.
-CHECKPOINT_SCHEMA = 4
+from pipeline.media_contract import MEDIA_GENERATOR_VERSION, OVERLAY_GENERATOR_VERSION
+
+# Schema 6 invalidates pre-versioned derivatives, sampled-frame tracking and
+# cut proposals that discarded short source intervals or skipped shot structure.
+CHECKPOINT_SCHEMA = 6
 
 
 def file_digest(path: Path) -> str:
@@ -69,6 +71,10 @@ def checkpoint_identity(
         "priority_bucket": "same_session" if priority >= 10 else "nightly",
         "config": config,
         "model_sha256": weights,
+        "media_generator_version": MEDIA_GENERATOR_VERSION,
+        "overlay_generator_version": OVERLAY_GENERATOR_VERSION,
+        "tracker_inputs_version": "ecc-hsv-v1",
+        "staff_boundary_audit_version": "shot-reset-v1",
         "revisions": revisions or {},
     }
     identity["fingerprint"] = hashlib.sha256(

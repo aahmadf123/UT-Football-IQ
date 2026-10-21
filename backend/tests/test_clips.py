@@ -61,9 +61,10 @@ def _mock_db_for_clip_create(video: Video, captured: list[Clip]):
         session = AsyncMock()
 
         async def _execute(_stmt: Any) -> Any:
-            # First execute: parent-video lookup by id.
             result = MagicMock()
-            result.scalar_one_or_none.return_value = video
+            result.scalar_one_or_none.return_value = (
+                video if _stmt.column_descriptions[0].get("entity") is Video else None
+            )
             return result
 
         async def _flush() -> None:

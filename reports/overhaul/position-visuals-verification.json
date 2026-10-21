@@ -1,0 +1,19 @@
+{
+  "scope": "frontend component contracts, not football accuracy",
+  "qualified_cohort_only": true,
+  "qb_pairing_keys": ["canonical_play", "clip", "player", "tracklet", "result_version", "definition_version"],
+  "missing_pairing_metadata": "excluded",
+  "missing_series": "chart absent",
+  "censored_qb_samples": "excluded from paired duration scatter",
+  "signed_dropback": "negative advancement retained; only release duration must be nonnegative",
+  "series_gap_limit_seconds": 0.2,
+  "explicit_lost_and_shot_boundaries": "disconnected",
+  "field_coordinates": "goal-to-goal x with centered lateral y",
+  "accessible_tables_and_film_selection": true,
+  "component_tests": {"passed": 6, "fixture_source": "synthetic unit-test fixtures only"},
+  "typecheck": "passed",
+  "targeted_eslint": "passed",
+  "actual_installed_echarts_svg_render": {"passed": true, "null_gap_retained": true},
+  "real_cohort_accuracy": "not_evaluated",
+  "real_qualified_position_samples": "not supplied by the verified local cohort"
+}

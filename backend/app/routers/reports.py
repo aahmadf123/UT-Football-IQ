@@ -247,7 +247,7 @@ async def report_worker_loop() -> None:
 async def create_report(
     body: ReportCreate,
     background_tasks: BackgroundTasks,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     current_user: Annotated[User, Depends(require_coach_or_above)],
 ) -> ReportResponse:
     """Request a new report; generation runs in the background."""
@@ -295,13 +295,16 @@ async def create_report(
         requested_by=str(current_user.id),
     )
 
+    # A separate background session must be able to see the request before
+    # dispatch. Never acknowledge a queued report until this commit succeeds.
+    await db.commit()
     background_tasks.add_task(_run_report_job, job.id)
     return ReportResponse.from_orm(job)
 
 
 @router.get("", response_model=list[ReportResponse])
 async def list_reports(
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     current_user: Annotated[User, Depends(get_current_user)],
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
@@ -320,7 +323,7 @@ async def list_reports(
 @router.get("/{report_id}", response_model=ReportResponse)
 async def get_report(
     report_id: uuid.UUID,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     current_user: Annotated[User, Depends(get_current_user)],
 ) -> ReportResponse:
     result = await db.execute(select(ReportJob).where(ReportJob.id == report_id))
@@ -334,7 +337,7 @@ async def get_report(
 @router.get("/{report_id}/download", response_model=ReportDownloadResponse)
 async def get_report_download_url(
     report_id: uuid.UUID,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     current_user: Annotated[User, Depends(get_current_user)],
 ) -> ReportDownloadResponse:
     """Return a short-lived presigned URL for the generated artifact."""

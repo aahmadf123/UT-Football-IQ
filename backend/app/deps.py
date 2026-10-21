@@ -16,7 +16,7 @@ log = structlog.get_logger(__name__)
 
 async def get_current_user(
     user_id: Annotated[str, Depends(get_current_user_id)],
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
 ) -> User:
     """Resolve the authenticated user from the JWT subject."""
     from sqlalchemy import select

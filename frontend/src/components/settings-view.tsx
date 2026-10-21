@@ -9,6 +9,8 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { NativeSelect } from "@/components/ui/native-select";
+import type { ProcessingProfile } from "@/lib/types";
 import { LocalSystemPanel } from "@/components/local-system-panel";
 import { LearningPanel } from "@/components/learning-panel";
 import { useWorkspaceContext } from "@/lib/workspace-context";
@@ -21,6 +23,8 @@ export function SettingsView() {
   const [settings, setSettings] = useState<SystemSettingsResponse | null>(null);
   const [name, setName] = useState("");
   const [automatic, setAutomatic] = useState(true);
+  const [automaticProfile, setAutomaticProfile] = useState<ProcessingProfile>("quick");
+  const [detailedFollowup, setDetailedFollowup] = useState(true);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -35,6 +39,8 @@ export function SettingsView() {
       setSettings(response);
       setName(response.system_config.team_name);
       setAutomatic(response.system_config.auto_process_on_upload);
+      setAutomaticProfile(response.system_config.auto_processing_profile ?? "quick");
+      setDetailedFollowup(response.system_config.auto_detailed_analysis ?? true);
     } catch (cause) {
       setError(friendlyMessage(cause));
     } finally {
@@ -50,10 +56,12 @@ export function SettingsView() {
     setError(null);
     setSaved(false);
     try {
-      const response = await updateSystemSettings({ system_config: { team_name: name.trim(), auto_process_on_upload: automatic } }, authToken);
+      const response = await updateSystemSettings({ system_config: { team_name: name.trim(), auto_process_on_upload: automatic, auto_processing_profile: automaticProfile, auto_detailed_analysis: detailedFollowup } }, authToken);
       setSettings(response);
       setName(response.system_config.team_name);
       setAutomatic(response.system_config.auto_process_on_upload);
+      setAutomaticProfile(response.system_config.auto_processing_profile ?? "quick");
+      setDetailedFollowup(response.system_config.auto_detailed_analysis ?? true);
       setSaved(true);
     } catch (cause) {
       setError(friendlyMessage(cause));
@@ -62,7 +70,7 @@ export function SettingsView() {
     }
   }
 
-  const dirty = settings !== null && (name.trim() !== settings.system_config.team_name || automatic !== settings.system_config.auto_process_on_upload);
+  const dirty = settings !== null && (name.trim() !== settings.system_config.team_name || automatic !== settings.system_config.auto_process_on_upload || automaticProfile !== (settings.system_config.auto_processing_profile ?? "quick") || detailedFollowup !== (settings.system_config.auto_detailed_analysis ?? true));
 
   return (
     <div className="flex flex-col gap-5">
@@ -83,10 +91,11 @@ export function SettingsView() {
             <div className="flex items-start justify-between gap-4 rounded-lg border border-border-soft p-4">
               <div>
                 <Label htmlFor="auto-process-toggle">Process film automatically on upload</Label>
-                <p className="mt-2 text-sm leading-relaxed text-muted-foreground">When enabled, new recordings enter the connected processing queue. When disabled, choose Process film in Film Room. Model results remain suggestions for staff review.</p>
+                <p className="mt-2 text-sm leading-relaxed text-muted-foreground">New recordings enter the connected processing queue. Qualified results appear automatically; uncertain fields remain unknown. Staff can optionally correct observations.</p>
               </div>
               <Switch id="auto-process-toggle" data-testid="auto-process-toggle" checked={automatic} disabled={!canEdit || saving} onCheckedChange={(checked) => { setAutomatic(checked); setSaved(false); }} />
             </div>
+            {automatic ? <><div className="flex flex-col gap-2"><Label htmlFor="automatic-profile">Automatic processing</Label><NativeSelect id="automatic-profile" value={automaticProfile} disabled={!canEdit || saving} onChange={(event) => { setAutomaticProfile(event.target.value as ProcessingProfile); setSaved(false); }}><option value="review">Prepare playable film</option><option value="quick">Fast feedback</option><option value="detailed">Detailed analysis</option></NativeSelect></div>{automaticProfile === "quick" ? <div className="flex items-start justify-between gap-4 rounded-lg border border-border-soft p-4"><div><Label htmlFor="detailed-followup">Follow fast feedback with detailed analysis</Label><p className="mt-2 text-sm leading-relaxed text-muted-foreground">Detailed work waits behind fast requests. Usable fast results stay available until a qualified replacement is complete.</p></div><Switch id="detailed-followup" checked={detailedFollowup} disabled={!canEdit || saving} onCheckedChange={(checked) => { setDetailedFollowup(checked); setSaved(false); }} /></div> : null}</> : null}
             {canEdit ? <div className="flex items-center gap-3"><Button onClick={() => void save()} disabled={saving || !dirty || !name.trim()}>{saving ? "Saving…" : "Save preferences"}</Button>{saved ? <span role="status" className="text-sm text-status-ok">Saved</span> : null}</div> : <p className="text-sm text-muted-foreground">An administrator can change library preferences.</p>}
           </> : null}
         </CardContent>

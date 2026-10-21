@@ -154,6 +154,10 @@ def test_streaming_encoder_interrupts_and_reaps_ffmpeg(
     processes: list[subprocess.Popen[bytes]] = []
 
     def sleeping_process(*_args, **kwargs):
+        # Scope the encoder fake to ffmpeg; thermal control can independently
+        # probe nvidia-smi on GPU-equipped developer computers.
+        if _args and _args[0][0] != "ffmpeg":
+            return real_popen(*_args, **kwargs)
         process = real_popen(
             [sys.executable, "-c", "import time; time.sleep(30)"],
             stdin=kwargs["stdin"],
@@ -187,3 +191,24 @@ def test_proxy_has_a_keyframe_every_second(tmp_path: Path) -> None:
     command = _StreamingEncoder(tmp_path / "clip.mp4", (224, 128), 30).command
     assert command[command.index("-g") + 1] == "30"
     assert command[command.index("-keyint_min") + 1] == "30"
+
+
+@pytest.mark.skipif(not shutil.which("ffmpeg"), reason="Local ffmpeg required")
+def test_clean_proxy_preserves_available_source_audio(source: Path, tmp_path: Path) -> None:
+    with_audio = tmp_path / "source-audio.mp4"
+    subprocess.run([
+        "ffmpeg", "-v", "error", "-y", "-itsoffset", "0.2", "-i", str(source), "-f", "lavfi", "-i",
+        "sine=frequency=440:duration=3", "-map", "0:v:0", "-map", "1:a:0",
+        "-c:v", "copy", "-c:a", "aac", "-shortest", str(with_audio),
+    ], check=True, capture_output=True)
+    session = PlaybackProxySession(with_audio, VideoTimeline.from_path(with_audio))
+    try:
+        result = session.run("audio-clip", 1, 2)
+        audio = result["playback"]["audio"]
+        assert audio["status"] == "preserved" and audio["passed"]
+        assert audio["duration_drift_seconds"] <= 0.1
+        assert audio["source_seek_seconds"] == pytest.approx(1.2, abs=0.01)
+        assert result["playback"]["alignment_validation"]["passed"]
+        assert result["playback"]["artifact_fingerprint"] in result["playback_uri"]
+    finally:
+        session.close()

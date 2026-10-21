@@ -115,7 +115,7 @@ class AlertResponse(BaseModel):
 @router.post("", response_model=AlertResponse, status_code=status.HTTP_201_CREATED)
 async def create_alert(
     body: AlertCreate,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _current_user: Annotated[User, Depends(require_any_staff)],
 ) -> AlertResponse:
     """Create a coaching alert.
@@ -164,7 +164,7 @@ async def create_alert(
 
 @router.get("", response_model=list[AlertResponse])
 async def list_alerts(
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     current_user: Annotated[User, Depends(get_current_user)],
     effective_pg: Annotated[str | None, Depends(position_group_filter)],
     alert_type: AlertType | None = Query(default=None),
@@ -216,7 +216,7 @@ async def list_alerts(
 @router.get("/{alert_id}", response_model=AlertResponse)
 async def get_alert(
     alert_id: uuid.UUID,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     current_user: Annotated[User, Depends(get_current_user)],
 ) -> AlertResponse:
     """Retrieve a single alert by ID.
@@ -239,7 +239,7 @@ async def get_alert(
 @router.patch("/{alert_id}/ack", response_model=AlertResponse)
 async def acknowledge_alert(
     alert_id: uuid.UUID,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     current_user: Annotated[User, Depends(require_coach_or_above)],
 ) -> AlertResponse:
     """Acknowledge an alert — records who acknowledged it and when.
@@ -267,7 +267,7 @@ async def acknowledge_alert(
 @router.patch("/{alert_id}/action", response_model=AlertResponse)
 async def action_alert(
     alert_id: uuid.UUID,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     current_user: Annotated[User, Depends(require_coach_or_above)],
 ) -> AlertResponse:
     """Mark an alert as actioned (turned into a practice/scheme follow-up).

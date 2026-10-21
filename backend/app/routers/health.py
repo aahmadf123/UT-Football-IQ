@@ -38,7 +38,7 @@ async def live() -> dict[str, str]:
 
 
 @router.get("/ready")
-async def ready(db: AsyncSession = Depends(get_db)) -> dict[str, object]:
+async def ready(db: AsyncSession = Depends(get_db, scope="function")) -> dict[str, object]:
     """Readiness probe — returns 200 only when critical dependencies are reachable."""
     checks: dict[str, str] = {}
     all_ok = True
@@ -62,7 +62,7 @@ async def ready(db: AsyncSession = Depends(get_db)) -> dict[str, object]:
 
 @router.get("/api/v1/health/workload")
 async def health_workload(
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     user: Annotated[User, Depends(require_policy(Resource.HEALTH_WORKLOAD, Action.READ))],
 ) -> dict[str, object]:
     """Return the current workload snapshot used by the gating layer.

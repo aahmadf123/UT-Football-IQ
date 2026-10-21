@@ -182,7 +182,7 @@ def require_workload_capacity(
 
     async def _dep(
         user: Annotated[User, Depends(get_current_user)],
-        db: Annotated[AsyncSession, Depends(get_db)],
+        db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     ) -> WorkloadSnapshot:
         snapshot = await assess_workload(db)
         if snapshot.is_gated():

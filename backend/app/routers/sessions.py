@@ -15,6 +15,8 @@ from app.database import get_db
 from app.deps import get_current_user, require_any_staff
 from app.models import Clip, FootballSession, Play, PlayView, SessionKind, User, Video
 from app.routers.videos import VideoResponse
+from app.services.annotations import touch_annotation
+from app.services.clip_state import active_clip, clip_is_active, lock_boundary_scope
 
 router = APIRouter(prefix="/api/v1/sessions", tags=["sessions"])
 
@@ -192,6 +194,7 @@ async def session_response(db: AsyncSession, session: FootballSession) -> dict[s
                 .join(Clip, Clip.id == PlayView.clip_id)
                 .join(Video, Video.id == Clip.video_id)
                 .where(PlayView.play_id.in_([p.id for p in plays]))
+                .where(active_clip())
             )
         ).all()
         if plays
@@ -210,6 +213,7 @@ async def session_response(db: AsyncSession, session: FootballSession) -> dict[s
                 "match_source": view.match_source,
             }
         )
+    plays = [play for play in plays if play.id in views]
     return {
         "id": str(session.id),
         "title": session.title,
@@ -238,14 +242,20 @@ async def session_response(db: AsyncSession, session: FootballSession) -> dict[s
 
 @router.get("")
 async def list_sessions(
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _user: Annotated[User, Depends(get_current_user)],
     limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
     library_role: Literal["toledo", "opponent"] | None = None,
 ) -> list[dict[str, Any]]:
     stmt = (
         select(FootballSession)
-        .order_by(FootballSession.recorded_at.desc().nullslast(), FootballSession.created_at.desc())
+        .order_by(
+            FootballSession.recorded_at.desc().nullslast(),
+            FootballSession.created_at.desc(),
+            FootballSession.id,
+        )
+        .offset(offset)
         .limit(limit)
     )
     if library_role:
@@ -257,7 +267,7 @@ async def list_sessions(
 @router.post("", status_code=201)
 async def create_session(
     body: SessionCreate,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     user: Annotated[User, Depends(require_any_staff)],
 ) -> dict[str, Any]:
     row = FootballSession(id=uuid.uuid4(), created_by=user.id, **body.model_dump())
@@ -269,7 +279,7 @@ async def create_session(
 @router.get("/{session_id}")
 async def get_session(
     session_id: uuid.UUID,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _user: Annotated[User, Depends(get_current_user)],
 ) -> dict[str, Any]:
     return await session_response(db, await _get_session(db, session_id))
@@ -279,7 +289,7 @@ async def get_session(
 async def update_session(
     session_id: uuid.UUID,
     body: SessionUpdate,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _user: Annotated[User, Depends(require_any_staff)],
 ) -> dict[str, Any]:
     row = await _get_session(db, session_id)
@@ -300,9 +310,10 @@ async def update_session(
 async def associate_recording(
     session_id: uuid.UUID,
     body: RecordingAssociation,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _user: Annotated[User, Depends(require_any_staff)],
 ) -> dict[str, Any]:
+    await lock_boundary_scope(db, session_id)
     row = await _get_session(db, session_id)
     video = (
         await db.execute(select(Video).where(Video.id == body.video_id).with_for_update())
@@ -317,6 +328,20 @@ async def associate_recording(
         video.camera_label = body.camera_label
     # Moving a recording must not silently move a multi-recording canonical play.
     if old_session is not None and old_session != row.id:
+        moved_clips = (
+            (
+                await db.execute(
+                    select(Clip)
+                    .where(Clip.video_id == video.id)
+                    .order_by(Clip.id)
+                    .with_for_update()
+                )
+            )
+            .scalars()
+            .all()
+        )
+        for clip in moved_clips:
+            touch_annotation(clip)
         existing = (
             (
                 await db.execute(
@@ -339,11 +364,12 @@ async def associate_recording(
 async def match_play(
     session_id: uuid.UUID,
     body: PlayMatch,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _user: Annotated[User, Depends(require_any_staff)],
 ) -> dict[str, Any]:
     row = await _get_session(db, session_id)
     # Serialize matching and concurrent association changes within a workspace.
+    await lock_boundary_scope(db, session_id)
     await db.execute(
         select(FootballSession.id).where(FootballSession.id == session_id).with_for_update()
     )
@@ -351,11 +377,17 @@ async def match_play(
     ids = list(dict.fromkeys(body.clip_ids))
     clips = (
         await db.execute(
-            select(Clip, Video).join(Video, Video.id == Clip.video_id).where(Clip.id.in_(ids))
+            select(Clip, Video)
+            .join(Video, Video.id == Clip.video_id)
+            .where(Clip.id.in_(ids))
+            .order_by(Clip.id)
+            .with_for_update(of=Clip)
         )
     ).all()
     if len(clips) != len(ids):
         raise HTTPException(404, "One or more clips were not found")
+    if any(not clip_is_active(clip) for clip, _video in clips):
+        raise HTTPException(409, "A selected clip was replaced; match its active replacement")
     if any(video.practice_session_id != session_id for _, video in clips):
         raise HTTPException(409, "All recordings must belong to this session")
     if not _allows_same_recording_angles(clips):
@@ -386,10 +418,24 @@ async def match_play(
             .join(PlayView, PlayView.clip_id == Clip.id)
             .join(Video, Video.id == Clip.video_id)
             .where(PlayView.play_id == play.id, ~Clip.id.in_(ids))
+            .order_by(Clip.id)
+            .with_for_update(of=Clip)
         )
     ).all()
-    if not _allows_same_recording_angles([*clips, *existing_clips]):
+    if existing_clips and not any(clip_is_active(clip) for clip, _video in existing_clips):
+        raise HTTPException(409, "This canonical play is historical; match active replacements")
+    active_existing_clips = [row for row in existing_clips if clip_is_active(row[0])]
+    if not _allows_same_recording_angles([*clips, *active_existing_clips]):
         raise HTTPException(409, "This play already has a conflicting view from that recording")
+    for clip, _video in clips:
+        clip.label_data = {
+            **(clip.label_data or {}),
+            "canonical_count_eligible": True,
+            "logical_play_status": "staff_matched",
+        }
+        touch_annotation(clip)
+    for clip, _video in active_existing_clips:
+        touch_annotation(clip)
     for clip_id in ids:
         if clip_id in by_clip:
             by_clip[clip_id].play_id = play.id

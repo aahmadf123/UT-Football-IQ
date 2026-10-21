@@ -31,7 +31,6 @@ from app.models import (
     VideoStatus,
 )
 from app.schemas.settings import SYSTEM_CONFIG_KEY, SystemConfig
-from app.workload import WorkloadStatus, assess_workload
 
 log = structlog.get_logger(__name__)
 router = APIRouter(prefix="/api/v1/videos", tags=["videos"])
@@ -41,7 +40,7 @@ router = APIRouter(prefix="/api/v1/videos", tags=["videos"])
 MAX_TAGS_PER_VIDEO = 20
 
 
-async def _auto_process_enabled(db: AsyncSession) -> bool:
+async def _auto_process_config(db: AsyncSession) -> SystemConfig:
     """Read the set-and-forget toggle (defaults ON when no row exists)."""
     row = (
         await db.execute(select(SystemSetting).where(SystemSetting.key == SYSTEM_CONFIG_KEY))
@@ -50,34 +49,47 @@ async def _auto_process_enabled(db: AsyncSession) -> bool:
         config = SystemConfig(**(row.value if row else {}))
     except Exception:
         config = SystemConfig()
-    return config.auto_process_on_upload
+    return config
 
 
 async def _maybe_auto_enqueue_pipeline(db: AsyncSession, video: Video) -> ProcessingJob | None:
-    """Create the video's pipeline job when auto-process is on.
+    """Persist upload intent in the durable queue, regardless of worker capacity.
 
-    Best-effort: saturation or any failure leaves the video ``uploaded`` (the
-    coach can still press Process Film) rather than failing the registration.
+    Capacity controls execution, never acceptance of already uploaded film.
+    The caller commits the video and job together; a failed write is retryable.
     """
-    if not await _auto_process_enabled(db):
+    config = await _auto_process_config(db)
+    if not config.auto_process_on_upload:
         return None
-    snapshot = await assess_workload(db)
-    if snapshot.status == WorkloadStatus.saturated:
-        log.warning(
-            "auto_process_deferred_saturated",
-            video_id=str(video.id),
-            queued=snapshot.queued,
-            running=snapshot.running,
+    await db.execute(select(Video.id).where(Video.id == video.id).with_for_update())
+    existing = (
+        await db.execute(
+            select(ProcessingJob)
+            .where(
+                ProcessingJob.video_id == video.id,
+                ProcessingJob.job_type == JobType.pipeline,
+                ProcessingJob.status.in_((JobStatus.queued, JobStatus.running, JobStatus.paused)),
+            )
+            .limit(1)
         )
-        return None
+    ).scalar_one_or_none()
+    if existing is not None:
+        return existing
     job = ProcessingJob(
         id=uuid.uuid4(),
         video_id=video.id,
         job_type=JobType.pipeline,
         status=JobStatus.queued,
-        priority=0,
-        pipeline_mode=PipelineMode.nightly,
-        input_artifacts={"auto_enqueued": True},
+        priority=10 if config.auto_processing_profile == "quick" else 0,
+        pipeline_mode=PipelineMode.same_session
+        if config.auto_processing_profile == "quick"
+        else PipelineMode.nightly,
+        input_artifacts={
+            "auto_enqueued": True,
+            "processing_profile": config.auto_processing_profile,
+            "auto_detailed_analysis": config.auto_detailed_analysis
+            and config.auto_processing_profile == "quick",
+        },
     )
     db.add(job)
     await db.flush()
@@ -219,7 +231,7 @@ class JobSummary(BaseModel):
 
 @router.get("", response_model=list[VideoResponse])
 async def list_videos(
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _current_user: Annotated[User, Depends(get_current_user)],
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
@@ -264,7 +276,7 @@ async def list_videos(
 async def create_video(
     body: VideoCreate,
     response: Response,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     current_user: Annotated[User, Depends(require_any_staff)],
 ) -> VideoResponse:
     """Register a new video record after the file has been uploaded to the object store."""
@@ -333,6 +345,8 @@ async def create_video(
             existing.content_sha256 = content_sha256
             existing.size_bytes = size_bytes
             await db.flush()
+        if existing.status == VideoStatus.uploaded:
+            await _maybe_auto_enqueue_pipeline(db, existing)
         response.status_code = status.HTTP_200_OK
         return VideoResponse.from_orm_video(existing).model_copy(update={"duplicate": True})
     media = {}
@@ -405,17 +419,14 @@ async def create_video(
         session_kind=str(video.session_kind) if video.session_kind else None,
         source_type=str(video.source_type) if video.source_type else None,
     )
-    try:
-        await _maybe_auto_enqueue_pipeline(db, video)
-    except Exception as exc:
-        log.warning("auto_process_enqueue_failed", video_id=str(video.id), error=str(exc))
+    await _maybe_auto_enqueue_pipeline(db, video)
     return VideoResponse.from_orm_video(video)
 
 
 @router.get("/{video_id}", response_model=VideoResponse)
 async def get_video(
     video_id: uuid.UUID,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _current_user: Annotated[User, Depends(get_current_user)],
 ) -> VideoResponse:
     """Get a single video record."""
@@ -430,7 +441,7 @@ async def get_video(
 async def update_video_status(
     video_id: uuid.UUID,
     body: VideoStatusUpdate,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _current_user: Annotated[User, Depends(require_any_staff)],
 ) -> VideoResponse:
     """Update video processing status and optional metadata."""
@@ -468,7 +479,7 @@ async def update_video_status(
 @router.get("/{video_id}/jobs", response_model=list[JobSummary])
 async def list_video_jobs(
     video_id: uuid.UUID,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _current_user: Annotated[User, Depends(get_current_user)],
 ) -> list[JobSummary]:
     """List processing jobs for a video, newest first."""
@@ -511,7 +522,7 @@ class VideoMetadataUpdate(BaseModel):
 async def update_video_metadata(
     video_id: uuid.UUID,
     body: VideoMetadataUpdate,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _user: Annotated[User, Depends(require_any_staff)],
 ) -> VideoResponse:
     video = (

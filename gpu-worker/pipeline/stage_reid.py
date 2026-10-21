@@ -60,6 +60,7 @@ def run(
     variant: str | None = None,
     priority: int | None = None,
     timeline: VideoTimeline | None = None,
+    auto_identity_approved: bool = False,
 ) -> dict[str, Any]:
     """Attempt to associate player identities with tracklets.
 
@@ -93,16 +94,6 @@ def run(
         nightly=nightly,
     )
 
-    # Shared numbers are normal (a #7 QB and a #7 safety): keep every player
-    # per number and only assign when the number is unique on the roster.
-    jersey_players: dict[int, list[str]] = {}
-    for p in roster:
-        if p.get("jersey_number") is not None:
-            jersey_players.setdefault(int(p["jersey_number"]), []).append(str(p["id"]))
-    jersey_map: dict[int, str] = {
-        number: ids[0] for number, ids in jersey_players.items() if len(ids) == 1
-    }
-
     adapter = _get_reid_adapter()
     ocr_adapter = _get_ocr_adapter(variant)
     cap = cv2.VideoCapture(str(video_path))
@@ -127,11 +118,43 @@ def run(
                         gallery.append((emb, tracklet["player_id"]))
                 continue
 
-            player_id = _identify_tracklet(
-                tracklet, cap, jersey_map, adapter, gallery, ocr_adapter, timeline=timeline
+            candidates = roster_candidates(tracklet, roster)
+            by_number: dict[int, list[str]] = {}
+            for player in candidates:
+                if player.get("jersey_number") is not None:
+                    by_number.setdefault(int(player["jersey_number"]), []).append(str(player["id"]))
+            jersey_map = {number: ids[0] for number, ids in by_number.items() if len(set(ids)) == 1}
+            # Candidate narrowing is evidence based. Geometry alone cannot
+            # turn a same-number opponent or teammate into a resolved athlete.
+            scope_required = any(p.get("_identity_scope") == "resolved_team_required" for p in roster)
+            permitted = not scope_required or bool(candidates)
+            player_id = None
+            if permitted:
+                allowed_ids = {str(player["id"]) for player in candidates}
+                scoped_gallery = [(embedding, pid) for embedding, pid in gallery
+                                  if not roster or pid in allowed_ids]
+                player_id = _identify_tracklet(
+                    tracklet, cap, jersey_map, adapter, scoped_gallery, ocr_adapter, timeline=timeline
+                )
+            identity = tracklet.setdefault("provenance", {}).setdefault("identity", {})
+            number = identity.get("jersey_number")
+            identity.update(
+                definition_version="team-scoped-jersey-v1",
+                candidates=[str(p["id"]) for p in candidates
+                            if number is None or p.get("jersey_number") == number] if roster else None,
+                status="candidate" if player_id else "unresolved",
+                reason=None if player_id else ("team_membership_unresolved" if not permitted
+                                              else "jersey_or_roster_candidates_unresolved"),
             )
+            if player_id and _identity_conflicts(tracklet, player_id, tracklets, assigned_ids):
+                identity.update(status="unresolved", reason="concurrent_identity_conflict")
+                player_id = None
+            if backend_api_url:
+                from pipeline import backend
+                backend.patch_tracklet_provenance(tracklet["id"], tracklet["provenance"])
             if player_id:
-                _patch_tracklet(tracklet["id"], player_id, backend_api_url)
+                if auto_identity_approved:
+                    _patch_tracklet(tracklet["id"], player_id, backend_api_url)
                 assigned_ids[tracklet["id"]] = player_id
                 assigned += 1
                 if adapter is not None:
@@ -142,13 +165,22 @@ def run(
         cap.release()
 
     # ── Layer 3: trajectory-prior re-ID for the still-unidentified ─────────
-    trajectory_assigned = _assign_by_trajectory(tracklets, assigned_ids, backend_api_url)
+    scoped_tracks = [t for t in tracklets if not roster or roster_candidates(t, roster)]
+    shot_groups: dict[Any, list[dict[str, Any]]] = {}
+    for track in scoped_tracks:
+        points = track.get("track_points") or [{}]
+        shot_groups.setdefault(points[0].get("shot_id"), []).append(track)
+    trajectory_assigned = sum(_assign_by_trajectory(group, assigned_ids, backend_api_url,
+                                                    write_identity=auto_identity_approved)
+                              for group in shot_groups.values())
     assigned += trajectory_assigned
 
     # ── Layer 4: min-cost-flow stitching (nightly only) ────────────────────
     stitched_assigned = 0
     if nightly:
-        stitched_assigned = _stitch_and_propagate(tracklets, assigned_ids, backend_api_url)
+        stitched_assigned = sum(_stitch_and_propagate(group, assigned_ids, backend_api_url,
+                                                     write_identity=auto_identity_approved)
+                                for group in shot_groups.values())
         assigned += stitched_assigned
 
     log.info(
@@ -163,12 +195,20 @@ def run(
         observation = dict(tracklet)
         pid = assigned_ids.get(tracklet["id"])
         if pid and not observation.get("player_id"):
-            observation.update(
-                player_id=pid, identity_source="automatic_candidate", identity_verified=False
-            )
+            identity = observation.setdefault("provenance", {}).setdefault("identity", {})
+            identity.update(candidate_player_id=pid, status="approved" if auto_identity_approved else "candidate",
+                            approved=auto_identity_approved)
+            if auto_identity_approved:
+                observation.update(player_id=pid, identity_source="approved_automatic",
+                                   identity_verified=True)
+            if backend_api_url:
+                from pipeline import backend
+                backend.patch_tracklet_provenance(tracklet["id"], observation["provenance"])
         enriched.append(observation)
     return {
-        "assigned": assigned,
+        "assigned": assigned if auto_identity_approved else 0,
+        "unapproved_candidate_count": 0 if auto_identity_approved else assigned,
+        "auto_identity_approved": auto_identity_approved,
         "total": len(tracklets),
         "tracklets": enriched,
         "reid_strategy": {
@@ -178,6 +218,63 @@ def run(
             "stitching_enabled": nightly,
         },
     }
+
+
+_OFFENSIVE_POSITIONS = {"QB", "RB", "FB", "HB", "WR", "TE", "OL", "OT", "OG", "C", "LT", "LG", "RG", "RT"}
+_DEFENSIVE_POSITIONS = {"DL", "DT", "DE", "NT", "EDGE", "LB", "ILB", "OLB", "DB", "CB", "S", "FS", "SS"}
+
+
+def roster_candidates(tracklet: dict[str, Any], roster: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Retain duplicates until independently observed team/unit/role resolves them.
+
+    ``team_label=offense`` is side of ball, not Toledo membership. A game
+    membership must be explicitly resolved in provenance by a supported
+    specialist or staff evidence; home/away jersey convention is insufficient.
+    """
+    membership = (tracklet.get("provenance") or {}).get("team_membership") or {}
+    role = tracklet.get("observed_role") if tracklet.get("role_resolved") is True else None
+    unit = tracklet.get("team_label")
+    result = []
+    for player in roster:
+        if player.get("_identity_scope") == "resolved_team_required":
+            if (membership.get("resolved") is not True or not membership.get("evidence")
+                    or str(membership.get("team", "")).casefold()
+                    != str(player.get("_roster_team", "Toledo")).casefold()):
+                continue
+        position = str(player.get("position") or "").upper()
+        assignment_unit = (player.get("roster_assignment") or {}).get("unit")
+        if (unit in {"offense", "defense", "special_teams"}
+                and assignment_unit in {"offense", "defense", "special_teams"}
+                and unit != assignment_unit):
+            continue
+        if role and position and position != str(role).upper():
+            continue
+        if assignment_unit not in {"offense", "defense", "special_teams"} and unit == "offense" and position in _DEFENSIVE_POSITIONS:
+            continue
+        if assignment_unit not in {"offense", "defense", "special_teams"} and unit == "defense" and position in _OFFENSIVE_POSITIONS:
+            continue
+        result.append(player)
+    return result
+
+
+def _identity_conflicts(track: dict[str, Any], player_id: str,
+                        tracks: list[dict[str, Any]], assigned: dict[str, str]) -> bool:
+    candidates = ((track.get("provenance") or {}).get("identity") or {}).get("candidates")
+    if candidates is not None and player_id not in candidates:
+        return True
+    points = track.get("track_points") or []
+    if not points:
+        return False
+    start, end = min(p["frame_number"] for p in points), max(p["frame_number"] for p in points)
+    for other in tracks:
+        if other["id"] == track["id"] or assigned.get(other["id"]) != player_id:
+            continue
+        observations = other.get("track_points") or []
+        if observations and max(start, min(p["frame_number"] for p in observations)) <= min(
+            end, max(p["frame_number"] for p in observations)
+        ):
+            return True
+    return False
 
 
 # ── Geometry / trajectory helpers ──────────────────────────────────────────
@@ -207,6 +304,7 @@ def _assign_by_trajectory(
     tracklets: list[dict[str, Any]],
     assigned_ids: dict[str, str],
     backend_api_url: str,
+    *, write_identity: bool = True,
 ) -> int:
     """Resolve OCR/gallery-missing tracklets via constant-velocity + priors."""
     known: list[KnownPlayer] = []
@@ -258,7 +356,10 @@ def _assign_by_trajectory(
     count = 0
     for index, player_id in assignments.items():
         tracklet = index_to_tracklet[index]
-        _patch_tracklet(tracklet["id"], player_id, backend_api_url)
+        if _identity_conflicts(tracklet, player_id, tracklets, assigned_ids):
+            continue
+        if write_identity:
+            _patch_tracklet(tracklet["id"], player_id, backend_api_url)
         assigned_ids[tracklet["id"]] = player_id
         count += 1
     return count
@@ -268,6 +369,7 @@ def _stitch_and_propagate(
     tracklets: list[dict[str, Any]],
     assigned_ids: dict[str, str],
     backend_api_url: str,
+    *, write_identity: bool = True,
 ) -> int:
     """Stitch fragmented tracklets and propagate player_id across each group."""
     nodes: list[TrackletNode] = []
@@ -305,7 +407,10 @@ def _stitch_and_propagate(
             continue
         for tid in group:
             if not assigned_ids.get(tid):
-                _patch_tracklet(tid, known_pid, backend_api_url)
+                if _identity_conflicts(by_id[tid], known_pid, tracklets, assigned_ids):
+                    continue
+                if write_identity:
+                    _patch_tracklet(tid, known_pid, backend_api_url)
                 assigned_ids[tid] = known_pid
                 count += 1
     return count
@@ -394,6 +499,8 @@ def _identify_tracklet(
         if number is not None:
             votes[number] = votes.get(number, 0) + 1
     number = jersey_vote(votes)
+    identity = tracklet.setdefault("provenance", {}).setdefault("identity", {})
+    identity.update(jersey_votes={str(n): count for n, count in votes.items()}, jersey_number=number)
     if number is not None and number in jersey_map:
         return jersey_map[number]
 

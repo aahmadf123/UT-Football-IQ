@@ -1,0 +1,38 @@
+{
+  "scope": "disposable_local_library",
+  "football_accuracy": "not_evaluated",
+  "metric_definitions": 22,
+  "cohort": {
+    "plays": 2,
+    "player_reps": 0,
+    "eligible_measurements": 0,
+    "censored_measurements": 0,
+    "excluded_measurements": 229,
+    "unknown_count": 229
+  },
+  "saved_view_create_read_update_delete": true,
+  "play_evidence": {
+    "play_id": "db5e55f9-2387-4f83-b9f5-68ff667eeec6",
+    "readiness": {
+      "film": true,
+      "cuts": true,
+      "tracking": true,
+      "historical_or_pending_tracks": 0,
+      "identity_coverage": 0.0,
+      "analytics_coverage": 0.0,
+      "eligible_measurements": 0,
+      "excluded_measurements": 46
+    }
+  },
+  "video_id": "64f2e7ae-31ea-4aa8-8851-609cc4009bcc",
+  "clip_id": "28f9a9cc-e11a-549c-9e19-bbf09ed5b6b3",
+  "proxy_sha256": "76d2e9244886b461ebceaab681954ad92356a27fc37985c143fc33ef8ccdf183",
+  "decoded_proxy": {
+    "duration_seconds": 3.733008,
+    "fps": 30.0,
+    "audio_streams": 0,
+    "all_frames_decoded": true
+  },
+  "durable_report_download": true,
+  "release_inventory_available": true
+}

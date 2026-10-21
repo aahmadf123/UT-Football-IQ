@@ -145,7 +145,7 @@ class CounterfactualResponse(BaseModel):
 @router.post("", response_model=CounterfactualResponse)
 async def simulate_counterfactual(
     body: CounterfactualRequest,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     user: _StaffUser,
     _capacity: Annotated[Any, Depends(require_workload_capacity("counterfactual.simulate"))],
 ) -> CounterfactualResponse:

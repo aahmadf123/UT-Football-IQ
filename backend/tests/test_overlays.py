@@ -340,7 +340,7 @@ def test_get_overlays_filters_out_suppressed_metrics_in_sql() -> None:
     where_clause = captured["sql"].split("WHERE", 1)[1]
     assert "metrics.is_suppressed" in where_clause
     # Coaches only see approved experimental measurements, never workload data.
-    assert "experimental_flag" in where_clause
+    assert "metrics.analytics_safe IS true" in where_clause
     assert "analytics_safe" in where_clause
     assert "metric_name NOT IN" in where_clause
 

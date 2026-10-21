@@ -256,7 +256,7 @@ def _field_zone(los_x: float | None) -> str | None:
 )
 async def create_predictions_batch(
     body: PlayPredictionBatch,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     current_user: Annotated[User, Depends(require_policy(Resource.PLAY_PREDICTION, Action.WRITE))],
     _capacity: Annotated[
         WorkloadSnapshot, Depends(require_workload_capacity("play_predictions.batch"))
@@ -303,7 +303,7 @@ async def create_predictions_batch(
 )
 async def list_predictions_for_clip(
     clip_id: uuid.UUID,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _current_user: Annotated[User, Depends(require_policy(Resource.PLAY_PREDICTION, Action.READ))],
 ) -> list[PlayPredictionResponse]:
     """List stored predictions for a clip (coaching-staff read)."""
@@ -320,7 +320,7 @@ async def list_predictions_for_clip(
     response_model=CalibrationSummary,
 )
 async def calibration_summary(
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _current_user: Annotated[User, Depends(require_policy(Resource.PLAY_PREDICTION, Action.READ))],
     n_bins: Annotated[int, Query(ge=2, le=50)] = 10,
     opponent_team: str | None = None,
@@ -365,7 +365,7 @@ async def calibration_summary(
     response_model=list[OpponentPriorResponse],
 )
 async def list_opponent_priors(
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _current_user: Annotated[User, Depends(require_policy(Resource.PLAY_PREDICTION, Action.READ))],
     opponent_team: str | None = None,
 ) -> list[OpponentPriorResponse]:
@@ -384,7 +384,7 @@ async def list_opponent_priors(
 async def correct_prediction(
     prediction_id: uuid.UUID,
     body: CorrectionUpdate,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     current_user: Annotated[User, Depends(require_policy(Resource.PLAY_PREDICTION, Action.WRITE))],
 ) -> PlayPredictionResponse:
     """Coach-correction flywheel: record the true class + update the prior.

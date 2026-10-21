@@ -402,8 +402,20 @@ class GameFilmSegmenter(SegmenterBase):
         self.structure = structure.summary()
         if structure.edited and structure.plays:
             self.clip_specs = game_film.play_clip_specs(structure)
+            self.structure["format_strategy"] = "edited_coach_film"
+            return []
+        if len(structure.shots) > 1:
+            # A camera cut cannot justify declaring another football snap.
+            self.structure["format_strategy"] = "unresolved_multishot"
+            self.clip_specs = [
+                {"start_time": shot.start, "end_time": shot.end,
+                 "play_number": index + 1, "view": "unknown", "view_confidence": 0.0,
+                 "logical_play_status": "unresolved", "canonical_count_eligible": False}
+                for index, shot in enumerate(structure.shots)
+            ]
             return []
         self.clip_specs = []
+        self.structure["format_strategy"] = "continuous_motion_baseline"
         self.source = self.fallback.source
         self.fallback.timeline = self.timeline  # type: ignore[attr-defined]
         return self.fallback.segment(video_path)

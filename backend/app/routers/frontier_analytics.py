@@ -1,21 +1,8 @@
-"""Frontier analytics read surface (Issue #10) — xSep / xYards / xPressure.
+"""Qualified compatibility reads for legacy frontier metric names.
 
-These are **experimental** advanced metrics derived from tracking / pose / SAM
-outputs (Issues #127/#128/#129/#74). They are scaffolds, not validated Toledo
-results, so this endpoint:
-
-* only ever returns metrics whose name is in
-  :data:`app.routers.metrics.FRONTIER_METRIC_NAMES`;
-* always reports them as experimental (``experimental_flag`` is forced on at
-  ingest, and ``analytics_safe`` reflects whether a coach has reviewed them);
-* never exposes them to player or viewer accounts;
-* lets analysts/coaches slice by position group, concept, formation, and
-  opponent so sample outputs can be reviewed alongside film.
-
-No metric is presented as a trusted number: every item carries ``source``,
-``sample_size``, and a ``stability_note`` so coaches can judge how far to trust
-it. Computation lives in the GPU worker (``pipeline.frontier_analytics``); this
-router only reads what the worker persisted.
+Uses the shared publication policy and definitions. Only supported evidence
+can appear here; experimental results remain outside cohort aggregates and
+are unavailable to player/viewer roles. Unknowns are never predictions.
 """
 
 from __future__ import annotations
@@ -33,6 +20,8 @@ from app.database import get_db
 from app.deps import get_current_user
 from app.models import Clip, Label, Metric, Tracklet, User, UserRole
 from app.routers.metrics import FRONTIER_METRIC_NAMES
+from app.services.metric_definitions import DEFINITIONS
+from app.services.metric_policy import metric_visibility
 
 log = structlog.get_logger(__name__)
 router = APIRouter(prefix="/api/v1/analytics/frontier", tags=["frontier-analytics"])
@@ -40,29 +29,15 @@ router = APIRouter(prefix="/api/v1/analytics/frontier", tags=["frontier-analytic
 # Coach-readable definitions surfaced with every response so the UI can show
 # "what / why / how to interpret" without hardcoding it in the frontend.
 METRIC_DEFINITIONS: dict[str, dict[str, str]] = {
-    "xsep": {
-        "label": "Expected Separation (xSep)",
-        "definition": "Yards of separation between a receiver and the nearest defender at the "
-        "throw/target-decision point.",
-        "interpretation": "Higher is better for the offense. Needs calibrated tracking; trust "
-        "trends only after ~30+ clean reps.",
-        "depends_on": "#127 calibration, #128 detection, #129 tracking",
-    },
-    "xyards": {
-        "label": "Expected Yards (xYards)",
-        "definition": "Expected yards-after-catch given spacing, leverage, and pursuit at the "
-        "catch point.",
-        "interpretation": "Compare to actual YAC to find scheme/technique over- or "
-        "under-performance. Highly experimental — directional only.",
-        "depends_on": "#127 calibration, #128 detection, #129 tracking",
-    },
-    "xpressure": {
-        "label": "Expected Pressure (xPressure)",
-        "definition": "Expected pressure rate on the QB given rusher proximity and time-to-throw.",
-        "interpretation": "Higher means the protection/structure is under more duress. Needs "
-        "snap and throw events; trust trends only after ~30+ reps.",
-        "depends_on": "#127 calibration, #128 detection, #129 tracking",
-    },
+    name: {
+        "label": str(DEFINITIONS[name]["label"]),
+        "definition": str(DEFINITIONS[name]["definition"]),
+        "interpretation": (
+            "Qualified compatibility output. Experimental values stay outside cohort analytics."
+        ),
+        "depends_on": "Calibrated evidence and task-specific held-out model approval.",
+    }
+    for name in sorted(FRONTIER_METRIC_NAMES)
 }
 
 
@@ -115,7 +90,7 @@ def _to_out(metric: Metric, position_group: str | None) -> FrontierMetricOut:
 
 @router.get("", response_model=FrontierMetricsResponse)
 async def list_frontier_metrics(
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     current_user: Annotated[User, Depends(get_current_user)],
     metric_name: str | None = Query(default=None, description="xsep | xyards | xpressure"),
     clip_id: uuid.UUID | None = Query(default=None),
@@ -147,7 +122,7 @@ async def list_frontier_metrics(
         names = frozenset({metric_name.lower()})
 
     q = (
-        select(Metric, Tracklet.position_group)
+        metric_visibility(select(Metric, Tracklet.position_group), current_user)
         .outerjoin(Tracklet, Metric.tracklet_id == Tracklet.id)
         .where(func.lower(Metric.metric_name).in_(names))
         .order_by(Metric.created_at.desc())

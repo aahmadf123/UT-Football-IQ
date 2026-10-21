@@ -139,7 +139,7 @@ class ActiveLearningQueueItemResponse(BaseModel):
 
 @router.get("/models", response_model=list[ModelVersionResponse])
 async def list_model_versions(
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _current_user: Annotated[User, Depends(require_analyst_or_above)],
     model_name: str | None = Query(default=None),
     model_type: str | None = Query(default=None),
@@ -167,7 +167,7 @@ async def list_model_versions(
 @router.get("/models/{model_version_id}", response_model=ModelVersionResponse)
 async def get_model_version(
     model_version_id: uuid.UUID,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _current_user: Annotated[User, Depends(require_analyst_or_above)],
 ) -> ModelVersionResponse:
     """Get a single model version by ID."""
@@ -181,7 +181,7 @@ async def get_model_version(
 @router.post("/models", response_model=ModelVersionResponse, status_code=status.HTTP_201_CREATED)
 async def create_model_version(
     body: ModelVersionCreate,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _current_user: Annotated[User, Depends(require_analyst_or_above)],
 ) -> ModelVersionResponse:
     if body.id is not None:
@@ -220,7 +220,7 @@ async def create_model_version(
 async def promote_model_version(
     model_version_id: uuid.UUID,
     body: PromoteModelRequest,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     current_user: Annotated[User, Depends(require_admin)],
 ) -> ModelVersionResponse:
     result = await db.execute(select(ModelVersion).where(ModelVersion.id == model_version_id))
@@ -234,7 +234,7 @@ async def promote_model_version(
 
 @router.get("/datasets", response_model=list[dict[str, Any]])
 async def list_training_datasets(
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _current_user: Annotated[User, Depends(require_analyst_or_above)],
     model_scope: str | None = Query(default=None),
 ) -> list[dict[str, Any]]:
@@ -260,7 +260,7 @@ async def list_training_datasets(
 
 @router.get("/active-learning/queue", response_model=list[ActiveLearningQueueItemResponse])
 async def list_active_learning_queue(
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _current_user: Annotated[User, Depends(require_analyst_or_above)],
     reason: ActiveLearningReason | None = Query(default=None),
     status_filter: str = Query(default="queued"),
@@ -294,7 +294,7 @@ class ActiveLearningStatusUpdate(BaseModel):
 async def update_active_learning_item_status(
     item_id: uuid.UUID,
     body: ActiveLearningStatusUpdate,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _current_user: Annotated[User, Depends(require_analyst_or_above)],
 ) -> ActiveLearningQueueItemResponse:
     """Advance a queue item's status (idempotent).
@@ -318,7 +318,7 @@ async def update_active_learning_item_status(
 
 @router.post("/active-learning/nightly", response_model=NightlyRunResponse)
 async def run_nightly_active_learning(
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     current_user: Annotated[User, Depends(require_analyst_or_above)],
     high_confidence_threshold: float = Query(default=0.9, ge=0.0, le=1.0),
     low_confidence_threshold: float = Query(default=0.6, ge=0.0, le=1.0),

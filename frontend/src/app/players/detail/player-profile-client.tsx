@@ -2,13 +2,14 @@
 
 import { ApiError, friendlyMessage } from "@/lib/api-error";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { ArrowLeft, Download } from "lucide-react";
 import { FootballShell } from "@/components/shell/app-shell";
 import { PlayerPortrait } from "@/components/shared/player-portrait";
 import { TrendLine } from "@/components/shared/trend-line";
-import { fmtMetric, playerProfileHref } from "@/components/players-view";
+import { fmtMetric } from "@/components/players-view";
+import { playerProfileContextHref, resolveAnalysisContext, safeReturnHref, updateContextParams } from "@/lib/analysis-context";
 import { apiPlayerToSummary, mergePlayerMetrics, useAppState } from "@/lib/app-state";
 import { fetchPlayer, fetchPlayerMetricsDetail } from "@/lib/api";
 import type { PlayerSummary } from "@/lib/types";
@@ -52,6 +53,10 @@ function bioFrom(metadata: Record<string, unknown> | null | undefined): Bio {
 
 export function PlayerProfileClient({ id }: { id: string }) {
   const router = useRouter();
+  const params = useSearchParams();
+  const returnHref = params.has("from") ? safeReturnHref(params.get("from") ?? "", "/players/") : null;
+  const analysisParams = updateContextParams(new URLSearchParams(), { ...resolveAnalysisContext(new URLSearchParams(params.toString())), player_id: id });
+  const analysisHref = `/team-stats/?${analysisParams}`;
   const { data, getPlayerById, setSelectedPlayerId, mockMode, authToken } = useAppState();
   const cached = getPlayerById(id);
 
@@ -64,20 +69,11 @@ export function PlayerProfileClient({ id }: { id: string }) {
   // cached entry from the roster fetch is shown immediately as a fast path;
   // the backend response overrides it on success.
   useEffect(() => {
+    setBio({});
+    setErrorMessage(null);
     if (mockMode) {
       setPlayer(cached);
       setLoadState(cached ? "ready" : "missing");
-      return;
-    }
-    const baseUrl = process.env.NEXT_PUBLIC_API_URL;
-    if (!baseUrl) {
-      if (cached) {
-        setPlayer(cached);
-        setLoadState("ready");
-      } else {
-        setErrorMessage("Not connected to the team server — player details are unavailable.");
-        setLoadState("error");
-      }
       return;
     }
     let cancelled = false;
@@ -141,8 +137,8 @@ export function PlayerProfileClient({ id }: { id: string }) {
           hint={errorMessage ?? "An unexpected error occurred."}
           action={
             <Button asChild>
-              <Link href="/players">
-                <ArrowLeft className="size-4" /> Back to Roster
+              <Link href={returnHref ?? "/players/"}>
+                <ArrowLeft className="size-4" /> {returnHref ? "Back" : "Back to Roster"}
               </Link>
             </Button>
           }
@@ -159,8 +155,8 @@ export function PlayerProfileClient({ id }: { id: string }) {
           hint={`We couldn't find a player with id ${id}.`}
           action={
             <Button asChild>
-              <Link href="/players">
-                <ArrowLeft className="size-4" /> Back to Roster
+              <Link href={returnHref ?? "/players/"}>
+                <ArrowLeft className="size-4" /> {returnHref ? "Back" : "Back to Roster"}
               </Link>
             </Button>
           }
@@ -184,6 +180,7 @@ export function PlayerProfileClient({ id }: { id: string }) {
     const lines = [
       `Player Profile — #${player.jersey} ${player.name}`,
       `Position: ${player.position} · Group: ${player.group}`,
+      "Performance scope: all qualified tracked film for this player.",
       `Max Speed: ${player.maxSpeed != null ? `${player.maxSpeed} MPH` : "not available"}`,
       `Distance: ${player.distance != null ? `${player.distance} YDS` : "not available"}`,
       `Tracked Clips: ${player.trackedClips != null ? player.trackedClips : "not available"}`,
@@ -204,15 +201,15 @@ export function PlayerProfileClient({ id }: { id: string }) {
   return (
     <FootballShell activePage="players">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <Button variant="outline" size="sm" onClick={() => router.back()}>
+        {returnHref ? <Button variant="outline" size="sm" asChild><Link href={returnHref}><ArrowLeft className="size-4" /> Back</Link></Button> : <Button variant="outline" size="sm" onClick={() => router.back()}>
           <ArrowLeft className="size-4" /> Back
-        </Button>
+        </Button>}
         <div className="flex flex-wrap items-center gap-2">
           <NativeSelect
             value={player.id}
             onChange={(e) => {
               setSelectedPlayerId(e.target.value);
-              router.push(playerProfileHref(e.target.value));
+              router.push(playerProfileContextHref(new URLSearchParams(params.toString()), e.target.value));
             }}
             aria-label="Switch player"
             className="max-w-64"
@@ -223,6 +220,7 @@ export function PlayerProfileClient({ id }: { id: string }) {
               </option>
             ))}
           </NativeSelect>
+          <Button size="sm" variant="outline" asChild><Link href={analysisHref}>Analyze filtered film</Link></Button>
           <Button size="sm" onClick={exportProfile}>
             <Download className="size-4" /> Export Profile
           </Button>
@@ -260,6 +258,7 @@ export function PlayerProfileClient({ id }: { id: string }) {
             <h2 className="font-display text-base font-semibold uppercase tracking-wide">
               Performance Metrics
             </h2>
+            <p className="text-xs text-muted-foreground">All qualified tracked film for this player. Use Analyze filtered film for the selected cohort.</p>
           </CardHeader>
           <CardContent>
             {metricsAvailable ? (
@@ -319,7 +318,7 @@ export function PlayerProfileClient({ id }: { id: string }) {
                   <TableRow key={p.id}>
                     <TableCell className="font-medium">
                       <Link
-                        href={playerProfileHref(p.id)}
+                        href={playerProfileContextHref(new URLSearchParams(params.toString()), p.id)}
                         className="flex items-center gap-2 hover:text-primary"
                       >
                         <span data-numeric className="font-mono text-muted-foreground">

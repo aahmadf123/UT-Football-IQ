@@ -109,6 +109,8 @@ class GameFilmStructure:
             "sideline_views": views.count("sideline"),
             "endzone_views": views.count("endzone"),
             "scoreboards_read": sum(1 for p in self.plays if p.scoreboard),
+            "shot_boundaries_seconds": [shot.start for shot in self.shots],
+            "boundary_semantics": "camera_shots_are_not_football_events",
         }
 
 

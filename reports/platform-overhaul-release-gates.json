@@ -1,0 +1,439 @@
+{
+  "schema_version": 1,
+  "status": "not_ready",
+  "passed": false,
+  "gates": [
+    {
+      "name": "disjoint_source_groups",
+      "passed": false,
+      "measured": {
+        "overlap": [],
+        "holdout_groups": 0
+      },
+      "required": "Hold out entire independent sessions/games and all alternate views"
+    },
+    {
+      "name": "no_media_or_play_leakage",
+      "passed": true,
+      "measured": {
+        "leaked_references": 0
+      },
+      "required": 0
+    },
+    {
+      "name": "heldout_population",
+      "passed": false,
+      "measured": {
+        "canonical_plays": 0,
+        "independent_groups": 0,
+        "plays_by_category": {},
+        "independent_groups_by_category": {
+          "practice": 0,
+          "coach_game": 0,
+          "television": 0
+        }
+      },
+      "required": {
+        "canonical_plays": 240,
+        "independent_groups": 12,
+        "plays_per_category": 80,
+        "independent_groups_per_category": 4
+      }
+    },
+    {
+      "name": "double_label_adjudication",
+      "passed": false,
+      "measured": 0,
+      "required": {
+        "fraction": 0.2,
+        "adjudicated": true
+      }
+    },
+    {
+      "name": "dense_tracking_population",
+      "passed": false,
+      "measured": {},
+      "required": {
+        "plays": 48,
+        "plays_per_category": 16,
+        "density": "hashed actual native-frame index, complete human coverage and visibility records"
+      }
+    },
+    {
+      "name": "segmentation_evidence",
+      "passed": false,
+      "measured": "missing",
+      "required": "hashed real evaluation"
+    },
+    {
+      "name": "events_evidence",
+      "passed": false,
+      "measured": "missing",
+      "required": "hashed real evaluation"
+    },
+    {
+      "name": "tracking_evidence",
+      "passed": false,
+      "measured": "missing",
+      "required": "hashed real evaluation"
+    },
+    {
+      "name": "identity_evidence",
+      "passed": false,
+      "measured": "missing",
+      "required": "hashed real evaluation"
+    },
+    {
+      "name": "spatial_evidence",
+      "passed": false,
+      "measured": "missing",
+      "required": "hashed real evaluation"
+    },
+    {
+      "name": "clear_lane_evidence",
+      "passed": false,
+      "measured": "missing",
+      "required": "hashed real evaluation"
+    },
+    {
+      "name": "interactions_evidence",
+      "passed": false,
+      "measured": "missing",
+      "required": "hashed real evaluation"
+    },
+    {
+      "name": "aggregation_evidence",
+      "passed": false,
+      "measured": "missing",
+      "required": "hashed real evaluation"
+    },
+    {
+      "name": "gpu_timing_evidence",
+      "passed": false,
+      "measured": "missing",
+      "required": "hashed real evaluation"
+    },
+    {
+      "name": "predictive_evidence",
+      "passed": false,
+      "measured": "missing",
+      "required": "hashed real evaluation"
+    },
+    {
+      "name": "production_e2e_evidence",
+      "passed": false,
+      "measured": "missing",
+      "required": "hashed real evaluation"
+    },
+    {
+      "name": "workspace_evidence",
+      "passed": false,
+      "measured": "missing",
+      "required": "hashed real evaluation"
+    },
+    {
+      "name": "segmentation_practice",
+      "passed": false,
+      "measured": {
+        "precision": null,
+        "recall": null,
+        "complete_live_action": null
+      },
+      "required": {
+        "precision": 0.95,
+        "recall": 0.95,
+        "complete_live_action": 0.99
+      }
+    },
+    {
+      "name": "snap_timing_practice",
+      "passed": false,
+      "measured": {
+        "n": 0,
+        "median_seconds": null,
+        "p95_seconds": null
+      },
+      "required": {
+        "median_seconds": 0.1,
+        "p95_seconds": 0.25
+      }
+    },
+    {
+      "name": "release_timing_practice",
+      "passed": false,
+      "measured": {
+        "n": 0,
+        "median_seconds": null,
+        "p95_seconds": null
+      },
+      "required": {
+        "median_seconds": 0.1,
+        "p95_seconds": 0.25
+      }
+    },
+    {
+      "name": "tracking_practice",
+      "passed": false,
+      "measured": null,
+      "required": {
+        "idf1": 90,
+        "hota": 70,
+        "coverage_and_error_reporting": true
+      }
+    },
+    {
+      "name": "segmentation_coach_game",
+      "passed": false,
+      "measured": {
+        "precision": null,
+        "recall": null,
+        "complete_live_action": null
+      },
+      "required": {
+        "precision": 0.95,
+        "recall": 0.95,
+        "complete_live_action": 0.99
+      }
+    },
+    {
+      "name": "snap_timing_coach_game",
+      "passed": false,
+      "measured": {
+        "n": 0,
+        "median_seconds": null,
+        "p95_seconds": null
+      },
+      "required": {
+        "median_seconds": 0.1,
+        "p95_seconds": 0.25
+      }
+    },
+    {
+      "name": "release_timing_coach_game",
+      "passed": false,
+      "measured": {
+        "n": 0,
+        "median_seconds": null,
+        "p95_seconds": null
+      },
+      "required": {
+        "median_seconds": 0.1,
+        "p95_seconds": 0.25
+      }
+    },
+    {
+      "name": "tracking_coach_game",
+      "passed": false,
+      "measured": null,
+      "required": {
+        "idf1": 90,
+        "hota": 70,
+        "coverage_and_error_reporting": true
+      }
+    },
+    {
+      "name": "segmentation_television",
+      "passed": false,
+      "measured": {
+        "precision": null,
+        "recall": null,
+        "complete_live_action": null
+      },
+      "required": {
+        "precision": 0.95,
+        "recall": 0.95,
+        "complete_live_action": 0.99
+      }
+    },
+    {
+      "name": "snap_timing_television",
+      "passed": false,
+      "measured": {
+        "n": 0,
+        "median_seconds": null,
+        "p95_seconds": null
+      },
+      "required": {
+        "median_seconds": 0.1,
+        "p95_seconds": 0.25
+      }
+    },
+    {
+      "name": "release_timing_television",
+      "passed": false,
+      "measured": {
+        "n": 0,
+        "median_seconds": null,
+        "p95_seconds": null
+      },
+      "required": {
+        "median_seconds": 0.1,
+        "p95_seconds": 0.25
+      }
+    },
+    {
+      "name": "tracking_television",
+      "passed": false,
+      "measured": null,
+      "required": {
+        "idf1": 90,
+        "hota": 70,
+        "coverage_and_error_reporting": true
+      }
+    },
+    {
+      "name": "automatic_identity",
+      "passed": false,
+      "measured": {
+        "accepted": 0,
+        "correct": 0,
+        "precision": 0,
+        "wilson_95_lower": 0.0,
+        "readable_team_resolved_cases": 0,
+        "coverage": 0
+      },
+      "required": {
+        "accepted_target": 2000,
+        "precision": 0.995,
+        "wilson_95_lower": 0.99,
+        "coverage": 0.9
+      }
+    },
+    {
+      "name": "spatial_accuracy",
+      "passed": false,
+      "measured": {
+        "n": 0,
+        "median_yards": null,
+        "p95_yards": null
+      },
+      "required": {
+        "median_yards": 0.35,
+        "p95_yards": 0.75
+      }
+    },
+    {
+      "name": "clear_lane_accuracy",
+      "passed": false,
+      "measured": {
+        "n": 0,
+        "median_yards": null,
+        "p90_yards": null
+      },
+      "required": {
+        "median_yards": null,
+        "p90_yards": 0.3
+      }
+    },
+    {
+      "name": "interaction_precision",
+      "passed": false,
+      "measured": null,
+      "required": {
+        "each_specialist_precision": 0.95,
+        "recall_coverage_onset_reporting": true
+      }
+    },
+    {
+      "name": "aggregation_invariance",
+      "passed": false,
+      "measured": null,
+      "required": "all canonical-count and correction regressions pass"
+    },
+    {
+      "name": "gpu_fast_p95",
+      "passed": false,
+      "measured": {
+        "gpu": null,
+        "n": 0,
+        "p95_minutes": null
+      },
+      "required": {
+        "up_to_5_source_minutes_at_1080p": true,
+        "p95_elapsed_minutes": 10
+      }
+    },
+    {
+      "name": "gpu_overnight",
+      "passed": false,
+      "measured": null,
+      "required": {
+        "source_minutes_across_cameras": 90,
+        "elapsed_minutes_max": 480
+      }
+    },
+    {
+      "name": "predictive_baselines_and_calibration",
+      "passed": false,
+      "measured": [],
+      "required": [
+        "completion",
+        "contextual_pressure",
+        "expected_rushing",
+        "expected_yac"
+      ]
+    },
+    {
+      "name": "production_upload_to_result",
+      "passed": false,
+      "measured": {
+        "component_versions": null,
+        "checks": null
+      },
+      "required": {
+        "components": [
+          "frontend",
+          "edge",
+          "backend",
+          "worker",
+          "database_schema",
+          "models",
+          "artifacts"
+        ],
+        "checks": [
+          "upload",
+          "durable_queue",
+          "gpu_claim",
+          "worker_results",
+          "signed_range_playback",
+          "normal_speed_playback",
+          "evidence_drilldown",
+          "analytics_query",
+          "report_download",
+          "correction_preservation"
+        ]
+      }
+    },
+    {
+      "name": "workspace_task_acceptance",
+      "passed": false,
+      "measured": null,
+      "required": [
+        "six_primary_destinations",
+        "persistent_film_workspace",
+        "coach_analyst_layouts",
+        "url_saved_personal_precedence",
+        "next_play_context",
+        "angle_alignment",
+        "signed_url_renewal_state",
+        "keyboard_frame_playback",
+        "tablet_accessibility",
+        "shared_filters",
+        "cohort_denominators",
+        "position_views",
+        "chart_film_drilldown",
+        "accessible_chart_tables",
+        "export_downloads",
+        "unknown_coverage_visible"
+      ]
+    },
+    {
+      "name": "evidence_integrity",
+      "passed": true,
+      "measured": [],
+      "required": "all references, hashes and lineage valid"
+    }
+  ],
+  "verified_artifacts": 0,
+  "limitations": "Threshold and integrity checks do not independently establish annotation truth or actual model accuracy."
+}

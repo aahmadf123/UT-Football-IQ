@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "evidence_kind": "dense_coverage_draft",
+  "source_id": null,
+  "media_sha256": null,
+  "source_play_id": null,
+  "canonical_play_id": null,
+  "completed": false,
+  "all_visible_players_annotated": false,
+  "occlusion_offscreen_records_reviewed": false,
+  "reviewer_ids": [],
+  "native_frame_index": {
+    "path": null,
+    "sha256": null
+  },
+  "frames": [],
+  "notes": "Unreviewed scaffold. Populate actual assigned native-frame coverage; human review is never inferred from this template."
+}

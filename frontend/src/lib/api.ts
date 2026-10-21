@@ -216,8 +216,11 @@ async function mutateJSON<T>(path: string, method: "POST" | "PATCH", body: unkno
   return response.json() as Promise<T>;
 }
 
-export function fetchSessions(token?: string): Promise<ApiSession[]> {
-  return getJSON(`${apiBase()}/api/v1/sessions`, token);
+export function fetchSessions(token?: string, page?: { limit?: number; offset?: number }): Promise<ApiSession[]> {
+  const params = new URLSearchParams();
+  if (page?.limit != null) params.set("limit", String(page.limit));
+  if (page?.offset != null) params.set("offset", String(page.offset));
+  return getJSON(`${apiBase()}/api/v1/sessions${params.size ? `?${params}` : ""}`, token);
 }
 export function fetchSession(id: string, token?: string): Promise<ApiSession> {
   return getJSON(`${apiBase()}/api/v1/sessions/${encodeURIComponent(id)}`, token);
@@ -558,7 +561,7 @@ export interface PlayerCreate {
   last_name: string;
   jersey_number?: number | null;
   position?: string | null;
-  position_group?: "QB" | "Skill" | "OL" | "DL" | "LB" | "DB" | "ST" | null;
+  position_group?: "QB" | "RB" | "WR" | "TE" | "Skill" | "OL" | "DL" | "LB" | "DB" | "ST" | null;
   is_active?: boolean;
 }
 export interface PlayerImportResult {

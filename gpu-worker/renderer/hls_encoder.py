@@ -24,6 +24,7 @@ from __future__ import annotations
 import os
 import subprocess
 import tempfile
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -69,9 +70,12 @@ def run(
         _encode_hls(overlay_path, playlist_path)
 
         # Upload all generated files
-        segment_uris = _upload_segments(hls_dir, clip_id)
-        media_uri = _upload_playlist(playlist_path, clip_id, "index.m3u8")
-        master_uri = _write_and_upload_master(clip_id, fps)
+        # Every playlist and its segments share one immutable generation.
+        # Uploading a replacement never mutates the prior playable result.
+        generation = f"{clip_id}/{uuid.uuid4().hex}"
+        segment_uris = _upload_segments(hls_dir, generation)
+        media_uri = _upload_playlist(playlist_path, generation, "index.m3u8")
+        master_uri = _write_and_upload_master(generation, fps)
 
     log.info(
         "hls_encode_done",

@@ -27,6 +27,7 @@ from app.cfbd.game_link import TOLEDO
 from app.database import get_db
 from app.deps import require_any_staff
 from app.models import Clip, User, Video
+from app.services.clip_state import active_clip
 
 router = APIRouter(prefix="/api/v1/videos", tags=["game-summary"])
 
@@ -324,7 +325,7 @@ def _play_clips(clips: list[Any]) -> dict[int, tuple[dict[str, Any], uuid.UUID]]
 @router.get("/{video_id}/game-summary", response_model=GameSummary)
 async def game_summary(
     video_id: uuid.UUID,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _user: Annotated[User, Depends(require_any_staff)],
 ) -> GameSummary:
     """Toledo offense and defense for one linked game film."""
@@ -337,7 +338,9 @@ async def game_summary(
 async def build_game_summary(db: AsyncSession, video: Video) -> GameSummary:
     """The game breakdown for ``video`` (also used by the team dashboard)."""
     video_id = video.id
-    clips = list((await db.execute(select(Clip).where(Clip.video_id == video_id))).scalars())
+    clips = list(
+        (await db.execute(select(Clip).where(Clip.video_id == video_id, active_clip()))).scalars()
+    )
     film_plays = len({c.play_number for c in clips if c.play_number is not None})
     linked = _play_clips(clips)
     ordered = [

@@ -1,0 +1,1522 @@
+{
+  "season": "2026",
+  "source": "utrockets.com roster print, retrieved 2026-07-25",
+  "players": [
+    {
+      "first_name": "Andrew",
+      "last_name": "Zock",
+      "jersey_number": 0,
+      "position": "DE",
+      "position_group": "DL",
+      "metadata": {
+        "class_year": "Jr.",
+        "height_in": 74,
+        "weight_lb": 250,
+        "hometown": "Citra, Fla.",
+        "high_school": "Hawthorne",
+        "previous_school": "Mercer",
+        "roster_season": "2026",
+        "roster_key": "2026-zock-andrew"
+      }
+    },
+    {
+      "first_name": "Rico",
+      "last_name": "Bond",
+      "jersey_number": 1,
+      "position": "WR",
+      "position_group": "Skill",
+      "metadata": {
+        "class_year": "So.",
+        "hometown": "St. Louis, Mo.",
+        "high_school": "East St. Louis (Ill.)",
+        "previous_school": "Lindenwood",
+        "roster_season": "2026",
+        "roster_key": "2026-bond-rico"
+      }
+    },
+    {
+      "first_name": "Cam",
+      "last_name": "Jones",
+      "jersey_number": 1,
+      "position": "CB",
+      "position_group": "DB",
+      "metadata": {
+        "class_year": "Jr.",
+        "height_in": 71,
+        "weight_lb": 190,
+        "hometown": "Reading, Pa.",
+        "high_school": "Wilson",
+        "previous_school": "Holy Cross",
+        "roster_season": "2026",
+        "roster_key": "2026-jones-cam"
+      }
+    },
+    {
+      "first_name": "Trenton",
+      "last_name": "Jones",
+      "jersey_number": 2,
+      "position": "WR",
+      "position_group": "Skill",
+      "metadata": {
+        "class_year": "R-Fr.",
+        "height_in": 70,
+        "weight_lb": 185,
+        "hometown": "Hastings, Fla.",
+        "high_school": "St. Augustine",
+        "previous_school": "Mercer",
+        "roster_season": "2026",
+        "roster_key": "2026-jones-trenton"
+      }
+    },
+    {
+      "first_name": "Ezra",
+      "last_name": "Odinjor",
+      "jersey_number": 2,
+      "position": "DE",
+      "position_group": "DL",
+      "metadata": {
+        "class_year": "Jr.",
+        "height_in": 75,
+        "weight_lb": 240,
+        "hometown": "Kennesaw, Ga.",
+        "high_school": "Allatoona",
+        "previous_school": "Georgia Tech/UAB",
+        "roster_season": "2026",
+        "roster_key": "2026-odinjor-ezra"
+      }
+    },
+    {
+      "first_name": "Adjatay",
+      "last_name": "Dabbs",
+      "jersey_number": 3,
+      "position": "WR",
+      "position_group": "Skill",
+      "metadata": {
+        "class_year": "Jr.",
+        "height_in": 72,
+        "weight_lb": 170,
+        "hometown": "Greeneville, Tenn.",
+        "high_school": "Greeneville",
+        "previous_school": "Mercer",
+        "roster_season": "2026",
+        "roster_key": "2026-dabbs-adjatay"
+      }
+    },
+    {
+      "first_name": "Sharard",
+      "last_name": "Vaughn III",
+      "jersey_number": 3,
+      "position": "S",
+      "position_group": "DB",
+      "metadata": {
+        "class_year": "Fr.",
+        "height_in": 73,
+        "weight_lb": 200,
+        "hometown": "Maumee, Ohio",
+        "high_school": "Toledo Central Catholic",
+        "roster_season": "2026",
+        "roster_key": "2026-vaughn-iii-sharard"
+      }
+    },
+    {
+      "first_name": "Autavius",
+      "last_name": "Ison",
+      "jersey_number": 4,
+      "position": "RB",
+      "position_group": "Skill",
+      "metadata": {
+        "class_year": "Jr.",
+        "height_in": 71,
+        "weight_lb": 190,
+        "hometown": "Atlanta, Ga.",
+        "high_school": "Riverdale",
+        "previous_school": "Charleston Southern/Mercer",
+        "roster_season": "2026",
+        "roster_key": "2026-ison-autavius"
+      }
+    },
+    {
+      "first_name": "Donovan",
+      "last_name": "Watkins",
+      "jersey_number": 4,
+      "position": "S",
+      "position_group": "DB",
+      "metadata": {
+        "class_year": "Jr.",
+        "height_in": 71,
+        "weight_lb": 180,
+        "hometown": "Winnsboro, S.C.",
+        "high_school": "Fairfield Central",
+        "previous_school": "Mercer",
+        "roster_season": "2026",
+        "roster_key": "2026-watkins-donovan"
+      }
+    },
+    {
+      "first_name": "Terrell",
+      "last_name": "Crosby Jr.",
+      "jersey_number": 5,
+      "position": "WR",
+      "position_group": "Skill",
+      "metadata": {
+        "class_year": "Sr.",
+        "height_in": 70,
+        "weight_lb": 182,
+        "hometown": "St. Petersburg, Fla.",
+        "high_school": "Lakewood",
+        "previous_school": "Iowa State",
+        "roster_season": "2026",
+        "roster_key": "2026-crosby-jr-terrell"
+      }
+    },
+    {
+      "first_name": "Damon",
+      "last_name": "Ollison II",
+      "jersey_number": 5,
+      "position": "LB",
+      "position_group": "LB",
+      "metadata": {
+        "class_year": "Sr.",
+        "height_in": 72,
+        "weight_lb": 224,
+        "hometown": "Akron, Ohio",
+        "high_school": "Archbishop Hoban",
+        "roster_season": "2026",
+        "roster_key": "2026-ollison-ii-damon"
+      }
+    },
+    {
+      "first_name": "Langston",
+      "last_name": "Long",
+      "jersey_number": 6,
+      "position": "LB",
+      "position_group": "LB",
+      "metadata": {
+        "class_year": "Sr.",
+        "height_in": 75,
+        "weight_lb": 225,
+        "hometown": "Woodbridge, Va.",
+        "high_school": "Christ School",
+        "previous_school": "Virginia/South Florida",
+        "roster_season": "2026",
+        "roster_key": "2026-long-langston"
+      }
+    },
+    {
+      "first_name": "John Alan",
+      "last_name": "Richter",
+      "jersey_number": 6,
+      "position": "QB",
+      "position_group": "QB",
+      "metadata": {
+        "class_year": "Jr.",
+        "height_in": 75,
+        "weight_lb": 225,
+        "hometown": "Gray, Ga.",
+        "high_school": "Jones County",
+        "roster_season": "2026",
+        "roster_key": "2026-richter-john-alan"
+      }
+    },
+    {
+      "first_name": "Khamoni",
+      "last_name": "Robinson",
+      "jersey_number": 7,
+      "position": "QB",
+      "position_group": "QB",
+      "metadata": {
+        "class_year": "Jr.",
+        "height_in": 73,
+        "weight_lb": 195,
+        "hometown": "Monroe, N.C.",
+        "high_school": "Monroe",
+        "previous_school": "Lenoir-Rhyne",
+        "roster_season": "2026",
+        "roster_key": "2026-robinson-khamoni"
+      }
+    },
+    {
+      "first_name": "Armorion",
+      "last_name": "Smith",
+      "jersey_number": 7,
+      "position": "S",
+      "position_group": "DB",
+      "metadata": {
+        "class_year": "Sr.",
+        "height_in": 73,
+        "weight_lb": 212,
+        "hometown": "River Rouge, Mich.",
+        "high_school": "River Rouge",
+        "previous_school": "Cincinnati/Michigan State",
+        "roster_season": "2026",
+        "roster_key": "2026-smith-armorion"
+      }
+    },
+    {
+      "first_name": "KJ",
+      "last_name": "Thomas",
+      "jersey_number": 8,
+      "position": "CB",
+      "position_group": "DB",
+      "metadata": {
+        "class_year": "So.",
+        "height_in": 71,
+        "weight_lb": 180,
+        "hometown": "Conyers, Ga.",
+        "high_school": "Hebron Christian Academy",
+        "previous_school": "Mercer",
+        "roster_season": "2026",
+        "roster_key": "2026-thomas-kj"
+      }
+    },
+    {
+      "first_name": "Kalvin",
+      "last_name": "Gilbert Jr.",
+      "jersey_number": 9,
+      "position": "WR",
+      "position_group": "Skill",
+      "metadata": {
+        "class_year": "Jr.",
+        "height_in": 76,
+        "weight_lb": 181,
+        "hometown": "Jacksonville, Fla",
+        "high_school": "Ribault",
+        "previous_school": "Southeast Missouri St",
+        "roster_season": "2026",
+        "roster_key": "2026-gilbert-jr-kalvin"
+      }
+    },
+    {
+      "first_name": "Seth",
+      "last_name": "Elchert",
+      "jersey_number": 10,
+      "position": "WR",
+      "position_group": "Skill",
+      "metadata": {
+        "class_year": "Fr.",
+        "height_in": 75,
+        "weight_lb": 190,
+        "hometown": "Findlay, Ohio",
+        "high_school": "Liberty-Benton",
+        "roster_season": "2026",
+        "roster_key": "2026-elchert-seth"
+      }
+    },
+    {
+      "first_name": "Julian",
+      "last_name": "Fox",
+      "jersey_number": 10,
+      "position": "LB",
+      "position_group": "LB",
+      "metadata": {
+        "class_year": "Jr.",
+        "height_in": 73,
+        "weight_lb": 220,
+        "hometown": "Cordele, Ga.",
+        "high_school": "Crisp County",
+        "previous_school": "Mercer",
+        "roster_season": "2026",
+        "roster_key": "2026-fox-julian"
+      }
+    },
+    {
+      "first_name": "Hyajah",
+      "last_name": "Miller",
+      "jersey_number": 11,
+      "position": "CB",
+      "position_group": "DB",
+      "metadata": {
+        "class_year": "So.",
+        "height_in": 74,
+        "weight_lb": 175,
+        "hometown": "North Lauderdale, Fla.",
+        "high_school": "Coconut Creek",
+        "roster_season": "2026",
+        "roster_key": "2026-miller-hyajah"
+      }
+    },
+    {
+      "first_name": "Walter",
+      "last_name": "Moses",
+      "jersey_number": 11,
+      "position": "QB",
+      "position_group": "QB",
+      "metadata": {
+        "class_year": "R-Fr.",
+        "height_in": 76,
+        "weight_lb": 190,
+        "hometown": "Perry, Ohio",
+        "high_school": "Perry",
+        "roster_season": "2026",
+        "roster_key": "2026-moses-walter"
+      }
+    },
+    {
+      "first_name": "Mo",
+      "last_name": "Conteh",
+      "jersey_number": 12,
+      "position": "S",
+      "position_group": "DB",
+      "metadata": {
+        "class_year": "Sr.",
+        "height_in": 72,
+        "weight_lb": 190,
+        "hometown": "Columbus, Ohio",
+        "high_school": "Eastmoor Academy",
+        "previous_school": "Ohio Dominican",
+        "roster_season": "2026",
+        "roster_key": "2026-conteh-mo"
+      }
+    },
+    {
+      "first_name": "Bryson",
+      "last_name": "Hammer",
+      "jersey_number": 12,
+      "position": "WR",
+      "position_group": "Skill",
+      "metadata": {
+        "class_year": "Jr.",
+        "height_in": 71,
+        "weight_lb": 180,
+        "hometown": "Fremont, Ohio",
+        "high_school": "Ross",
+        "roster_season": "2026",
+        "roster_key": "2026-hammer-bryson"
+      }
+    },
+    {
+      "first_name": "Jake",
+      "last_name": "DeHaan",
+      "jersey_number": 13,
+      "position": "QB",
+      "position_group": "QB",
+      "metadata": {
+        "class_year": "Jr.",
+        "height_in": 74,
+        "weight_lb": 203,
+        "hometown": "Byron Center, Mich.",
+        "high_school": "South Christian",
+        "roster_season": "2026",
+        "roster_key": "2026-dehaan-jake"
+      }
+    },
+    {
+      "first_name": "Kari",
+      "last_name": "Jackson",
+      "jersey_number": 13,
+      "position": "LB",
+      "position_group": "LB",
+      "metadata": {
+        "class_year": "So.",
+        "height_in": 73,
+        "weight_lb": 238,
+        "hometown": "West Bloomfield, Mich",
+        "high_school": "West Bloomfield",
+        "previous_school": "Penn State",
+        "roster_season": "2026",
+        "roster_key": "2026-jackson-kari"
+      }
+    },
+    {
+      "first_name": "Cooper",
+      "last_name": "Rusk",
+      "jersey_number": 13,
+      "position": "WR",
+      "position_group": "Skill",
+      "metadata": {
+        "class_year": "Sr.",
+        "height_in": 70,
+        "weight_lb": 190,
+        "hometown": "Macedonia, Ohio",
+        "high_school": "Nordonia",
+        "roster_season": "2026",
+        "roster_key": "2026-rusk-cooper"
+      }
+    },
+    {
+      "first_name": "Tashi",
+      "last_name": "Braceful",
+      "jersey_number": 14,
+      "position": "WR",
+      "position_group": "Skill",
+      "metadata": {
+        "class_year": "So.",
+        "height_in": 74,
+        "weight_lb": 187,
+        "hometown": "Southfield, Mich.",
+        "high_school": "Southfield A&T",
+        "roster_season": "2026",
+        "roster_key": "2026-braceful-tashi"
+      }
+    },
+    {
+      "first_name": "Michael-Arinzé",
+      "last_name": "Ezirim",
+      "jersey_number": 15,
+      "position": "S",
+      "position_group": "DB",
+      "metadata": {
+        "class_year": "So.",
+        "height_in": 73,
+        "weight_lb": 183,
+        "hometown": "Dublin, Ohio",
+        "high_school": "Dublin Jerome",
+        "roster_season": "2026",
+        "roster_key": "2026-ezirim-michael-arinze"
+      }
+    },
+    {
+      "first_name": "Kaleb",
+      "last_name": "Hutchinson",
+      "jersey_number": 17,
+      "position": "S",
+      "position_group": "DB",
+      "metadata": {
+        "class_year": "Sr.",
+        "height_in": 72,
+        "weight_lb": 185,
+        "hometown": "Augusta, Ga.",
+        "high_school": "Westside",
+        "previous_school": "Mercer",
+        "roster_season": "2026",
+        "roster_key": "2026-hutchinson-kaleb"
+      }
+    },
+    {
+      "first_name": "Daryl",
+      "last_name": "Barnett Jr.",
+      "jersey_number": 19,
+      "position": "WR",
+      "position_group": "Skill",
+      "metadata": {
+        "class_year": "So.",
+        "height_in": 74,
+        "weight_lb": 195,
+        "hometown": "Toledo, Ohio",
+        "high_school": "Scott",
+        "roster_season": "2026",
+        "roster_key": "2026-barnett-jr-daryl"
+      }
+    },
+    {
+      "first_name": "Isaac",
+      "last_name": "Prince",
+      "jersey_number": 19,
+      "position": "LB",
+      "position_group": "LB",
+      "metadata": {
+        "class_year": "Sr.",
+        "height_in": 72,
+        "weight_lb": 215,
+        "hometown": "Snellville, Ga.",
+        "high_school": "Shiloh",
+        "previous_school": "Mercer",
+        "roster_season": "2026",
+        "roster_key": "2026-prince-isaac"
+      }
+    },
+    {
+      "first_name": "Corey",
+      "last_name": "Smith",
+      "jersey_number": 20,
+      "position": "RB",
+      "position_group": "Skill",
+      "metadata": {
+        "class_year": "So.",
+        "height_in": 70,
+        "weight_lb": 175,
+        "hometown": "Milwaukee, Wis.",
+        "high_school": "Catholic Memorial",
+        "previous_school": "Penn State",
+        "roster_season": "2026",
+        "roster_key": "2026-smith-corey"
+      }
+    },
+    {
+      "first_name": "LaDavion",
+      "last_name": "Osborn",
+      "jersey_number": 21,
+      "position": "CB",
+      "position_group": "DB",
+      "metadata": {
+        "class_year": "Sr.",
+        "height_in": 73,
+        "weight_lb": 183,
+        "hometown": "Tyler, Texas",
+        "high_school": "Lake Highlands",
+        "previous_school": "Northern Colorado",
+        "roster_season": "2026",
+        "roster_key": "2026-osborn-ladavion"
+      }
+    },
+    {
+      "first_name": "CJ",
+      "last_name": "Miller",
+      "jersey_number": 22,
+      "position": "RB",
+      "position_group": "Skill",
+      "metadata": {
+        "class_year": "Jr.",
+        "height_in": 71,
+        "weight_lb": 230,
+        "hometown": "Gadsden, Ala",
+        "high_school": "Gadsden City",
+        "previous_school": "Mercer",
+        "roster_season": "2026",
+        "roster_key": "2026-miller-cj"
+      }
+    },
+    {
+      "first_name": "Nicholas",
+      "last_name": "Thompson",
+      "jersey_number": 22,
+      "position": "S",
+      "position_group": "DB",
+      "metadata": {
+        "class_year": "Jr.",
+        "height_in": 74,
+        "weight_lb": 206,
+        "hometown": "Fort Wayne, Ind.",
+        "high_school": "Bishop Luers",
+        "roster_season": "2026",
+        "roster_key": "2026-thompson-nicholas"
+      }
+    },
+    {
+      "first_name": "Israel",
+      "last_name": "Petite",
+      "jersey_number": 23,
+      "position": "CB",
+      "position_group": "DB",
+      "metadata": {
+        "class_year": "So.",
+        "height_in": 71,
+        "weight_lb": 170,
+        "hometown": "Macedonia, Ohio",
+        "high_school": "Nordonia",
+        "previous_school": "Robert Morris",
+        "roster_season": "2026",
+        "roster_key": "2026-petite-israel"
+      }
+    },
+    {
+      "first_name": "Noah",
+      "last_name": "Sanders",
+      "jersey_number": 23,
+      "position": "RB",
+      "position_group": "Skill",
+      "metadata": {
+        "class_year": "R-Fr.",
+        "height_in": 71,
+        "weight_lb": 170,
+        "hometown": "Franklin, Mich.",
+        "high_school": "Wylie E. Groves",
+        "roster_season": "2026",
+        "roster_key": "2026-sanders-noah"
+      }
+    },
+    {
+      "first_name": "Connor",
+      "last_name": "Walendzak",
+      "jersey_number": 24,
+      "position": "RB",
+      "position_group": "Skill",
+      "metadata": {
+        "class_year": "Sr.",
+        "height_in": 71,
+        "weight_lb": 208,
+        "hometown": "Perrysburg, Ohio",
+        "high_school": "Perrysburg",
+        "roster_season": "2026",
+        "roster_key": "2026-walendzak-connor"
+      }
+    },
+    {
+      "first_name": "Tyrell",
+      "last_name": "Russell",
+      "jersey_number": 25,
+      "position": "CB",
+      "position_group": "DB",
+      "metadata": {
+        "class_year": "R-Fr.",
+        "height_in": 71,
+        "weight_lb": 175,
+        "hometown": "Columbus, Ohio",
+        "high_school": "Beechcroft",
+        "roster_season": "2026",
+        "roster_key": "2026-russell-tyrell"
+      }
+    },
+    {
+      "first_name": "Tyler",
+      "last_name": "Hackenbracht",
+      "jersey_number": 26,
+      "position": "S",
+      "position_group": "DB",
+      "metadata": {
+        "class_year": "R-Fr.",
+        "height_in": 74,
+        "weight_lb": 210,
+        "hometown": "Massillon, Ohio",
+        "high_school": "Washington",
+        "roster_season": "2026",
+        "roster_key": "2026-hackenbracht-tyler"
+      }
+    },
+    {
+      "first_name": "Dane",
+      "last_name": "Nauman",
+      "jersey_number": 27,
+      "position": "RB",
+      "position_group": "Skill",
+      "metadata": {
+        "class_year": "So.",
+        "height_in": 72,
+        "weight_lb": 210,
+        "hometown": "Marengo, Ohio",
+        "high_school": "Highland",
+        "roster_season": "2026",
+        "roster_key": "2026-nauman-dane"
+      }
+    },
+    {
+      "first_name": "Sam",
+      "last_name": "Smith Jr.",
+      "jersey_number": 28,
+      "position": "LB",
+      "position_group": "LB",
+      "metadata": {
+        "class_year": "Jr.",
+        "height_in": 76,
+        "weight_lb": 223,
+        "hometown": "Delta, Ohio",
+        "high_school": "Wauseon",
+        "roster_season": "2026",
+        "roster_key": "2026-smith-jr-sam"
+      }
+    },
+    {
+      "first_name": "Kadale",
+      "last_name": "Williams",
+      "jersey_number": 28,
+      "position": "RB",
+      "position_group": "Skill",
+      "metadata": {
+        "class_year": "R-Fr.",
+        "height_in": 73,
+        "weight_lb": 180,
+        "hometown": "Jackson, Mich.",
+        "high_school": "Lumen Christi",
+        "roster_season": "2026",
+        "roster_key": "2026-williams-kadale"
+      }
+    },
+    {
+      "first_name": "Tanner",
+      "last_name": "Rubinstein",
+      "jersey_number": 29,
+      "position": "FB",
+      "position_group": "Skill",
+      "metadata": {
+        "class_year": "Sr.",
+        "height_in": 75,
+        "weight_lb": 235,
+        "hometown": "Napoleon, Ohio",
+        "high_school": "Napoleon",
+        "previous_school": "Siena Heights",
+        "roster_season": "2026",
+        "roster_key": "2026-rubinstein-tanner"
+      }
+    },
+    {
+      "first_name": "Hayden",
+      "last_name": "Roy",
+      "jersey_number": 30,
+      "position": "LB",
+      "position_group": "LB",
+      "metadata": {
+        "class_year": "Fr.",
+        "height_in": 73,
+        "weight_lb": 200,
+        "hometown": "Lyons, Ga.",
+        "high_school": "Toombs County",
+        "roster_season": "2026",
+        "roster_key": "2026-roy-hayden"
+      }
+    },
+    {
+      "first_name": "Maddox",
+      "last_name": "Arnold",
+      "jersey_number": 31,
+      "position": "LB",
+      "position_group": "LB",
+      "metadata": {
+        "class_year": "R-Fr.",
+        "height_in": 74,
+        "weight_lb": 225,
+        "hometown": "Cincinnati, Ohio",
+        "high_school": "Elder",
+        "roster_season": "2026",
+        "roster_key": "2026-arnold-maddox"
+      }
+    },
+    {
+      "first_name": "Andrew",
+      "last_name": "Fineske",
+      "jersey_number": 33,
+      "position": "S",
+      "position_group": "DB",
+      "metadata": {
+        "class_year": "So.",
+        "height_in": 73,
+        "weight_lb": 190,
+        "hometown": "Sylvania, Ohio",
+        "high_school": "Northview",
+        "roster_season": "2026",
+        "roster_key": "2026-fineske-andrew"
+      }
+    },
+    {
+      "first_name": "Bryant",
+      "last_name": "Weatherspoon Jr.",
+      "jersey_number": 35,
+      "position": "DT",
+      "position_group": "DL",
+      "metadata": {
+        "class_year": "R-Fr.",
+        "height_in": 75,
+        "weight_lb": 250,
+        "hometown": "Detroit, Mich.",
+        "high_school": "Harper Woods",
+        "roster_season": "2026",
+        "roster_key": "2026-weatherspoon-jr-bryant"
+      }
+    },
+    {
+      "first_name": "Emilio",
+      "last_name": "Duran",
+      "jersey_number": 36,
+      "position": "P",
+      "position_group": "ST",
+      "metadata": {
+        "class_year": "Sr.",
+        "height_in": 72,
+        "weight_lb": 200,
+        "hometown": "Ottawa Hills, Ohio",
+        "high_school": "Ottawa Hills",
+        "roster_season": "2026",
+        "roster_key": "2026-duran-emilio"
+      }
+    },
+    {
+      "first_name": "Dylan",
+      "last_name": "Hohler",
+      "jersey_number": 39,
+      "position": "S",
+      "position_group": "DB",
+      "metadata": {
+        "class_year": "Jr.",
+        "height_in": 76,
+        "weight_lb": 196,
+        "hometown": "Huron, Ohio",
+        "high_school": "Huron",
+        "roster_season": "2026",
+        "roster_key": "2026-hohler-dylan"
+      }
+    },
+    {
+      "first_name": "Anthony",
+      "last_name": "Ruggles",
+      "jersey_number": 39,
+      "position": "PK/P",
+      "position_group": "ST",
+      "metadata": {
+        "class_year": "R-Fr.",
+        "height_in": 69,
+        "weight_lb": 170,
+        "hometown": "Youngstown, Ohio",
+        "high_school": "Austintown Fitch",
+        "roster_season": "2026",
+        "roster_key": "2026-ruggles-anthony"
+      }
+    },
+    {
+      "first_name": "Cam",
+      "last_name": "Gwinn",
+      "jersey_number": 41,
+      "position": "DT",
+      "position_group": "DL",
+      "metadata": {
+        "class_year": "R-Fr.",
+        "height_in": 74,
+        "weight_lb": 256,
+        "hometown": "Columbus, Ohio",
+        "high_school": "St. Francis de Sales",
+        "roster_season": "2026",
+        "roster_key": "2026-gwinn-cam"
+      }
+    },
+    {
+      "first_name": "Sam",
+      "last_name": "Lee",
+      "jersey_number": 43,
+      "position": "TE",
+      "position_group": "Skill",
+      "metadata": {
+        "class_year": "Sr.",
+        "height_in": 78,
+        "weight_lb": 238,
+        "hometown": "Toledo, Ohio",
+        "high_school": "Central Catholic",
+        "previous_school": "Hillsdale College",
+        "roster_season": "2026",
+        "roster_key": "2026-lee-sam"
+      }
+    },
+    {
+      "first_name": "Isaac",
+      "last_name": "Zay",
+      "jersey_number": 44,
+      "position": "LB",
+      "position_group": "LB",
+      "metadata": {
+        "class_year": "So.",
+        "height_in": 75,
+        "weight_lb": 225,
+        "hometown": "Fort Wayne, Ind.",
+        "high_school": "Bishop Luers",
+        "roster_season": "2026",
+        "roster_key": "2026-zay-isaac"
+      }
+    },
+    {
+      "first_name": "Hunter",
+      "last_name": "Probst",
+      "jersey_number": 46,
+      "position": "P",
+      "position_group": "ST",
+      "metadata": {
+        "class_year": "Fr.",
+        "height_in": 77,
+        "weight_lb": 210,
+        "hometown": "Santa Rosa, Calif.",
+        "high_school": "Rancho Cotate",
+        "roster_season": "2026",
+        "roster_key": "2026-probst-hunter"
+      }
+    },
+    {
+      "first_name": "Markus",
+      "last_name": "Meincke",
+      "jersey_number": 47,
+      "position": "P",
+      "position_group": "ST",
+      "metadata": {
+        "class_year": "Jr.",
+        "height_in": 79,
+        "weight_lb": 220,
+        "hometown": "Hamburg, Germany",
+        "high_school": "International School of Hamburg",
+        "previous_school": "Mercer",
+        "roster_season": "2026",
+        "roster_key": "2026-meincke-markus"
+      }
+    },
+    {
+      "first_name": "Jordin",
+      "last_name": "Farrow",
+      "jersey_number": 48,
+      "position": "DT",
+      "position_group": "DL",
+      "metadata": {
+        "class_year": "R-Fr.",
+        "height_in": 75,
+        "weight_lb": 292,
+        "hometown": "Inkster, Mich.",
+        "high_school": "River Rouge",
+        "roster_season": "2026",
+        "roster_key": "2026-farrow-jordin"
+      }
+    },
+    {
+      "first_name": "Max",
+      "last_name": "Allen",
+      "jersey_number": 49,
+      "position": "LS",
+      "position_group": "ST",
+      "metadata": {
+        "class_year": "R-Fr.",
+        "height_in": 76,
+        "weight_lb": 205,
+        "hometown": "Holly Springs, N.C.",
+        "high_school": "Holly Springs",
+        "previous_school": "Mercer",
+        "roster_season": "2026",
+        "roster_key": "2026-allen-max"
+      }
+    },
+    {
+      "first_name": "Luke",
+      "last_name": "Rector",
+      "jersey_number": 50,
+      "position": "OL",
+      "position_group": "OL",
+      "metadata": {
+        "class_year": "Jr.",
+        "height_in": 77,
+        "weight_lb": 300,
+        "hometown": "Valdese, N.C",
+        "high_school": "Draughn",
+        "previous_school": "Gardner-Webb",
+        "roster_season": "2026",
+        "roster_key": "2026-rector-luke"
+      }
+    },
+    {
+      "first_name": "Lucas",
+      "last_name": "Lambert-Pipkin",
+      "jersey_number": 52,
+      "position": "DT",
+      "position_group": "DL",
+      "metadata": {
+        "class_year": "Jr.",
+        "height_in": 74,
+        "weight_lb": 285,
+        "hometown": "Cranberry Township, Pa.",
+        "high_school": "Seneca Valley",
+        "previous_school": "Robert Morris",
+        "roster_season": "2026",
+        "roster_key": "2026-lambert-pipkin-lucas"
+      }
+    },
+    {
+      "first_name": "Samuel",
+      "last_name": "Toniolo",
+      "jersey_number": 53,
+      "position": "DE",
+      "position_group": "DL",
+      "metadata": {
+        "class_year": "R-Fr.",
+        "height_in": 76,
+        "weight_lb": 245,
+        "hometown": "Avon, Ohio",
+        "high_school": "Avon",
+        "roster_season": "2026",
+        "roster_key": "2026-toniolo-samuel"
+      }
+    },
+    {
+      "first_name": "Ibrahim",
+      "last_name": "Traore",
+      "jersey_number": 55,
+      "position": "OL",
+      "position_group": "OL",
+      "metadata": {
+        "class_year": "Sr.",
+        "height_in": 77,
+        "weight_lb": 297,
+        "hometown": "Bronx, N.Y.",
+        "high_school": "Frederick Douglas Academy 1",
+        "previous_school": "Penn State",
+        "roster_season": "2026",
+        "roster_key": "2026-traore-ibrahim"
+      }
+    },
+    {
+      "first_name": "Jacob",
+      "last_name": "Kropchak",
+      "jersey_number": 56,
+      "position": "OL",
+      "position_group": "OL",
+      "metadata": {
+        "class_year": "So.",
+        "height_in": 76,
+        "weight_lb": 296,
+        "hometown": "Rochester Hills, Mich.",
+        "high_school": "Stoney Creek",
+        "roster_season": "2026",
+        "roster_key": "2026-kropchak-jacob"
+      }
+    },
+    {
+      "first_name": "Jake",
+      "last_name": "Palucki",
+      "jersey_number": 58,
+      "position": "OL",
+      "position_group": "OL",
+      "metadata": {
+        "class_year": "Fr.",
+        "height_in": 77,
+        "weight_lb": 270,
+        "hometown": "Tinley Park, Ill.",
+        "high_school": "Andrew",
+        "roster_season": "2026",
+        "roster_key": "2026-palucki-jake"
+      }
+    },
+    {
+      "first_name": "Jake",
+      "last_name": "Grimm",
+      "jersey_number": 60,
+      "position": "OL",
+      "position_group": "OL",
+      "metadata": {
+        "class_year": "So.",
+        "height_in": 76,
+        "weight_lb": 295,
+        "hometown": "Gahanna, Ohio",
+        "high_school": "Gahanna Lincoln",
+        "roster_season": "2026",
+        "roster_key": "2026-grimm-jake"
+      }
+    },
+    {
+      "first_name": "Ameer",
+      "last_name": "Yasin",
+      "jersey_number": 61,
+      "position": "OL",
+      "position_group": "OL",
+      "metadata": {
+        "class_year": "R-Fr.",
+        "height_in": 77,
+        "weight_lb": 305,
+        "hometown": "Tallmadge, Ohio",
+        "high_school": "Tallmadge",
+        "roster_season": "2026",
+        "roster_key": "2026-yasin-ameer"
+      }
+    },
+    {
+      "first_name": "Christian",
+      "last_name": "Medlock",
+      "jersey_number": 62,
+      "position": "OL",
+      "position_group": "OL",
+      "metadata": {
+        "class_year": "Jr.",
+        "height_in": 77,
+        "weight_lb": 304,
+        "hometown": "Homewood, Ill.",
+        "high_school": "Homewood-Flossmoor",
+        "previous_school": "Northern Illinois",
+        "roster_season": "2026",
+        "roster_key": "2026-medlock-christian"
+      }
+    },
+    {
+      "first_name": "Grant",
+      "last_name": "Zimmerly",
+      "jersey_number": 63,
+      "position": "OL",
+      "position_group": "OL",
+      "metadata": {
+        "class_year": "So.",
+        "height_in": 76,
+        "weight_lb": 292,
+        "hometown": "Perrysburg, Ohio",
+        "high_school": "Perrysburg",
+        "roster_season": "2026",
+        "roster_key": "2026-zimmerly-grant"
+      }
+    },
+    {
+      "first_name": "Stephen",
+      "last_name": "Gales",
+      "jersey_number": 65,
+      "position": "OL",
+      "position_group": "OL",
+      "metadata": {
+        "class_year": "Sr.",
+        "height_in": 78,
+        "weight_lb": 290,
+        "hometown": "Alliance, Ohio",
+        "high_school": "Alliance",
+        "roster_season": "2026",
+        "roster_key": "2026-gales-stephen"
+      }
+    },
+    {
+      "first_name": "Cade",
+      "last_name": "Wilhelmi",
+      "jersey_number": 67,
+      "position": "OL",
+      "position_group": "OL",
+      "metadata": {
+        "class_year": "R-Fr.",
+        "height_in": 77,
+        "weight_lb": 290,
+        "hometown": "Berkley, Mich.",
+        "high_school": "Detroit Country Day",
+        "roster_season": "2026",
+        "roster_key": "2026-wilhelmi-cade"
+      }
+    },
+    {
+      "first_name": "Dominic",
+      "last_name": "Johnson",
+      "jersey_number": 69,
+      "position": "OL",
+      "position_group": "OL",
+      "metadata": {
+        "class_year": "So.",
+        "height_in": 75,
+        "weight_lb": 290,
+        "hometown": "Ocala, Fla.",
+        "high_school": "Trinity Catholic",
+        "previous_school": "Georgia State",
+        "roster_season": "2026",
+        "roster_key": "2026-johnson-dominic"
+      }
+    },
+    {
+      "first_name": "Nick",
+      "last_name": "Thomas",
+      "jersey_number": 70,
+      "position": "OL",
+      "position_group": "OL",
+      "metadata": {
+        "class_year": "Sr.",
+        "height_in": 76,
+        "weight_lb": 311,
+        "hometown": "East Orange, N.J",
+        "high_school": "Immaculate Conception",
+        "previous_school": "Boston College/Rhode Island",
+        "roster_season": "2026",
+        "roster_key": "2026-thomas-nick"
+      }
+    },
+    {
+      "first_name": "Matt",
+      "last_name": "Hofer",
+      "jersey_number": 71,
+      "position": "OL",
+      "position_group": "OL",
+      "metadata": {
+        "class_year": "So.",
+        "height_in": 77,
+        "weight_lb": 288,
+        "hometown": "Valparaiso, Ind.",
+        "high_school": "Valparaiso",
+        "roster_season": "2026",
+        "roster_key": "2026-hofer-matt"
+      }
+    },
+    {
+      "first_name": "Jonathan",
+      "last_name": "Harder",
+      "jersey_number": 73,
+      "position": "OL",
+      "position_group": "OL",
+      "metadata": {
+        "class_year": "Sr.",
+        "height_in": 76,
+        "weight_lb": 330,
+        "hometown": "Delaware, Ohio",
+        "high_school": "Olentangy Berlin",
+        "previous_school": "Cincinnati",
+        "roster_season": "2026",
+        "roster_key": "2026-harder-jonathan"
+      }
+    },
+    {
+      "first_name": "Ahmad",
+      "last_name": "Carwise",
+      "jersey_number": 74,
+      "position": "OL",
+      "position_group": "OL",
+      "metadata": {
+        "class_year": "So.",
+        "height_in": 77,
+        "weight_lb": 300,
+        "hometown": "Piedmont, S.C.",
+        "high_school": "Woodmont",
+        "previous_school": "Gardner-Webb",
+        "roster_season": "2026",
+        "roster_key": "2026-carwise-ahmad"
+      }
+    },
+    {
+      "first_name": "Dylan",
+      "last_name": "Senda",
+      "jersey_number": 78,
+      "position": "OL",
+      "position_group": "OL",
+      "metadata": {
+        "class_year": "Jr.",
+        "height_in": 77,
+        "weight_lb": 303,
+        "hometown": "Livonia, Mich.",
+        "high_school": "Dearborn Divine Child",
+        "previous_school": "Northwestern/Auburn",
+        "roster_season": "2026",
+        "roster_key": "2026-senda-dylan"
+      }
+    },
+    {
+      "first_name": "Peyton",
+      "last_name": "Strickland",
+      "jersey_number": 80,
+      "position": "TE",
+      "position_group": "Skill",
+      "metadata": {
+        "class_year": "Sr.",
+        "height_in": 75,
+        "weight_lb": 235,
+        "hometown": "Goffstown, N.H.",
+        "high_school": "Goffstown",
+        "previous_school": "New Hampshire",
+        "roster_season": "2026",
+        "roster_key": "2026-strickland-peyton"
+      }
+    },
+    {
+      "first_name": "Ethan",
+      "last_name": "Malafa",
+      "jersey_number": 81,
+      "position": "TE",
+      "position_group": "Skill",
+      "metadata": {
+        "class_year": "Sr.",
+        "height_in": 78,
+        "weight_lb": 250,
+        "hometown": "Cincinnati, Ohio",
+        "high_school": "Mariemont",
+        "previous_school": "Butler",
+        "roster_season": "2026",
+        "roster_key": "2026-malafa-ethan"
+      }
+    },
+    {
+      "first_name": "Omar",
+      "last_name": "Mims Jr.",
+      "jersey_number": 83,
+      "position": "WR",
+      "position_group": "Skill",
+      "metadata": {
+        "class_year": "R-Fr.",
+        "height_in": 72,
+        "weight_lb": 165,
+        "hometown": "East St. Louis, Ill.",
+        "high_school": "Cahokia",
+        "roster_season": "2026",
+        "roster_key": "2026-mims-jr-omar"
+      }
+    },
+    {
+      "first_name": "Thomas",
+      "last_name": "Zsiros",
+      "jersey_number": 84,
+      "position": "WR",
+      "position_group": "Skill",
+      "metadata": {
+        "class_year": "Sr.",
+        "height_in": 75,
+        "weight_lb": 222,
+        "hometown": "Maumee, Ohio",
+        "high_school": "St. John's Jesuit",
+        "roster_season": "2026",
+        "roster_key": "2026-zsiros-thomas"
+      }
+    },
+    {
+      "first_name": "Josh",
+      "last_name": "Lee",
+      "jersey_number": 85,
+      "position": "DE",
+      "position_group": "DL",
+      "metadata": {
+        "class_year": "Sr.",
+        "height_in": 78,
+        "weight_lb": 238,
+        "hometown": "Toledo, Ohio",
+        "high_school": "Central Catholic",
+        "previous_school": "Hillsdale College",
+        "roster_season": "2026",
+        "roster_key": "2026-lee-josh"
+      }
+    },
+    {
+      "first_name": "Anthony",
+      "last_name": "Simpson",
+      "jersey_number": 85,
+      "position": "WR",
+      "position_group": "Skill",
+      "metadata": {
+        "class_year": "Sr.",
+        "height_in": 71,
+        "weight_lb": 186,
+        "hometown": "Hartford, Conn.",
+        "high_school": "Bloomfield",
+        "previous_school": "Arizona/UMass/Michigan",
+        "roster_season": "2026",
+        "roster_key": "2026-simpson-anthony"
+      }
+    },
+    {
+      "first_name": "Jacob",
+      "last_name": "Newell",
+      "jersey_number": 88,
+      "position": "TE",
+      "position_group": "Skill",
+      "metadata": {
+        "class_year": "Sr.",
+        "height_in": 76,
+        "weight_lb": 245,
+        "hometown": "Springfield, Ore.",
+        "high_school": "Thurston",
+        "previous_school": "Arizona State/Akron",
+        "roster_season": "2026",
+        "roster_key": "2026-newell-jacob"
+      }
+    },
+    {
+      "first_name": "Zach",
+      "last_name": "Johnson",
+      "jersey_number": 90,
+      "position": "DE",
+      "position_group": "DL",
+      "metadata": {
+        "class_year": "So.",
+        "height_in": 75,
+        "weight_lb": 240,
+        "hometown": "Ocala, Fla.",
+        "high_school": "Carrollwood Day",
+        "previous_school": "UAB",
+        "roster_season": "2026",
+        "roster_key": "2026-johnson-zach"
+      }
+    },
+    {
+      "first_name": "Laith",
+      "last_name": "Shamma",
+      "jersey_number": 91,
+      "position": "DT",
+      "position_group": "DL",
+      "metadata": {
+        "class_year": "Jr.",
+        "height_in": 78,
+        "weight_lb": 280,
+        "hometown": "Ann Arbor, Mich.",
+        "high_school": "Huron",
+        "roster_season": "2026",
+        "roster_key": "2026-shamma-laith"
+      }
+    },
+    {
+      "first_name": "Tommy",
+      "last_name": "Huss",
+      "jersey_number": 92,
+      "position": "DE",
+      "position_group": "DL",
+      "metadata": {
+        "class_year": "Jr.",
+        "height_in": 75,
+        "weight_lb": 227,
+        "hometown": "Lambertville, Mich.",
+        "high_school": "Bedford",
+        "roster_season": "2026",
+        "roster_key": "2026-huss-tommy"
+      }
+    },
+    {
+      "first_name": "Reice",
+      "last_name": "Griffith",
+      "jersey_number": 93,
+      "position": "PK",
+      "position_group": "ST",
+      "metadata": {
+        "class_year": "Sr.",
+        "height_in": 71,
+        "weight_lb": 170,
+        "hometown": "Pace, Fla.",
+        "high_school": "Pace",
+        "previous_school": "Mercer",
+        "roster_season": "2026",
+        "roster_key": "2026-griffith-reice"
+      }
+    },
+    {
+      "first_name": "Leonard",
+      "last_name": "Sharp",
+      "jersey_number": 93,
+      "position": "DL",
+      "position_group": "DL",
+      "metadata": {
+        "class_year": "R-Sr.",
+        "height_in": 76,
+        "weight_lb": 283,
+        "hometown": "Bedford, Ohio",
+        "high_school": "Bedford",
+        "previous_school": "Ohio Dominican",
+        "roster_season": "2026",
+        "roster_key": "2026-sharp-leonard"
+      }
+    },
+    {
+      "first_name": "Wayne",
+      "last_name": "Peart II",
+      "jersey_number": 95,
+      "position": "DL",
+      "position_group": "DL",
+      "metadata": {
+        "class_year": "So.",
+        "height_in": 76,
+        "weight_lb": 265,
+        "hometown": "Pembroke Pines, Fla.",
+        "high_school": "Chaminade-Madonna",
+        "roster_season": "2026",
+        "roster_key": "2026-peart-ii-wayne"
+      }
+    },
+    {
+      "first_name": "Nathaniel",
+      "last_name": "Chandler",
+      "jersey_number": 96,
+      "position": "DL",
+      "position_group": "DL",
+      "metadata": {
+        "class_year": "Jr.",
+        "height_in": 76,
+        "weight_lb": 269,
+        "hometown": "Smyrna, Del.",
+        "high_school": "Smyrna",
+        "previous_school": "Sacred Heart",
+        "roster_season": "2026",
+        "roster_key": "2026-chandler-nathaniel"
+      }
+    },
+    {
+      "first_name": "Brian",
+      "last_name": "Stovall Jr.",
+      "jersey_number": 97,
+      "position": "DE",
+      "position_group": "DL",
+      "metadata": {
+        "class_year": "Fr.",
+        "height_in": 74,
+        "weight_lb": 228,
+        "hometown": "Romulus. Mich.",
+        "high_school": "Detroit Cass Tech",
+        "roster_season": "2026",
+        "roster_key": "2026-stovall-jr-brian"
+      }
+    },
+    {
+      "first_name": "Caden",
+      "last_name": "Camese",
+      "jersey_number": 99,
+      "position": "DT",
+      "position_group": "DL",
+      "metadata": {
+        "class_year": "Sr.",
+        "height_in": 73,
+        "weight_lb": 285,
+        "hometown": "Bellevue, Neb.",
+        "high_school": "Bellevue West",
+        "previous_school": "Mercer",
+        "roster_season": "2026",
+        "roster_key": "2026-camese-caden"
+      }
+    }
+  ]
+}

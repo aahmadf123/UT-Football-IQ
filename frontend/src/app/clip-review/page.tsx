@@ -1,6 +1,6 @@
 "use client";
 
-import { clipView, playSequence, sameplayAngles, situationLabel, viewLabel } from "@/lib/clip-view";
+import { alignedViewTime, clipView, playSequence, sameplayAngles, situationLabel, viewLabel } from "@/lib/clip-view";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, memo, useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from "react";
@@ -33,7 +33,7 @@ import { CorrectionsPanel } from "./corrections-panel";
 import { ReviewMetadataPanel } from "./review-metadata-panel";
 import { RecordingReview } from "./recording-review";
 import { CorrectionHistory } from "./correction-history";
-import { FieldMinimap } from "./field-minimap";
+import { FieldInset } from "./field-inset";
 import { OverlayCanvas, eventTimeSeconds, useOverlayStyle, type OverlayStyle } from "./overlay-canvas";
 import { VideoTransport } from "./video-transport";
 import { canSeeTechnicalDetails, resolveCurrentRole } from "@/lib/roles";
@@ -45,6 +45,10 @@ import { EmptyState } from "@/components/composite/empty-state";
 import { StatLine } from "@/components/composite/stat-chip";
 import { cn } from "@/lib/utils";
 import { friendlyMessage } from "@/lib/api-error";
+import { filmReviewHref, safeReturnHref } from "@/lib/analysis-context";
+import { Input } from "@/components/ui/input";
+import { SavedFilmViews } from "@/components/film-room/saved-film-views";
+import { ClipBoundaryTools } from "./clip-boundary-tools";
 
 const LAYER_TOGGLES: ReadonlyArray<{ key: OverlayLayerKey; label: string }> = [
   { key: "raw", label: "Original film" },
@@ -132,7 +136,7 @@ function ClipReviewView({ clipId }: { clipId: string }) {
   // to the other source once.
   const [sourceChoice, setSourceChoice] = useState<"auto" | "parent" | "clip">("auto");
   const [playbackError, setPlaybackError] = useState<string | null>(null);
-  const playbackResumeRef = useRef<{ time: number; playing: boolean } | null>(null);
+  const playbackResumeRef = useRef<{ time: number; playing: boolean; rate: number } | null>(null);
   const capturePlaybackStateRef = useRef<(() => void) | null>(null);
   const refresh = useCallback(() => {
     if (state.kind === "ready") siblingCache.delete(state.video.id);
@@ -332,7 +336,7 @@ function ClipReviewReady({
   siblingClips: ApiClip[];
   onRefresh: () => void;
   playbackError: string | null;
-  playbackResumeRef: MutableRefObject<{ time: number; playing: boolean } | null>;
+  playbackResumeRef: MutableRefObject<{ time: number; playing: boolean; rate: number } | null>;
   capturePlaybackStateRef: MutableRefObject<(() => void) | null>;
   onPlaybackError: () => void;
 }) {
@@ -373,7 +377,7 @@ function ClipReviewReady({
   const [overlayStyle, setOverlayStyle] = useOverlayStyle();
   const [intrinsicSize, setIntrinsicSize] = useState<{ width: number; height: number } | null>(null);
   const [activeLayers, setActiveLayers] = useState<Set<OverlayLayerKey>>(
-    () => new Set<OverlayLayerKey>(["tracks", "events", "labels", "metrics"]),
+    () => new Set<OverlayLayerKey>(["tracks", "events", "labels", "metrics", "field"]),
   );
   // Playback time lives in a media clock, not React state: per-frame state
   // re-rendered this whole page 30-60x a second. Only the overlay subscribes
@@ -390,7 +394,7 @@ function ClipReviewReady({
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const capturePlaybackState = useCallback(() => {
     const el = videoRef.current;
-    if (el) playbackResumeRef.current = { time: toLocal(el.currentTime), playing: !el.paused };
+    if (el) playbackResumeRef.current = { time: toLocal(el.currentTime), playing: !el.paused, rate: el.playbackRate };
   }, [playbackResumeRef, toLocal]);
   useEffect(() => {
     capturePlaybackStateRef.current = capturePlaybackState;
@@ -440,6 +444,32 @@ function ClipReviewReady({
   // Prev/next play: through a playlist when one was opened (e.g. "3rd-down
   // conversions" from Team Stats), else the same video by start time.
   const searchParams = useSearchParams();
+  const layout = searchParams.get("layout") === "analyst" ? "analyst" : "coach";
+  const [inspectorOpen, setInspectorOpen] = useState(searchParams.get("inspector") !== "hidden");
+  const [playQuery, setPlayQuery] = useState(searchParams.get("playSearch") ?? "");
+  const searchPlays = (value: string) => {
+    setPlayQuery(value);
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("playSearch", value);
+    router.replace(`/clip-review/?${params}`, { scroll: false });
+  };
+  const changeLayout = (value: string) => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("layout", value);
+    setOverlayStyle(value === "analyst" ? "analyst" : "clean");
+    setSideTab(value === "analyst" ? "details" : "tag");
+    router.replace(`/clip-review/?${params}`, { scroll: false });
+  };
+  useEffect(() => {
+    setOverlayStyle(layout === "analyst" ? "analyst" : "clean");
+    setSideTab(layout === "analyst" ? "details" : "tag");
+  }, [layout, setOverlayStyle]);
+  const toggleInspector = () => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("inspector", inspectorOpen ? "hidden" : "shown");
+    setInspectorOpen(!inspectorOpen);
+    router.replace(`/clip-review/?${params}`, { scroll: false });
+  };
   const playlistParam = searchParams.get("playlist") ?? "";
   const playlist = useMemo(
     () => (playlistParam ? playlistParam.split(",").filter(Boolean) : []),
@@ -449,9 +479,7 @@ function ClipReviewReady({
   // Back returns where the coach came from (a review list, a Team Stats
   // playlist); only same-site paths are honoured.
   const fromParam = searchParams.get("from") ?? "";
-  const backHref = fromParam.startsWith("/") && !fromParam.startsWith("//")
-    ? fromParam
-    : `/film-room/?tab=review&videoId=${encodeURIComponent(video.id)}`;
+  const backHref = safeReturnHref(fromParam, `/film-room/?tab=review&videoId=${encodeURIComponent(video.id)}`);
   const playSteps = useMemo(() => playSequence(clip, siblingClips).map((c) => c.id), [clip, siblingClips]);
   const sequence = playlistIndex >= 0 ? playlist : playSteps;
   const clipIndex = playlistIndex >= 0 ? playlistIndex : playSteps.indexOf(clip.id);
@@ -459,11 +487,9 @@ function ClipReviewReady({
   const nextClipId = clipIndex >= 0 && clipIndex < sequence.length - 1 ? sequence[clipIndex + 1] : null;
   const goToClip = useCallback(
     (id: string) => {
-      const params = new URLSearchParams({ clipId: id });
-      if (playlistIndex >= 0) params.set("playlist", playlistParam);
-      router.push(`/clip-review/?${params.toString()}`);
+      router.push(filmReviewHref(new URLSearchParams(searchParams.toString()), id));
     },
-    [router, playlistIndex, playlistParam],
+    [router, searchParams],
   );
   const goPrevClip = useMemo(
     () => (prevClipId ? () => goToClip(prevClipId) : null),
@@ -477,6 +503,23 @@ function ClipReviewReady({
   // Clip-local seek target shared by the transport and the timeline.
   const clipOffset = playbackUsesClipAsset ? 0 : clip.start_time;
   const clipDuration = Math.max(clip.end_time - clip.start_time, 0);
+  const requestedTimeParam = searchParams.get("t");
+  const requestedRateParam = searchParams.get("rate");
+  const requestedInspector = searchParams.get("inspector");
+  const requestedSearch = searchParams.get("playSearch");
+  useEffect(() => {
+    setInspectorOpen(requestedInspector !== "hidden");
+    setPlayQuery(requestedSearch ?? "");
+  }, [requestedInspector, requestedSearch]);
+  useEffect(() => {
+    const element = videoRef.current;
+    if (!element || element.readyState === 0) return;
+    const time = Number(requestedTimeParam ?? 0);
+    const rate = Number(requestedRateParam ?? 1);
+    element.currentTime = clipOffset + (Number.isFinite(time) ? Math.min(Math.max(time, 0), Math.max(clipDuration - 0.01, 0)) : 0);
+    element.playbackRate = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2].includes(rate) ? rate : 1;
+    clock.set(element.currentTime);
+  }, [clip.id, requestedTimeParam, requestedRateParam, clipOffset, clipDuration, clock]);
   const clipBounds = useMemo(
     () => ({ start: clip.start_time, end: clip.end_time, duration: video.duration_seconds ?? null }),
     [clip.start_time, clip.end_time, video.duration_seconds],
@@ -495,7 +538,7 @@ function ClipReviewReady({
       const next = new Set(prev);
       if (key === "raw") {
         // ``raw`` is mutually exclusive — it clears every overlay layer.
-        return new Set<OverlayLayerKey>(prev.has("raw") ? ["tracks", "events", "labels", "metrics"] : ["raw"]);
+        return new Set<OverlayLayerKey>(prev.has("raw") ? ["tracks", "events", "labels", "metrics", "field"] : ["raw"]);
       }
       if (next.has("raw")) next.delete("raw");
       if (next.has(key)) next.delete(key);
@@ -560,7 +603,8 @@ function ClipReviewReady({
   );
 
   return (
-    <div className="flex flex-col gap-5" data-testid="review-workspace">
+    <div className="flex flex-col gap-5" data-testid="review-workspace" data-layout={layout}>
+      {clip.provenance?.state === "superseded" ? <div role="status" className="rounded border border-border-soft bg-secondary/30 p-3 text-sm"><p>This boundary version was replaced. The original remains available for reference.</p><div className="mt-2 flex flex-wrap gap-2">{(Array.isArray(clip.provenance.replacement_clip_ids) ? clip.provenance.replacement_clip_ids : []).filter((id): id is string => typeof id === "string").map((id, index) => <Button asChild variant="outline" size="sm" key={id}><Link href={filmReviewHref(new URLSearchParams(searchParams.toString()), id)}>Open replacement {index + 1}</Link></Button>)}</div></div> : null}
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <nav aria-label="Breadcrumb" className="mb-2 flex items-center gap-2 text-[0.65rem] font-semibold uppercase tracking-[0.18em] text-muted-foreground"><Film className="size-3.5 text-primary" /> <Link href="/film-room/" className="hover:text-foreground">Film room</Link> <ChevronRight className="size-3" /> <Link href={`/film-room/?tab=review&videoId=${encodeURIComponent(video.id)}`} className="hover:text-foreground">Review plays</Link> <ChevronRight className="size-3" /> <span aria-current="page">Play</span></nav>
@@ -568,12 +612,28 @@ function ClipReviewReady({
           <p className="mt-1 text-sm text-muted-foreground">{video.camera_label || "Camera view"} · {sessionKindLabel}{clipIndex >= 0 && sequence.length ? ` · ${playlistIndex >= 0 ? "Playlist play" : "Play"} ${clipIndex + 1} of ${sequence.length}` : ""}</p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <div role="group" aria-label="Film layout" className="flex gap-1">{["coach", "analyst"].map((value) => <Button key={value} size="sm" variant={layout === value ? "secondary" : "ghost"} aria-pressed={layout === value} onClick={() => changeLayout(value)}>{value === "coach" ? "Coach" : "Analyst"}</Button>)}</div>
+          <Button size="sm" variant="ghost" aria-expanded={inspectorOpen} onClick={toggleInspector}>{inspectorOpen ? "Hide inspector" : "Show inspector"}</Button>
           <Button asChild variant="ghost" size="sm"><Link href={`/clip-review/?videoId=${encodeURIComponent(video.id)}`}>Watch full recording</Link></Button>
           <Button asChild variant="outline" size="sm"><Link href={backHref}><ArrowLeft className="size-3.5" /> Back</Link></Button>
         </div>
       </div>
 
-      <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_300px] xl:grid-cols-[minmax(0,1fr)_330px] 2xl:grid-cols-[minmax(0,1fr)_360px]">
+      <SavedFilmViews readPlayback={() => ({ time: getLiveLocalTime(), rate: videoRef.current?.playbackRate ?? 1 })} onRestore={(params) => {
+        if (params.get("clipId") !== clip.id) return;
+        const element = videoRef.current;
+        const time = Number(params.get("t") ?? 0);
+        const rate = Number(params.get("rate") ?? 1);
+        if (element) {
+          element.currentTime = clipOffset + (Number.isFinite(time) ? Math.min(Math.max(time, 0), Math.max(clipDuration - 0.01, 0)) : 0);
+          element.playbackRate = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2].includes(rate) ? rate : 1;
+          clock.set(element.currentTime);
+        }
+        setInspectorOpen(params.get("inspector") !== "hidden");
+        setPlayQuery(params.get("playSearch") ?? "");
+      }} />
+      <div className={cn("grid items-start gap-4", inspectorOpen ? layout === "analyst" ? "xl:grid-cols-[220px_minmax(0,1fr)_320px]" : "xl:grid-cols-[180px_minmax(0,1fr)_260px]" : "xl:grid-cols-[180px_minmax(0,1fr)]")}>
+      <aside aria-label="Play table" className="min-w-0 xl:sticky xl:top-20"><label className="mb-2 flex flex-col gap-1.5 text-xs text-muted-foreground">Find a play<Input type="search" value={playQuery} onChange={(event) => searchPlays(event.target.value)} placeholder="Play, situation, formation…" /></label><div className="max-h-64 overflow-auto xl:max-h-[calc(100vh-13rem)]"><PlayQueue clips={siblingClips.filter((item) => !playQuery || `${item.play_number ?? ""} ${situationLabel(item) ?? ""} ${item.label_data?.formation ?? ""}`.toLowerCase().includes(playQuery.toLowerCase()))} currentClipId={clip.id} playlist={playlistIndex >= 0 ? playlist : null} playlistParam={playlistParam} /></div></aside>
       <Card className="min-w-0 gap-0 overflow-hidden border-border-soft py-0 shadow-none">
         <CardContent className="px-0">
           <div className="border-b border-border-soft px-5 py-4">
@@ -594,6 +654,7 @@ function ClipReviewReady({
                   siblings={siblingClips}
                   playlist={playlist}
                   playlistIndex={playlistIndex}
+                  readPlayback={() => ({ time: getLiveLocalTime(), rate: videoRef.current?.playbackRate ?? 1 })}
                 />
               </div>
               {situationLabel(clip) ? (
@@ -614,7 +675,7 @@ function ClipReviewReady({
             <span className="max-w-full truncate text-xs text-muted-foreground" title={video.filename}>{video.filename}</span>
           </div>
 
-          <div className="relative flex aspect-video min-h-56 items-center justify-center overflow-hidden bg-black [&:fullscreen]:h-screen [&:fullscreen]:w-screen [&:fullscreen_video]:h-full" style={{ aspectRatio: intrinsicSize ? `${intrinsicSize.width} / ${intrinsicSize.height}` : undefined }}>
+          <div data-testid="video-stage" className="relative flex aspect-video min-h-56 items-center justify-center overflow-hidden bg-black [&:fullscreen]:h-screen [&:fullscreen]:w-screen [&:fullscreen_video]:h-full" style={{ aspectRatio: intrinsicSize ? `${intrinsicSize.width} / ${intrinsicSize.height}` : undefined }}>
             {playbackUrl ? (
               <>
                 <video
@@ -632,10 +693,14 @@ function ClipReviewReady({
                     const resume = playbackResumeRef.current;
                     playbackResumeRef.current = null;
                     if (el && resume) {
+                      el.playbackRate = resume.rate;
                       el.currentTime = clipOffset + Math.min(Math.max(resume.time, 0), Math.max(clipDuration - 0.01, 0));
                       if (resume.playing) void el.play().catch(() => undefined);
-                    } else if (el && clipOffset > 0 && el.currentTime < clipOffset) {
-                      el.currentTime = clipOffset;
+                    } else if (el) {
+                      const requestedTime = Number(searchParams.get("t") ?? 0);
+                      el.currentTime = clipOffset + (Number.isFinite(requestedTime) ? Math.min(Math.max(requestedTime, 0), Math.max(clipDuration - 0.01, 0)) : 0);
+                      const requestedRate = Number(searchParams.get("rate") ?? 1);
+                      el.playbackRate = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2].includes(requestedRate) ? requestedRate : 1;
                     }
                     if (el) clock.set(el.currentTime);
                   }}
@@ -731,27 +796,13 @@ function ClipReviewReady({
           {calibration && calibration.analytics_safe === false && calibrationDismissedFor !== clip.id ? <CalibrationBanner reason={calibration.reason} onDismiss={dismissCalibrationBanner} /> : null}
           {overlayPayload && (overlayPayload.warnings?.length ?? 0) > 0 ? <div role="status" className="mt-3 rounded-lg border border-status-warn/30 bg-status-warn/5 p-3 text-xs"><p className="font-semibold text-status-warn">Analysis availability</p>{overlayPayload.warnings?.map((warning) => <p key={warning} className="mt-1 text-muted-foreground">{warning}</p>)}</div> : null}
 
-          {overlayPayload && activeLayers.has("field") && !activeLayers.has("raw") && (
-            <Timed clock={clock} everyMs={66}>
-              {(t) => (
-                <FieldMinimap
-                  tracklets={overlayPayload.tracklets}
-                  currentFrame={Math.round(trackTimeAt(toLocal(t)) * fps)}
-                  currentTimeSeconds={trackTimeAt(toLocal(t))}
-                  fps={fps}
-                  calibration={overlayPayload.calibration ?? null}
-                  playerNamesById={playerNamesById}
-                />
-              )}
-            </Timed>
-          )}
           </div>
         </CardContent>
       </Card>
 
       <aside
         aria-label="Play review tools"
-        className="flex min-w-0 flex-col gap-3 lg:sticky lg:top-20 lg:max-h-[calc(100vh-6rem)]"
+        className={cn("min-w-0 flex-col gap-3 xl:sticky xl:top-20 xl:max-h-[calc(100vh-6rem)]", inspectorOpen ? "flex" : "hidden")}
       >
         <div role="tablist" aria-label="Review panels" className="grid grid-cols-4 gap-1 rounded-lg border border-border-soft bg-secondary/40 p-1">
           {SIDE_TABS.map((tab) => (
@@ -795,6 +846,7 @@ function ClipReviewReady({
                 )}
               </Timed>
               <CorrectionHistory clipId={clip.id} annotationRevision={clip.annotation_revision} />
+              <ClipBoundaryTools key={clip.id} clip={clip} siblings={siblingClips} readLocalTime={getLiveLocalTime} onChanged={onRefresh} />
               <OverlaySummary
                 overlayState={overlayState}
                 showMetrics={activeLayers.has("metrics") && !activeLayers.has("raw")}
@@ -889,12 +941,35 @@ const AngleSwitch = memo(function AngleSwitch({
   siblings,
   playlist,
   playlistIndex,
+  readPlayback,
 }: {
   clip: ApiClip;
   siblings: ApiClip[];
   playlist: string[];
   playlistIndex: number;
+  readPlayback?: () => { time: number; rate: number };
 }) {
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  if ((clip.matched_views?.length ?? 0) > 1) {
+    return <div role="group" aria-label="Camera angle" className="flex flex-wrap gap-1">{clip.matched_views!.map((view) => {
+      const target = new URLSearchParams(searchParams.toString());
+      target.set("clipId", view.clip_id);
+      if (playlistIndex >= 0) {
+        const replaced = [...playlist]; replaced[playlistIndex] = view.clip_id;
+        target.set("playlist", replaced.join(","));
+      }
+      const currentOffset = clip.matched_views!.find((item) => item.clip_id === clip.id)?.alignment_offset_seconds;
+      const aligned = view.alignment_offset_seconds != null && currentOffset != null;
+      return <Link key={view.clip_id} href={`/clip-review/?${target}`} title={aligned ? "Aligned camera view" : "Matched play; camera timing is independent"} aria-current={view.clip_id === clip.id ? "true" : undefined} className="rounded border border-border-soft px-2 py-1 text-xs hover:bg-accent" onClick={(event) => {
+        if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) return;
+        event.preventDefault();
+        const playback = readPlayback?.();
+        if (playback) { target.set("t", String(alignedViewTime(playback.time, currentOffset, view.alignment_offset_seconds, view.end_time - view.start_time))); target.set("rate", String(playback.rate)); }
+        router.push(`/clip-review/?${target}`);
+      }}>{view.camera_label || "Camera view"}{!aligned ? " · independent timing" : ""}</Link>;
+    })}</div>;
+  }
   const angles = sameplayAngles(clip, siblings);
   const current = clipView(clip);
   if (!current) return null;
@@ -905,13 +980,20 @@ const AngleSwitch = memo(function AngleSwitch({
     {angles.map((angle) => {
       const view = clipView(angle)!;
       const active = angle.id === clip.id;
-      const params = new URLSearchParams({ clipId: angle.id });
+      const params = new URLSearchParams(searchParams.toString());
+      params.set("clipId", angle.id);
       if (playlistIndex >= 0) {
         const anglePlaylist = [...playlist];
         anglePlaylist[playlistIndex] = angle.id;
         params.set("playlist", anglePlaylist.join(","));
       }
-      return <Link key={angle.id} href={`/clip-review/?${params.toString()}`} aria-current={active ? "true" : undefined} className={cn("px-2.5 py-1 transition-colors", active ? "bg-primary text-primary-foreground" : "hover:bg-accent/50")}>{viewLabel(view)}</Link>;
+      return <Link key={angle.id} href={`/clip-review/?${params.toString()}`} aria-current={active ? "true" : undefined} className={cn("px-2.5 py-1 transition-colors", active ? "bg-primary text-primary-foreground" : "hover:bg-accent/50")} onClick={(event) => {
+        if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) return;
+        event.preventDefault();
+        const playback = readPlayback?.();
+        if (playback) { params.set("t", String(playback.time)); params.set("rate", String(playback.rate)); }
+        router.push(`/clip-review/?${params}`);
+      }}>{viewLabel(view)}</Link>;
     })}
   </div>;
 });
@@ -927,20 +1009,23 @@ const PlayQueue = memo(function PlayQueue({
   playlist: string[] | null;
   playlistParam: string;
 }) {
+  const searchParams = useSearchParams();
   const currentRef = useRef<HTMLAnchorElement | null>(null);
   useEffect(() => {
     currentRef.current?.scrollIntoView({ block: "nearest" });
   }, [currentClipId]);
   const byId = useMemo(() => new Map(clips.map((item) => [item.id, item])), [clips]);
   const items = playlist ? playlist.map((id) => byId.get(id)).filter((item): item is ApiClip => Boolean(item)) : clips;
-  if (items.length < 2) {
-    return <p className="rounded-lg border border-dashed border-border-soft p-4 text-xs text-muted-foreground">This is the only play in this recording.</p>;
+  if (items.length === 0) {
+    return <p className="rounded-lg border border-dashed border-border-soft p-4 text-xs text-muted-foreground">No plays match this selection.</p>;
   }
   return <nav aria-label="Plays in this recording" className="rounded-lg border border-border-soft bg-secondary/20 p-3">
     <div className="mb-2 flex items-center justify-between gap-2"><h3 className="flex items-center gap-2 text-xs font-semibold"><Film className="size-3.5 text-primary" /> {playlist ? "Playlist" : "Play sequence"}</h3><span className="text-[0.65rem] text-muted-foreground">{items.length} plays · [ / ] keys</span></div>
     <ol className="flex flex-col gap-1">{items.map((item, index) => {
       const current = item.id === currentClipId;
-      const params = new URLSearchParams({ clipId: item.id });
+      const params = new URLSearchParams(searchParams.toString());
+      params.set("clipId", item.id);
+      params.delete("t");
       if (playlist) params.set("playlist", playlistParam);
       return <li key={item.id}><Link ref={current ? currentRef : undefined} href={`/clip-review/?${params.toString()}`} aria-current={current ? "page" : undefined} className={cn("flex items-center justify-between gap-2 rounded-md border px-2.5 py-2 transition-colors", current ? "border-primary/60 bg-primary/10" : "border-transparent hover:border-border-soft hover:bg-accent/40")}>
         <span className="min-w-0"><span className={cn("block text-xs font-semibold", current && "text-primary")}>Play {item.play_number ?? index + 1}{clipView(item) ? <span className="ml-1 font-normal text-muted-foreground">· {viewLabel(clipView(item)!)}</span> : null}</span><span className="mt-0.5 block truncate font-mono text-[0.65rem] text-muted-foreground">{situationLabel(item) ?? `${item.start_time.toFixed(1)}–${item.end_time.toFixed(1)}s`}</span></span>
@@ -1327,7 +1412,7 @@ function OverlaySummary({
       {showLabels && payload.labels.length > 0 && (
         <details data-testid="overlay-labels-list" className="mt-3 rounded-lg border border-border-soft p-3">
           <summary className="cursor-pointer text-xs font-medium text-muted-foreground">
-            Model suggestions · {payload.labels.length}
+            Annotations · {payload.labels.length}
           </summary>
           <ul className="mb-1 mt-3 list-disc pl-4.5 text-[0.8rem]">
             {payload.labels.slice(0, 6).map((lb) => (
@@ -1466,6 +1551,7 @@ const FrameOverlay = memo(function FrameOverlay({
           overlayStyle={overlayStyle}
         />
       )}
+      {overlayPayload && activeLayers.has("field") && !rawOnly ? <FieldInset tracklets={overlayPayload.tracklets} seconds={trackTime} fps={fps} calibration={overlayPayload.calibration ?? null} playerNamesById={playerNamesById} /> : null}
       <div className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between gap-2 bg-gradient-to-b from-black/65 to-transparent px-4 pb-8 pt-3 text-[0.65rem] font-semibold uppercase tracking-wider text-white/85">
         <span className="inline-flex items-center gap-2 rounded-md border border-white/15 bg-black/35 px-2 py-1"><span className={cn("size-1.5 rounded-full", visibleCount && !rawOnly ? "bg-emerald-400" : "bg-white/45")} />{rawOnly ? "Original recording" : overlayLoading ? "Loading tracking" : visibleCount ? `${visibleCount} tracks in frame` : "No player boxes at this frame"}</span>
         <span className="rounded-md border border-white/15 bg-black/35 px-2 py-1 font-mono normal-case">{localTime.toFixed(2)} / {clipDuration.toFixed(2)}s</span>

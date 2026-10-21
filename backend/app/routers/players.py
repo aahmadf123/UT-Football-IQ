@@ -75,6 +75,9 @@ class VisibilityAuditEntry(BaseModel):
 _POSITION_GROUPS = {
     "qb": "QB",
     "skill": "Skill",
+    "rb": "RB",
+    "wr": "WR",
+    "te": "TE",
     "ol": "OL",
     "dl": "DL",
     "lb": "LB",
@@ -83,10 +86,12 @@ _POSITION_GROUPS = {
 }
 _POSITION_TO_GROUP = {
     "QB": "QB",
-    "RB": "Skill",
-    "FB": "Skill",
-    "WR": "Skill",
-    "TE": "Skill",
+    "RB": "RB",
+    "FB": "RB",
+    "HB": "RB",
+    "WR": "WR",
+    "SLOT": "WR",
+    "TE": "TE",
     "OT": "OL",
     "OG": "OL",
     "C": "OL",
@@ -147,7 +152,7 @@ class PlayerCreate(BaseModel):
         if value is None or not value.strip():
             return None
         if value.strip().lower() not in _POSITION_GROUPS:
-            raise ValueError("Position group must be QB, Skill, OL, DL, LB, DB, or ST")
+            raise ValueError("Position group must be QB, RB, WR, TE, Skill, OL, DL, LB, DB, or ST")
         return _POSITION_GROUPS[value.strip().lower()]
 
 
@@ -166,31 +171,29 @@ class RosterImport(BaseModel):
 
 
 async def _roster_lock(db: AsyncSession) -> None:
-    # Serialize UI imports and edits; the existing unique active-jersey index
-    # remains the final guard against writes from other ingest clients.
+    # Serialize UI imports and edits. Numbers remain candidate evidence.
     await db.execute(select(func.pg_advisory_xact_lock(71420961014)))
 
 
 async def _roster_conflict(
     db: AsyncSession, values: PlayerCreate, exclude_id: uuid.UUID | None = None
 ) -> Player | None:
-    group = values.position_group or _POSITION_TO_GROUP.get(values.position or "")
-    if not values.is_active or values.jersey_number is None or group is None:
+    if not values.is_active:
         return None
     stmt = select(Player).where(
         Player.is_active.is_(True),
-        Player.jersey_number == values.jersey_number,
-        Player.position_group == group,
+        func.lower(Player.first_name) == values.first_name.lower(),
+        func.lower(Player.last_name) == values.last_name.lower(),
     )
     if exclude_id:
         stmt = stmt.where(Player.id != exclude_id)
-    return (await db.execute(stmt)).scalar_one_or_none()
+    return (await db.execute(stmt.limit(1))).scalar_one_or_none()
 
 
 @router.post("/api/v1/players", status_code=201)
 async def create_player(
     body: PlayerCreate,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     current_user: Annotated[User, Depends(require_coach_or_above)],
 ) -> dict[str, Any]:
     await _roster_lock(db)
@@ -208,8 +211,8 @@ async def create_player(
                 "error_code": "roster_identity_conflict",
                 "player_id": str(conflict.id),
                 "message": (
-                    "An active player already has this jersey and position group. "
-                    "Edit that player explicitly or use a different group."
+                    "An active roster identity already has this name. "
+                    "Edit that player explicitly or use its stable player ID."
                 ),
             },
         )
@@ -229,7 +232,7 @@ async def create_player(
 @router.post("/api/v1/players/import")
 async def import_roster(
     body: RosterImport,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     current_user: Annotated[User, Depends(require_coach_or_above)],
 ) -> dict[str, Any]:
     await _roster_lock(db)
@@ -247,7 +250,6 @@ async def import_roster(
     created = 0
     skipped = 0
     seen = set()
-    seen_slots: dict[tuple[int, str], tuple[str, str, int | None, str | None]] = {}
     for line, raw in enumerate(raw_rows, start=2):
         values = {
             key: value.strip()
@@ -292,16 +294,6 @@ async def import_roster(
                 result["player"] = shape_player(existing, VisibilityMode.STAFF, actor=current_user)
             results.append(result)
             continue
-        slot = (
-            (payload.jersey_number, group)
-            if payload.is_active and payload.jersey_number is not None and group
-            else None
-        )
-        if slot and slot in seen_slots and seen_slots[slot] != key:
-            error = "Two CSV rows assign different players to the same active jersey and group."
-            results.append({"line": line, "status": "conflict", "error": error})
-            errors.append({"line": line, "error": error})
-            continue
         conflict = await _roster_conflict(db, payload)
         if conflict is None:
             conflict = (
@@ -336,8 +328,6 @@ async def import_roster(
             errors.append({"line": line, "error": error})
             continue
         seen.add(key)
-        if slot:
-            seen_slots[slot] = key
         if body.dry_run:
             results.append(
                 {"line": line, "status": "create", "player": payload.model_dump(mode="json")}
@@ -361,7 +351,7 @@ async def import_roster(
 async def update_player(
     player_id: uuid.UUID,
     body: PlayerUpdate,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     current_user: Annotated[User, Depends(require_coach_or_above)],
 ) -> dict[str, Any]:
     await _roster_lock(db)
@@ -382,7 +372,7 @@ async def update_player(
     except ValidationError as exc:
         raise HTTPException(422, "Player identity fields are invalid") from exc
     if await _roster_conflict(db, validated, player_id):
-        raise HTTPException(409, "Another active player has that jersey and position group")
+        raise HTTPException(409, "Another active player has that roster identity")
     effective = validated.model_dump(exclude={"id"})
     # A coach's roster edit (practice jersey, moved position, active status)
     # must survive the weekly CFBD roster sync, which skips locked fields.
@@ -413,7 +403,7 @@ async def update_player(
 
 @router.get("/api/v1/players")
 async def list_players(
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     current_user: Annotated[User, Depends(require_policy(Resource.PLAYER_PROFILE, Action.READ))],
     position: Annotated[
         str | None,
@@ -507,7 +497,7 @@ async def list_players(
 @router.get("/api/v1/players/{player_id}")
 async def get_player(
     player_id: uuid.UUID,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     current_user: Annotated[User, Depends(require_policy(Resource.PLAYER_PROFILE, Action.READ))],
     mode: Annotated[
         VisibilityMode | None,
@@ -548,7 +538,7 @@ async def get_player(
 async def update_visibility(
     player_id: uuid.UUID,
     body: VisibilityUpdate,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     current_user: Annotated[
         User, Depends(require_policy(Resource.PLAYER_VISIBILITY, Action.WRITE))
     ],
@@ -625,7 +615,7 @@ async def update_visibility(
 @router.get("/api/v1/players/{player_id}/visibility/audit")
 async def get_visibility_audit(
     player_id: uuid.UUID,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _current_user: Annotated[
         User, Depends(require_policy(Resource.PLAYER_VISIBILITY, Action.WRITE))
     ],

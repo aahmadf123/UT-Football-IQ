@@ -40,6 +40,7 @@ from pipeline.tracker_models import (
     _greedy_assign,
     _Track,
     bbox_iou,
+    track_expired,
 )
 
 log = structlog.get_logger(__name__)
@@ -211,6 +212,7 @@ class BoTSORTTracker(TrackerBase):
     ) -> None:
         self.iou_threshold = iou_threshold
         self.max_lost_frames = max_lost_frames
+        self.max_lost_seconds: float | None = None
         self.appearance_weight = max(0.0, min(1.0, appearance_weight))
         self.camera_motion = camera_motion or {}
         self.appearance_fn = appearance_fn
@@ -279,6 +281,11 @@ class BoTSORTTracker(TrackerBase):
                 if d.get("class", "player") == "player"
             ]
             frame_embeddings = [self._embedding_for(d) for d in frame_dets]
+            expired = [t for t in active if track_expired(
+                t, frame_idx, frame_dets, self.max_lost_frames, self.max_lost_seconds
+            )]
+            closed.extend(expired)
+            active = [t for t in active if t not in expired]
 
             if active and frame_dets:
                 cost = [

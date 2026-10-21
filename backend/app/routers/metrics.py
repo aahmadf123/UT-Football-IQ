@@ -20,7 +20,7 @@ from typing import Annotated, Any, Literal
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
-from sqlalchemy import select, update
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -34,6 +34,8 @@ from app.models import (
     UserRole,
 )
 from app.services.annotations import lock_output_id
+from app.services.metric_definitions import DEFINITION_VERSION, metric_definitions
+from app.services.metric_eligibility import automatic_exclusion
 from app.services.metric_policy import INVALID_SOURCES, metric_visibility, metric_visible
 
 log = structlog.get_logger(__name__)
@@ -204,7 +206,7 @@ def _optional_int(value: Any) -> int | None:
 @router.post("", response_model=MetricResponse, status_code=status.HTTP_201_CREATED)
 async def create_metric(
     body: MetricCreate,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _current_user: Annotated[User, Depends(require_analyst_or_above)],
 ) -> MetricResponse:
     """Store a computed metric for a clip.
@@ -224,26 +226,11 @@ async def create_metric(
             ):
                 raise HTTPException(409, detail="Output ID belongs to another measurement")
             if body.job_id is not None and prior.job_id != body.job_id:
-                prior.job_id = body.job_id
-                provenance = dict(prior.provenance) if isinstance(prior.provenance, dict) else {}
-                provenance.pop("state", None)
-                prior.provenance = provenance or None
-                if prior.suppression_reason == "newer_analysis_available":
-                    prior.is_suppressed = body.is_suppressed
-                    prior.suppression_reason = body.suppression_reason
-                    prior.analytics_safe = (
-                        body.analytics_safe
-                        and not prior.experimental_flag
-                        and provenance.get("source") in {"real", "manual", "human"}
-                        and (
-                            provenance.get("source") in {"manual", "human"}
-                            or provenance.get("validated") is True
-                        )
-                    )
-                await db.flush()
+                raise HTTPException(409, detail="Output ID belongs to another result version")
             return MetricResponse.from_orm_metric(prior)
     clip_result = await db.execute(select(Clip).where(Clip.id == body.clip_id).with_for_update())
-    if clip_result.scalar_one_or_none() is None:
+    target_clip = clip_result.scalar_one_or_none()
+    if target_clip is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Clip not found")
 
     if body.tracklet_id is not None:
@@ -263,6 +250,7 @@ async def create_metric(
         or name_lower in REVIEW_CANDIDATE_METRIC_NAMES
     )
     provenance = body.provenance or body.metric_value.get("provenance", {})
+    provenance = provenance if isinstance(provenance, dict) else {}
     source = provenance.get("source") if isinstance(provenance, dict) else None
     invalid_source = source in INVALID_SOURCES
     effective_experimental = (
@@ -278,25 +266,25 @@ async def create_metric(
         and not is_always_experimental
         and not invalid_source
         and (
-            source == "manual"
+            source in {"manual", "human"}
             or (isinstance(provenance, dict) and provenance.get("validated") is True)
         )
     )
+    if effective_analytics_safe and source == "real":
+        reason = await automatic_exclusion(
+            db,
+            clip=target_clip,
+            name=body.metric_name,
+            value=body.metric_value,
+            provenance=provenance,
+            model_id=body.model_version_id,
+        )
+        if reason:
+            effective_analytics_safe = False
+            provenance = {**provenance, "eligibility": "excluded", "exclusion_reason": reason}
 
     if body.job_id is not None:
-        await db.execute(
-            update(Metric)
-            .where(
-                Metric.clip_id == body.clip_id,
-                Metric.metric_name == body.metric_name,
-                Metric.job_id.is_distinct_from(body.job_id),
-            )
-            .values(
-                is_suppressed=True,
-                analytics_safe=False,
-                suppression_reason="newer_analysis_available",
-            )
-        )
+        provenance = {**provenance, "publication_state": "pending"}
 
     metric = Metric(
         id=body.id or uuid.uuid4(),
@@ -333,9 +321,16 @@ async def create_metric(
     return MetricResponse.from_orm_metric(metric)
 
 
+@router.get("/definitions")
+async def definitions(
+    _current_user: Annotated[User, Depends(get_current_user)],
+) -> dict[str, Any]:
+    return {"definition_version": DEFINITION_VERSION, "definitions": metric_definitions()}
+
+
 @router.get("", response_model=list[MetricResponse])
 async def list_metrics(
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     current_user: Annotated[User, Depends(get_current_user)],
     clip_id: uuid.UUID | None = Query(default=None),
     tracklet_id: uuid.UUID | None = Query(default=None),
@@ -385,7 +380,7 @@ async def list_metrics(
 @router.get("/{metric_id}", response_model=MetricResponse)
 async def get_metric(
     metric_id: uuid.UUID,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     current_user: Annotated[User, Depends(get_current_user)],
 ) -> MetricResponse:
     """Get a single metric by ID."""
@@ -408,7 +403,7 @@ async def get_metric(
 async def review_metric(
     metric_id: uuid.UUID,
     body: ReviewCreate,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     current_user: Annotated[User, Depends(require_coach_or_above)],
 ) -> ReviewResponse:
     """Position-coach review of an experimental head-orientation metric.
@@ -484,7 +479,7 @@ async def review_metric(
 @router.get("/{metric_id}/reviews", response_model=list[ReviewResponse])
 async def list_metric_reviews(
     metric_id: uuid.UUID,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _current_user: Annotated[User, Depends(require_coach_or_above)],
 ) -> list[ReviewResponse]:
     """List all position-coach reviews for a metric."""

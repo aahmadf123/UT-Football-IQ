@@ -58,7 +58,9 @@ async def local_bootstrap(body: LocalBootstrap, request: Request) -> dict[str, s
 
 @app.post("/api/v1/local/login", include_in_schema=False)
 async def local_login(
-    body: LocalLogin, request: Request, db: Annotated[AsyncSession, Depends(get_db)]
+    body: LocalLogin,
+    request: Request,
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
 ) -> dict[str, str]:
     client = request.client.host if request.client else ""
     if client not in {"127.0.0.1", "::1"}:

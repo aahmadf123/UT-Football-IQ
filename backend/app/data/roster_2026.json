@@ -1,6 +1,6 @@
 {
   "season": "2026",
-  "source": "utrockets.com roster print, retrieved 2026-07-25",
+  "source": "Official Toledo 2026 roster, https://utrockets.com/sports/football/roster/2026, retrieved 2026-10-21; prior 2026-07-25 snapshot archived separately",
   "players": [
     {
       "first_name": "Andrew",
@@ -16,22 +16,9 @@
         "high_school": "Hawthorne",
         "previous_school": "Mercer",
         "roster_season": "2026",
-        "roster_key": "2026-zock-andrew"
-      }
-    },
-    {
-      "first_name": "Rico",
-      "last_name": "Bond",
-      "jersey_number": 1,
-      "position": "WR",
-      "position_group": "Skill",
-      "metadata": {
-        "class_year": "So.",
-        "hometown": "St. Louis, Mo.",
-        "high_school": "East St. Louis (Ill.)",
-        "previous_school": "Lindenwood",
-        "roster_season": "2026",
-        "roster_key": "2026-bond-rico"
+        "roster_key": "2026-zock-andrew",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
       }
     },
     {
@@ -48,7 +35,26 @@
         "high_school": "Wilson",
         "previous_school": "Holy Cross",
         "roster_season": "2026",
-        "roster_key": "2026-jones-cam"
+        "roster_key": "2026-jones-cam",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
+      }
+    },
+    {
+      "first_name": "Rico",
+      "last_name": "Bond",
+      "jersey_number": 1,
+      "position": "WR",
+      "position_group": "WR",
+      "metadata": {
+        "class_year": "So.",
+        "hometown": "St. Louis, Mo.",
+        "high_school": "East St. Louis (Ill.)",
+        "previous_school": "Lindenwood",
+        "roster_season": "2026",
+        "roster_key": "2026-bond-rico",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
       }
     },
     {
@@ -56,7 +62,7 @@
       "last_name": "Jones",
       "jersey_number": 2,
       "position": "WR",
-      "position_group": "Skill",
+      "position_group": "WR",
       "metadata": {
         "class_year": "R-Fr.",
         "height_in": 70,
@@ -65,7 +71,9 @@
         "high_school": "St. Augustine",
         "previous_school": "Mercer",
         "roster_season": "2026",
-        "roster_key": "2026-jones-trenton"
+        "roster_key": "2026-jones-trenton",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
       }
     },
     {
@@ -82,7 +90,9 @@
         "high_school": "Allatoona",
         "previous_school": "Georgia Tech/UAB",
         "roster_season": "2026",
-        "roster_key": "2026-odinjor-ezra"
+        "roster_key": "2026-odinjor-ezra",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
       }
     },
     {
@@ -90,7 +100,7 @@
       "last_name": "Dabbs",
       "jersey_number": 3,
       "position": "WR",
-      "position_group": "Skill",
+      "position_group": "WR",
       "metadata": {
         "class_year": "Jr.",
         "height_in": 72,
@@ -99,7 +109,9 @@
         "high_school": "Greeneville",
         "previous_school": "Mercer",
         "roster_season": "2026",
-        "roster_key": "2026-dabbs-adjatay"
+        "roster_key": "2026-dabbs-adjatay",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
       }
     },
     {
@@ -115,24 +127,9 @@
         "hometown": "Maumee, Ohio",
         "high_school": "Toledo Central Catholic",
         "roster_season": "2026",
-        "roster_key": "2026-vaughn-iii-sharard"
-      }
-    },
-    {
-      "first_name": "Autavius",
-      "last_name": "Ison",
-      "jersey_number": 4,
-      "position": "RB",
-      "position_group": "Skill",
-      "metadata": {
-        "class_year": "Jr.",
-        "height_in": 71,
-        "weight_lb": 190,
-        "hometown": "Atlanta, Ga.",
-        "high_school": "Riverdale",
-        "previous_school": "Charleston Southern/Mercer",
-        "roster_season": "2026",
-        "roster_key": "2026-ison-autavius"
+        "roster_key": "2026-vaughn-iii-sharard",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
       }
     },
     {
@@ -149,7 +146,28 @@
         "high_school": "Fairfield Central",
         "previous_school": "Mercer",
         "roster_season": "2026",
-        "roster_key": "2026-watkins-donovan"
+        "roster_key": "2026-watkins-donovan",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
+      }
+    },
+    {
+      "first_name": "Autavius",
+      "last_name": "Ison",
+      "jersey_number": 4,
+      "position": "RB",
+      "position_group": "RB",
+      "metadata": {
+        "class_year": "Jr.",
+        "height_in": 71,
+        "weight_lb": 190,
+        "hometown": "Atlanta, Ga.",
+        "high_school": "Riverdale",
+        "previous_school": "Charleston Southern/Mercer",
+        "roster_season": "2026",
+        "roster_key": "2026-ison-autavius",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
       }
     },
     {
@@ -157,7 +175,7 @@
       "last_name": "Crosby Jr.",
       "jersey_number": 5,
       "position": "WR",
-      "position_group": "Skill",
+      "position_group": "WR",
       "metadata": {
         "class_year": "Sr.",
         "height_in": 70,
@@ -166,7 +184,9 @@
         "high_school": "Lakewood",
         "previous_school": "Iowa State",
         "roster_season": "2026",
-        "roster_key": "2026-crosby-jr-terrell"
+        "roster_key": "2026-crosby-jr-terrell",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
       }
     },
     {
@@ -182,15 +202,17 @@
         "hometown": "Akron, Ohio",
         "high_school": "Archbishop Hoban",
         "roster_season": "2026",
-        "roster_key": "2026-ollison-ii-damon"
+        "roster_key": "2026-ollison-ii-damon",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
       }
     },
     {
       "first_name": "Langston",
       "last_name": "Long",
       "jersey_number": 6,
-      "position": "LB",
-      "position_group": "LB",
+      "position": "DE",
+      "position_group": "DL",
       "metadata": {
         "class_year": "Sr.",
         "height_in": 75,
@@ -199,7 +221,9 @@
         "high_school": "Christ School",
         "previous_school": "Virginia/South Florida",
         "roster_season": "2026",
-        "roster_key": "2026-long-langston"
+        "roster_key": "2026-long-langston",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
       }
     },
     {
@@ -215,7 +239,9 @@
         "hometown": "Gray, Ga.",
         "high_school": "Jones County",
         "roster_season": "2026",
-        "roster_key": "2026-richter-john-alan"
+        "roster_key": "2026-richter-john-alan",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
       }
     },
     {
@@ -232,7 +258,9 @@
         "high_school": "Monroe",
         "previous_school": "Lenoir-Rhyne",
         "roster_season": "2026",
-        "roster_key": "2026-robinson-khamoni"
+        "roster_key": "2026-robinson-khamoni",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
       }
     },
     {
@@ -249,7 +277,27 @@
         "high_school": "River Rouge",
         "previous_school": "Cincinnati/Michigan State",
         "roster_season": "2026",
-        "roster_key": "2026-smith-armorion"
+        "roster_key": "2026-smith-armorion",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
+      }
+    },
+    {
+      "first_name": "Connor",
+      "last_name": "Walendzak",
+      "jersey_number": 8,
+      "position": "RB",
+      "position_group": "RB",
+      "metadata": {
+        "class_year": "Sr.",
+        "height_in": 71,
+        "weight_lb": 208,
+        "hometown": "Perrysburg, Ohio",
+        "high_school": "Perrysburg",
+        "roster_season": "2026",
+        "roster_key": "2026-walendzak-connor",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
       }
     },
     {
@@ -266,7 +314,9 @@
         "high_school": "Hebron Christian Academy",
         "previous_school": "Mercer",
         "roster_season": "2026",
-        "roster_key": "2026-thomas-kj"
+        "roster_key": "2026-thomas-kj",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
       }
     },
     {
@@ -274,7 +324,7 @@
       "last_name": "Gilbert Jr.",
       "jersey_number": 9,
       "position": "WR",
-      "position_group": "Skill",
+      "position_group": "WR",
       "metadata": {
         "class_year": "Jr.",
         "height_in": 76,
@@ -283,23 +333,9 @@
         "high_school": "Ribault",
         "previous_school": "Southeast Missouri St",
         "roster_season": "2026",
-        "roster_key": "2026-gilbert-jr-kalvin"
-      }
-    },
-    {
-      "first_name": "Seth",
-      "last_name": "Elchert",
-      "jersey_number": 10,
-      "position": "WR",
-      "position_group": "Skill",
-      "metadata": {
-        "class_year": "Fr.",
-        "height_in": 75,
-        "weight_lb": 190,
-        "hometown": "Findlay, Ohio",
-        "high_school": "Liberty-Benton",
-        "roster_season": "2026",
-        "roster_key": "2026-elchert-seth"
+        "roster_key": "2026-gilbert-jr-kalvin",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
       }
     },
     {
@@ -316,7 +352,27 @@
         "high_school": "Crisp County",
         "previous_school": "Mercer",
         "roster_season": "2026",
-        "roster_key": "2026-fox-julian"
+        "roster_key": "2026-fox-julian",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
+      }
+    },
+    {
+      "first_name": "Seth",
+      "last_name": "Elchert",
+      "jersey_number": 10,
+      "position": "WR",
+      "position_group": "WR",
+      "metadata": {
+        "class_year": "Fr.",
+        "height_in": 75,
+        "weight_lb": 190,
+        "hometown": "Findlay, Ohio",
+        "high_school": "Liberty-Benton",
+        "roster_season": "2026",
+        "roster_key": "2026-elchert-seth",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
       }
     },
     {
@@ -332,7 +388,9 @@
         "hometown": "North Lauderdale, Fla.",
         "high_school": "Coconut Creek",
         "roster_season": "2026",
-        "roster_key": "2026-miller-hyajah"
+        "roster_key": "2026-miller-hyajah",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
       }
     },
     {
@@ -348,7 +406,27 @@
         "hometown": "Perry, Ohio",
         "high_school": "Perry",
         "roster_season": "2026",
-        "roster_key": "2026-moses-walter"
+        "roster_key": "2026-moses-walter",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
+      }
+    },
+    {
+      "first_name": "Bryson",
+      "last_name": "Hammer",
+      "jersey_number": 12,
+      "position": "WR",
+      "position_group": "WR",
+      "metadata": {
+        "class_year": "Jr.",
+        "height_in": 71,
+        "weight_lb": 180,
+        "hometown": "Fremont, Ohio",
+        "high_school": "Ross",
+        "roster_season": "2026",
+        "roster_key": "2026-hammer-bryson",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
       }
     },
     {
@@ -365,23 +443,9 @@
         "high_school": "Eastmoor Academy",
         "previous_school": "Ohio Dominican",
         "roster_season": "2026",
-        "roster_key": "2026-conteh-mo"
-      }
-    },
-    {
-      "first_name": "Bryson",
-      "last_name": "Hammer",
-      "jersey_number": 12,
-      "position": "WR",
-      "position_group": "Skill",
-      "metadata": {
-        "class_year": "Jr.",
-        "height_in": 71,
-        "weight_lb": 180,
-        "hometown": "Fremont, Ohio",
-        "high_school": "Ross",
-        "roster_season": "2026",
-        "roster_key": "2026-hammer-bryson"
+        "roster_key": "2026-conteh-mo",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
       }
     },
     {
@@ -397,7 +461,27 @@
         "hometown": "Byron Center, Mich.",
         "high_school": "South Christian",
         "roster_season": "2026",
-        "roster_key": "2026-dehaan-jake"
+        "roster_key": "2026-dehaan-jake",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
+      }
+    },
+    {
+      "first_name": "Cooper",
+      "last_name": "Rusk",
+      "jersey_number": 13,
+      "position": "WR",
+      "position_group": "WR",
+      "metadata": {
+        "class_year": "Sr.",
+        "height_in": 70,
+        "weight_lb": 190,
+        "hometown": "Macedonia, Ohio",
+        "high_school": "Nordonia",
+        "roster_season": "2026",
+        "roster_key": "2026-rusk-cooper",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
       }
     },
     {
@@ -414,23 +498,9 @@
         "high_school": "West Bloomfield",
         "previous_school": "Penn State",
         "roster_season": "2026",
-        "roster_key": "2026-jackson-kari"
-      }
-    },
-    {
-      "first_name": "Cooper",
-      "last_name": "Rusk",
-      "jersey_number": 13,
-      "position": "WR",
-      "position_group": "Skill",
-      "metadata": {
-        "class_year": "Sr.",
-        "height_in": 70,
-        "weight_lb": 190,
-        "hometown": "Macedonia, Ohio",
-        "high_school": "Nordonia",
-        "roster_season": "2026",
-        "roster_key": "2026-rusk-cooper"
+        "roster_key": "2026-jackson-kari",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
       }
     },
     {
@@ -438,7 +508,7 @@
       "last_name": "Braceful",
       "jersey_number": 14,
       "position": "WR",
-      "position_group": "Skill",
+      "position_group": "WR",
       "metadata": {
         "class_year": "So.",
         "height_in": 74,
@@ -446,14 +516,16 @@
         "hometown": "Southfield, Mich.",
         "high_school": "Southfield A&T",
         "roster_season": "2026",
-        "roster_key": "2026-braceful-tashi"
+        "roster_key": "2026-braceful-tashi",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
       }
     },
     {
       "first_name": "Michael-Arinzé",
       "last_name": "Ezirim",
       "jersey_number": 15,
-      "position": "S",
+      "position": "CB",
       "position_group": "DB",
       "metadata": {
         "class_year": "So.",
@@ -462,7 +534,9 @@
         "hometown": "Dublin, Ohio",
         "high_school": "Dublin Jerome",
         "roster_season": "2026",
-        "roster_key": "2026-ezirim-michael-arinze"
+        "roster_key": "2026-ezirim-michael-arinze",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
       }
     },
     {
@@ -479,7 +553,9 @@
         "high_school": "Westside",
         "previous_school": "Mercer",
         "roster_season": "2026",
-        "roster_key": "2026-hutchinson-kaleb"
+        "roster_key": "2026-hutchinson-kaleb",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
       }
     },
     {
@@ -487,7 +563,7 @@
       "last_name": "Barnett Jr.",
       "jersey_number": 19,
       "position": "WR",
-      "position_group": "Skill",
+      "position_group": "WR",
       "metadata": {
         "class_year": "So.",
         "height_in": 74,
@@ -495,7 +571,9 @@
         "hometown": "Toledo, Ohio",
         "high_school": "Scott",
         "roster_season": "2026",
-        "roster_key": "2026-barnett-jr-daryl"
+        "roster_key": "2026-barnett-jr-daryl",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
       }
     },
     {
@@ -512,30 +590,15 @@
         "high_school": "Shiloh",
         "previous_school": "Mercer",
         "roster_season": "2026",
-        "roster_key": "2026-prince-isaac"
-      }
-    },
-    {
-      "first_name": "Corey",
-      "last_name": "Smith",
-      "jersey_number": 20,
-      "position": "RB",
-      "position_group": "Skill",
-      "metadata": {
-        "class_year": "So.",
-        "height_in": 70,
-        "weight_lb": 175,
-        "hometown": "Milwaukee, Wis.",
-        "high_school": "Catholic Memorial",
-        "previous_school": "Penn State",
-        "roster_season": "2026",
-        "roster_key": "2026-smith-corey"
+        "roster_key": "2026-prince-isaac",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
       }
     },
     {
       "first_name": "LaDavion",
       "last_name": "Osborn",
-      "jersey_number": 21,
+      "jersey_number": 20,
       "position": "CB",
       "position_group": "DB",
       "metadata": {
@@ -546,25 +609,42 @@
         "high_school": "Lake Highlands",
         "previous_school": "Northern Colorado",
         "roster_season": "2026",
-        "roster_key": "2026-osborn-ladavion"
+        "roster_key": "2026-osborn-ladavion",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
       }
     },
     {
-      "first_name": "CJ",
-      "last_name": "Miller",
-      "jersey_number": 22,
+      "first_name": "Corey",
+      "last_name": "Smith",
+      "jersey_number": 20,
       "position": "RB",
-      "position_group": "Skill",
+      "position_group": "RB",
       "metadata": {
-        "class_year": "Jr.",
-        "height_in": 71,
-        "weight_lb": 230,
-        "hometown": "Gadsden, Ala",
-        "high_school": "Gadsden City",
-        "previous_school": "Mercer",
+        "class_year": "So.",
+        "height_in": 70,
+        "weight_lb": 175,
+        "hometown": "Milwaukee, Wis.",
+        "high_school": "Catholic Memorial",
+        "previous_school": "Penn State",
         "roster_season": "2026",
-        "roster_key": "2026-miller-cj"
+        "roster_key": "2026-smith-corey",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
       }
+    },
+    {
+      "first_name": "Ben",
+      "last_name": "Sahakian",
+      "metadata": {
+        "roster_season": "2026",
+        "roster_key": "2026-sahakian-ben",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
+      },
+      "jersey_number": 21,
+      "position": "DE",
+      "position_group": "DL"
     },
     {
       "first_name": "Nicholas",
@@ -579,7 +659,46 @@
         "hometown": "Fort Wayne, Ind.",
         "high_school": "Bishop Luers",
         "roster_season": "2026",
-        "roster_key": "2026-thompson-nicholas"
+        "roster_key": "2026-thompson-nicholas",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
+      }
+    },
+    {
+      "first_name": "CJ",
+      "last_name": "Miller",
+      "jersey_number": 22,
+      "position": "RB",
+      "position_group": "RB",
+      "metadata": {
+        "class_year": "Jr.",
+        "height_in": 71,
+        "weight_lb": 230,
+        "hometown": "Gadsden, Ala",
+        "high_school": "Gadsden City",
+        "previous_school": "Mercer",
+        "roster_season": "2026",
+        "roster_key": "2026-miller-cj",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
+      }
+    },
+    {
+      "first_name": "Noah",
+      "last_name": "Sanders",
+      "jersey_number": 23,
+      "position": "RB",
+      "position_group": "RB",
+      "metadata": {
+        "class_year": "R-Fr.",
+        "height_in": 71,
+        "weight_lb": 170,
+        "hometown": "Franklin, Mich.",
+        "high_school": "Wylie E. Groves",
+        "roster_season": "2026",
+        "roster_key": "2026-sanders-noah",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
       }
     },
     {
@@ -596,40 +715,23 @@
         "high_school": "Nordonia",
         "previous_school": "Robert Morris",
         "roster_season": "2026",
-        "roster_key": "2026-petite-israel"
+        "roster_key": "2026-petite-israel",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
       }
     },
     {
-      "first_name": "Noah",
-      "last_name": "Sanders",
-      "jersey_number": 23,
-      "position": "RB",
-      "position_group": "Skill",
+      "first_name": "Bo",
+      "last_name": "Jacobs",
       "metadata": {
-        "class_year": "R-Fr.",
-        "height_in": 71,
-        "weight_lb": 170,
-        "hometown": "Franklin, Mich.",
-        "high_school": "Wylie E. Groves",
         "roster_season": "2026",
-        "roster_key": "2026-sanders-noah"
-      }
-    },
-    {
-      "first_name": "Connor",
-      "last_name": "Walendzak",
+        "roster_key": "2026-jacobs-bo",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
+      },
       "jersey_number": 24,
-      "position": "RB",
-      "position_group": "Skill",
-      "metadata": {
-        "class_year": "Sr.",
-        "height_in": 71,
-        "weight_lb": 208,
-        "hometown": "Perrysburg, Ohio",
-        "high_school": "Perrysburg",
-        "roster_season": "2026",
-        "roster_key": "2026-walendzak-connor"
-      }
+      "position": "CB",
+      "position_group": "DB"
     },
     {
       "first_name": "Tyrell",
@@ -644,7 +746,9 @@
         "hometown": "Columbus, Ohio",
         "high_school": "Beechcroft",
         "roster_season": "2026",
-        "roster_key": "2026-russell-tyrell"
+        "roster_key": "2026-russell-tyrell",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
       }
     },
     {
@@ -660,7 +764,27 @@
         "hometown": "Massillon, Ohio",
         "high_school": "Washington",
         "roster_season": "2026",
-        "roster_key": "2026-hackenbracht-tyler"
+        "roster_key": "2026-hackenbracht-tyler",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
+      }
+    },
+    {
+      "first_name": "Kadale",
+      "last_name": "Williams",
+      "jersey_number": 26,
+      "position": "RB",
+      "position_group": "RB",
+      "metadata": {
+        "class_year": "R-Fr.",
+        "height_in": 73,
+        "weight_lb": 180,
+        "hometown": "Jackson, Mich.",
+        "high_school": "Lumen Christi",
+        "roster_season": "2026",
+        "roster_key": "2026-williams-kadale",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
       }
     },
     {
@@ -668,7 +792,7 @@
       "last_name": "Nauman",
       "jersey_number": 27,
       "position": "RB",
-      "position_group": "Skill",
+      "position_group": "RB",
       "metadata": {
         "class_year": "So.",
         "height_in": 72,
@@ -676,8 +800,23 @@
         "hometown": "Marengo, Ohio",
         "high_school": "Highland",
         "roster_season": "2026",
-        "roster_key": "2026-nauman-dane"
+        "roster_key": "2026-nauman-dane",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
       }
+    },
+    {
+      "first_name": "Ziiyahn",
+      "last_name": "Blair",
+      "metadata": {
+        "roster_season": "2026",
+        "roster_key": "2026-blair-ziiyahn",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
+      },
+      "jersey_number": 27,
+      "position": "S",
+      "position_group": "DB"
     },
     {
       "first_name": "Sam",
@@ -692,31 +831,17 @@
         "hometown": "Delta, Ohio",
         "high_school": "Wauseon",
         "roster_season": "2026",
-        "roster_key": "2026-smith-jr-sam"
-      }
-    },
-    {
-      "first_name": "Kadale",
-      "last_name": "Williams",
-      "jersey_number": 28,
-      "position": "RB",
-      "position_group": "Skill",
-      "metadata": {
-        "class_year": "R-Fr.",
-        "height_in": 73,
-        "weight_lb": 180,
-        "hometown": "Jackson, Mich.",
-        "high_school": "Lumen Christi",
-        "roster_season": "2026",
-        "roster_key": "2026-williams-kadale"
+        "roster_key": "2026-smith-jr-sam",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
       }
     },
     {
       "first_name": "Tanner",
       "last_name": "Rubinstein",
       "jersey_number": 29,
-      "position": "FB",
-      "position_group": "Skill",
+      "position": "TE",
+      "position_group": "TE",
       "metadata": {
         "class_year": "Sr.",
         "height_in": 75,
@@ -725,8 +850,23 @@
         "high_school": "Napoleon",
         "previous_school": "Siena Heights",
         "roster_season": "2026",
-        "roster_key": "2026-rubinstein-tanner"
+        "roster_key": "2026-rubinstein-tanner",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
       }
+    },
+    {
+      "first_name": "Jordan",
+      "last_name": "Fox",
+      "metadata": {
+        "roster_season": "2026",
+        "roster_key": "2026-fox-jordan",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
+      },
+      "jersey_number": 29,
+      "position": "LB",
+      "position_group": "LB"
     },
     {
       "first_name": "Hayden",
@@ -741,7 +881,9 @@
         "hometown": "Lyons, Ga.",
         "high_school": "Toombs County",
         "roster_season": "2026",
-        "roster_key": "2026-roy-hayden"
+        "roster_key": "2026-roy-hayden",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
       }
     },
     {
@@ -757,7 +899,9 @@
         "hometown": "Cincinnati, Ohio",
         "high_school": "Elder",
         "roster_season": "2026",
-        "roster_key": "2026-arnold-maddox"
+        "roster_key": "2026-arnold-maddox",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
       }
     },
     {
@@ -773,7 +917,9 @@
         "hometown": "Sylvania, Ohio",
         "high_school": "Northview",
         "roster_season": "2026",
-        "roster_key": "2026-fineske-andrew"
+        "roster_key": "2026-fineske-andrew",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
       }
     },
     {
@@ -789,7 +935,9 @@
         "hometown": "Detroit, Mich.",
         "high_school": "Harper Woods",
         "roster_season": "2026",
-        "roster_key": "2026-weatherspoon-jr-bryant"
+        "roster_key": "2026-weatherspoon-jr-bryant",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
       }
     },
     {
@@ -805,8 +953,49 @@
         "hometown": "Ottawa Hills, Ohio",
         "high_school": "Ottawa Hills",
         "roster_season": "2026",
-        "roster_key": "2026-duran-emilio"
+        "roster_key": "2026-duran-emilio",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
       }
+    },
+    {
+      "first_name": "Nathan",
+      "last_name": "Gersh",
+      "metadata": {
+        "roster_season": "2026",
+        "roster_key": "2026-gersh-nathan",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
+      },
+      "jersey_number": 36,
+      "position": "LB",
+      "position_group": "LB"
+    },
+    {
+      "first_name": "Desmond",
+      "last_name": "Okantey",
+      "metadata": {
+        "roster_season": "2026",
+        "roster_key": "2026-okantey-desmond",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
+      },
+      "jersey_number": 37,
+      "position": "DE",
+      "position_group": "DL"
+    },
+    {
+      "first_name": "Clarence",
+      "last_name": "Tucker",
+      "metadata": {
+        "roster_season": "2026",
+        "roster_key": "2026-tucker-clarence",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
+      },
+      "jersey_number": 38,
+      "position": "CB",
+      "position_group": "DB"
     },
     {
       "first_name": "Dylan",
@@ -821,7 +1010,9 @@
         "hometown": "Huron, Ohio",
         "high_school": "Huron",
         "roster_season": "2026",
-        "roster_key": "2026-hohler-dylan"
+        "roster_key": "2026-hohler-dylan",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
       }
     },
     {
@@ -837,7 +1028,9 @@
         "hometown": "Youngstown, Ohio",
         "high_school": "Austintown Fitch",
         "roster_season": "2026",
-        "roster_key": "2026-ruggles-anthony"
+        "roster_key": "2026-ruggles-anthony",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
       }
     },
     {
@@ -853,7 +1046,9 @@
         "hometown": "Columbus, Ohio",
         "high_school": "St. Francis de Sales",
         "roster_season": "2026",
-        "roster_key": "2026-gwinn-cam"
+        "roster_key": "2026-gwinn-cam",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
       }
     },
     {
@@ -861,7 +1056,7 @@
       "last_name": "Lee",
       "jersey_number": 43,
       "position": "TE",
-      "position_group": "Skill",
+      "position_group": "TE",
       "metadata": {
         "class_year": "Sr.",
         "height_in": 78,
@@ -870,8 +1065,23 @@
         "high_school": "Central Catholic",
         "previous_school": "Hillsdale College",
         "roster_season": "2026",
-        "roster_key": "2026-lee-sam"
+        "roster_key": "2026-lee-sam",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
       }
+    },
+    {
+      "first_name": "Tyrell",
+      "last_name": "O'Neal",
+      "metadata": {
+        "roster_season": "2026",
+        "roster_key": "2026-o-neal-tyrell",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
+      },
+      "jersey_number": 43,
+      "position": "DT",
+      "position_group": "DL"
     },
     {
       "first_name": "Isaac",
@@ -886,7 +1096,9 @@
         "hometown": "Fort Wayne, Ind.",
         "high_school": "Bishop Luers",
         "roster_season": "2026",
-        "roster_key": "2026-zay-isaac"
+        "roster_key": "2026-zay-isaac",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
       }
     },
     {
@@ -902,7 +1114,9 @@
         "hometown": "Santa Rosa, Calif.",
         "high_school": "Rancho Cotate",
         "roster_season": "2026",
-        "roster_key": "2026-probst-hunter"
+        "roster_key": "2026-probst-hunter",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
       }
     },
     {
@@ -919,7 +1133,9 @@
         "high_school": "International School of Hamburg",
         "previous_school": "Mercer",
         "roster_season": "2026",
-        "roster_key": "2026-meincke-markus"
+        "roster_key": "2026-meincke-markus",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
       }
     },
     {
@@ -935,24 +1151,9 @@
         "hometown": "Inkster, Mich.",
         "high_school": "River Rouge",
         "roster_season": "2026",
-        "roster_key": "2026-farrow-jordin"
-      }
-    },
-    {
-      "first_name": "Max",
-      "last_name": "Allen",
-      "jersey_number": 49,
-      "position": "LS",
-      "position_group": "ST",
-      "metadata": {
-        "class_year": "R-Fr.",
-        "height_in": 76,
-        "weight_lb": 205,
-        "hometown": "Holly Springs, N.C.",
-        "high_school": "Holly Springs",
-        "previous_school": "Mercer",
-        "roster_season": "2026",
-        "roster_key": "2026-allen-max"
+        "roster_key": "2026-farrow-jordin",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
       }
     },
     {
@@ -969,8 +1170,23 @@
         "high_school": "Draughn",
         "previous_school": "Gardner-Webb",
         "roster_season": "2026",
-        "roster_key": "2026-rector-luke"
+        "roster_key": "2026-rector-luke",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
       }
+    },
+    {
+      "first_name": "Zackery",
+      "last_name": "Samuel",
+      "metadata": {
+        "roster_season": "2026",
+        "roster_key": "2026-samuel-zackery",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
+      },
+      "jersey_number": 51,
+      "position": "DE",
+      "position_group": "DL"
     },
     {
       "first_name": "Lucas",
@@ -986,7 +1202,9 @@
         "high_school": "Seneca Valley",
         "previous_school": "Robert Morris",
         "roster_season": "2026",
-        "roster_key": "2026-lambert-pipkin-lucas"
+        "roster_key": "2026-lambert-pipkin-lucas",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
       }
     },
     {
@@ -1002,7 +1220,9 @@
         "hometown": "Avon, Ohio",
         "high_school": "Avon",
         "roster_season": "2026",
-        "roster_key": "2026-toniolo-samuel"
+        "roster_key": "2026-toniolo-samuel",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
       }
     },
     {
@@ -1019,7 +1239,9 @@
         "high_school": "Frederick Douglas Academy 1",
         "previous_school": "Penn State",
         "roster_season": "2026",
-        "roster_key": "2026-traore-ibrahim"
+        "roster_key": "2026-traore-ibrahim",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
       }
     },
     {
@@ -1035,8 +1257,23 @@
         "hometown": "Rochester Hills, Mich.",
         "high_school": "Stoney Creek",
         "roster_season": "2026",
-        "roster_key": "2026-kropchak-jacob"
+        "roster_key": "2026-kropchak-jacob",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
       }
+    },
+    {
+      "first_name": "Reece",
+      "last_name": "Strittmatter",
+      "metadata": {
+        "roster_season": "2026",
+        "roster_key": "2026-strittmatter-reece",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
+      },
+      "jersey_number": 57,
+      "position": "LS",
+      "position_group": "ST"
     },
     {
       "first_name": "Jake",
@@ -1051,7 +1288,28 @@
         "hometown": "Tinley Park, Ill.",
         "high_school": "Andrew",
         "roster_season": "2026",
-        "roster_key": "2026-palucki-jake"
+        "roster_key": "2026-palucki-jake",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
+      }
+    },
+    {
+      "first_name": "Max",
+      "last_name": "Allen",
+      "jersey_number": 59,
+      "position": "LS",
+      "position_group": "ST",
+      "metadata": {
+        "class_year": "R-Fr.",
+        "height_in": 76,
+        "weight_lb": 205,
+        "hometown": "Holly Springs, N.C.",
+        "high_school": "Holly Springs",
+        "previous_school": "Mercer",
+        "roster_season": "2026",
+        "roster_key": "2026-allen-max",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
       }
     },
     {
@@ -1067,23 +1325,9 @@
         "hometown": "Gahanna, Ohio",
         "high_school": "Gahanna Lincoln",
         "roster_season": "2026",
-        "roster_key": "2026-grimm-jake"
-      }
-    },
-    {
-      "first_name": "Ameer",
-      "last_name": "Yasin",
-      "jersey_number": 61,
-      "position": "OL",
-      "position_group": "OL",
-      "metadata": {
-        "class_year": "R-Fr.",
-        "height_in": 77,
-        "weight_lb": 305,
-        "hometown": "Tallmadge, Ohio",
-        "high_school": "Tallmadge",
-        "roster_season": "2026",
-        "roster_key": "2026-yasin-ameer"
+        "roster_key": "2026-grimm-jake",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
       }
     },
     {
@@ -1100,7 +1344,9 @@
         "high_school": "Homewood-Flossmoor",
         "previous_school": "Northern Illinois",
         "roster_season": "2026",
-        "roster_key": "2026-medlock-christian"
+        "roster_key": "2026-medlock-christian",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
       }
     },
     {
@@ -1116,7 +1362,9 @@
         "hometown": "Perrysburg, Ohio",
         "high_school": "Perrysburg",
         "roster_season": "2026",
-        "roster_key": "2026-zimmerly-grant"
+        "roster_key": "2026-zimmerly-grant",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
       }
     },
     {
@@ -1132,7 +1380,9 @@
         "hometown": "Alliance, Ohio",
         "high_school": "Alliance",
         "roster_season": "2026",
-        "roster_key": "2026-gales-stephen"
+        "roster_key": "2026-gales-stephen",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
       }
     },
     {
@@ -1148,7 +1398,9 @@
         "hometown": "Berkley, Mich.",
         "high_school": "Detroit Country Day",
         "roster_season": "2026",
-        "roster_key": "2026-wilhelmi-cade"
+        "roster_key": "2026-wilhelmi-cade",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
       }
     },
     {
@@ -1165,7 +1417,9 @@
         "high_school": "Trinity Catholic",
         "previous_school": "Georgia State",
         "roster_season": "2026",
-        "roster_key": "2026-johnson-dominic"
+        "roster_key": "2026-johnson-dominic",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
       }
     },
     {
@@ -1182,7 +1436,9 @@
         "high_school": "Immaculate Conception",
         "previous_school": "Boston College/Rhode Island",
         "roster_season": "2026",
-        "roster_key": "2026-thomas-nick"
+        "roster_key": "2026-thomas-nick",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
       }
     },
     {
@@ -1198,8 +1454,23 @@
         "hometown": "Valparaiso, Ind.",
         "high_school": "Valparaiso",
         "roster_season": "2026",
-        "roster_key": "2026-hofer-matt"
+        "roster_key": "2026-hofer-matt",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
       }
+    },
+    {
+      "first_name": "Brian",
+      "last_name": "Mahoney III",
+      "metadata": {
+        "roster_season": "2026",
+        "roster_key": "2026-mahoney-iii-brian",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
+      },
+      "jersey_number": 72,
+      "position": "OL",
+      "position_group": "OL"
     },
     {
       "first_name": "Jonathan",
@@ -1215,7 +1486,9 @@
         "high_school": "Olentangy Berlin",
         "previous_school": "Cincinnati",
         "roster_season": "2026",
-        "roster_key": "2026-harder-jonathan"
+        "roster_key": "2026-harder-jonathan",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
       }
     },
     {
@@ -1232,8 +1505,36 @@
         "high_school": "Woodmont",
         "previous_school": "Gardner-Webb",
         "roster_season": "2026",
-        "roster_key": "2026-carwise-ahmad"
+        "roster_key": "2026-carwise-ahmad",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
       }
+    },
+    {
+      "first_name": "Preston",
+      "last_name": "Dazey",
+      "metadata": {
+        "roster_season": "2026",
+        "roster_key": "2026-dazey-preston",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
+      },
+      "jersey_number": 75,
+      "position": "OL",
+      "position_group": "OL"
+    },
+    {
+      "first_name": "Vincenzo",
+      "last_name": "Pizzo",
+      "metadata": {
+        "roster_season": "2026",
+        "roster_key": "2026-pizzo-vincenzo",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
+      },
+      "jersey_number": 76,
+      "position": "OL",
+      "position_group": "OL"
     },
     {
       "first_name": "Dylan",
@@ -1249,7 +1550,9 @@
         "high_school": "Dearborn Divine Child",
         "previous_school": "Northwestern/Auburn",
         "roster_season": "2026",
-        "roster_key": "2026-senda-dylan"
+        "roster_key": "2026-senda-dylan",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
       }
     },
     {
@@ -1257,7 +1560,7 @@
       "last_name": "Strickland",
       "jersey_number": 80,
       "position": "TE",
-      "position_group": "Skill",
+      "position_group": "TE",
       "metadata": {
         "class_year": "Sr.",
         "height_in": 75,
@@ -1266,7 +1569,9 @@
         "high_school": "Goffstown",
         "previous_school": "New Hampshire",
         "roster_season": "2026",
-        "roster_key": "2026-strickland-peyton"
+        "roster_key": "2026-strickland-peyton",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
       }
     },
     {
@@ -1274,7 +1579,7 @@
       "last_name": "Malafa",
       "jersey_number": 81,
       "position": "TE",
-      "position_group": "Skill",
+      "position_group": "TE",
       "metadata": {
         "class_year": "Sr.",
         "height_in": 78,
@@ -1283,7 +1588,9 @@
         "high_school": "Mariemont",
         "previous_school": "Butler",
         "roster_season": "2026",
-        "roster_key": "2026-malafa-ethan"
+        "roster_key": "2026-malafa-ethan",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
       }
     },
     {
@@ -1291,7 +1598,7 @@
       "last_name": "Mims Jr.",
       "jersey_number": 83,
       "position": "WR",
-      "position_group": "Skill",
+      "position_group": "WR",
       "metadata": {
         "class_year": "R-Fr.",
         "height_in": 72,
@@ -1299,23 +1606,9 @@
         "hometown": "East St. Louis, Ill.",
         "high_school": "Cahokia",
         "roster_season": "2026",
-        "roster_key": "2026-mims-jr-omar"
-      }
-    },
-    {
-      "first_name": "Thomas",
-      "last_name": "Zsiros",
-      "jersey_number": 84,
-      "position": "WR",
-      "position_group": "Skill",
-      "metadata": {
-        "class_year": "Sr.",
-        "height_in": 75,
-        "weight_lb": 222,
-        "hometown": "Maumee, Ohio",
-        "high_school": "St. John's Jesuit",
-        "roster_season": "2026",
-        "roster_key": "2026-zsiros-thomas"
+        "roster_key": "2026-mims-jr-omar",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
       }
     },
     {
@@ -1332,7 +1625,9 @@
         "high_school": "Central Catholic",
         "previous_school": "Hillsdale College",
         "roster_season": "2026",
-        "roster_key": "2026-lee-josh"
+        "roster_key": "2026-lee-josh",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
       }
     },
     {
@@ -1340,7 +1635,7 @@
       "last_name": "Simpson",
       "jersey_number": 85,
       "position": "WR",
-      "position_group": "Skill",
+      "position_group": "WR",
       "metadata": {
         "class_year": "Sr.",
         "height_in": 71,
@@ -1349,15 +1644,30 @@
         "high_school": "Bloomfield",
         "previous_school": "Arizona/UMass/Michigan",
         "roster_season": "2026",
-        "roster_key": "2026-simpson-anthony"
+        "roster_key": "2026-simpson-anthony",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
       }
+    },
+    {
+      "first_name": "Tucker",
+      "last_name": "Kelleher",
+      "metadata": {
+        "roster_season": "2026",
+        "roster_key": "2026-kelleher-tucker",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
+      },
+      "jersey_number": 87,
+      "position": "TE",
+      "position_group": "TE"
     },
     {
       "first_name": "Jacob",
       "last_name": "Newell",
       "jersey_number": 88,
       "position": "TE",
-      "position_group": "Skill",
+      "position_group": "TE",
       "metadata": {
         "class_year": "Sr.",
         "height_in": 76,
@@ -1366,7 +1676,9 @@
         "high_school": "Thurston",
         "previous_school": "Arizona State/Akron",
         "roster_season": "2026",
-        "roster_key": "2026-newell-jacob"
+        "roster_key": "2026-newell-jacob",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
       }
     },
     {
@@ -1383,7 +1695,9 @@
         "high_school": "Carrollwood Day",
         "previous_school": "UAB",
         "roster_season": "2026",
-        "roster_key": "2026-johnson-zach"
+        "roster_key": "2026-johnson-zach",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
       }
     },
     {
@@ -1399,7 +1713,9 @@
         "hometown": "Ann Arbor, Mich.",
         "high_school": "Huron",
         "roster_season": "2026",
-        "roster_key": "2026-shamma-laith"
+        "roster_key": "2026-shamma-laith",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
       }
     },
     {
@@ -1415,7 +1731,9 @@
         "hometown": "Lambertville, Mich.",
         "high_school": "Bedford",
         "roster_season": "2026",
-        "roster_key": "2026-huss-tommy"
+        "roster_key": "2026-huss-tommy",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
       }
     },
     {
@@ -1432,7 +1750,9 @@
         "high_school": "Pace",
         "previous_school": "Mercer",
         "roster_season": "2026",
-        "roster_key": "2026-griffith-reice"
+        "roster_key": "2026-griffith-reice",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
       }
     },
     {
@@ -1449,8 +1769,23 @@
         "high_school": "Bedford",
         "previous_school": "Ohio Dominican",
         "roster_season": "2026",
-        "roster_key": "2026-sharp-leonard"
+        "roster_key": "2026-sharp-leonard",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
       }
+    },
+    {
+      "first_name": "Adrian",
+      "last_name": "Love Jr.",
+      "metadata": {
+        "roster_season": "2026",
+        "roster_key": "2026-love-jr-adrian",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
+      },
+      "jersey_number": 94,
+      "position": "DT",
+      "position_group": "DL"
     },
     {
       "first_name": "Wayne",
@@ -1465,7 +1800,9 @@
         "hometown": "Pembroke Pines, Fla.",
         "high_school": "Chaminade-Madonna",
         "roster_season": "2026",
-        "roster_key": "2026-peart-ii-wayne"
+        "roster_key": "2026-peart-ii-wayne",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
       }
     },
     {
@@ -1482,7 +1819,9 @@
         "high_school": "Smyrna",
         "previous_school": "Sacred Heart",
         "roster_season": "2026",
-        "roster_key": "2026-chandler-nathaniel"
+        "roster_key": "2026-chandler-nathaniel",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
       }
     },
     {
@@ -1498,8 +1837,23 @@
         "hometown": "Romulus. Mich.",
         "high_school": "Detroit Cass Tech",
         "roster_season": "2026",
-        "roster_key": "2026-stovall-jr-brian"
+        "roster_key": "2026-stovall-jr-brian",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
       }
+    },
+    {
+      "first_name": "Micah",
+      "last_name": "Fils-Aime",
+      "metadata": {
+        "roster_season": "2026",
+        "roster_key": "2026-fils-aime-micah",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
+      },
+      "jersey_number": 98,
+      "position": "DT",
+      "position_group": "DL"
     },
     {
       "first_name": "Caden",
@@ -1515,7 +1869,9 @@
         "high_school": "Bellevue West",
         "previous_school": "Mercer",
         "roster_season": "2026",
-        "roster_key": "2026-camese-caden"
+        "roster_key": "2026-camese-caden",
+        "roster_snapshot_date": "2026-10-21",
+        "roster_source_url": "https://utrockets.com/sports/football/roster/2026"
       }
     }
   ]

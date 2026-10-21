@@ -92,4 +92,11 @@ describe("playback boundaries", () => {
     expect(notCancelled).toBe(true);
     expect(element.play).not.toHaveBeenCalled();
   });
+  test("signed URL renewal mirrors the retained element playback speed", () => {
+    const element = document.createElement("video");
+    render(<VideoTransport videoRef={{ current: element }} fps={30} clipOffset={0} duration={3} currentLocalTime={0} eventTimes={[]} />);
+    element.playbackRate = 1.5;
+    fireEvent(element, new Event("ratechange"));
+    expect((screen.getByTestId("transport-speed") as HTMLSelectElement).value).toBe("1.5");
+  });
 });

@@ -117,7 +117,8 @@ class TestPeriodRendererRun:
             )
 
         object_key = mock_upload.call_args.args[1]
-        assert object_key == "period_overlays/clip-abc/period_overlay.mp4"
+        assert object_key.startswith("period_overlays/clip-abc/pts-overlay-v4/")
+        assert object_key.endswith("/period_overlay.mp4")
 
     def test_analytics_unsafe_draws_warning(self) -> None:
         """analytics_safe=False triggers a cv2.rectangle call for the banner."""

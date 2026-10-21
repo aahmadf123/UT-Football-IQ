@@ -2,8 +2,17 @@ import { env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import type { Env } from "../src/env";
 import { handlePreflight, resolveOrigin, withCors } from "../src/cors";
+import productionConfig from "../wrangler.jsonc?raw";
 
 const testEnv = env as Env;
+const productionPreviewPattern = JSON.parse(
+  productionConfig.match(/"CORS_ORIGIN_REGEX"\s*:\s*("(?:\\.|[^"\\])*")/)?.[1] ?? '""',
+) as string;
+const productionEnv = {
+  ...testEnv,
+  CORS_ORIGINS: "https://ut-football-iq.vercel.app,http://localhost:3000",
+  CORS_ORIGIN_REGEX: productionPreviewPattern,
+};
 
 function req(origin?: string, init?: RequestInit): Request {
   return new Request("https://edge.test/api/v1/videos", {
@@ -13,6 +22,30 @@ function req(origin?: string, init?: RequestInit): Request {
 }
 
 describe("resolveOrigin", () => {
+  it.each([
+    "https://ut-football-cplnysxq2-aahmadf123-7151s-projects.vercel.app",
+    "https://ut-football-iq-git-main-aahmadf123-7151s-projects.vercel.app",
+    "https://ut-football-iq-aahmadf123-7151s-projects.vercel.app",
+  ])("admits this project's deployed Vercel origin using the actual production configuration: %s", (origin) => {
+    const response = handlePreflight(req(origin, {
+      method: "OPTIONS",
+      headers: { "Access-Control-Request-Method": "POST" },
+    }), productionEnv);
+    expect(response?.status).toBe(204);
+    expect(response?.headers.get("Access-Control-Allow-Origin")).toBe(origin);
+  });
+
+  it.each([
+    "https://ut-football-cplnysxq2-another-team.vercel.app",
+    "https://ut-football-iq-git-main-another-team.vercel.app",
+    "https://another-project-cplnysxq2-aahmadf123-7151s-projects.vercel.app",
+    "https://ut-football-cplnysxq2-aahmadf123-7151s-projects.vercel.app.evil.com",
+    "https://evil.com/?x=https://ut-football-cplnysxq2-aahmadf123-7151s-projects.vercel.app",
+    "http://ut-football-cplnysxq2-aahmadf123-7151s-projects.vercel.app",
+  ])("rejects unrelated and lookalike Vercel origins in production: %s", (origin) => {
+    expect(resolveOrigin(req(origin), productionEnv)).toBeNull();
+  });
+
   it("allows an exact allowlisted origin", () => {
     expect(resolveOrigin(req("https://app.example.com"), testEnv)).toBe("https://app.example.com");
     expect(resolveOrigin(req("http://localhost:3000"), testEnv)).toBe("http://localhost:3000");

@@ -8,7 +8,6 @@ import {
   FileText,
   HeartPulse,
   Home,
-  LineChart,
   Settings,
   ChevronDown,
   UserRound,
@@ -29,9 +28,9 @@ import { useWorkspaceContext } from "@/lib/workspace-context";
 const NAV_ITEMS = [
   { key: "dashboard", label: "Home", href: "/", icon: Home },
   { key: "film-room", label: "Film Room", href: "/film-room", icon: Clapperboard },
-  { key: "team-stats", label: "Team Stats", href: "/team-stats", icon: BarChart3 },
-  { key: "scouting", label: "Scouting", href: "/scouting", icon: ClipboardList },
+  { key: "team-stats", label: "Team Analytics", href: "/team-stats", icon: BarChart3 },
   { key: "players", label: "Players", href: "/players", icon: UserRound },
+  { key: "scouting", label: "Scouting", href: "/scouting", icon: ClipboardList },
   { key: "reports", label: "Reports", href: "/reports", icon: FileText },
 ] as const;
 
@@ -91,7 +90,6 @@ export function SidebarContent({
   // Health & Workload is hidden unless the role is approved (Issue #113). The
   // page itself also gates its content, so a deep link can't bypass this.
   const tools = [
-    { key: "analytics", label: "Model insights", href: "/analytics/", icon: LineChart },
     ...(canAccessHealthWorkload(currentRole)
       ? [{ key: "health-workload", label: "Health & workload", href: "/health-workload/", icon: HeartPulse }]
       : []),

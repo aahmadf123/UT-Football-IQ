@@ -2,8 +2,8 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 vi.mock("next/link", () => ({
-  default: ({ children, href }: { children: React.ReactNode; href: string }) => (
-    <a href={href}>{children}</a>
+  default: ({ children, href, onClick }: { children: React.ReactNode; href: string; onClick?: React.MouseEventHandler<HTMLAnchorElement> }) => (
+    <a href={href} onClick={onClick}>{children}</a>
   ),
 }));
 
@@ -133,6 +133,32 @@ function installFetchRoutes(routes: RouteSpec[]) {
 }
 
 describe("ClipReviewPage overlays", () => {
+  test("opening a saved workspace on the same clip restores media and inspector state", async () => {
+    installFetchRoutes([
+      { url: "/api/v1/saved-views", body: [{ id: "view-1", name: "Saved rep", surface: "film", visibility: "private", filters: { clipId: "c-1", t: "3", rate: "0.75", inspector: "hidden", playSearch: "7" } }] },
+      { url: "/api/v1/videos/download-url", body: { downloadUrl: "https://dl.test/proxy" } },
+      { url: "/api/v1/clips/c-1/overlays", body: EMPTY_OVERLAYS },
+      { url: "/api/v1/clips/c-1", body: SAMPLE_CLIP },
+      { url: "/api/v1/videos/v-1/clips", body: [SAMPLE_CLIP] },
+      { url: "/api/v1/videos/v-1", body: SAMPLE_VIDEO },
+      { url: "/api/v1/videos", body: [] }, { url: "/api/v1/jobs", body: [] }, { url: "/api/v1/players", body: [] }, { url: "/api/v1/inbox/status", body: [] },
+    ]);
+    const { ClipReviewPage, AppStateProvider } = await importPage();
+    render(<AppStateProvider><ClipReviewPage /></AppStateProvider>);
+    await screen.findByTestId("video-transport");
+    const element = document.querySelector("video")!;
+    element.currentTime = SAMPLE_CLIP.start_time + 4;
+    element.playbackRate = 1.5;
+    const details = screen.getByText("Saved film workspaces").parentElement as HTMLDetailsElement;
+    details.open = true;
+    fireEvent(details, new Event("toggle"));
+    await screen.findByRole("option", { name: "Saved rep · private" });
+    fireEvent.change(screen.getByLabelText("Open workspace"), { target: { value: "view-1" } });
+    expect(element.currentTime).toBe(SAMPLE_CLIP.start_time + 3);
+    expect(element.playbackRate).toBe(0.75);
+    expect((screen.getByLabelText("Find a play") as HTMLInputElement).value).toBe("7");
+    expect(screen.getByRole("button", { name: "Show inspector" })).toBeTruthy();
+  });
   test("switching camera angles replaces the current clip in its playlist", async () => {
     window.history.replaceState({}, "", "/clip-review/?clipId=c-1&playlist=c-1%2Cc-3");
     installFetchRoutes([
@@ -169,6 +195,14 @@ describe("ClipReviewPage overlays", () => {
     expect(angleLink.getAttribute("href")).toBe(
       "/clip-review/?clipId=c-angle&playlist=c-angle%2Cc-3",
     );
+    const element = document.querySelector("video")!;
+    element.currentTime = SAMPLE_CLIP.start_time + 2.25;
+    element.playbackRate = 1.5;
+    fireEvent.click(angleLink);
+    const destination = new URL(routerPush.mock.calls.at(-1)![0], "https://film.test");
+    expect(destination.searchParams.get("t")).toBe("2.25");
+    expect(destination.searchParams.get("rate")).toBe("1.5");
+    expect(destination.searchParams.get("playlist")).toBe("c-angle,c-3");
   });
 
   test("explains a local API network failure", async () => {
@@ -548,10 +582,12 @@ describe("ClipReviewPage overlays", () => {
 
     // Field view is gated: uncalibrated footage explains itself instead of
     // plotting untrustworthy positions.
-    fireEvent.click(screen.getByTestId("overlay-toggle-field"));
     await waitFor(() => {
       expect(screen.getByTestId("field-minimap-gated")).toBeTruthy();
     });
+    expect(screen.getByTestId("video-stage").contains(screen.getByTestId("field-inset"))).toBe(true);
+    fireEvent.click(screen.getByTestId("overlay-toggle-field"));
+    expect(screen.queryByTestId("field-inset")).toBeNull();
     // Reason text shows in both the calibration banner and the gated panel.
     expect(screen.getAllByText(/Field lines were not detected/).length).toBeGreaterThan(0);
     expect(screen.queryByTestId("field-diagram")).toBeNull();

@@ -27,6 +27,7 @@ from app.models import (
     User,
     Video,
 )
+from app.services.clip_state import lock_boundary_scope
 
 TAG_TYPES = {
     CorrectionType.formation_tag: "offensive_formation",
@@ -173,6 +174,8 @@ async def submit_correction(
     expected_revision: int | None = None,
 ) -> tuple[CoachCorrection, bool]:
     """Validate, apply and record a correction; return (record, replayed)."""
+    if correction_type == CorrectionType.clip_boundary:
+        await lock_boundary_scope(db, clip_id)
     if client_operation_id is not None:
         digest = hashlib.sha256(f"{actor.id}:{client_operation_id}".encode()).digest()
         lock = int.from_bytes(digest[:8], "big", signed=True)
@@ -243,6 +246,10 @@ async def submit_correction(
         ).scalar_one_or_none()
         if tracklet is None:
             raise HTTPException(404, detail="Tracklet not found in this clip")
+        if (tracklet.provenance or {}).get("state") == "superseded" or (
+            tracklet.provenance or {}
+        ).get("publication_state") == "pending":
+            raise HTTPException(409, detail="Tracking result changed; reload the active tracks")
         before = {
             "tracklet_id": str(tracklet.id),
             "player_id": str(tracklet.player_id) if tracklet.player_id else None,

@@ -13,7 +13,7 @@ from app.models import JobStatus, ProcessingJob
 
 
 async def validate_worker_write(
-    request: Request, db: Annotated[AsyncSession, Depends(get_db)]
+    request: Request, db: Annotated[AsyncSession, Depends(get_db, scope="function")]
 ) -> None:
     job_header = request.headers.get("x-job-id")
     if request.method not in {"POST", "PATCH", "PUT", "DELETE"} or not job_header:

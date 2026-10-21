@@ -598,7 +598,7 @@ async def _score_link(
 
 @router.get("/concepts", response_model=ConceptListOut)
 async def list_concepts(
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _user: _ReadUser,
     side: str | None = Query(default=None),
     active_only: bool = Query(default=True),
@@ -616,7 +616,7 @@ async def list_concepts(
 @router.post("/concepts", response_model=ConceptOut, status_code=status.HTTP_201_CREATED)
 async def create_concept(
     body: ConceptCreate,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     user: _WriteUser,
 ) -> ConceptOut:
     """Create a coach-authored concept."""
@@ -667,7 +667,7 @@ async def create_concept(
 
 @router.post("/concepts/seed", response_model=ConceptListOut)
 async def seed_concepts(
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     user: _WriteUser,
 ) -> ConceptListOut:
     """Install the starter offense + defense concepts (idempotent)."""
@@ -705,7 +705,7 @@ async def seed_concepts(
 @router.get("/concepts/{concept_id}", response_model=ConceptOut)
 async def get_concept(
     concept_id: uuid.UUID,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _user: _ReadUser,
 ) -> ConceptOut:
     concept = (
@@ -720,7 +720,7 @@ async def get_concept(
 async def update_concept(
     concept_id: uuid.UUID,
     body: ConceptUpdate,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     user: _WriteUser,
 ) -> ConceptOut:
     """Edit a concept (coach-curated)."""
@@ -779,7 +779,7 @@ async def update_concept(
 async def link_concept(
     clip_id: uuid.UUID,
     body: LinkCreate,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     user: _WriteUser,
 ) -> LinkOut:
     """Record that ``concept_id`` was the call on this clip (upsert)."""
@@ -856,7 +856,7 @@ async def _persisted_scores(
 @router.get("/clips/{clip_id}/overlay", response_model=OverlayOut)
 async def get_overlay(
     clip_id: uuid.UUID,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _user: _ReadUser,
 ) -> OverlayOut:
     """Film Room overlay for a clip: intended routes, coaching points, and live
@@ -944,7 +944,7 @@ async def _persist_scores(
 @router.post("/clips/{clip_id}/score", response_model=list[ScoreOut])
 async def score_clip(
     clip_id: uuid.UUID,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     user: _WriteUser,
 ) -> list[ScoreOut]:
     """Compute and persist assignment execution scores for the clip's concepts."""
@@ -989,7 +989,7 @@ async def score_clip(
 async def override_score(
     score_id: uuid.UUID,
     body: OverrideIn,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     user: _WriteUser,
 ) -> AssignmentOverlayOut:
     """Coach override of an assignment grade.
@@ -1072,7 +1072,7 @@ async def override_score(
 @router.get("/concepts/{concept_id}/examples", response_model=ExamplesOut)
 async def concept_examples(
     concept_id: uuid.UUID,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _user: _ReadUser,
     k: int = Query(default=12, ge=1, le=50),
 ) -> ExamplesOut:
@@ -1161,7 +1161,7 @@ async def concept_examples(
 @router.post("/concepts/{concept_id}/score-corpus", response_model=CorpusScoreOut)
 async def score_corpus(
     concept_id: uuid.UUID,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     user: _WriteUser,
     _capacity: Annotated[Any, Depends(require_workload_capacity("playbook.score_corpus"))],
 ) -> CorpusScoreOut:

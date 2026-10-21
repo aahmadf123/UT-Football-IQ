@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "state": "missing_real_annotations_and_benchmarks",
+  "sources": [],
+  "splits": {"train": [], "calibration": [], "holdout": []},
+  "evaluations": [],
+  "notes": [
+    "No human-reviewed benchmark labels were supplied with the source media.",
+    "Populate actual source, label, prediction, model and evaluation references; never replace missing evidence with fixtures.",
+    "Source clips from the same practice or game and alternate camera views share one source-group split."
+  ]
+}

@@ -38,6 +38,7 @@ from app.models import (
 )
 from app.routers.game_summary import build_game_summary
 from app.routers.health_workload import PLAYER_LEVEL_RISK_ROLES, _position_group_aggregates
+from app.services.metric_policy import aggregate_metric_ids, canonical_play_id
 
 router = APIRouter(prefix="/api/v1/team", tags=["team-dashboard"])
 
@@ -143,8 +144,7 @@ def _physical_base(since: dt.datetime, session_kind: SessionKind | None) -> Any:
         .join(Video, Video.id == Clip.video_id)
         .where(
             Metric.metric_name == PHYSICAL,
-            Metric.is_suppressed.is_(False),
-            Metric.experimental_flag.is_(False),
+            Metric.id.in_(aggregate_metric_ids()),
             _RECORDED >= since,
             _toledo_track(),
         )
@@ -172,7 +172,7 @@ async def _weekly(
         .add_columns(
             week.label("week"),
             kind.label("kind"),
-            func.count(Metric.id).label("reps"),
+            func.count(func.distinct(canonical_play_id())).label("reps"),
             func.count(func.distinct(Tracklet.player_id)).label("players"),
             func.sum(_num("yards")).label("yards"),
             func.sum(_num("high_speed_yards")).label("hsy"),
@@ -347,9 +347,14 @@ async def _activity(db: AsyncSession) -> Activity:
     ).scalar_one()
     plays = (
         await db.execute(
-            select(func.count(func.distinct(func.concat(Clip.video_id, ":", Clip.play_number))))
+            select(func.count(func.distinct(canonical_play_id())))
             .join(Video, Video.id == Clip.video_id)
-            .where(_RECORDED >= week_ago)
+            .where(
+                _RECORDED >= week_ago,
+                func.coalesce(Clip.label_data["canonical_count_eligible"].as_boolean(), True).is_(
+                    True
+                ),
+            )
         )
     ).scalar_one()
     processing = (
@@ -368,7 +373,7 @@ async def _activity(db: AsyncSession) -> Activity:
 
 @router.get("/dashboard", response_model=TeamDashboard)
 async def team_dashboard(
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     user: Annotated[User, Depends(require_any_staff)],
     weeks: int = Query(default=12, ge=1, le=52, description="Trailing weeks of film"),
     session_kind: SessionKind | None = Query(default=None),

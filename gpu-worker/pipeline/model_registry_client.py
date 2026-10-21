@@ -22,6 +22,7 @@ from __future__ import annotations
 import hashlib
 import os
 import shutil
+import tempfile
 import threading
 from dataclasses import dataclass
 from pathlib import Path
@@ -153,7 +154,18 @@ def _materialise(version: dict) -> Path | None:
             tmp.unlink(missing_ok=True)
             return None
         target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.move(str(tmp), target)
+        # Local media downloads may be hard links to preserve large originals.
+        # Model caches must be independent bytes: mutating a cache must never
+        # modify the approved source artifact through a shared filesystem inode.
+        descriptor, staging_name = tempfile.mkstemp(prefix=".model-", dir=target.parent)
+        os.close(descriptor)
+        staging = Path(staging_name)
+        try:
+            shutil.copyfile(tmp, staging)
+            os.replace(staging, target)
+        finally:
+            staging.unlink(missing_ok=True)
+            tmp.unlink(missing_ok=True)
         log.info(
             "model_artifact_cached",
             model_name=version.get("model_name"),

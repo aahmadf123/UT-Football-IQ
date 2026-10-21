@@ -11,9 +11,9 @@ stable identity key is ``metadata->>'roster_key'`` (season + name slug, with
 the jersey appended only to break ties between identically named players).
 The key deliberately excludes jersey and position: players change both
 between seasons and even mid-season, and a key built from them would fork a
-new row instead of updating in place. Film-side identity resolution keys on
-``(jersey_number, position_group)`` — enforced unique for active players by
-``uq_players_jersey_posgroup_active``.
+new row instead of updating in place. Numbers and position groups identify
+candidates; duplicate numbers within a group are valid. Season/team/session
+assignments and measured team evidence constrain film identity.
 
 Seeding never deletes: players who leave the roster are deactivated
 (``is_active=false``) only when the caller opts in, because tracklets and
@@ -21,14 +21,15 @@ profile history reference player rows.
 
 Pre-existing installations: player rows created through the API before this
 seeding existed carry no ``roster_key``. The seed pass adopts them instead of
-inserting duplicates — matching by normalized name first, then by the
-constrained ``(jersey_number, position_group)`` pair — so the partial unique
-index can never be violated by a seed run over live data.
+inserting duplicates by normalized name. Matching an unrelated person merely
+because they share a jersey is prohibited. Snapshot dates document when a
+roster was observed; they do not establish a midseason effective-change date.
 """
 
 from __future__ import annotations
 
 import json
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -55,6 +56,7 @@ _ROSTER_METADATA_KEYS = frozenset(
         "previous_school",
         "roster_season",
         "roster_key",
+        "roster_snapshot_date",
     }
 )
 
@@ -83,6 +85,7 @@ class RosterFile(BaseModel):
     season: str
     source: str
     players: list[RosterEntry]
+    roster_snapshot_date: date | None = None
 
 
 def load_roster_file(path: Path | None = None) -> RosterFile:
@@ -91,22 +94,16 @@ def load_roster_file(path: Path | None = None) -> RosterFile:
     roster = RosterFile.model_validate(json.loads(roster_path.read_text(encoding="utf-8")))
 
     seen_keys: set[str] = set()
-    seen_pairs: dict[tuple[int, str], str] = {}
     for entry in roster.players:
+        if roster.roster_snapshot_date:
+            entry.metadata = {
+                **entry.metadata,
+                "roster_snapshot_date": roster.roster_snapshot_date.isoformat(),
+            }
         key = entry.roster_key
         if key in seen_keys:
             raise ValueError(f"duplicate roster_key in roster file: {key}")
         seen_keys.add(key)
-        # Pre-flight the DB uniqueness rule so a bad file fails with a readable
-        # message instead of an IntegrityError mid-transaction.
-        if entry.jersey_number is not None and entry.position_group:
-            pair = (entry.jersey_number, entry.position_group)
-            if pair in seen_pairs:
-                raise ValueError(
-                    "roster file violates (jersey_number, position_group) uniqueness: "
-                    f"#{pair[0]} {pair[1]} is claimed by both {seen_pairs[pair]} and {key}"
-                )
-            seen_pairs[pair] = key
     return roster
 
 
@@ -176,15 +173,6 @@ async def seed_roster(
                     ):
                         unkeyed.remove(row)
                         return row
-                if entry.jersey_number is not None and entry.position_group:
-                    for row in unkeyed:
-                        if (
-                            row.is_active
-                            and row.jersey_number == entry.jersey_number
-                            and row.position_group == entry.position_group
-                        ):
-                            unkeyed.remove(row)
-                            return row
                 return None
 
             # Phase 1 of the two-phase update: any matched row whose

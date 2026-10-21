@@ -409,3 +409,6 @@ or automatic synchronized 3D reconstruction.
 ---
 
 *Last updated: May 26, 2026*
+# Apache ECharts
+
+Apache ECharts (frontend statistical chart adapter), Apache-2.0. Official project: https://echarts.apache.org/. No model weights or datasets included. Used for cohort charts with accessible HTML tables and linked film selection.

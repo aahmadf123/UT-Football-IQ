@@ -1,12 +1,31 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
-const { video, download, clips, overlays } = vi.hoisted(() => ({ video: vi.fn(), download: vi.fn(), clips: vi.fn().mockResolvedValue([]), overlays: vi.fn() }));
-vi.mock("@/lib/api", () => ({ fetchVideo: video, fetchVideoDownloadUrl: download, fetchClipsForVideo: clips, fetchClipOverlays: overlays, parseStorageUri: () => ({ bucket: "raw-video", key: "raw/test.mp4" }) }));
+const { video, download, clips, overlays, refreshDelay } = vi.hoisted(() => ({ video: vi.fn(), download: vi.fn(), clips: vi.fn().mockResolvedValue([]), overlays: vi.fn(), refreshDelay: vi.fn(() => 60_000) }));
+vi.mock("@/lib/api", () => ({ fetchVideo: video, fetchVideoDownloadUrl: download, fetchClipsForVideo: clips, fetchClipOverlays: overlays, parseStorageUri: () => ({ bucket: "raw-video", key: "raw/test.mp4" }), signedUrlRefreshDelay: refreshDelay }));
 vi.mock("@/lib/app-state", () => ({ useAppState: () => ({ authToken: "token", data: { players: [] } }) }));
 import { RecordingReview } from "./recording-review";
-afterEach(() => { cleanup(); vi.clearAllMocks(); clips.mockResolvedValue([]); });
+afterEach(() => { cleanup(); vi.useRealTimers(); vi.clearAllMocks(); clips.mockResolvedValue([]); refreshDelay.mockReturnValue(60_000); });
 
 describe("raw recording playback", () => {
+  test("renews long-game URLs and restores time, speed and audio state", async () => {
+    vi.useFakeTimers();
+    refreshDelay.mockReturnValue(1000);
+    video.mockResolvedValue({ id: "v1", filename: "game.mp4", duration_seconds: 5400, storage_uri: "local://raw-video/raw/test.mp4" });
+    download.mockResolvedValueOnce("/media?sig=first").mockResolvedValue("/media?sig=renewed");
+    render(<RecordingReview videoId="v1" />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    const element = screen.getByLabelText("game.mp4") as HTMLVideoElement;
+    element.currentTime = 4500.25; element.playbackRate = 1.5; element.muted = true; element.volume = 0.4;
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+    const renewed = screen.getByLabelText("game.mp4") as HTMLVideoElement;
+    expect(renewed.getAttribute("src")).toContain("renewed");
+    fireEvent.loadedMetadata(renewed);
+    expect(renewed.currentTime).toBe(4500.25);
+    expect(renewed.playbackRate).toBe(1.5);
+    expect(renewed.muted).toBe(true);
+    expect(renewed.volume).toBe(0.4);
+    expect(download).toHaveBeenCalledWith("raw-video", "raw/test.mp4", "token", { fresh: true });
+  });
   test("opens imported film before model inference or segmentation", async () => {
     video.mockResolvedValue({ id: "v1", filename: "practice.mp4", status: "uploaded", storage_uri: "local://raw-video/raw/test.mp4", practice_session_id: "session-1" });
     download.mockResolvedValue("/api/v1/storage/raw-video/raw/test.mp4?sig=test");

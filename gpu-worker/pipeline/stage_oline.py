@@ -27,6 +27,8 @@ from typing import Any
 import structlog
 
 from pipeline import backend
+from pipeline.observations import field_position_at
+from pipeline.runtime import PipelineInterrupted, check_control
 
 log = structlog.get_logger(__name__)
 
@@ -48,6 +50,9 @@ def run(
     log.info("stage_oline_start", clip_id=clip_id)
 
     snap_event = next((e for e in events if e.get("event_type") == "snap"), None)
+    if snap_event is None:
+        return {"metric_count": 0, "metric_ids": [], "metrics": [],
+                "skipped": True, "reason": "snap_not_observed"}
     snap_frame = snap_event.get("frame_number", 0) if snap_event else 0
 
     throw_event = next((e for e in events if e.get("event_type") == "throw"), None)
@@ -59,10 +64,13 @@ def run(
     )
     mesh_frame = mesh_event.get("frame_number") if mesh_event else None
 
-    los_x = _estimate_los(tracklets, snap_frame)
+    los_x = _estimate_los(tracklets, snap_frame, fps)
+    if los_x is None:
+        return {"metric_count": 0, "metric_ids": [], "metrics": [],
+                "skipped": True, "reason": "line_of_scrimmage_unresolved"}
 
-    ol_tracklets = _identify_ol(tracklets, snap_frame, los_x)
-    dl_tracklets = _identify_dl(tracklets, snap_frame, los_x)
+    ol_tracklets = _identify_ol(tracklets, snap_frame, los_x, fps)
+    dl_tracklets = _identify_dl(tracklets, snap_frame, los_x, fps)
 
     suppressed = not analytics_safe
     reason = "calibration_not_safe" if suppressed else None
@@ -71,20 +79,15 @@ def run(
 
     # ── Gap widths ────────────────────────────────────────────────────────
     target_frame = mesh_frame if mesh_frame else snap_frame + int(fps * 0.5)
-    gap_widths = _compute_gap_widths(ol_tracklets, target_frame)
-    for i, width in enumerate(gap_widths):
-        metrics.append({
-            "metric_name": "gap_width",
-            "metric_value": {
-                "gap_index": i,
-                "width_yards": round(width, 2),
-                "at_frame": target_frame,
-                "confidence": 0.55,
-            },
-            "unit": "yd",
-            "is_suppressed": suppressed,
-            "suppression_reason": reason,
-        })
+    for frame, name in ((snap_frame, "pre_snap_split"), (target_frame, "geometric_spacing")):
+        for measurement in _gap_measurements(ol_tracklets, snap_frame, frame, fps):
+            if name == "geometric_spacing":
+                by_id = {t.get("id"): t for t in ol_tracklets}
+                left_id, right_id = measurement["initial_pair"]
+                measurement["series"] = _spacing_series(by_id[left_id], by_id[right_id], snap_frame, fps)
+            metrics.append({"metric_name": name, "metric_value": measurement,
+                            "unit": "yd", "is_suppressed": suppressed,
+                            "suppression_reason": reason})
 
     # ── Double-team detection ─────────────────────────────────────────────
     double_teams = _detect_double_teams(ol_tracklets, dl_tracklets, snap_frame, fps)
@@ -146,7 +149,17 @@ def run(
 
     # Write metrics
     metric_ids: list[str] = []
+    synthetic = any((t.get("provenance") or {}).get("source") == "synthetic_test"
+                    or any(p.get("source") == "synthetic_test" for p in t.get("track_points", []))
+                    for t in tracklets)
     for m in metrics:
+        check_control()
+        m["experimental_flag"] = True
+        m["metric_value"].update(
+            definition_version="2026-10-21.1", measurement="tracking_observation",
+            required_evidence=["field_calibration", "snap", "resolved_unit", "supported_film_model_validation"],
+            provenance={"source": "synthetic_test" if synthetic else "real", "validated": False},
+        )
         try:
             resp = backend.create_metric(
                 clip_id=clip_id,
@@ -156,75 +169,99 @@ def run(
                 is_suppressed=m.get("is_suppressed", False),
                 suppression_reason=m.get("suppression_reason"),
                 job_id=job_id,
+                experimental_flag=True,
             )
             metric_ids.append(resp["id"])
+        except PipelineInterrupted:
+            raise
         except Exception as exc:
             log.warning("oline_metric_write_failed", name=m["metric_name"], error=str(exc))
+            raise
 
     log.info("stage_oline_done", clip_id=clip_id, metric_count=len(metric_ids))
-    return {"metric_count": len(metric_ids), "metric_ids": metric_ids}
+    return {"metric_count": len(metric_ids), "metric_ids": metric_ids, "metrics": metrics}
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 
-def _estimate_los(tracklets: list[dict[str, Any]], snap_frame: int) -> float:
+def _estimate_los(tracklets: list[dict[str, Any]], snap_frame: int,
+                  fps: float = 30) -> float | None:
     xs: list[float] = []
     for t in tracklets:
-        for pt in t.get("track_points", []):
-            if pt.get("frame_number") == snap_frame:
-                fx = pt.get("field_x")
-                if fx is not None:
-                    xs.append(float(fx))
-                break
+        point = _position_at_frame(t, snap_frame, fps)
+        if point is not None:
+            xs.append(point[0])
     if not xs:
-        return 50.0
+        return None
     xs.sort()
     return xs[len(xs) // 2]
 
 
 def _position_at_frame(
-    tracklet: dict[str, Any], frame: int
+    tracklet: dict[str, Any], frame: int, fps: float = 30
 ) -> tuple[float, float] | None:
-    for pt in tracklet.get("track_points", []):
-        if pt.get("frame_number") == frame:
-            fx = pt.get("field_x")
-            fy = pt.get("field_y")
-            if fx is not None and fy is not None:
-                return (float(fx), float(fy))
-    return None
+    return field_position_at(tracklet, frame, fps)
 
 
 def _identify_ol(
-    tracklets: list[dict[str, Any]], snap_frame: int, los_x: float
+    tracklets: list[dict[str, Any]], snap_frame: int, los_x: float, fps: float = 30
 ) -> list[dict[str, Any]]:
     """Identify OL as the 5 players closest to LOS on the offensive side."""
     candidates: list[tuple[float, dict[str, Any]]] = []
     for t in tracklets:
-        pos = _position_at_frame(t, snap_frame)
+        if t.get("team_label") != "offense":
+            continue
+        pos = _position_at_frame(t, snap_frame, fps)
         if pos is None:
             continue
         # OL should be within a few yards of LOS on the offensive side
         depth = los_x - pos[0]
-        if -OL_LOS_RANGE_YD <= depth <= OL_LOS_RANGE_YD and abs(pos[1]) < 10.0:
-            candidates.append((abs(pos[1]), t))
+        if -OL_LOS_RANGE_YD <= depth <= OL_LOS_RANGE_YD:
+            candidates.append((pos[1], t))
+    if len(candidates) < 5:
+        return []
+    lateral_center = sorted(c[0] for c in candidates)[len(candidates) // 2]
+    candidates = [(abs(y - lateral_center), t) for y, t in candidates]
     candidates.sort(key=lambda c: c[0])
     return [c[1] for c in candidates[:5]]
 
 
 def _identify_dl(
-    tracklets: list[dict[str, Any]], snap_frame: int, los_x: float
+    tracklets: list[dict[str, Any]], snap_frame: int, los_x: float, fps: float = 30
 ) -> list[dict[str, Any]]:
     """Identify DL as defenders within DL_LOS_RANGE_YD of LOS."""
     result: list[dict[str, Any]] = []
     for t in tracklets:
-        pos = _position_at_frame(t, snap_frame)
+        if t.get("team_label") != "defense":
+            continue
+        pos = _position_at_frame(t, snap_frame, fps)
         if pos is None:
             continue
         depth = pos[0] - los_x
-        if 0 <= depth <= DL_LOS_RANGE_YD and abs(pos[1]) < 12.0:
+        if abs(depth) <= DL_LOS_RANGE_YD:
             result.append(t)
     return result
+
+
+def _gap_measurements(tracks: list[dict[str, Any]], snap_frame: int,
+                      frame: int, fps: float) -> list[dict[str, Any]]:
+    # The initial neighbors define each spacing pair for the entire play.
+    # Pullers crossing later cannot rename a formation's original gaps.
+    ordered = sorted(((_position_at_frame(t, snap_frame, fps), t) for t in tracks),
+                     key=lambda item: item[0][1] if item[0] else float("inf"))
+    measurements = []
+    for index, ((initial_a, left), (initial_b, right)) in enumerate(zip(ordered, ordered[1:])):
+        if initial_a is None or initial_b is None:
+            continue
+        a, b = _position_at_frame(left, frame, fps), _position_at_frame(right, frame, fps)
+        if a is None or b is None:
+            continue
+        measurements.append({"gap_index": index, "width_yards": round(math.dist(a, b), 3),
+                             "at_frame": frame, "source_start_frame": snap_frame,
+                             "initial_pair": [left.get("id"), right.get("id")],
+                             "geometry": "center_to_center", "clear_lane_width": None})
+    return measurements
 
 
 def _compute_gap_widths(
@@ -244,6 +281,26 @@ def _compute_gap_widths(
                    + (positions[i + 1][1] - positions[i][1]) ** 2)
         for i in range(len(positions) - 1)
     ]
+
+
+def _spacing_series(left: dict[str, Any], right: dict[str, Any], snap_frame: int,
+                     fps: float) -> list[dict[str, Any]]:
+    by_frame = {p["frame_number"]: p for t in (left, right) for p in t.get("track_points", [])}
+    series = []
+    for frame, reference in sorted(by_frame.items()):
+        if frame < snap_frame:
+            continue
+        timestamp = reference.get("timestamp_seconds")
+        if not isinstance(timestamp, (int, float)) or not math.isfinite(timestamp):
+            continue  # Series require source-clock evidence, never inferred elapsed times.
+        a = field_position_at(left, frame, fps, timestamp_seconds=timestamp)
+        b = field_position_at(right, frame, fps, timestamp_seconds=timestamp)
+        if a is None or b is None:
+            series.append({"timestamp_seconds": timestamp, "visibility_state": "lost"})
+        else:
+            series.append({"timestamp_seconds": timestamp, "width_yards": round(math.dist(a, b), 3),
+                           "shot_id": reference.get("shot_id"), "visibility_state": "observed"})
+    return series
 
 
 def _detect_double_teams(

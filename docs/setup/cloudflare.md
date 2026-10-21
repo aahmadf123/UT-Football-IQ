@@ -276,7 +276,7 @@ Edit `vars` in `wrangler.jsonc` before the first deploy:
 | Var | Set it to |
 |---|---|
 | `CORS_ORIGINS` | Your real Vercel origin, e.g. `https://footiq.vercel.app`. Leaving it at localhost is the classic "login doesn't work in production" — the browser's preflight is rejected before the request reaches any endpoint. |
-| `CORS_ORIGIN_REGEX` | Optional, for preview deploys: `https://footiq-[a-z0-9-]+\\.vercel\\.app`. It is anchored at both ends when compiled, so a lookalike origin cannot match. |
+| `CORS_ORIGIN_REGEX` | Optional, for preview deploys. Match the actual project prefixes and the owning team's exact Vercel suffix; see [the deployed Football-IQ pattern](vercel.md#3-cors). It is anchored at both ends when compiled, so a lookalike origin cannot match. |
 | `PUBLIC_API_BASE_URL` | This Worker's public origin. The backend mints absolute upload and playback URLs from it. |
 
 ---
