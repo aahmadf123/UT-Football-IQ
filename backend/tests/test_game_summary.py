@@ -123,3 +123,22 @@ def test_one_clip_per_play_prefers_the_sideline_angle():
         SimpleNamespace(id=other, play_number=5, start_time=20.0, label_data={"view": "sideline"}),
     ]
     assert _play_clips(clips) == {4: (cfbd, sideline)}
+
+
+def test_play_log_keeps_every_counted_play_in_game_order():
+    ids = [uuid.uuid4() for _ in range(4)]
+    side = summarize_side(
+        [
+            (_play("Rush", 1, 10, 12, ppa=1.2, period=1, play_text="Run for 12"), ids[0]),
+            (_play("Punt", 4, 9, 40, period=1), ids[1]),  # excluded, as in the totals
+            (_play("Sack", 3, 10, -7, ppa=-1.5, period=2), ids[2]),
+            (_play("Pass Interception Return", 1, 10, 0, period=3), ids[3]),
+        ]
+    )
+    assert [p.clip_id for p in side.play_log] == [ids[0], ids[2], ids[3]]
+    run, sack, pick = side.play_log
+    assert (run.kind, run.period, run.explosive, run.success) == ("rush", 1, True, True)
+    assert run.epa == 1.2
+    assert run.text == "Run for 12"
+    assert (sack.kind, sack.yards_gained, sack.success) == ("pass", -7, False)
+    assert pick.turnover and pick.epa is None
