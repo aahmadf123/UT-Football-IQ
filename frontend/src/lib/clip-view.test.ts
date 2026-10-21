@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import type { ApiClip } from "./types";
-import { clipView, sameplayAngles, situationLabel } from "./clip-view";
+import { clipView, playSequence, sameplayAngles, situationLabel } from "./clip-view";
 
 function clip(id: string, play: number, view: string | null, start: number, extra: Partial<ApiClip> = {}): ApiClip {
   return {
@@ -55,5 +55,31 @@ describe("clip view helpers", () => {
       label_data: { view: "sideline", scoreboard: { down: 1, goal_to_go: true } },
     });
     expect(situationLabel(corrected)).toBe("3rd & 5");
+  });
+});
+
+describe("playSequence", () => {
+  const film = [
+    clip("1s", 1, "sideline", 0),
+    clip("1e", 1, "endzone", 10),
+    clip("2s", 2, "sideline", 20),
+    clip("2e", 2, "endzone", 30),
+    clip("3e", 3, "endzone", 40), // the sideline shot of play 3 was missed
+  ];
+  const ids = (current: ApiClip) => playSequence(current, film).map((c) => c.id);
+
+  test("steps play to play on the camera being watched", () => {
+    expect(ids(film[0])).toEqual(["1s", "2s", "3e"]);
+    expect(ids(film[1])).toEqual(["1e", "2e", "3e"]);
+  });
+
+  test("next from the end zone shot of play 1 is play 2, not the same play again", () => {
+    const steps = ids(film[1]);
+    expect(steps[steps.indexOf("1e") + 1]).toBe("2e");
+  });
+
+  test("clips without a play number each stay a step", () => {
+    const practice = [clip("a", 1, null, 0, { play_number: null }), clip("b", 1, null, 5, { play_number: null })];
+    expect(playSequence(practice[0], practice).map((c) => c.id)).toEqual(["a", "b"]);
   });
 });

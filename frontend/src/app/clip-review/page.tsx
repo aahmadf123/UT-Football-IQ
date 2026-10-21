@@ -1,6 +1,6 @@
 "use client";
 
-import { clipView, sameplayAngles, situationLabel, viewLabel } from "@/lib/clip-view";
+import { clipView, playSequence, sameplayAngles, situationLabel, viewLabel } from "@/lib/clip-view";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, memo, useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from "react";
@@ -34,7 +34,7 @@ import { ReviewMetadataPanel } from "./review-metadata-panel";
 import { RecordingReview } from "./recording-review";
 import { CorrectionHistory } from "./correction-history";
 import { FieldMinimap } from "./field-minimap";
-import { OverlayCanvas, eventTimeSeconds, type OverlayStyle } from "./overlay-canvas";
+import { OverlayCanvas, eventTimeSeconds, useOverlayStyle, type OverlayStyle } from "./overlay-canvas";
 import { VideoTransport } from "./video-transport";
 import { canSeeTechnicalDetails, resolveCurrentRole } from "@/lib/roles";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -54,29 +54,6 @@ const LAYER_TOGGLES: ReadonlyArray<{ key: OverlayLayerKey; label: string }> = [
   { key: "metrics", label: "Metrics" },
   { key: "field", label: "Field view" },
 ];
-
-const OVERLAY_STYLE_KEY = "footiq.overlayStyle";
-
-/** Clean is the default; an analyst's choice is remembered on this browser. */
-function useOverlayStyle(): [OverlayStyle, (style: OverlayStyle) => void] {
-  const [style, setStyle] = useState<OverlayStyle>("clean");
-  useEffect(() => {
-    try {
-      if (window.localStorage.getItem(OVERLAY_STYLE_KEY) === "analyst") setStyle("analyst");
-    } catch {
-      // Storage can be blocked; the clean default still applies.
-    }
-  }, []);
-  const choose = useCallback((next: OverlayStyle) => {
-    setStyle(next);
-    try {
-      window.localStorage.setItem(OVERLAY_STYLE_KEY, next);
-    } catch {
-      // Not remembered this time; the choice still applies.
-    }
-  }, []);
-  return [style, choose];
-}
 
 // Default playback frame rate when the parent video has no ``fps`` recorded.
 // Phase CV pipeline targets 30fps; overlays sync to this by default so the
@@ -475,8 +452,9 @@ function ClipReviewReady({
   const backHref = fromParam.startsWith("/") && !fromParam.startsWith("//")
     ? fromParam
     : `/film-room/?tab=review&videoId=${encodeURIComponent(video.id)}`;
-  const sequence = playlistIndex >= 0 ? playlist : siblingClips.map((c) => c.id);
-  const clipIndex = playlistIndex >= 0 ? playlistIndex : siblingClips.findIndex((c) => c.id === clip.id);
+  const playSteps = useMemo(() => playSequence(clip, siblingClips).map((c) => c.id), [clip, siblingClips]);
+  const sequence = playlistIndex >= 0 ? playlist : playSteps;
+  const clipIndex = playlistIndex >= 0 ? playlistIndex : playSteps.indexOf(clip.id);
   const prevClipId = clipIndex > 0 ? sequence[clipIndex - 1] : null;
   const nextClipId = clipIndex >= 0 && clipIndex < sequence.length - 1 ? sequence[clipIndex + 1] : null;
   const goToClip = useCallback(

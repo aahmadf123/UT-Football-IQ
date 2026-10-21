@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { activeTrackPointIndex } from "@/lib/tracking-time";
 
 /**
@@ -56,6 +56,33 @@ const TEAM_COLORS: Record<string, string> = {
 
 export type OverlayStyle = "clean" | "analyst";
 
+const OVERLAY_STYLE_KEY = "footiq.overlayStyle";
+
+/**
+ * One overlay style for every film view. Clean is the default; an analyst's
+ * choice is remembered on this browser.
+ */
+export function useOverlayStyle(): [OverlayStyle, (style: OverlayStyle) => void] {
+  const [style, setStyle] = useState<OverlayStyle>("clean");
+  useEffect(() => {
+    try {
+      if (window.localStorage.getItem(OVERLAY_STYLE_KEY) === "analyst") setStyle("analyst");
+    } catch {
+      // Storage can be blocked; the clean default still applies.
+    }
+  }, []);
+  const choose = useCallback((next: OverlayStyle) => {
+    setStyle(next);
+    try {
+      window.localStorage.setItem(OVERLAY_STYLE_KEY, next);
+    } catch {
+      // Not remembered this time; the choice still applies.
+    }
+  }, []);
+  return [style, choose];
+}
+
+
 interface OverlayCanvasProps {
   tracklets: OverlayTracklet[];
   events: OverlayEvent[];
@@ -92,8 +119,11 @@ export function OverlayCanvas({
   eventCurrentTimeSeconds = currentTimeSeconds,
   sourceStartTimeSeconds = 0,
   showTrails = true,
-  overlayStyle = "analyst",
+  overlayStyle: overlayStyleProp,
 }: OverlayCanvasProps) {
+  // Views without their own switch follow the viewer's saved choice.
+  const [savedStyle] = useOverlayStyle();
+  const overlayStyle = overlayStyleProp ?? savedStyle;
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const showTracks = activeLayers.has("tracks");
   const showEvents = activeLayers.has("events");
