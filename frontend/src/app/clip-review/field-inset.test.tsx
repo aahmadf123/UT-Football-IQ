@@ -24,3 +24,33 @@ test("unqualified calibration never draws player or field positions", () => {
   expect(screen.queryByTestId("field-diagram")).toBeNull();
   expect(screen.getByText("Camera calibration missing")).toBeTruthy();
 });
+
+test("solid inset has visible controls and an opaque field without fading observations", () => {
+  render(<FieldInset tracklets={[track]} seconds={0} fps={30} calibration={calibration} />);
+  const inset = screen.getByTestId("field-inset");
+  expect(inset.className).not.toMatch(/opacity-|bg-black\/30/);
+  expect(screen.getByRole("button", { name: "Hide field view" })).toBeTruthy();
+  const turf = screen.getByTestId("field-diagram").querySelector("rect");
+  expect(turf?.getAttribute("opacity")).toBe("1");
+});
+
+test("hide and restore retain layout and synchronize to the new playhead", () => {
+  const { rerender } = render(<FieldInset tracklets={[track]} seconds={0} fps={30} calibration={calibration} />);
+  fireEvent.click(screen.getByRole("button", { name: "Move field view to next corner" }));
+  fireEvent.click(screen.getByRole("button", { name: "Expand field view" }));
+  fireEvent.click(screen.getByRole("button", { name: "Hide field view" }));
+  expect(document.activeElement).toBe(screen.getByRole("button", { name: "Show field view" }));
+  expect(screen.queryByTestId("field-diagram")).toBeNull();
+  rerender(<FieldInset tracklets={[track]} seconds={5} fps={30} calibration={calibration} />);
+  fireEvent.click(screen.getByRole("button", { name: "Show field view" }));
+  expect(document.activeElement).toBe(screen.getByRole("button", { name: "Hide field view" }));
+  expect(screen.getByTestId("field-inset").getAttribute("data-corner")).toBe("0");
+  expect(screen.getByTestId("field-inset").getAttribute("data-expanded")).toBe("true");
+  expect(screen.getByTestId("field-diagram").querySelectorAll("circle")).toHaveLength(0);
+});
+
+test.each(["official", "sideline", "unknown"])("explicit %s person kind never becomes player field markers or player counts", (actor_kind) => {
+  render(<FieldInset tracklets={[{ ...track, provenance: { actor_kind } }]} seconds={0} fps={30} calibration={calibration} />);
+  expect(screen.getByTestId("field-diagram").querySelectorAll("circle")).toHaveLength(0);
+  expect(screen.getByText("0 visible tracks · calibrated yards")).toBeTruthy();
+});

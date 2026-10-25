@@ -128,6 +128,23 @@ def run(
         frames_by_number=frames_by_number,
         classifier=classifier,
     )
+    staff_players = {
+        str(track.get("id")): track for track in tracklets
+        if (track.get("provenance") or {}).get("actor_kind") == "player"
+        and ((track.get("provenance") or {}).get("actor_classification") or {}).get("method") == "staff_review"
+    }
+    # A stripe/color guess cannot turn a staff-corrected player back into an
+    # official. With no observed unit, retain unknown rather than guess a side.
+    team_results = [replace(result, label="unknown", confidence=0.0, cluster_index=None,
+                            reason="staff_player_kind_overrides_stripes")
+                    if result.tracklet_id in staff_players and result.label == "official"
+                    else result for result in team_results]
+    team_results = [replace(result, label=staff_players[result.tracklet_id]["team_label"],
+                            confidence=1.0, cluster_index=None, reason="staff_observed_unit")
+                    if result.tracklet_id in staff_players
+                    and (staff_players[result.tracklet_id].get("provenance") or {}).get("unit_source") == "staff_review"
+                    and staff_players[result.tracklet_id].get("team_label") in {"home", "away", "offense", "defense", "special_teams", "unknown"}
+                    else result for result in team_results]
     team_results, sides = _name_team_sides(
         team_results, tracklets, classifier, side_context or SideContext()
     )

@@ -1216,7 +1216,8 @@ def fetch_annotation_snapshot(video_id: str) -> list[dict[str, Any]]:
                 if len(page) < 500:
                     break
             human_labels: list[dict[str, Any]] = []
-            for source in ("human", "manual"):
+            inherited_labels: list[dict[str, Any]] = []
+            for source in ("human", "manual", "inherited_human"):
                 label_ids: set[str] = set()
                 for offset in range(0, 100001, 500):
                     response = client.get(
@@ -1234,11 +1235,24 @@ def fetch_annotation_snapshot(video_id: str) -> list[dict[str, Any]]:
                     ):
                         raise ValueError("Invalid human label snapshot page")
                     label_ids.update(str(item["id"]) for item in page)
-                    human_labels.extend(page)
-                    if len(human_labels) > 100000:
+                    (inherited_labels if source == "inherited_human" else human_labels).extend(page)
+                    if len(human_labels) + len(inherited_labels) > 100000:
                         raise ValueError("Annotation snapshot exceeds 100000 labels per clip")
                     if len(page) < 500:
                         break
+            actor_labels = [label for label in [*human_labels, *inherited_labels]
+                            if label.get("label_type") == "player_identity"
+                            and "actor_kind" in (label.get("label_value") or {})]
+            if actor_labels:
+                current_tracks_response = client.get(f"/api/v1/clips/{record['id']}/tracklets")
+                current_tracks_response.raise_for_status()
+                current_tracks = current_tracks_response.json()
+                if (not isinstance(current_tracks, list) or len(current_tracks) > 100000
+                        or any(not isinstance(t, dict) or not t.get("id") for t in current_tracks)):
+                    raise ValueError("Invalid current actor review snapshot")
+                current_ids = {str(track["id"]) for track in current_tracks}
+                record["actor_kind_labels"] = [label for label in actor_labels
+                                              if str(label.get("tracklet_id")) in current_ids]
             removed_events = []
             removed_seen = set()
             for offset in range(0, 100001, 500):

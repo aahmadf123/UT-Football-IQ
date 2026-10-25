@@ -1,11 +1,60 @@
 # Overhaul continuation review — 2026-10-21
 
-Scope: follow-up work on `codex/overhaul-completion-20261021`, initially after
-PR57 (`7bb3793`), then after the user's `549e8cf` main push. Earlier sections
-are historical snapshots; the newest section records the subsequent local,
-uncommitted fixes. This is an active review ledger, not full-plan acceptance.
+Scope: follow-up work initially after PR57 (`7bb3793`), then the user's
+`549e8cf` main push and merged `88fa8ae`. Earlier sections are historical
+snapshots. The active follow-up after 88fa8ae remains local and uncommitted.
+This is an active review ledger, not full-plan acceptance.
 Implementation fixes go to their owners except the explicitly assigned narrow
 frontend shot-normalization fix below. Production checks remain read-only.
+
+## Current follow-up after 88fa8ae
+
+Public frontend/API checks at 2026-10-22 00:29 UTC match 88fa8ae with database readiness; the
+separately inspected hosted processor checkout remains d1f4317. CI 39692007555
+passed. Deploy 39692352559 failed its steady-readiness poll at 23:40:29 UTC;
+subsequent public checks passed. Live smoke 39694939221 skipped. No specific DB
+capacity cause is established. Protected inventory requires authentication and
+approval to observe the existing browser was declined, so production recording
+counts and the one-visible-recording cause remain unverified. No alternate
+credential/configuration access was attempted.
+
+Independent review found and verified corrections for the shared selector's
+50-recording cap, clean enabled-but-hidden overlay labels/metrics, missing
+keyboard-focus detail, discarded official candidates, practice/game context
+asymmetry, and nonplayer inspector/map/callout inconsistencies. The field inset
+has an opaque surface and visible accessible controls. Real browser checks use
+explicit synthetic media for UI geometry; they do not establish field calibration
+on the user's unsafe-calibration game sample.
+
+New person-kind authority is applied through actual staff corrections, not raw
+imported provenance. Review reproduced loss through exact reruns, later identity
+edits and inherited-reference composition, plus a provenance demotion bypass.
+The final code preserves verified source-label identity and classification before
+dependent stages, recaptures current bindings on fresh staff edits, verifies real
+inherited roots, and preserves prior results with a visible warning on mismatch.
+Independent actor/render/native-window tests passed (72 cases). The six-generation
+actual local HTTP test additionally exercises staff roster identity, a later
+jersey/unit edit, inherited-only replay, official reassignment and failed binding
+holds. Its real transport/publication is distinct from its explicit candidate,
+segmentation and analytical-consumer seams. The report correctly says
+`football_validation: false`; it is not a CV or performance benchmark.
+
+The file:// labeling entry failure was independently reproduced. The replacement
+launcher/server, exclusive draft-folder lock, revision CAS/history, source hashes,
+reviewer/pass isolation, native index and hint review were read and rerun. A fresh
+archive passed actual browser save/reload/import/export and attribution tests.
+The reviewer also used the authorized isolated 8042 viewer read-only: all 30
+practice choices appeared, the first 1280×720 original played and 309 native hint
+frames loaded. Reviewer stayed blank and no real annotations were saved.
+
+All 30 offline proposal files passed independent parser/hash/catalog/native-frame
+coverage validation: 11,065 inference frames, 146,831 generic boxes and 16,491
+unvalidated stripe-heuristic referee candidates. This does not establish that all
+recordings were processed in production, automatic identities, observed units,
+football labels or accuracy. Full-plan code/evidence and compatible production
+acceptance remain open. Current final source/log bookkeeping is independently
+accepted in `practice-continuation-verification-20261021.md` and its machine
+record; the historical counts below must not be combined into one snapshot.
 
 ## Reviewed release hardening
 
@@ -904,3 +953,78 @@ The independent master review is accepted for that bounded scope, superseding
 the earlier pending notices. This is not full-plan completion, a green remote
 CI result or production deployment. No production writes or processor restart
 occurred during this review.
+
+## Final master acceptance after merged 88fa8ae
+
+At 2026-10-22 00:44 UTC, the reviewer independently matched all 68 changed
+source/workflow/test/fixture files against Git, including the precise generated
+archive ignore rule. The complete set reproduces aggregate SHA-256
+`b681fce8aa1b8d27e98cca25b24de9d67fcf0492de26e61f021e2901d27b3d3a`.
+All ten final master logs match their hashes and stated results. All 635
+retained Linux copy entries match their manifest; all 360 current worker files,
+including the 22 changed worker files, match the tested copy. The later labeler
+README drift is explicitly bounded and covered by final tooling verification.
+
+Final separate results are backend 1,054 passed with nine warnings; worker
+1,861 on Windows and clean Linux with one optional skip and four integrations
+deselected; frontend 583 cases/79 files and all 31 browser flows; and four
+actual local HTTP integrations together in 96.87s. Backend Ruff/237-file
+formatting/mypy123 and frontend global ESLint/types/17-page export passed.
+The asyncpg cancellation warning is also present in retained earlier logs,
+but its allocation origin remains unresolved. It is not described as harmless
+or attributed to application metrics code from its third-party emission site.
+
+The final connected archive passed independent CRC, all 106 internal file
+hashes, safe-name checks and the actual archived parser over all thirty
+source-bound hint files. Archive SHA is
+`10e8cc6a053e1c9e46d28d86384d097073dd310eeda8609a9c2912a819db408b`.
+The tool evidence accurately records a host symlink skip and future CI
+configuration rather than claiming an unobserved remote execution. The archive
+contains no film/weights; reviewer checks created no staff annotations. Its
+11,065 hint frames remain unreviewed, with no new model fitting or promotion.
+
+The Markdown and JSON master records now have
+`final_master_hash_review: accepted`, supported by
+`runs/reviewer-practice-final-master.json` and
+`runs/reviewer-labeler-final-archive.json`. This accepts source, regression and
+artifact bookkeeping for the bounded local follow-up. Protected production
+inventory and the one-visible-recording cause remain unverified; no production
+mutation or worker restart occurred. Full overhaul, model accuracy, sustained
+workload and staff/compatible-release acceptance remain incomplete.
+
+## Accepted recording-picker follow-up — 2026-10-22
+
+Independent read-only tracing identified both recording selectors' hidden
+dashboard filters, stale session/video URL state and the session catalog cap.
+Review then caught a manual-selection/Back cycle that restored the wrong video,
+refresh replacing a valid default selection, and an unscoped upload link that
+did not reach the actual upload flow. Owners corrected these with regressions.
+Both complete catalogs now have explicit scope/counts, loading/error/retry and
+membership behavior. Reviewed late catalog, clip, auth and session-response
+guards preserve the current scope. A missing explicit recording never silently
+opens another recording. Independent focused verification passed 51 cases.
+
+The final record `recording-picker-verification-20261022` was independently
+accepted at 10:47 UTC. The complete 76-file changed set matches aggregate SHA-256
+`b35f7527975156e1adce06d3e95fb05240af06a505fd877ba8f5e16eadfe0d4c`.
+The ten frontend delta files and seven recorded log hashes were checked. The
+earlier accepted record remains hash-identical at
+`ac44e355c4e523f4737cfb0e1e73d438ab1449ba0e75494f201f72eaca1e4e73`;
+66 of its source files, including all backend/worker files, are unchanged.
+The prior record was not rewritten to claim this new frontend verification.
+
+The final settled full frontend run passed 607 cases/80 files in 67.84s; all
+34 Chromium flows passed in 45.9s. Global ESLint, TypeScript and the 17-page
+production export passed. The test-only async settlement correction retained
+assertions and removed page/session `act` warnings; the full run still records
+six VideoTransport harness warnings, with prior evidence for that category.
+The 205-row browser case validates pagination, eligibility counts and exact
+attachment/reset through mocked transport; it creates no actual uploaded film.
+
+`final_source_log_review: accepted` is supported by
+`runs/reviewer-recording-picker-final-review.json`. No known blocker remains
+in this bounded local picker fix. Production inventory and the user's exact
+deployed state were not inspected through denied browser access or alternate
+credentials. The offline 30-file proposal run still means zero production
+uploads. New source is uncommitted/undeployed, and full overhaul, staff and
+football-model acceptance remain incomplete.

@@ -24,12 +24,14 @@ export function validatePlay(play, duration = Infinity, width = Infinity, height
   const errors = [];
   if (!play.id || !play.canonical_play_id) errors.push('Play ID and canonical play ID are required.');
   if (!finite(play.start_seconds) || !finite(play.end_seconds) || play.start_seconds < 0 || play.end_seconds <= play.start_seconds || play.end_seconds > duration + .001) errors.push('Start and end must form a positive interval inside the original source.');
-  if (play.snap_seconds != null && (!finite(play.snap_seconds) || play.snap_seconds < play.start_seconds || play.snap_seconds > play.end_seconds)) errors.push('Snap must be inside the play, or left unknown.');
+  if (play.snap_seconds != null && (!finite(play.snap_seconds) || play.snap_seconds < play.start_seconds || play.snap_seconds >= play.end_seconds)) errors.push('Snap must be before the play end and inside the play, or left unknown.');
   for (const event of play.events ?? []) if (!event.event_type || !finite(event.timestamp_seconds) || event.timestamp_seconds < play.start_seconds || event.timestamp_seconds > play.end_seconds) errors.push('Each event needs a name and source time inside the play.');
   const targets = new Set();
   for (const track of play.dense_tracks ?? []) {
     if (!track.target_id || targets.has(track.target_id)) errors.push('Track target IDs must be nonempty and unique within a play.');
     targets.add(track.target_id);
+    if(!['player','referee','unknown'].includes(track.actor_kind??'unknown') || !['offense','defense','unknown','not_applicable'].includes(track.side??'unknown')) errors.push('Actor kind and observed side must be explicit supported values or unknown.');
+    if(track.actor_kind==='referee' && !['unknown','not_applicable'].includes(track.side??'unknown')) errors.push('A referee cannot have offense/defense responsibility.');
     let last = -Infinity;
     for (const point of track.points ?? []) {
       const b = point.bbox;
@@ -43,6 +45,7 @@ export function validatePlay(play, duration = Infinity, width = Infinity, height
     if (!targets.has(identity.target_id)) errors.push('Identity target must match an existing manually labeled track.');
     if ((identity.player_id || identity.canonical_entity_id) && (!identity.readable || !identity.team_resolved)) errors.push('Known identities require readable jersey and resolved team evidence. Leave unknown identities blank.');
     if (identity.player_id && !identity.canonical_entity_id) errors.push('A known roster identity needs a canonical entity ID for cross-view deduplication.');
+    if((identity.player_id || identity.canonical_entity_id) && play.dense_tracks?.find(t=>t.target_id===identity.target_id)?.actor_kind==='referee') errors.push('A referee cannot receive a player roster identity.');
   }
   return [...new Set(errors)];
 }

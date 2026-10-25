@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Suspense, useState } from "react";
+import { Suspense } from "react";
 import { FootballShell } from "@/components/shell/app-shell";
 import { SessionWorkspace } from "@/components/film-room/session-workspace";
 import { ReviewTab } from "@/components/film-room/review-tab";
@@ -49,10 +49,10 @@ function FilmRoomContent() {
   const tabParam = searchParams.get("tab");
   const activeTab: TabKey = isTabKey(tabParam) ? tabParam : "browse";
   const videoIdParam = searchParams.get("videoId");
-  const [selectedSessionId, setSelectedSessionId] = useState(searchParams.get("sessionId") ?? "");
+  const selectedSessionId = searchParams.get("sessionId") ?? "";
   const selectSession = (id: string) => {
-    setSelectedSessionId(id);
     const url = new URL(window.location.href);
+    if (id !== (url.searchParams.get("sessionId") ?? "")) url.searchParams.delete("videoId");
     if (id) url.searchParams.set("sessionId", id); else url.searchParams.delete("sessionId");
     window.history.replaceState(null, "", url);
   };
@@ -89,7 +89,7 @@ function FilmRoomContent() {
       </nav>
 
       {activeTab === "browse" && <SessionWorkspace initialSessionId={selectedSessionId} onSelect={selectSession} />}
-      {activeTab === "review" && <ReviewTab initialVideoId={videoIdParam ?? undefined} sessionId={selectedSessionId || undefined} />}
+      {activeTab === "review" && <ReviewTab initialVideoId={videoIdParam ?? undefined} sessionId={selectedSessionId || undefined} onSessionChange={selectSession} />}
       {activeTab === "upload" && <UploadProcessFilm onUploadClick={handleUploadClick} />}
     </>
   );

@@ -149,7 +149,7 @@ describe("AppStateProvider — empty live response does not fall back to mock", 
           ? { storageUri: "local://raw-video/new-key.mp4", size: 5, etag: "etag" }
           : url.endsWith("/api/v1/videos") && options?.method === "POST"
             ? { ...original, duplicate: true }
-            : url.endsWith("/api/v1/videos") ? [original] : [];
+            : new URL(url).pathname === "/api/v1/videos" ? [original] : [];
       return { ok: true, status: 200, json: async () => result };
     }));
     const { AppStateProvider, useAppState } = await freshImport();
@@ -216,7 +216,9 @@ describe("AppStateProvider — empty live response does not fall back to mock", 
     const videosCall = fetchMock.mock.calls
       .map((call) => String(call[0]))
       .find((url) => url.includes("/api/v1/videos"));
-    expect(videosCall).toBe("http://api.test/api/v1/videos");
+    expect(new URL(videosCall!).pathname).toBe("/api/v1/videos");
+    expect(new URL(videosCall!).searchParams.has("recorded_after")).toBe(false);
+    expect(new URL(videosCall!).searchParams.has("recorded_before")).toBe(false);
   });
 
   test("sends full-day recorded_at range when a date is selected", async () => {

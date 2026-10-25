@@ -41,6 +41,15 @@ needs a frame-aware review/adjudication workflow if browser seeking is inadequat
 
 ## Track observations and visibility
 
+The connected viewer records `actor_kind` (player/referee/unknown) and observed
+`side` (offense/defense/not_applicable/unknown) explicitly. Person detections can
+include coaches, staff and spectators; suggested kinds are unreviewed hints.
+Referees have no offensive/defensive side or player roster identity. Leave
+uncertain people and sides unknown. Optional practice period and offensive/
+defensive concept notes are staff-entered draft context. A box or movement does
+not generate formation, assignment, success or responsibility, and these fields
+do not complete any review requirement.
+
 - A `target_id` identifies one athlete in one source-local window. Track IDs are
   separate from roster IDs and must be unique within that window.
 - Boxes use original-resolution pixel coordinates `[left, top, right, bottom]`,

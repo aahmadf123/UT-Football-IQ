@@ -329,6 +329,16 @@ async def get_clip_overlays(
             ["Conflicting staff annotations are withheld; review and correct the saved tags."]
             if label_selection.conflicting_types
             else []
+        )
+        + (
+            [
+                "A saved person-kind correction could not be matched to the latest tracking run. "
+                "Previous reviewed tracking was kept; tracking repair is required "
+                "before replacement."
+            ]
+            if isinstance(clip.label_data, dict)
+            and clip.label_data.get("_actor_kind_review_required")
+            else []
         ),
         withheld_label_count=withheld_label_count,
         tracklets=[

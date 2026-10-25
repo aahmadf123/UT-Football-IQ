@@ -13,7 +13,7 @@ import {
   fetchJobs,
   fetchPlayerMetricsSummaries,
   fetchPlayers,
-  fetchVideos,
+  fetchAllVideos,
   registerVideo,
   requestUploadUrl,
   uploadToObjectStore,
@@ -336,7 +336,7 @@ export function AppStateProvider({
     if (sessionType !== "all") filters.session_kind = sessionType;
     const token = tokenRef.current;
     const [videos, jobs, inbox, metrics, roster] = await Promise.allSettled([
-      fetchVideos(filters, token), fetchJobs({}, token), fetchInboxStatus(token, true), fetchPlayerMetricsSummaries(token), fetchPlayers({ is_active: true, limit: 500 }, token),
+      fetchAllVideos(filters, token), fetchJobs({}, token), fetchInboxStatus(token, true), fetchPlayerMetricsSummaries(token), fetchPlayers({ is_active: true, limit: 500 }, token),
     ]);
     if (run !== fetchRunRef.current) return;
     setData((current) => ({

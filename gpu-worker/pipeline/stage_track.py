@@ -92,18 +92,37 @@ def run(
         tracker.camera_motion = camera_motion
 
     results = tracker.track(detections)
+    # Track officials in a separate association pool. The player adapters
+    # deliberately ignore nonplayers; previously this silently lost a referee
+    # recognized by detection before the overlay could display it.
+    official_detections = {
+        frame: [{**det, "class": "player"} for det in frame_dets
+                if det.get("class") == "official"]
+        for frame, frame_dets in detections.items()
+    }
+    official_results = []
+    if any(official_detections.values()):
+        official_tracker = get_tracker(
+            variant or "iou-tracker", iou_threshold=IOU_THRESHOLD,
+            max_lost_frames=max(1, round(fps * MAX_LOST_SECONDS)),
+        )
+        official_tracker.max_lost_seconds = MAX_LOST_SECONDS
+        official_results = official_tracker.track(official_detections)
     projected_points = _project_tracks(
-        results, homography, analytics_safe, calibration_series=calibration_series,
+        [*results, *official_results], homography, analytics_safe, calibration_series=calibration_series,
         capture_regime=capture_regime,
     )
 
     tracklet_ids: list[str] = []
     tracklets: list[dict[str, Any]] = []
+    non_player_tracklets: list[dict[str, Any]] = []
     masked_tracklet_count = 0
     detector_provenance = detector_provenance or {}
-    for track in results:
+    for track, actor_kind in [(t, "player") for t in results] + [
+        (t, "official") for t in official_results
+    ]:
         check_control()
-        if len(track.points) < 2:
+        if len(track.points) < 2 and actor_kind == "player":
             continue
         # Tracking confidence = mean detection confidence over the track's
         # points. This is a TRACKING-quality signal (how sure the detector was
@@ -136,7 +155,13 @@ def run(
             "visibility_state": "observed",
             "max_lost_seconds": MAX_LOST_SECONDS,
             "tracker_inputs": feature_diagnostics,
+            "actor_kind": actor_kind,
         }
+        if actor_kind == "official":
+            provenance["actor_classification"] = {
+                "method": "detection_official_candidate", "validated": False,
+                "status": "unreviewed",
+            }
         try:
             resp = backend.create_tracklet(
                 clip_id,
@@ -144,7 +169,7 @@ def run(
                 end_frame=track.last_frame,
                 track_points=track.points,
                 track_confidence=track_confidence,
-                team_label="unknown",
+                team_label="official" if actor_kind == "official" else "unknown",
                 job_id=job_id,
                 provenance=provenance,
                 model_version_id=detector_provenance.get("model_version_id"),
@@ -154,7 +179,7 @@ def run(
             # events / labels / metrics take `tracklets` dicts in exactly
             # the backend row shape — carrying them here saves the
             # orchestrator a read-back round trip).
-            tracklets.append(
+            (non_player_tracklets if actor_kind == "official" else tracklets).append(
                 {
                     "id": resp["id"],
                     "clip_id": clip_id,
@@ -162,7 +187,8 @@ def run(
                     "end_frame": track.last_frame,
                     "track_points": track.points,
                     "track_confidence": track_confidence,
-                    "team_label": "unknown",
+                    "team_label": "official" if actor_kind == "official" else "unknown",
+                    "class": actor_kind,
                     "provenance": provenance,
                     "model_version_id": detector_provenance.get("model_version_id"),
                 }
@@ -187,6 +213,10 @@ def run(
         "tracklet_count": len(tracklet_ids),
         "tracklet_ids": tracklet_ids,
         "tracklets": tracklets,
+        # These rows are persisted for overlays, but never handed to player
+        # re-identification, formations, pose, metrics or opportunity analysis.
+        "non_player_tracklets": non_player_tracklets,
+        "official_tracklet_count": len(non_player_tracklets),
         "mask_aware": tracker.mask_aware,
         "projected_points": projected_points,
         "tracker_inputs": feature_diagnostics,

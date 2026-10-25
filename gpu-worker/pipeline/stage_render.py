@@ -158,14 +158,16 @@ def _render(
     # Per-track ordered box centers for motion trails: index → [(frame, cx, cy)]
     track_centers: list[list[tuple[int, int, int]]] = []
     for i, t in enumerate(tracklets):
-        color = TRACK_COLORS[i % len(TRACK_COLORS)]
+        actor_kind = (t.get("provenance") or {}).get("actor_kind") or t.get("class")
+        non_player = actor_kind in {"official", "sideline", "unknown"} or t.get("team_label") in {"official", "sideline"}
+        color = (220, 220, 220) if non_player else TRACK_COLORS[i % len(TRACK_COLORS)]
         centers: list[tuple[int, int, int]] = []
         for pt in bounded_frame_observations(t, timeline, fps):
             fn = pt.get("frame_number", 0)
             bbox = pt.get("bbox")
             if bbox:
                 frame_tracks.setdefault(fn, []).append((bbox, color, i))
-                if analytics_safe and pt.get("field_x") is not None and pt.get("field_y") is not None:
+                if not non_player and analytics_safe and pt.get("field_x") is not None and pt.get("field_y") is not None:
                     field_positions.setdefault(fn, []).append({**pt, "team_label": t.get("team_label", "unknown")})
                 cx = int((bbox[0] + bbox[2]) / 2)
                 cy = int((bbox[1] + bbox[3]) / 2)
@@ -210,7 +212,11 @@ def _render(
             for bbox, color, tid in frame_tracks.get(frame_idx, []):
                 x1, y1, x2, y2 = [int(v) for v in bbox]
                 cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
-                cv2.putText(frame, f"T{tid}", (x1, y1 - 4), FONT, 0.4, color, 1)
+                actor = tracklets[tid]
+                official = actor.get("team_label") == "official" or (actor.get("provenance") or {}).get("actor_kind") == "official"
+                kind = (actor.get("provenance") or {}).get("actor_kind")
+                tag = "Ref?" if official else "Person" if kind in {"sideline", "unknown"} else f"T{tid}"
+                cv2.putText(frame, tag, (x1, y1 - 4), FONT, 0.4, color, 1)
 
             if analytics_safe:
                 draw_field_minimap(frame, field_positions.get(frame_idx, []))

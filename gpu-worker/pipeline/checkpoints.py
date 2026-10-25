@@ -77,6 +77,7 @@ def checkpoint_identity(
         "media_generator_version": MEDIA_GENERATOR_VERSION,
         "overlay_generator_version": OVERLAY_GENERATOR_VERSION,
         "tracker_inputs_version": "ecc-hsv-v1",
+        "actor_tracking_version": "separate-official-and-staff-kind-replay-v2",
         "staff_boundary_audit_version": "shot-reset-v1",
         "segmentation_version": ASSOCIATION_VERSION,
         "observed_metrics_version": OBSERVED_METRICS_VERSION,

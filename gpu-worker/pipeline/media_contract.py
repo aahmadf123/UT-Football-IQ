@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 MEDIA_GENERATOR_VERSION = "pts-proxy-v3-native-window"
-OVERLAY_GENERATOR_VERSION = "pts-overlay-v6-native-staff-hud"
+OVERLAY_GENERATOR_VERSION = "pts-overlay-v7-solid-field-inset"
 TIMELINE_REVISION = 3
 
 

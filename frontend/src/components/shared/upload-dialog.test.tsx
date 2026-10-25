@@ -87,7 +87,7 @@ describe("UploadDialog", () => {
       videoFile("Dji 20260416110028 0258 D.mp4"),
     ]);
     fireEvent.change(screen.getByLabelText("Session type"), { target: { value: "practice" } });
-    fireEvent.change(screen.getByLabelText("Our possession"), { target: { value: "offense" } });
+    fireEvent.change(screen.getByLabelText("Focus unit, optional"), { target: { value: "offense" } });
     fireEvent.change(screen.getByLabelText("Tags"), { target: { value: "Red Zone, red zone" } });
     fireEvent.click(screen.getByTestId("upload-submit"));
 

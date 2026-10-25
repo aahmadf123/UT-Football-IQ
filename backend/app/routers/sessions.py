@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import func, select, update
 from sqlalchemy.engine import Row
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -28,6 +28,12 @@ class SessionCreate(BaseModel):
     opponent_team: str | None = Field(default=None, max_length=120)
     library_role: Literal["toledo", "opponent"] = "toledo"
     notes: str | None = Field(default=None, max_length=10000)
+
+    @model_validator(mode="after")
+    def internal_practice(self) -> "SessionCreate":
+        if self.session_kind in {SessionKind.practice, SessionKind.scrimmage}:
+            self.opponent_team = None
+        return self
 
     @field_validator("title")
     @classmethod
@@ -299,16 +305,41 @@ async def update_session(
     db: Annotated[AsyncSession, Depends(get_db, scope="function")],
     _user: Annotated[User, Depends(require_any_staff)],
 ) -> dict[str, Any]:
+    await lock_boundary_scope(db, session_id)
     row = await _get_session(db, session_id)
+    before_context = (row.session_kind, row.opponent_team, row.library_role)
     row.updated_at = datetime.now(UTC)
     for key, value in body.model_dump(exclude_unset=True).items():
         setattr(row, key, value)
-    if "library_role" in body.model_fields_set:
+    if row.session_kind in {SessionKind.practice, SessionKind.scrimmage}:
+        row.opponent_team = None
+    if before_context != (row.session_kind, row.opponent_team, row.library_role):
+        values: dict[str, Any] = {"library_role": row.library_role}
+        if row.session_kind is not None:
+            values.update(session_kind=row.session_kind, opponent_team=row.opponent_team)
         await db.execute(
-            update(Video)
-            .where(Video.practice_session_id == session_id)
-            .values(library_role=row.library_role)
+            update(Video).where(Video.practice_session_id == session_id).values(**values)
         )
+        clips = (
+            (
+                await db.execute(
+                    select(Clip)
+                    .where(
+                        Clip.video_id.in_(
+                            select(Video.id).where(Video.practice_session_id == session_id)
+                        )
+                    )
+                    .order_by(Clip.id)
+                    .with_for_update()
+                )
+            )
+            .scalars()
+            .all()
+        )
+        for clip in clips:
+            if row.session_kind is not None:
+                clip.session_kind = row.session_kind
+            touch_annotation(clip)
     await db.flush()
     return await session_response(db, row)
 
@@ -329,12 +360,21 @@ async def associate_recording(
         raise HTTPException(404, "Recording not found")
     row.updated_at = datetime.now(UTC)
     old_session = video.practice_session_id
+    old_context = (video.session_kind, video.opponent_team, video.library_role)
     video.practice_session_id = row.id
     video.library_role = row.library_role
+    if row.session_kind is not None:
+        video.session_kind = row.session_kind
+        video.opponent_team = (
+            None
+            if row.session_kind in {SessionKind.practice, SessionKind.scrimmage}
+            else row.opponent_team
+        )
     if body.camera_label is not None:
         video.camera_label = body.camera_label
     # Moving a recording must not silently move a multi-recording canonical play.
-    if old_session is not None and old_session != row.id:
+    moving = old_session is not None and old_session != row.id
+    if moving or old_context != (video.session_kind, video.opponent_team, video.library_role):
         moved_clips = (
             (
                 await db.execute(
@@ -348,7 +388,10 @@ async def associate_recording(
             .all()
         )
         for clip in moved_clips:
+            if row.session_kind is not None:
+                clip.session_kind = row.session_kind
             touch_annotation(clip)
+    if moving:
         existing = (
             (
                 await db.execute(

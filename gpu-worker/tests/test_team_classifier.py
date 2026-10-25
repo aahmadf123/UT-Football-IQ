@@ -196,13 +196,18 @@ def test_stripe_detector_scores_official_pattern_above_plain_jersey() -> None:
     assert detect_stripe_score(striped_crop) >= DEFAULT_STRIPE_THRESHOLD
 
 
-def _run_stage_labels(side_context: Any = None) -> tuple[dict[str, Any], list[dict[str, Any]], list[tuple[str, str]]]:
+def _run_stage_labels(side_context: Any = None, staff_player: bool = False, staff_unit: str | None = None) -> tuple[dict[str, Any], list[dict[str, Any]], list[tuple[str, str]]]:
     frames = {0: _frame()}
     tracklets = [
         _tracklet("red", [20, 30, 60, 130], range(0, 1)),
         _tracklet("blue", [100, 30, 140, 130], range(0, 1)),
         _tracklet("official", [180, 30, 220, 130], range(0, 1)),
     ]
+    if staff_player:
+        tracklets[2]["provenance"] = {"actor_kind": "player", "actor_classification": {"method": "staff_review"}}
+        if staff_unit:
+            tracklets[2]["provenance"]["unit_source"] = "staff_review"
+            tracklets[2]["team_label"] = staff_unit
     events = [{"event_type": "snap", "frame_number": 0}]
     created_labels: list[dict[str, Any]] = []
     patched: list[tuple[str, str]] = []
@@ -249,6 +254,14 @@ def test_stage_labels_leaves_sides_unknown_without_evidence() -> None:
     assert patched == [("official", TEAM_OFFICIAL)]
     assert len(team_labels) == 1
     assert result["team_classification"]["sides"].startswith("formation_unresolved")
+
+
+def test_staff_player_kind_and_observed_unit_outrank_color_heuristics():
+    result, _, patched = _run_stage_labels(staff_player=True)
+    assert ("official", TEAM_OFFICIAL) not in patched
+    assert result["team_classification"]["official_tracklets"] == 0
+    _, _, patched = _run_stage_labels(staff_player=True, staff_unit="defense")
+    assert ("official", "defense") in patched
 
 
 def test_no_frames_falls_back_without_team_classification() -> None:

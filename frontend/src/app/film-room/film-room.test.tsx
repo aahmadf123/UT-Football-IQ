@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 // Mutable navigation state shared with the hoisted next/navigation mock so each
 // test can drive the active ?tab= value before rendering.
@@ -30,6 +30,7 @@ afterEach(() => {
   vi.resetModules();
   nav.tab = "";
   nav.sessionId = "";
+  window.history.replaceState({}, "", "/");
 });
 
 beforeEach(() => {
@@ -49,14 +50,57 @@ async function importHub() {
 
 async function renderHub() {
   const { FilmRoomPage, AppStateProvider } = await importHub();
-  render(
-    <AppStateProvider>
-      <FilmRoomPage />
-    </AppStateProvider>,
-  );
+  await act(async () => {
+    render(
+      <AppStateProvider>
+        <FilmRoomPage />
+      </AppStateProvider>,
+    );
+  });
 }
 
 describe("FilmRoomPage", () => {
+  test("session scope and tab links follow URL changes and Back without remounting the page", async () => {
+    nav.sessionId = "session-a";
+    const { FilmRoomPage, AppStateProvider } = await importHub();
+    const hub = () => <AppStateProvider><FilmRoomPage /></AppStateProvider>;
+    const { rerender } = await act(async () => render(hub()));
+    expect(screen.getByTestId("film-room-tab-review").getAttribute("href")).toContain("sessionId=session-a");
+    nav.sessionId = "session-b";
+    await act(async () => { rerender(hub()); });
+    expect(screen.getByTestId("film-room-tab-review").getAttribute("href")).toContain("sessionId=session-b");
+    nav.sessionId = "session-a"; // Next's searchParams after browser Back.
+    await act(async () => { rerender(hub()); });
+    expect(screen.getByTestId("film-room-tab-review").getAttribute("href")).toContain("sessionId=session-a");
+    nav.sessionId = "";
+    await act(async () => { rerender(hub()); });
+    expect(screen.getByTestId("film-room-tab-review").getAttribute("href")).toBe("/film-room/?tab=review");
+  });
+
+  test("choosing another session clears the old recording and preserves other URL context", async () => {
+    vi.stubEnv("NEXT_PUBLIC_API_URL", "https://api.test");
+    const sessions = ["session-a", "session-b"].map((id) => ({ id, title: id, session_kind: "practice", library_role: "toledo", created_at: "2026-10-22T00:00:00Z", recordings: [], plays: [] }));
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      const body = url.includes("/api/v1/sessions/") ? sessions.find((session) => url.endsWith(session.id)) : url.includes("/api/v1/sessions") ? sessions : [];
+      return { ok: true, json: async () => body, text: async () => JSON.stringify(body) } as Response;
+    }));
+    nav.sessionId = "session-a";
+    window.history.replaceState({}, "", "/film-room/?tab=browse&sessionId=session-a&videoId=old-recording&position=OL&view=saved#library-search");
+    await renderHub();
+    await waitFor(() => expect((screen.getByLabelText("Session") as HTMLSelectElement).disabled).toBe(false));
+    await act(async () => {
+      fireEvent.change(screen.getByLabelText("Session"), { target: { value: "session-b" } });
+    });
+    const url = new URL(window.location.href);
+    expect(url.searchParams.get("sessionId")).toBe("session-b");
+    expect(url.searchParams.has("videoId")).toBe(false);
+    expect(url.searchParams.get("tab")).toBe("browse");
+    expect(url.searchParams.get("position")).toBe("OL");
+    expect(url.searchParams.get("view")).toBe("saved");
+    expect(url.hash).toBe("#library-search");
+  });
+
   test("renders the three consolidated tabs (mock clips tab is gone)", async () => {
     await renderHub();
     await waitFor(() => {
@@ -88,7 +132,7 @@ describe("FilmRoomPage", () => {
     // Offline backend, no videos → honest empty state, never a fake player.
     await waitFor(() => {
       expect(screen.getByTestId("review-empty").textContent).toMatch(
-        /Backend offline|Loading film|No film yet/i,
+        /Recordings could not be loaded/i,
       );
     });
   });

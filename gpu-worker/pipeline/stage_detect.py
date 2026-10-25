@@ -322,8 +322,10 @@ def _detect(
     counts = {"masked": 0, "official": 0, "ball": 0, "off_field": 0}
     batch_size = detection_batch_size()
     pending: list[tuple[int, Any]] = []
+    inference_frame_count = 0
 
     def flush() -> None:
+        nonlocal inference_frame_count
         # One GPU call per batch; per-frame post-processing is unchanged.
         frames = [frame for _, frame in pending]
         player_batches = player.detect_batch(frames)
@@ -331,6 +333,7 @@ def _detect(
         for (index, frame), player_dets, ball_dets in zip(
             pending, player_batches, ball_batches, strict=True
         ):
+            inference_frame_count += 1
             player_dets = suppressor.suppress(frame, player_dets)
             player_dets, dropped = _off_field(player_dets, boundary)
             counts["off_field"] += dropped
@@ -382,4 +385,6 @@ def _detect(
         "detections": detections,
         "produces_masks": player.produces_masks,
         "off_field_detections": counts["off_field"],
+        "inference_frame_count": inference_frame_count,
+        "detection_frame_step": frame_step,
     }

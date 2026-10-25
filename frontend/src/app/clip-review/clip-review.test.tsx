@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
 vi.mock("next/link", () => ({
   default: ({ children, href, onClick }: { children: React.ReactNode; href: string; onClick?: React.MouseEventHandler<HTMLAnchorElement> }) => (
@@ -96,6 +96,118 @@ const EMPTY_OVERLAYS = {
     metrics: false,
   },
 };
+
+test("our practice jersey groups stay distinct without inventing opponent or unit labels", async () => {
+  installFetchRoutes([
+    { url: "/api/v1/videos/download-url", body: { downloadUrl: "https://dl.test/x" } },
+    { url: "/api/v1/clips/c-1/overlays", body: { ...EMPTY_OVERLAYS, layers_available: { ...EMPTY_OVERLAYS.layers_available, tracklets: true }, tracklets: [
+      { id: "group-one", team_label: "home", track_points: [] },
+      { id: "group-two", team_label: "away", track_points: [] },
+      { id: "offense", team_label: "home", side_of_ball: "offense", track_points: [] },
+      { id: "contradiction", team_label: "offense", side_of_ball: "defense", track_points: [] },
+    ] } },
+    { url: "/api/v1/clips/c-1", body: SAMPLE_CLIP },
+    { url: "/api/v1/videos/v-1", body: { ...SAMPLE_VIDEO, library_role: "toledo" } },
+  ]);
+  const { ClipReviewPage, AppStateProvider } = await importPage();
+  render(<AppStateProvider><ClipReviewPage /></AppStateProvider>);
+  await screen.findByTestId("overlay-summary");
+  fireEvent.click(screen.getByRole("tab", { name: "Players" }));
+  const inspector = await screen.findByTestId("tracking-inspector");
+  expect(inspector.textContent).toContain("Our practice group 1");
+  expect(inspector.textContent).toContain("Our practice group 2");
+  expect(inspector.textContent).not.toContain("Opponent");
+  expect(inspector.textContent).toContain("Jersey groups do not identify offense or defense");
+  expect(inspector.textContent).toContain("Unit labels conflict");
+  fireEvent.click(screen.getByRole("button", { name: "Offense" }));
+  expect(screen.queryByRole("button", { name: "Inspect track T1" })).toBeNull();
+  expect(screen.getByRole("button", { name: "Inspect track T3" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Inspect track T4" })).toBeNull();
+});
+
+test("referee candidates have a non-player filter and no player identity or position", async () => {
+  installFetchRoutes([
+    { url: "/api/v1/videos/download-url", body: { downloadUrl: "https://dl.test/x" } },
+    { url: "/api/v1/clips/c-1/overlays", body: { ...EMPTY_OVERLAYS, layers_available: { ...EMPTY_OVERLAYS.layers_available, tracklets: true }, tracklets: [
+      { id: "player", team_label: "home", track_points: [] },
+      { id: "referee", team_label: "home", player_id: "p-ref", position_group: "QB", provenance: { actor_kind: "official" }, track_points: [] },
+      { id: "reviewed-referee", team_label: "official", provenance: { actor_classification: { method: "staff_review", validated: true } }, track_points: [] },
+      { id: "sideline", team_label: "home", player_id: "p-ref", position_group: "QB", provenance: { actor_kind: "sideline" }, track_points: [] },
+    ] } },
+    { url: "/api/v1/clips/c-1", body: SAMPLE_CLIP },
+    { url: "/api/v1/videos/v-1", body: { ...SAMPLE_VIDEO, library_role: "toledo" } },
+    { url: "/api/v1/players", body: [{ id: "p-ref", first_name: "Should", last_name: "NeverAppear", jersey_number: "99" }] },
+  ]);
+  const { ClipReviewPage, AppStateProvider } = await importPage();
+  render(<AppStateProvider><ClipReviewPage /></AppStateProvider>);
+  await screen.findByTestId("overlay-summary");
+  fireEvent.click(screen.getByRole("tab", { name: "Players" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Referees" }));
+  expect(screen.queryByRole("button", { name: "Inspect track T1" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Inspect referee candidate T2" }));
+  const selected = screen.getByTestId("selected-player-inspector");
+  expect(selected.textContent).toContain("Referee candidate");
+  expect(selected.textContent).toContain("Non-player");
+  expect(selected.textContent).not.toMatch(/NeverAppear|QB|Unassigned player|roster identity/);
+  fireEvent.click(screen.getByRole("button", { name: "Sideline" }));
+  fireEvent.click(screen.getByRole("button", { name: "Inspect staff / sideline person candidate T4" }));
+  expect(screen.getByTestId("selected-player-inspector").textContent).not.toMatch(/NeverAppear|QB|Unassigned player/);
+  fireEvent.click(within(screen.getByRole("group", { name: "Filter tracks" })).getByRole("button", { name: "Players" }));
+  expect(screen.queryByRole("button", { name: "Inspect staff / sideline person candidate T4" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Referees" }));
+  fireEvent.click(screen.getByRole("button", { name: "Inspect referee (staff reviewed) T3" }));
+  expect(screen.getByTestId("selected-player-inspector").textContent).toContain("Referee (staff reviewed)");
+  fireEvent.click(screen.getByRole("button", { name: "Review person kind" }));
+  expect(screen.getByRole("tab", { name: "Tag" }).getAttribute("aria-selected")).toBe("true");
+});
+
+test("a refreshed clip with no referees falls back to all tracks instead of an invisible stale filter", async () => {
+  const player = { id: "player", team_label: "home", track_points: [] };
+  const overlays = { ...EMPTY_OVERLAYS, layers_available: { ...EMPTY_OVERLAYS.layers_available, tracklets: true }, tracklets: [player, { ...player, id: "official", team_label: "official" }] };
+  installFetchRoutes([
+    { url: "/api/v1/videos/download-url", body: { downloadUrl: "https://dl.test/x" } },
+    { url: "/api/v1/clips/c-1/overlays", body: overlays },
+    { url: "/api/v1/clips/c-1", body: SAMPLE_CLIP },
+    { url: "/api/v1/videos/v-1", body: SAMPLE_VIDEO },
+  ]);
+  vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+  try {
+    const { ClipReviewPage, AppStateProvider } = await importPage();
+    render(<AppStateProvider><ClipReviewPage /></AppStateProvider>);
+    await screen.findByTestId("overlay-summary");
+    fireEvent.click(screen.getByRole("tab", { name: "Players" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Referees" }));
+    expect(screen.queryByRole("button", { name: "Inspect track T1" })).toBeNull();
+    overlays.tracklets = [player];
+    await act(async () => { vi.advanceTimersByTime(5000); });
+    expect(await screen.findByRole("button", { name: "Inspect track T1" })).toBeTruthy();
+    expect(within(screen.getByRole("group", { name: "Filter tracks" })).getByRole("button", { name: "All" }).getAttribute("aria-pressed")).toBe("true");
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("inspector visibility uses the bounded sample when an interpolation endpoint has no box", async () => {
+  installFetchRoutes([
+    { url: "/api/v1/videos/download-url", body: { downloadUrl: "https://dl.test/x" } },
+    { url: "/api/v1/clips/c-1/overlays", body: { ...EMPTY_OVERLAYS, layers_available: { ...EMPTY_OVERLAYS.layers_available, tracklets: true }, tracklets: [{ id: "sample", team_label: "home", start_frame: 0, end_frame: 3, track_points: [
+      { frame_number: 0, timestamp_seconds: 0, shot_id: "0", visibility_state: "observed", bbox: [10, 10, 20, 30] },
+      { frame_number: 3, timestamp_seconds: .1, shot_id: "0", visibility_state: "observed", bbox: null },
+    ] }] } },
+    { url: "/api/v1/clips/c-1", body: { ...SAMPLE_CLIP, provenance: { playback: { kind: "clean_clip" } } } },
+    { url: "/api/v1/videos/v-1", body: SAMPLE_VIDEO },
+  ]);
+  const { ClipReviewPage, AppStateProvider } = await importPage();
+  render(<AppStateProvider><ClipReviewPage /></AppStateProvider>);
+  await screen.findByTestId("overlay-summary");
+  fireEvent.click(screen.getByRole("tab", { name: "Players" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Inspect track T1" }));
+  const player = document.querySelector("video")!;
+  player.currentTime = .04;
+  fireEvent.timeUpdate(player);
+  await waitFor(() => expect(screen.getByTestId("selected-player-inspector").textContent).toContain("Outside track"));
+  expect(within(screen.getByRole("button", { name: "Inspect track T1" })).getByTitle("Outside current frame")).toBeTruthy();
+});
 
 interface RouteSpec {
   url: string | RegExp;

@@ -1,14 +1,16 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Football-IQ · Staff film labeling</title><link rel="stylesheet" href="style.css"></head>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Football-IQ · Staff film labeling</title><link rel="icon" href="data:,"><link rel="stylesheet" href="style.css"></head>
 <body>
 <header><div><p class="eyebrow">TOLEDO FOOTBALL · OFFLINE EVALUATION</p><h1>Staff film labeling</h1></div><p>Original-source timestamps. Manual observations. Draft exports.</p></header>
 <main>
+<section class="welcome" aria-label="Workspace connection"><div><h2>Review film, one play at a time</h2><p id="connection-status" role="status">Connecting to the local draft folder…</p><p class="hint">1 Choose your reviewer and film. 2 Mark a play. 3 Label visible people and events. Drafts stay unreviewed until independent review.</p></div><div class="actions"><button id="save-draft" class="primary">Save draft to this computer</button><button id="reload-draft">Reload saved draft</button></div><output id="save-state" role="status">No draft open</output><p id="progress">No source selected.</p></section>
 <section aria-label="Source and reviewer" class="setup">
-  <label>1. Open source catalog<input id="catalog-file" type="file" accept=".json,application/json"></label>
+  <label>Open another source catalog · optional<input id="catalog-file" type="file" accept=".json,application/json"></label>
   <label>Source<select id="source"><option value="">Load sources.json first</option></select></label>
   <label>Reviewer ID<input id="reviewer" autocomplete="off" placeholder="Staff annotation ID"></label>
   <label>Pass<select id="pass"><option value="primary">Primary · independent</option><option value="secondary">Secondary · independent</option><option value="adjudication">Adjudication</option></select></label>
-  <label>2. Open original film<input id="media-file" type="file" accept="video/*"></label>
+  <label>Choose matching local film · optional<input id="media-file" type="file" accept="video/*"></label>
+  <label>Original moved? Paste its local full path<input id="local-source-path" placeholder="C:\Film\original.mp4"><button id="open-local-path" type="button">Verify and open this original</button></label>
   <label>Category<select id="category"><option value="">Unconfirmed</option><option value="practice">Practice</option><option value="coach_game">Coach game film</option><option value="television">Television</option></select></label>
   <label>Session/game group ID<input id="group" placeholder="All related angles and extracts share one group"></label>
   <label class="check"><input id="confirmed" type="checkbox">I verified this category and independent session/game group.</label>
@@ -20,25 +22,28 @@
 <section aria-label="Original film" class="film">
   <div class="stage" id="stage"><video id="video" controls preload="metadata" playsinline></video><canvas id="boxes" aria-label="Draw a visible player bounding box on the paused source frame"></canvas></div>
   <div class="transport"><button id="back-frame" aria-label="Previous source frame">− frame</button><button id="toggle-play">Play / pause</button><button id="next-frame" aria-label="Next source frame">+ frame</button><output id="clock">0.000 s</output><label>Source time (s)<input id="seek" type="number" min="0" step="0.001" value="0"></label><button id="seek-button">Seek</button></div>
-  <p class="hint">Space: play/pause · ← / →: step by nominal frame interval · S / N / E: capture start / snap / end. For variable-rate film, inspect the displayed presented-frame timestamp after every seek.</p>
+  <div class="actions"><button id="back-second">− 1 second</button><button id="next-second">+ 1 second</button><label>Playback speed<select id="speed"><option value="0.25">¼ speed</option><option value="0.5">½ speed</option><option value="1" selected>Normal</option><option value="2">2× speed</option></select></label></div>
+  <p class="hint">Space: play/pause · ← / →: approximate step unless an actual frame index is loaded · S / N / E: capture start / snap / end. Capture uses the displayed presented-frame time, not a guessed frame number.</p>
   <p id="media-detail" class="hint">No original film selected.</p>
   <label>Dense assignment: load actual frame PTS index<input id="frame-index" type="file" accept=".json,application/json"></label>
+  <button id="load-native-frames">Load exact frame steps around this time</button>
   <p id="frame-detail" class="hint">Without a frame index, arrow controls step nominal intervals and can repeat or skip frames in variable-rate film. A dense assignment requires the actual frame index.</p>
 </section>
 <section aria-label="Play boundaries" class="editor">
   <h2>Play boundaries</h2><p class="hint">Include setup and terminal action. Leave snap blank when it is not visible. Preserve no-play and aborted sequences in notes.</p>
-  <label>Source-local play ID<input id="play-id" placeholder="Choose New play"></label>
-  <label>Canonical play ID<input id="canonical-id" placeholder="Shared across alternate views and replays"></label>
+  <label>Rep ID · reuse this ID across other views<input id="canonical-id" placeholder="e.g. practice-apr16-rep01"></label>
+  <details><summary>Source occurrence ID · generated for this window</summary><label>Source-local play ID<input id="play-id" placeholder="Choose New play"></label></details>
   <div class="times"><label>Start (s)<input id="start" type="number" min="0" step="0.001"></label><button id="capture-start">Set start here</button><label>Snap (s) · optional<input id="snap" type="number" min="0" step="0.001"></label><button id="capture-snap">Set snap here</button><label>End (s)<input id="end" type="number" min="0" step="0.001"></label><button id="capture-end">Set end here</button></div>
   <label>Notes<textarea id="notes" rows="2" placeholder="Visibility limits, penalties, uncertain events, source relationship"></textarea></label>
+  <details><summary>Practice period and observed concepts · optional</summary><div class="grid"><label>Practice period<select id="practice-period"><option value="">Unknown / not recorded</option><option value="team">Team</option><option value="inside_run">Inside run</option><option value="7on7">7 on 7</option><option value="1on1">1 on 1</option><option value="individual">Individual</option><option value="special_teams">Special teams</option><option value="other">Other · explain in notes</option></select></label><label>Observed offensive concept<input id="offense-concept" placeholder="Only what the film establishes; otherwise blank"></label><label>Observed defensive concept<input id="defense-concept" placeholder="Only what the film establishes; otherwise blank"></label></div></details>
   <div class="actions"><button id="new-play">New play</button><button id="save-play" class="primary">Save play boundaries</button><button id="delete-play">Delete selected draft play</button></div>
+  <p id="form-state" role="status" class="hint"></p>
   <label>Draft plays<select id="plays" size="5" aria-label="Select draft play"></select></label>
-</section>
-</div>
 <div class="annotations">
 <section aria-label="Dense tracks and identity">
   <h2>Dense tracks and identity</h2><p class="hint">Pause and draw the visible body box. Each drag records one actual source-frame observation. No boxes are generated or interpolated. Dense-track assignments require all visible players and the assigned native frames, including occlusion records.</p>
-  <div class="grid"><label>Target ID<input id="target" placeholder="e.g. track-01"></label><label>Shot/view ID<input id="shot" value="shot-1" placeholder="Change this at each camera cut"></label><label>Roster player ID · if known<input id="player-id" placeholder="Exact roster ID; otherwise blank"></label><label>Canonical entity ID<input id="entity-id" placeholder="Same athlete across views of this play"></label><label class="check"><input id="readable" type="checkbox">Jersey evidence is readable</label><label class="check"><input id="team-resolved" type="checkbox">Team is resolved</label><button id="save-identity">Save identity evidence</button></div>
+  <div class="grid"><label>Target ID<input id="target" placeholder="e.g. track-01"></label><label>Observed person kind<select id="actor-kind"><option value="unknown">Unknown / unresolved</option><option value="player">Player</option><option value="referee">Referee / official</option></select></label><label>Observed side in this play<select id="actor-side"><option value="unknown">Unknown / unresolved</option><option value="offense">Offense</option><option value="defense">Defense</option><option value="not_applicable">Not applicable · official</option></select></label><label>Shot/view ID<input id="shot" placeholder="Required; change at each camera cut"></label><label>Roster player ID · if known<input id="player-id" placeholder="Exact roster ID; otherwise blank"></label><label>Canonical entity ID<input id="entity-id" placeholder="Same athlete across views of this play"></label><label class="check"><input id="readable" type="checkbox">Jersey evidence is readable</label><label class="check"><input id="team-resolved" type="checkbox">Team is resolved</label><button id="save-identity">Save actor / identity evidence</button></div>
+  <details><summary>Experimental detection hints · never labels until you accept</summary><label>Import source-bound proposals<input id="proposal-file" type="file" accept=".json,application/json"></label><p id="proposal-status">No proposal hints loaded. Draw actual observations manually.</p><div class="actions"><button id="previous-proposal">Previous hinted frame</button><button id="next-proposal">Next hinted frame</button><label>Hint on this exact frame<select id="proposal-choice"><option value="">No hints at this frame</option></select></label><button id="accept-proposal">Accept box with my selected actor / side</button></div></details>
   <div class="actions"><label>Visibility state<select id="visibility"><option value="visible">Visible / partially visible</option><option value="occluded">Fully occluded · no box</option><option value="offscreen">Offscreen · no box</option></select></label><button id="record-visibility">Record visibility state here</button><button id="remove-point">Remove box at this exact frame</button><button id="delete-track">Delete selected draft track</button></div>
   <div class="scroll"><table><caption>Manually recorded tracks</caption><thead><tr><th>Target</th><th>Boxes</th><th>Visibility changes</th><th>Roster identity</th></tr></thead><tbody id="track-rows"></tbody></table></div>
   <ul id="visibility-events" aria-label="Recorded visibility changes"></ul>
@@ -49,5 +54,7 @@
   <p class="hint">Secondary reviewers annotate independently before viewing another pass. Comparison never marks labels adjudicated. An adjudicator must resolve boundaries, boxes and identity disagreements, then use the separate freeze command.</p><pre id="comparison" class="scroll"></pre>
 </section>
 </div>
+</section>
+</div>
 <footer><strong>Drafts are not release evidence.</strong> This tool never marks observations human-reviewed or qualified. Export backups regularly. Confirm the exact media hash, independent sources, reviewer assignments and adjudication through the package instructions.</footer>
-</main><script type="module" src="app.mjs"></script></body></html>
+</main><script>if(location.protocol==='file:'){document.getElementById('connection-status').textContent='This file needs its local launcher. Double-click start-labeler.cmd in this folder, or run the server.py command in README.md, then open the shown http://127.0.0.1 address. File-mode browser security blocks annotation controls.';document.getElementById('error').hidden=false;document.getElementById('error').textContent='Annotation controls are unavailable from file://. Your film and drafts have not been changed.';}</script><script type="module" src="app.mjs"></script></body></html>

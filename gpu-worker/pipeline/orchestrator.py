@@ -253,7 +253,7 @@ class PipelineContext:
 #: ``annotation_revision`` moves on every staff edit; the rest of the record
 #: (official play-by-play, playback-proxy paths, provenance) is rewritten by
 #: the system on every run and must not invalidate checkpoints.
-ANNOTATION_IDENTITY_KEYS = ("id", "annotation_revision", "start_time", "end_time", "human_events", "removed_events", "human_labels")
+ANNOTATION_IDENTITY_KEYS = ("id", "annotation_revision", "start_time", "end_time", "human_events", "removed_events", "human_labels", "actor_kind_labels")
 
 
 def annotation_identity(annotations: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -1046,6 +1046,8 @@ def _run_clip_stage(stage: str, ctx: PipelineContext, clip: dict[str, Any]) -> d
         from pipeline.lightweight_config import use_period_renderer
         from renderer import period_renderer
 
+        tracklets = [*tracklets, *per_clip.get("track", {}).get("non_player_tracklets", [])]
+
         if ctx.video_path is None:
             return {"render_skipped": True, "reason": "no_video_path"}
         from pipeline.reviewed_labels import reviewed_label_data as select_reviewed_hud
@@ -1188,6 +1190,28 @@ def run_pipeline(
         else:
             per_clip = ctx.clip_artifacts.setdefault(clip_id, {})
             per_clip[stage] = artifacts
+            if stage == "track":
+                from pipeline.actor_kind_replay import replay_actor_kinds
+
+                corrected = ctx.effective_annotations.get(clip_id, {})
+                players, nonplayers, kind_issues = replay_actor_kinds(
+                    corrected.get("actor_kind_labels") or [],
+                    artifacts.get("tracklets") or [], artifacts.get("non_player_tracklets") or [],
+                    {"video_id": ctx.video_id, "clip_id": clip_id,
+                     "start_time": corrected.get("start_time"), "end_time": corrected.get("end_time"),
+                     "registration_fingerprint": corrected.get("registration_fingerprint"),
+                     "media_sha256": ctx.lineage.get("source_sha256")},
+                )
+                artifacts.update(tracklets=players, non_player_tracklets=nonplayers,
+                                 player_tracklet_count=len(players), non_player_tracklet_count=len(nonplayers),
+                                 official_tracklet_count=sum(
+                                     (track.get("provenance") or {}).get("actor_kind") == "official"
+                                     for track in nonplayers), actor_kind_review_required=kind_issues)
+                from pipeline.backend import patch_bound_manual_identity
+
+                for bound in players:
+                    if (bound.get("provenance") or {}).get("manual_identity_binding"):
+                        patch_bound_manual_identity(bound)
             if stage == "events":
                 corrected = ctx.effective_annotations.get(clip_id, {})
                 from pipeline.event_removals import suppress_removed_proposals
@@ -1502,6 +1526,8 @@ def run_pipeline(
                     "tracklet_count": ctx.clip_artifacts.get(str(clip["id"]), {})
                     .get("track", {})
                     .get("tracklet_count", 0),
+                    "actor_kind_review_required": ctx.clip_artifacts.get(str(clip["id"]), {})
+                    .get("track", {}).get("actor_kind_review_required", []),
                     "event_count": ctx.clip_artifacts.get(str(clip["id"]), {})
                     .get("events", {})
                     .get("event_count", 0),
@@ -1529,6 +1555,11 @@ def run_pipeline(
             "model_execution": ctx.model_execution,
             "model_provenance": ctx.model_provenance,
             "stage_states": stage_states,
+            "publication_holds": {
+                str(clip_id): "actor_kind_rebinding_unresolved"
+                for clip_id, stages in ctx.clip_artifacts.items()
+                if stages.get("track", {}).get("actor_kind_review_required")
+            },
             "stage_timings": stage_timings,
             "failed_video_stages": failed_video_stages,
             "failed_clip_stages": failed_clip_stages,

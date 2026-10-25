@@ -53,6 +53,7 @@ test("upload flow drives dialog → upload-url → PUT → register with metadat
         filename: string;
         storage_uri: string;
         session_kind: string | null;
+        opponent_team: string | null;
         our_possession: string | null;
         recorded_at: string | null;
       };
@@ -60,6 +61,7 @@ test("upload flow drives dialog → upload-url → PUT → register with metadat
       expect(body.storage_uri).toBe("s3://raw-video/raw/PR_e2e.mp4");
       // The whole point of the dialog: these used to be null on every upload.
       expect(body.session_kind).toBe("practice");
+      expect(body.opponent_team).toBeNull();
       expect(body.our_possession).toBe("offense");
       expect(body.recorded_at).toBeTruthy();
       // After register, populate the inbox so the refresh-after-upload
@@ -103,7 +105,9 @@ test("upload flow drives dialog → upload-url → PUT → register with metadat
   // DJI timestamp, so the date has to be entered too.
   await page.getByLabel("Session type").selectOption("practice");
   await page.getByLabel("Date recorded").fill("2026-04-16T11:00");
-  await page.getByLabel("Our possession").selectOption("offense");
+  await expect(page.getByLabel("Opponent", { exact: true })).toHaveCount(0);
+  await expect(page.getByLabel("Focus unit, optional")).toHaveValue("");
+  await page.getByLabel("Focus unit, optional").selectOption("offense");
 
   await page.getByTestId("upload-submit").click();
 

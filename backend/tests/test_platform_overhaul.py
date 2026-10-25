@@ -441,6 +441,78 @@ async def test_identity_override_survives_replacement_or_preserves_complete_old_
         assert metric_visible(current_metric, user) and not metric_visible(pending_metric, user)
 
 
+@pytest.mark.parametrize("kind", ["player", "official", "sideline", "unknown"])
+async def test_staff_actor_kind_survives_identity_edit_and_two_exact_reruns(db, kind):
+    from app.models import CorrectionType
+    from app.services.annotations import submit_correction
+
+    user = await actor(db)
+    video, clip = await recording(db)
+    old = await player_track(db, clip)
+    old.provenance = {**old.provenance, "actor_kind": "official" if kind == "player" else "player"}
+    old.team_label = "official" if kind == "player" else "unknown"
+    for frame in range(3):
+        db.add(
+            TrackPoint(
+                tracklet_id=old.id,
+                frame_number=frame,
+                timestamp_seconds=frame / 30,
+                bbox=[10, 10, 20, 30],
+                shot_id="one",
+                visibility_state="visible",
+            )
+        )
+    await db.flush()
+    await submit_correction(
+        db,
+        actor=user,
+        clip_id=clip.id,
+        correction_type=CorrectionType.player_identity,
+        corrected_value={"tracklet_id": str(old.id), "actor_kind": kind},
+    )
+    if kind == "player":
+        await submit_correction(
+            db,
+            actor=user,
+            clip_id=clip.id,
+            correction_type=CorrectionType.player_identity,
+            corrected_value={"tracklet_id": str(old.id), "jersey_number": 7},
+        )
+    for _ in range(2):
+        job = ProcessingJob(
+            id=uuid.uuid4(),
+            video_id=video.id,
+            job_type=JobType.pipeline,
+            status=JobStatus.succeeded,
+        )
+        db.add(job)
+        await db.flush()
+        new = await player_track(db, clip, job=job)
+        new.provenance = {
+            **new.provenance,
+            "actor_kind": "official" if kind == "player" else "player",
+        }
+        for frame in range(3):
+            db.add(
+                TrackPoint(
+                    tracklet_id=new.id,
+                    frame_number=frame,
+                    timestamp_seconds=frame / 30,
+                    bbox=[10, 10, 20, 30],
+                    shot_id="one",
+                    visibility_state="visible",
+                )
+            )
+        await db.flush()
+        assert await publish_job_tracks(db, job.id) == 1
+        assert new.provenance["actor_kind"] == kind
+        assert new.provenance["actor_classification"]["inherited_from"]
+        assert old.provenance["state"] == "superseded"
+        if kind != "player":
+            assert new.player_id is None and new.position_group is None
+        old = new
+
+
 def test_censored_durations_leave_risk_set_and_do_not_become_zeroes() -> None:
     evidence = [
         {"value": 1.0, "right_censored": False},

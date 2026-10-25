@@ -223,6 +223,17 @@ export function fetchSessions(token?: string, page?: { limit?: number; offset?: 
   if (page?.offset != null) params.set("offset", String(page.offset));
   return getJSON(`${apiBase()}/api/v1/sessions${params.size ? `?${params}` : ""}`, token);
 }
+export async function fetchAllSessions(token?: string): Promise<ApiSession[]> {
+  const collected = new Map<string, ApiSession>();
+  for (let offset = 0; offset < 50_000; offset += 200) {
+    const page = await fetchSessions(token, { limit: 200, offset });
+    const before = collected.size;
+    for (const session of page) collected.set(session.id, session);
+    if (page.length < 200) return [...collected.values()];
+    if (collected.size === before) throw new Error("Session pages repeated. Refresh the film catalog.");
+  }
+  throw new Error("Session catalog is too large to load at once.");
+}
 export function fetchSession(id: string, token?: string): Promise<ApiSession> {
   return getJSON(`${apiBase()}/api/v1/sessions/${encodeURIComponent(id)}`, token);
 }
@@ -445,6 +456,22 @@ export async function fetchVideos(
     `${base}/api/v1/videos${qs ? `?${qs}` : ""}`,
     token,
   );
+}
+
+/** Complete recording catalog for shared film selectors; never silently cap at 50. */
+export async function fetchAllVideos(
+  filters: Omit<VideoFilters, "limit" | "offset"> = {},
+  token?: string,
+): Promise<ApiVideo[]> {
+  const collected = new Map<string, ApiVideo>();
+  for (let offset = 0; offset < 50_000; offset += 200) {
+    const page = await fetchVideos({ ...filters, limit: 200, offset }, token);
+    const before = collected.size;
+    for (const video of page) collected.set(video.id, video);
+    if (page.length < 200) return [...collected.values()];
+    if (collected.size === before) throw new Error("Recording pages repeated. Refresh the film catalog.");
+  }
+  throw new Error("Film catalog is too large to load at once. Narrow the date or session filter.");
 }
 
 export async function fetchVideo(videoId: string, token?: string): Promise<ApiVideo> {

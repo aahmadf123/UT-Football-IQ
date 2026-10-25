@@ -139,7 +139,7 @@ class TestPeriodRendererRun:
             )
 
         object_key = mock_upload.call_args.args[1]
-        assert object_key.startswith("period_overlays/clip-abc/pts-overlay-v6-native-staff-hud/")
+        assert object_key.startswith("period_overlays/clip-abc/pts-overlay-v7-solid-field-inset/")
         assert object_key.endswith("/period_overlay.mp4")
 
     def test_analytics_unsafe_draws_warning(self) -> None:

@@ -1,20 +1,69 @@
 # Twenty-page specification coverage audit
 
-Independent review now covers the local continuation after the user's main-branch
-push `549e8cf`, on `codex/overhaul-completion-20261021`.
-**The twenty-page overhaul is incomplete.** New fixes and views after that commit
-remain uncommitted and undeployed. The pushed commit's CI failed; the latest
-source-bound public observation is a mixed release: frontend `549e8cf`, API
-`7bb3793`, and a separately inspected processor checkout at `d1f4317`.
+Independent review now covers the local follow-up after merged `88fa8ae`.
+**The twenty-page overhaul is incomplete.** The new follow-up fixes remain local,
+uncommitted and undeployed. Public checks at 2026-10-22 00:29 UTC
+returned frontend/API `88fa8ae` and database readiness;
+the separately inspected processor checkout remains `d1f4317`.
+CI 39692007555 passed, while Deploy 39692352559 timed out at its steady-readiness
+check and Live smoke 39694939221 skipped. The API nevertheless currently serves
+88fa8ae. Protected production inventory is unverified: its endpoint requires
+authentication and approval to observe the existing live browser was declined.
 This ledger separates executable code, remaining implementation and missing
 acceptance evidence. Passing fixtures do not establish football accuracy or a
 compatible production release.
 
-The latest local source-bound verification is
-`post-push-verification-20261021.md` and its machine record. The reviewer verified
+The accepted verification before this follow-up is
+`post-push-verification-20261021.md` and its machine record, now historical. The reviewer verified
 all 48 changed source files, seven final logs and the complete 487-file Linux
-copy. Its accepted local regression scope still excludes full-plan and production
-acceptance; final counts and hashes are recorded at the end of this ledger.
+copy. The current follow-up has separate final review evidence below. Its
+source, logs and artifacts are accepted for the bounded local scope. Neither
+snapshot establishes full-plan or production acceptance.
+
+## Follow-up after 88fa8ae
+
+The recording selector now fetches every returned API page instead of stopping
+at the default 50. Practice session context is applied consistently on creation,
+association and kind changes; a jersey group is distinct from an observed unit.
+The exact production cause of the user's one-visible-recording report is still
+unverified. Source inventory and local processing evidence do not establish that
+all originals were uploaded or completed in production.
+
+The local detector proposal handoff covers all 30 practice originals and 11,065
+native frames. The reviewer independently checked every proposal file hash,
+catalog media hash, inference coverage counter and the actual labeler parser:
+146,831 generic person boxes include 16,491 **heuristic referee candidates**.
+This offline run uploaded nothing and created no reviewed labels. It is neither
+a full pipeline run for those recordings nor player/referee accuracy evidence.
+The source-bound independent record is
+`runs/reviewer-practice-proposal-validation.json`.
+
+Officials now have a separate candidate tracking pool retained for overlays and
+excluded from player consumers. Staff person-kind corrections bind exact source
+observations before analysis, preserve explicit verified manual identity, survive
+later identity edits and inherited generations, and hold replacement when the
+source cannot be matched. Prior published data remain selected with an actual
+repair warning. Changed trajectories still require explicit repair; a general
+pending-candidate remapping interface has not been demonstrated.
+
+The live calibrated field inset and exported surface are opaque; visible controls
+move, expand and hide the live inset. Explicit nonplayers do not become player
+field dots or callouts. Clean label/metric layers and keyboard focus now reveal
+the enabled content. Separate inspector labels distinguish practice groups,
+observed units, staff review and unreviewed nonplayers.
+
+The labeler now has a loopback launcher, source-hash checked film streaming,
+revisioned local saves/history, pass isolation, conflict handling, exact frame
+indexing and optional unreviewed box hints. Independent real-browser checks
+exercised a fresh archive and the isolated practice viewer: 30 sources were
+listed, the first actual original played, and its 309 native hint frames loaded.
+That read-only real-film check left reviewer blank and saved no annotations.
+Protocol-only tests cover actual draft saves and replay. Staff task acceptance,
+dense human truth, confirmed independent groups and release gates remain open.
+
+The final combined follow-up results and source hashes are independently
+accepted in `practice-continuation-verification-20261021.md` and its machine
+record. Earlier counts below belong to their explicitly named snapshots.
 
 | Page | Current executable implementation / inspected evidence | Remaining implementation | Missing acceptance evidence |
 | --- | --- | --- | --- |
@@ -41,10 +90,11 @@ acceptance; final counts and hashes are recorded at the end of this ledger.
 
 ## Current verification boundaries
 
-- The user's pushed `549e8cf` is distinct from the subsequent uncommitted fixes.
-  Its failed CI and the observed frontend/API/processor mismatch are recorded
-  below and in `worker-release-compatibility-review.md`. No reviewer production
-  restart, deployment, database mutation or credential reuse occurred.
+- The older `549e8cf` failure and mixed-release observations below are historical.
+  Current public frontend/API checks match merged `88fa8ae`; the separate hosted
+  processor has not been updated to this continuation. The release-readiness
+  workflow failure and protected-inventory boundary remain explicit. No reviewer
+  production restart, deployment, database mutation or credential reuse occurred.
 - `cross-service-completion-20261021.json` records an actual local API/queue/worker
   run on the new disposable completion database, real atomic publication and
   H.264 proxy. Its source is explicitly `synthetic_test`, eight tracks remained
@@ -383,3 +433,72 @@ The complete twenty-page overhaul remains incomplete, with remaining code,
 actual staff/model/benchmark/workload obligations and coordinated production
 rollout still open. The new source is uncommitted and undeployed after `549e8cf`;
 the remote failed CI and observed mixed release remain separate facts.
+
+## Final accepted follow-up after merged 88fa8ae
+
+On 2026-10-22 at 00:44 UTC, the independent reviewer accepted
+`practice-continuation-verification-20261021.md` and its machine record for the
+bounded local follow-up. All 68 changed source/workflow/test/fixture files match
+Git's complete changed source set and aggregate SHA-256
+`b681fce8aa1b8d27e98cca25b24de9d67fcf0492de26e61f021e2901d27b3d3a`.
+All ten master log hashes and 635 retained Linux snapshot files were verified.
+All 360 current worker files, including the 22 changed worker files, match that
+snapshot. Its later labeler README difference has separate final tooling checks.
+
+- Backend: 1,054 passed; nine warnings include deprecations and the recurring
+  asyncpg cancellation coroutine warning whose allocation origin is unresolved.
+  Ruff, 237-file formatting and mypy over 123 app files passed.
+- Worker: 1,861 passed on Windows and clean Linux, with one optional custom-joblib
+  skip and four integrations run separately.
+- Frontend: 583 cases across 79 files and all 31 browser flows passed; global
+  ESLint, TypeScript and the 17-page production export passed.
+- Four actual local API/worker HTTP protocol cases passed together in 96.87s.
+  Local tooling ran 77 unittest cases (76 passed, one host symlink skip),
+  11 server pytest cases, eight JavaScript cases and two extracted-package
+  browser cases. These overlapping counts are not combined.
+
+The final portable archive has 108 entries, 106 verified manifest hashes and
+SHA-256 `10e8cc6a053e1c9e46d28d86384d097073dd310eeda8609a9c2912a819db408b`.
+The reviewer verified CRC and parsed all 30 archived proposal files with the
+actual archived parser: 11,065 unreviewed hint frames, no media/weights included
+and no annotations created by the verification. This detection handoff does not
+establish full-pipeline completion or production inventory.
+
+No known blocker remains in this reviewed local follow-up. The new fixes remain
+uncommitted and undeployed; new CI execution is not claimed. The production
+one-visible-recording complaint, compatible processor rollout, staff task
+acceptance, real reviewed labels/trained specialists, full-plan products and
+performance/accuracy gates remain open. The complete overhaul is incomplete.
+
+## Accepted Film Room picker follow-up — 2026-10-22
+
+The user's clarification identified the Film Room recording picker. Independent
+review found hidden persisted dashboard date/type filtering in both the Review
+plays and session-grouping selectors, unexplained session scope, stale URL/Back
+selection and the first-100-session cap. Both selectors now load complete
+paginated catalogs, expose scope/eligible counts and offer working reset,
+refresh/retry and upload actions. Exact requested recordings and current valid
+selections survive the appropriate URL/refresh transitions; late responses
+cannot restore another scope. Foreign-session grouping exclusions stay explicit.
+
+The reviewer accepted `recording-picker-verification-20261022.md` and its machine
+record at 10:47 UTC. All 76 changed source/workflow/test/fixture files reproduce
+aggregate SHA-256
+`b35f7527975156e1adce06d3e95fb05240af06a505fd877ba8f5e16eadfe0d4c`.
+The ten-file frontend delta and seven recorded log hashes were verified. The
+prior accepted 68-file record is preserved; 66 prior source files, including
+backend/worker files, are unchanged. No backend/worker rerun is claimed for this
+frontend-only delta.
+
+Final frontend checks passed 607 cases across 80 files, all 34 Chromium flows,
+global ESLint/TypeScript and the 17-page production build. The reviewer separately
+ran 51 focused cases. The final 18 page/session cases have no `act` warnings;
+the full unit log retains six unrelated VideoTransport harness warnings. That
+warning category is also present in earlier evidence. Browser coverage uses explicit protocol catalogs,
+including 205 rows, real pagination and a mocked exact attachment POST.
+
+The 30-file offline detection handoff performed zero production uploads and
+does not register API recordings. Current production inventory and the exact
+cause of the deployed one-item list remain unverified. These fixes are local,
+uncommitted and undeployed. Real film uploads, staff/model acceptance and the
+complete twenty-page overhaul remain outstanding.

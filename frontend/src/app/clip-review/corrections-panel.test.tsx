@@ -85,6 +85,20 @@ function makeJwt(role: string): string {
 }
 
 describe("CorrectionsPanel", () => {
+  test("staff can mark a referee without a roster identity and clear a false official candidate", async () => {
+    const fetchMock = installFetch({ ok: true, status: 201, body: { id: "kind-review" } });
+    const { CorrectionsPanel, AppStateProvider } = await importPanel();
+    render(<AppStateProvider><CorrectionsPanel clipId="c-1" tracklets={TRACKLETS} selection={{ trackletId: "t-1" }} /></AppStateProvider>);
+    fireEvent.change(screen.getByLabelText("Person kind"), { target: { value: "official" } });
+    expect((screen.getByTestId("correction-player-select") as HTMLSelectElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: /Save correction/ }));
+    await waitFor(() => expect(fetchMock.mock.calls.some(([url, init]) => String(url).includes("/corrections") && init?.method === "POST")).toBe(true));
+    const post = fetchMock.mock.calls.find(([url, init]) => String(url).includes("/corrections") && init?.method === "POST")!;
+    expect(JSON.parse(String(post[1]?.body)).corrected_value).toEqual({ tracklet_id: "t-1", actor_kind: "official" });
+    await waitFor(() => expect((screen.getByLabelText("Person kind") as HTMLSelectElement).value).toBe(""));
+    fireEvent.change(screen.getByLabelText("Person kind"), { target: { value: "player" } });
+    expect((screen.getByTestId("correction-player-select") as HTMLSelectElement).disabled).toBe(false);
+  });
   test.each(["pass_target", "pass_result", "reception", "possession_end", "carrier_cut", "tackle_outcome"])("%s saves the explicit reviewed possession contract", async (type) => {
     const fetchMock = installFetch({ ok: true, status: 201, body: { id: "reviewed-outcome" } });
     const { CorrectionsPanel, AppStateProvider } = await importPanel();

@@ -48,10 +48,10 @@ export function FieldMinimap({
         data-testid="field-minimap-gated"
         className={embedded ? "p-2 text-white" : "mt-3 rounded-lg border border-border-soft bg-secondary/30 p-3"}
       >
-        <p className="m-0 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+        <p className={embedded ? "m-0 text-xs font-semibold text-slate-100" : "m-0 text-xs font-semibold uppercase tracking-widest text-muted-foreground"}>
           Field view
         </p>
-        <p className="mt-1 text-xs text-muted-foreground">
+        <p className={embedded ? "mt-1 text-xs text-slate-200" : "mt-1 text-xs text-muted-foreground"}>
           {calibration?.reason ??
             "Unavailable — the field could not be calibrated for this footage, so top-down positions can't be trusted."}
         </p>
@@ -62,6 +62,7 @@ export function FieldMinimap({
   const markers: FieldMarker[] = [];
   for (let i = 0; i < tracklets.length; i++) {
     const t = tracklets[i];
+    if (["official", "sideline"].includes(t.team_label ?? "") || ["official", "sideline", "unknown"].includes(String(t.provenance?.actor_kind))) continue;
     const point = activeTrackSample(t, currentTimeSeconds ?? currentFrame / fps, fps)?.point;
     if (!point || point.field_x == null || point.field_y == null || !Number.isFinite(point.field_x) || !Number.isFinite(point.field_y)) continue;
     const name = t.player_id != null ? playerNamesById?.get(t.player_id) : undefined;
@@ -84,7 +85,7 @@ export function FieldMinimap({
         Field view
       </p>}
       {markers.length > 0 || embedded ? (
-        <><FieldDiagram markers={markers} compact={embedded} quiet={quiet} />{embedded ? <p className={quiet ? "sr-only" : "px-2 py-1 text-[10px] text-white/85"}>{markers.length} visible track{markers.length === 1 ? "" : "s"} · calibrated yards</p> : null}</>
+        <><FieldDiagram markers={markers} compact={embedded} quiet={quiet} inset={embedded} />{embedded ? <p className={quiet ? "sr-only" : "px-2 py-1 text-[10px] text-slate-200"}>{markers.length} visible track{markers.length === 1 ? "" : "s"} · calibrated yards</p> : null}</>
       ) : (
         <p className="text-xs text-muted-foreground">
           No calibrated player positions at this moment of the clip.

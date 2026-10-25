@@ -26,6 +26,30 @@ from app.models import (
 from fastapi.testclient import TestClient
 
 
+@pytest.mark.parametrize("kind", ["practice", "scrimmage"])
+def test_internal_practice_never_registers_an_opponent(kind: str) -> None:
+    captured: list[Video] = []
+    _override_auth(captured)
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/v1/videos",
+                json={
+                    "filename": "practice.mp4",
+                    "storage_uri": "s3://raw-video/practice.mp4",
+                    "session_kind": kind,
+                    "opponent_team": "Misleading practice opponent",
+                    "our_possession": "defense",
+                },
+            )
+        assert response.status_code == 201, response.text
+        assert response.json()["opponent_team"] is None
+        assert response.json()["our_possession"] == "defense"
+        assert captured[0].opponent_team is None
+    finally:
+        app.dependency_overrides.clear()
+
+
 @pytest.fixture(autouse=True)
 def verified_storage(monkeypatch: pytest.MonkeyPatch) -> None:
     """These metadata tests isolate storage; content tests use real stored bytes."""

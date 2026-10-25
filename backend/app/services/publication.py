@@ -14,7 +14,11 @@ from app.models import Clip, ClipResultState, Event, JobType, Label, Metric, Pro
 from app.services.clip_state import active_clip
 from app.services.metric_policy import exclusion_reason
 
-PRESERVE_PRIOR_REASONS = {"correction_rebinding_unresolved", "replacement_not_qualified"}
+PRESERVE_PRIOR_REASONS = {
+    "correction_rebinding_unresolved",
+    "replacement_not_qualified",
+    "actor_kind_rebinding_unresolved",
+}
 
 
 async def publish_job_clip_tiers(db: AsyncSession, job: ProcessingJob) -> None:
@@ -285,15 +289,48 @@ async def publish_job_tracks(db: AsyncSession, job_id: uuid.UUID) -> int:
         else []
     )
     by_track = {label.tracklet_id: label for label in labels}
+    actor_kinds = {
+        label.tracklet_id: label
+        for label in labels
+        if label.annotated_by is not None
+        and isinstance((label.label_value or {}).get("actor_kind"), str)
+        and (label.label_value or {}).get("actor_kind")
+        in {"player", "official", "sideline", "unknown"}
+    }
     candidates_by_clip: dict[uuid.UUID, list[Tracklet]] = defaultdict(list)
     for track in candidates:
         candidates_by_clip[track.clip_id].append(track)
-    blocked: dict[uuid.UUID, str] = {}
+    blocked = {
+        clip_id: reason
+        for clip_id, reason in (await blocked_job_clips(db, job_id)).items()
+        if clip_id in touched
+    }
     bindings: list[tuple[Tracklet, Tracklet, Label]] = []
     for old in prior:
         label = by_track.get(old.id)
         if label is None:
             continue
+        kind_label = actor_kinds.get(old.id)
+        if kind_label is not None and kind_label.source == "inherited_human":
+            try:
+                origin_id = uuid.UUID(
+                    str(kind_label.label_value.get("actor_review_origin_label_id"))
+                )
+            except (ValueError, TypeError):
+                blocked[old.clip_id] = "actor_kind_rebinding_unresolved"
+                continue
+            origin = await db.get(Label, origin_id)
+            if (
+                origin is None
+                or origin.clip_id != old.clip_id
+                or origin.source not in {"human", "manual"}
+                or origin.annotated_by is None
+                or origin.label_type != "player_identity"
+                or (origin.label_value or {}).get("actor_kind")
+                != kind_label.label_value["actor_kind"]
+            ):
+                blocked[old.clip_id] = "actor_kind_rebinding_unresolved"
+                continue
         fingerprint = observation_fingerprint(old)
         matches = [
             track
@@ -301,7 +338,7 @@ async def publish_job_tracks(db: AsyncSession, job_id: uuid.UUID) -> int:
             if fingerprint is not None and observation_fingerprint(track) == fingerprint
         ]
         if len(matches) != 1 or any(new.id == matches[0].id for _, new, _ in bindings):
-            blocked[old.clip_id] = "correction_rebinding_unresolved"
+            blocked.setdefault(old.clip_id, "correction_rebinding_unresolved")
         else:
             bindings.append((old, matches[0], label))
     for old, new, label in bindings:
@@ -316,6 +353,29 @@ async def publish_job_tracks(db: AsyncSession, job_id: uuid.UUID) -> int:
                 "method": "identical_source_observations_v1",
             },
         }
+        actor_label = actor_kinds.get(old.id)
+        actor_origin = None
+        if actor_label is not None:
+            kind = actor_label.label_value["actor_kind"]
+            actor_origin = (
+                str(actor_label.id)
+                if actor_label.source in {"human", "manual"}
+                else actor_label.label_value.get("actor_review_origin_label_id")
+            )
+            new.provenance = {
+                **new.provenance,
+                "actor_kind": kind,
+                "actor_classification": {
+                    "method": "staff_review",
+                    "validated": True,
+                    "status": "reviewed",
+                    "inherited_from": actor_origin,
+                    "reviewed_by": str(actor_label.annotated_by),
+                },
+            }
+            if kind != "player":
+                new.player_id, new.position_group, new.side_of_ball = None, None, None
+                new.team_label = kind if kind in {"official", "sideline"} else "unknown"
         # Inherited authority is distinct from a fresh human annotation and
         # remains excluded from human-only training/holdout materialization.
         inherited = (
@@ -337,12 +397,20 @@ async def publish_job_tracks(db: AsyncSession, job_id: uuid.UUID) -> int:
                     tracklet_id=new.id,
                     label_type="player_identity",
                     source="inherited_human",
-                    label_value={**label.label_value, "inherited_from": str(label.id)},
+                    label_value={
+                        **label.label_value,
+                        "inherited_from": str(label.id),
+                        **({"actor_review_origin_label_id": actor_origin} if actor_origin else {}),
+                    },
                     annotated_by=label.annotated_by,
                 )
             )
         else:
-            inherited.label_value = {**label.label_value, "inherited_from": str(label.id)}
+            inherited.label_value = {
+                **label.label_value,
+                "inherited_from": str(label.id),
+                **({"actor_review_origin_label_id": actor_origin} if actor_origin else {}),
+            }
             inherited.annotated_by = label.annotated_by
     for clip_id in await unqualified_replacement_clips(db, job_id, prior, candidates, touched):
         blocked.setdefault(clip_id, "replacement_not_qualified")
@@ -370,6 +438,20 @@ async def publish_job_tracks(db: AsyncSession, job_id: uuid.UUID) -> int:
     for track in prior:
         if track.clip_id in clips:
             track.provenance = {**(track.provenance or {}), "state": "superseded"}
+    for clip_id in touched:
+        clip = await db.get(Clip, clip_id)
+        if clip is None:
+            continue
+        data = dict(clip.label_data or {})
+        if blocked.get(clip_id) == "actor_kind_rebinding_unresolved":
+            data["_actor_kind_review_required"] = {
+                "job_id": str(job_id),
+                "reason": blocked[clip_id],
+            }
+            clip.label_data = data
+        elif clip_id in clips and "_actor_kind_review_required" in data:
+            data.pop("_actor_kind_review_required")
+            clip.label_data = data
     return promoted
 
 

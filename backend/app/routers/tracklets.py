@@ -20,6 +20,16 @@ log = structlog.get_logger(__name__)
 router = APIRouter(tags=["tracklets"])
 
 
+def _input_provenance(value: dict[str, Any] | None) -> dict[str, Any]:
+    result = dict(value or {})
+    classification = result.get("actor_classification")
+    if isinstance(classification, dict) and classification.get("method") == "staff_review":
+        # Only an applied human correction or exact publication inheritance
+        # can grant this authority; importing a track is not a staff review.
+        result.pop("actor_classification")
+    return result
+
+
 # ── Schemas ───────────────────────────────────────────────────────────────────
 
 
@@ -208,7 +218,7 @@ async def create_tracklet(
     tracklet = Tracklet(
         id=body.id or uuid.uuid4(),
         provenance={
-            **(body.provenance or {}),
+            **_input_provenance(body.provenance),
             **({"publication_state": "pending"} if body.job_id else {}),
         },
         clip_id=body.clip_id,
@@ -311,7 +321,18 @@ async def update_tracklet(
     if body.track_confidence is not None:
         tracklet.track_confidence = body.track_confidence
     if body.provenance is not None:
-        tracklet.provenance = {**(tracklet.provenance or {}), **body.provenance}
+        classification = (tracklet.provenance or {}).get("actor_classification")
+        if (
+            isinstance(classification, dict)
+            and classification.get("method") == "staff_review"
+            and "actor_kind" in body.provenance
+            and body.provenance["actor_kind"] != (tracklet.provenance or {}).get("actor_kind")
+        ):
+            raise HTTPException(422, "Use a staff correction to change a reviewed person kind")
+        incoming = _input_provenance(body.provenance)
+        if isinstance(classification, dict) and classification.get("method") == "staff_review":
+            incoming.pop("actor_classification", None)
+        tracklet.provenance = {**(tracklet.provenance or {}), **incoming}
         claim = body.provenance.get("manual_identity_binding")
         if claim is not None:
             from app.services.actor_bindings import verified_manual_identity

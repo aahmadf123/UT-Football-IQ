@@ -332,7 +332,7 @@ export function UploadDialog({
           )}
 
           <div className="grid gap-1.5">
-            <Label htmlFor="upload-possession">Our possession</Label>
+            <Label htmlFor="upload-possession">{draft.sessionKind === "game" ? "Toledo side" : "Focus unit, optional"}</Label>
             <NativeSelect
               id="upload-possession"
               value={draft.ourPossession ?? ""}
@@ -340,13 +340,14 @@ export function UploadDialog({
                 update("ourPossession", (e.target.value || null) as OurPossession | null)
               }
             >
-              <option value="">Not specified</option>
+              <option value="">{draft.sessionKind === "game" ? "Not specified" : "Both units / not specified"}</option>
               {POSSESSIONS.map((p) => (
                 <option key={p.value} value={p.value}>
                   {p.label}
                 </option>
               ))}
             </NativeSelect>
+            {draft.sessionKind !== "game" && <p className="text-xs text-muted-foreground">Practice includes our offense and defense. Units describe the rep, not an opponent team.</p>}
           </div>
 
           <div className="grid gap-1.5">

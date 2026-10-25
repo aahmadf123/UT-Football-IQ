@@ -1,0 +1,644 @@
+{
+  "schema_version": 1,
+  "observed_at_utc": "2026-10-22T00:42:04.363436+00:00",
+  "status": "reviewed_local_follow_up_full_overhaul_incomplete",
+  "source": {
+    "base_commit": "88fa8aee5fd09e4607b3ff312d254869bc5b4847",
+    "branch": "codex/overhaul-completion-20261021",
+    "changed_source_files": [
+      {
+        "path": ".github/workflows/ci.yml",
+        "bytes": 9675,
+        "sha256": "387bc694e008f43c7fff1e777fd8344565b720c544f7c470f2eb523f7044e8ef"
+      },
+      {
+        "path": ".gitignore",
+        "bytes": 2053,
+        "sha256": "112b0de9dcccf5543b5a1c38725803e3243b390b0b94cfdaa10fab62aff785d0"
+      },
+      {
+        "path": "backend/app/routers/overlays.py",
+        "bytes": 16834,
+        "sha256": "ec7d34b6f5d76ae7ebb93f9e079cea910f85827697d872c5da24b1536c072bbf"
+      },
+      {
+        "path": "backend/app/routers/sessions.py",
+        "bytes": 19407,
+        "sha256": "4e0c54cb3d0c591808551fcc869d3837348bc5dddf6e976d300de8c1a97d9a1c"
+      },
+      {
+        "path": "backend/app/routers/tracklets.py",
+        "bytes": 14283,
+        "sha256": "14256f6475ae45ad9ad7e044cf7ee36f0013c8f6e7fcd35fcc425ea1274f79b6"
+      },
+      {
+        "path": "backend/app/routers/videos.py",
+        "bytes": 22623,
+        "sha256": "e05ce65837737bc71785ea77323cb8cebe756d5a5c503bec4058f81632317864"
+      },
+      {
+        "path": "backend/app/services/annotations.py",
+        "bytes": 22143,
+        "sha256": "c0dc93afd94a44e9bcf00b8ac339ac0cf8c5105f96866c42444f914a00317c8e"
+      },
+      {
+        "path": "backend/app/services/publication.py",
+        "bytes": 18637,
+        "sha256": "938186cefa66d4ca0a3acc29c54c2c753110780b358a6c40bfdb3057084932cf"
+      },
+      {
+        "path": "backend/tests/test_annotation_learning_integration.py",
+        "bytes": 28495,
+        "sha256": "029dee207e29980b7cff8af8cfd35cc8fd4c2dfb023771836b3bd36d0b654a9a"
+      },
+      {
+        "path": "backend/tests/test_platform_overhaul.py",
+        "bytes": 64930,
+        "sha256": "c719ead6fcc62f861138665dd19add7b3ba0cbdc14a4c695e2e0e97571be31c0"
+      },
+      {
+        "path": "backend/tests/test_practice_context.py",
+        "bytes": 4237,
+        "sha256": "4119540e7797a7028a06e3c18ac2ed6c29a00c3255c7ec8f0df59692abd0ca1a"
+      },
+      {
+        "path": "backend/tests/test_videos.py",
+        "bytes": 16263,
+        "sha256": "ac1bbcdb8d5c032008a7409228792cca59ee9d031bfef87bdd6fe24d4076f6ca"
+      },
+      {
+        "path": "frontend/e2e/field-inset.spec.ts",
+        "bytes": 8269,
+        "sha256": "f5d3936d2f9d1282ce0d1e82e422756cc9b7aee54d175fa77aee3ce9e633c26e"
+      },
+      {
+        "path": "frontend/e2e/fixtures/field-inset-native.mp4",
+        "bytes": 4115,
+        "sha256": "6e5b6108252e00490be94b60bde3c1487584d11024973a0c86234b494040065b"
+      },
+      {
+        "path": "frontend/e2e/upload.spec.ts",
+        "bytes": 5164,
+        "sha256": "a6f4c757b9c821b4b21627533319c66ff0dc5d5c566c67618f81a5ab1345b0b4"
+      },
+      {
+        "path": "frontend/src/app/clip-review/clip-review.test.tsx",
+        "bytes": 45629,
+        "sha256": "b8d3298e80f728c660c45a9288c6d8fa48092574f3206708e9ec0f8b9aa4a93c"
+      },
+      {
+        "path": "frontend/src/app/clip-review/corrections-panel.test.tsx",
+        "bytes": 38005,
+        "sha256": "8e31540d8df91ec7cca3be8f75e75bf054c933d69e53d644648f730f157940fe"
+      },
+      {
+        "path": "frontend/src/app/clip-review/corrections-panel.tsx",
+        "bytes": 45169,
+        "sha256": "9cff870a06e4c6ff013ece17451b26120f7d3543b4373e3eb741a74da9a828b3"
+      },
+      {
+        "path": "frontend/src/app/clip-review/field-inset.test.tsx",
+        "bytes": 4198,
+        "sha256": "8b385b360594b074d3b0bf8e529a2b7b79bf2f65e3d174b09d85e917e004948f"
+      },
+      {
+        "path": "frontend/src/app/clip-review/field-inset.tsx",
+        "bytes": 3645,
+        "sha256": "c173c3facf26edd91762ce39d2d7bf4e6f9c5e199c09c57f7dac075bb51e0c34"
+      },
+      {
+        "path": "frontend/src/app/clip-review/field-minimap.tsx",
+        "bytes": 4381,
+        "sha256": "54666092dbf1d9bbc9056d7c57a87d541998f9bb2a7848859536e1d541f5e259"
+      },
+      {
+        "path": "frontend/src/app/clip-review/overlay-canvas.test.tsx",
+        "bytes": 5567,
+        "sha256": "52d4b4dba3dd14daf4676837ad3eac7dd05d7b68278e55dab05630a5aec4001b"
+      },
+      {
+        "path": "frontend/src/app/clip-review/overlay-canvas.tsx",
+        "bytes": 18009,
+        "sha256": "ee7ef11080eaa1ab2326aa26aa07152251e961861c8eb0a20f844f1e4756e358"
+      },
+      {
+        "path": "frontend/src/app/clip-review/page.tsx",
+        "bytes": 86315,
+        "sha256": "9a4429fff5c418b32dedcbc9476b564c9c826bcd24948cdf05f2a77cf08ffc53"
+      },
+      {
+        "path": "frontend/src/components/field-diagram.tsx",
+        "bytes": 4305,
+        "sha256": "982898ed9a0d99ec679949fce5467f8c9bdb09fe9f7aa446d06c37a8fff4c866"
+      },
+      {
+        "path": "frontend/src/components/shared/upload-dialog.test.tsx",
+        "bytes": 5498,
+        "sha256": "f460246e53c606ee40fa857cd18c7155e30c00dda9dfbd5c0bc4fddee4b05c38"
+      },
+      {
+        "path": "frontend/src/components/shared/upload-dialog.tsx",
+        "bytes": 16830,
+        "sha256": "015c8ab18345463b4554fb93bb80a7bf5cf9c782690eef3fa29a04252bcdfcae"
+      },
+      {
+        "path": "frontend/src/lib/api.library.test.ts",
+        "bytes": 13809,
+        "sha256": "f334d923913b4d115e5bebe571e75aebb4b9bc58c8092e1f5b6b176a3b7913e0"
+      },
+      {
+        "path": "frontend/src/lib/api.ts",
+        "bytes": 62579,
+        "sha256": "32d5636abab4beafee6dcab107f5deeb64ea6ec59079c998cb27032aa88e9066"
+      },
+      {
+        "path": "frontend/src/lib/app-state.test.tsx",
+        "bytes": 10989,
+        "sha256": "935a99d5ac7c381d9bd0b3d21dd55c050751afd23efbe33dcf4555723fd0925c"
+      },
+      {
+        "path": "frontend/src/lib/app-state.tsx",
+        "bytes": 22086,
+        "sha256": "34cf4175024f1bf440e411df1654612c8c6075ab75c63d9c151eb486ac54bcec"
+      },
+      {
+        "path": "gpu-worker/pipeline/actor_kind_replay.py",
+        "bytes": 11003,
+        "sha256": "290bec5cb8bb66782b6ca18303720e352da37de90d5986aea60cc1a059058306"
+      },
+      {
+        "path": "gpu-worker/pipeline/backend.py",
+        "bytes": 54130,
+        "sha256": "6c7aebf8f3b68ebbc4aefbbb710696da505f0a3026a5b5cb7ba89b685fee0ea5"
+      },
+      {
+        "path": "gpu-worker/pipeline/checkpoints.py",
+        "bytes": 5551,
+        "sha256": "24ba99380f7fd8ed4b5edaff9de8be186fae38f5a0bdab0f0d209dd97a63cb52"
+      },
+      {
+        "path": "gpu-worker/pipeline/detection/official_suppressor.py",
+        "bytes": 11306,
+        "sha256": "5f3ef4e21cc3665bf89e1cafa0a56a57c6c5486b950bf43df286e538cd1ac045"
+      },
+      {
+        "path": "gpu-worker/pipeline/detection_review.py",
+        "bytes": 7284,
+        "sha256": "1adc6984522ba857887fb6ee5f4e37014c299677bfaee2836a8c0939fa747ddc"
+      },
+      {
+        "path": "gpu-worker/pipeline/media_contract.py",
+        "bytes": 6510,
+        "sha256": "131925845f5c83cede960177ab263d269e2a15111dc533bbc41252a759bf01e3"
+      },
+      {
+        "path": "gpu-worker/pipeline/orchestrator.py",
+        "bytes": 84193,
+        "sha256": "857434a5bd605da2cafd063269b6dedd90165e7a051593e99d3b16cba473b114"
+      },
+      {
+        "path": "gpu-worker/pipeline/stage_detect.py",
+        "bytes": 16203,
+        "sha256": "502ef42962ca66aa8fa86a2564379d9c4728445385cca4db581aaebe742a4ac2"
+      },
+      {
+        "path": "gpu-worker/pipeline/stage_labels.py",
+        "bytes": 34830,
+        "sha256": "f3ab3ff7bd6db0d0e5afcfd49ef68842c5df3ef3a61eb74b750a55f48d5c3be9"
+      },
+      {
+        "path": "gpu-worker/pipeline/stage_render.py",
+        "bytes": 12320,
+        "sha256": "d9a47a5038881d47dbec348f735198e3a067babf3a122801659b8e7ef4fc0c1b"
+      },
+      {
+        "path": "gpu-worker/pipeline/stage_track.py",
+        "bytes": 15108,
+        "sha256": "de001c3da2a4501acb6bee40208579e31e2a45aa5204fb527f34422802165ec8"
+      },
+      {
+        "path": "gpu-worker/renderer/field_minimap.py",
+        "bytes": 3231,
+        "sha256": "3af8ff5f2e76d4bc0cf19a5a4fb55b67f48afd4bde674c390c35ab9c1bca2468"
+      },
+      {
+        "path": "gpu-worker/renderer/period_renderer.py",
+        "bytes": 11806,
+        "sha256": "c655cd4457dc421ad8a221a6e2784e8b8e0c2e41963cfa9b57f0baefc65daf43"
+      },
+      {
+        "path": "gpu-worker/tests/integration/test_actor_kind_http.py",
+        "bytes": 17882,
+        "sha256": "b8985797d2f38d302592230c146c341219fc83944b21630008ae590cd1086547"
+      },
+      {
+        "path": "gpu-worker/tests/test_actor_kind_replay.py",
+        "bytes": 14596,
+        "sha256": "fc4b1f61ad617ef064aa88413b36673c680f877a6586734f44376312413f9a6f"
+      },
+      {
+        "path": "gpu-worker/tests/test_annotation_snapshot.py",
+        "bytes": 4191,
+        "sha256": "50db5daf0360b3c8b108097beeaf746fd74d60123d1af69c31ebcb9599763903"
+      },
+      {
+        "path": "gpu-worker/tests/test_detection_review.py",
+        "bytes": 2536,
+        "sha256": "986f8f17b41924605626aa43c2798be2b6ecedce21e464cdd0acfa69891462b4"
+      },
+      {
+        "path": "gpu-worker/tests/test_field_minimap.py",
+        "bytes": 5971,
+        "sha256": "8c3d335af1c83dc78b563b3c5014ee04c3bcdcbe8c0622e7cc222fde45b100b3"
+      },
+      {
+        "path": "gpu-worker/tests/test_official_tracking_handoff.py",
+        "bytes": 2615,
+        "sha256": "6c74b6c5881290da7f01d80b448669477632608ba16498ddc6d9591d487c7a3c"
+      },
+      {
+        "path": "gpu-worker/tests/test_orchestrator.py",
+        "bytes": 27316,
+        "sha256": "8aa54628549d4b7d6bee4b20c419c42ec403da5a849abe091747ada9677fef91"
+      },
+      {
+        "path": "gpu-worker/tests/test_renderer.py",
+        "bytes": 12358,
+        "sha256": "b62d2907c274a4faf6c9bfd9a63e2931da4d89caaaf44c55e176098aea771e8d"
+      },
+      {
+        "path": "gpu-worker/tests/test_team_classifier.py",
+        "bytes": 11518,
+        "sha256": "983363277246f68a2716c5e3f3a8f7ced8c97c481c3dddc87a67508ae08f9c71"
+      },
+      {
+        "path": "scripts/build_labeling_bundle.py",
+        "bytes": 10584,
+        "sha256": "1a3a72df9394f55cce0ca03d454acdb4bf9303c70c95d6df97276c4d5e4a6e66"
+      },
+      {
+        "path": "tests_local/labeler_browser_fixture.py",
+        "bytes": 3055,
+        "sha256": "d8482befe2bb898331e273334889f8cb001fcb2dc1ae8770c8576f7aa25beb41"
+      },
+      {
+        "path": "tests_local/test_labeler_server.py",
+        "bytes": 7584,
+        "sha256": "79ec2a040da14e742c5092fa4c6b2f5979e82df81fbe5baaa073b145e717ce65"
+      },
+      {
+        "path": "tests_local/test_labeling_bundle.py",
+        "bytes": 7643,
+        "sha256": "6d595b2d73e3afa38305eabba292fb7fb00a3acb9559db510323af6dc6f01784"
+      },
+      {
+        "path": "tools/football-labeler/README.md",
+        "bytes": 8428,
+        "sha256": "017f962835508bacf48d9f748e5983d932e2de0656856caf61363885919b8fc1"
+      },
+      {
+        "path": "tools/football-labeler/annotations.mjs",
+        "bytes": 8010,
+        "sha256": "876a426eb47926d7e2cd2f1c17f49ae09a9d5abef4d2e84378c8e0d9cd923265"
+      },
+      {
+        "path": "tools/football-labeler/app.mjs",
+        "bytes": 40662,
+        "sha256": "766d6a7a144ba3c60829b3ce9b2c4b99062919a00707d31a8d6bb71c789c6fd2"
+      },
+      {
+        "path": "tools/football-labeler/browser.test.mjs",
+        "bytes": 8185,
+        "sha256": "1b620dea29416bb5da457d16570cf8f4b54987e595abc663301c2be6410db5aa"
+      },
+      {
+        "path": "tools/football-labeler/connection.mjs",
+        "bytes": 3396,
+        "sha256": "d27ec48316025abbeadd505253dfe5dc05be5b7d539717e03648b5fb57ce1a70"
+      },
+      {
+        "path": "tools/football-labeler/connection.test.mjs",
+        "bytes": 2481,
+        "sha256": "92949290586d7355c5dfa13befc7e2a637d043b7cb49900b3feaf67594d51e37"
+      },
+      {
+        "path": "tools/football-labeler/index.html",
+        "bytes": 11894,
+        "sha256": "5a249e9769a9123cd141938724b8291a78421a4f0858efaecafb067528ecc28e"
+      },
+      {
+        "path": "tools/football-labeler/index_frames.py",
+        "bytes": 6669,
+        "sha256": "e2e79f001ec68409b381994963aff8978cddd2e5f8e56c90332a557dd2269489"
+      },
+      {
+        "path": "tools/football-labeler/server.py",
+        "bytes": 28069,
+        "sha256": "abbd93086ec3ef6d29c22309e04d1e621d3c8c21f27de577fecbac9a34cee1de"
+      },
+      {
+        "path": "tools/football-labeler/start-labeler.cmd",
+        "bytes": 644,
+        "sha256": "47de1e183db8f3be1ad7d0c4ed34e5e585569c154ca15f68136745900a7ce81e"
+      },
+      {
+        "path": "tools/football-labeler/style.css",
+        "bytes": 4237,
+        "sha256": "874feb52ee1068a32dcf1dacb36ab1bc377f35328d2e0a3419daac8fc0c4836e"
+      }
+    ],
+    "aggregate_sha256": "b681fce8aa1b8d27e98cca25b24de9d67fcf0492de26e61f021e2901d27b3d3a",
+    "aggregate_method": "SHA256 of UTF8 json.dumps(files, sort_keys=True, separators=(',', ':'))",
+    "committed": false,
+    "deployed": false
+  },
+  "checks": [
+    {
+      "name": "backend",
+      "passed": 1054,
+      "warnings": 9,
+      "seconds": 205.95,
+      "log": "runs/practice-final-backend-all.log",
+      "log_file": {
+        "path": "runs/practice-final-backend-all.log",
+        "bytes": 4318,
+        "sha256": "a97cfe362bf7c1e3f5c8b6cf70e5315e1c0c0d6eb4ab267155d7bef0e8a66967"
+      }
+    },
+    {
+      "name": "backend_static",
+      "result": "ruff check; 237 files formatted; mypy 123 app files",
+      "log": "runs/practice-final-backend-static.log",
+      "log_file": {
+        "path": "runs/practice-final-backend-static.log",
+        "bytes": 95,
+        "sha256": "3e5b4c276740964ee7313c8647b9b9a894698e120480b2be56ae72f013af3d5a"
+      }
+    },
+    {
+      "name": "worker_windows",
+      "passed": 1861,
+      "skipped": 1,
+      "integration_deselected": 4,
+      "seconds": 91.21,
+      "log": "runs/practice-final-worker-all.log",
+      "log_file": {
+        "path": "runs/practice-final-worker-all.log",
+        "bytes": 2164,
+        "sha256": "b7e7263a641a6e1e7b27cee92c1b21fae03f2f9c15163462d560e1c5a7239fc2"
+      }
+    },
+    {
+      "name": "worker_clean_linux",
+      "passed": 1861,
+      "skipped": 1,
+      "integration_deselected": 4,
+      "seconds": 57.05,
+      "log": "runs/practice-ci-source/worker-linux.log",
+      "log_file": {
+        "path": "runs/practice-ci-source/worker-linux.log",
+        "bytes": 192947,
+        "sha256": "879338f0af3ac1c7aa57bc8363852dc0aa861f3cd73ab18b45f02373a2e3b93a"
+      }
+    },
+    {
+      "name": "frontend_unit",
+      "passed": 583,
+      "files": 79,
+      "seconds": 83.55,
+      "log": "runs/practice-continuation-frontend-all.log",
+      "log_file": {
+        "path": "runs/practice-continuation-frontend-all.log",
+        "bytes": 50609,
+        "sha256": "e3ff794b9190cd352132059477c6093a37c4f9eabe650b9741d8eaf6e39829e9"
+      }
+    },
+    {
+      "name": "frontend_browser",
+      "passed": 31,
+      "seconds": 56.5,
+      "log": "runs/practice-final-frontend-browser-rerun.log",
+      "log_file": {
+        "path": "runs/practice-final-frontend-browser-rerun.log",
+        "bytes": 5605,
+        "sha256": "42bcd75132a93199c84397f7cb4e3c2df4f4a44af05b05b3fda0de29e1c0172d"
+      }
+    },
+    {
+      "name": "frontend_lint",
+      "result": "global ESLint passed",
+      "log": "runs/practice-final-frontend-lint.log",
+      "log_file": {
+        "path": "runs/practice-final-frontend-lint.log",
+        "bytes": 70,
+        "sha256": "eb6efdb379fe184bfd26afeb37189e13a8d2f0f7e3ff19cc4dc7a03814845d6a"
+      }
+    },
+    {
+      "name": "frontend_types",
+      "result": "TypeScript passed",
+      "log": "runs/practice-final-frontend-types.log",
+      "log_file": {
+        "path": "runs/practice-final-frontend-types.log",
+        "bytes": 60,
+        "sha256": "b5c3cb8fdf39c992eb82a22a37b378a256d8da07be026ee02454356d314e5731"
+      }
+    },
+    {
+      "name": "frontend_production_build",
+      "result": "compiled and exported 17 static pages",
+      "log": "runs/practice-final-frontend-build.log",
+      "log_file": {
+        "path": "runs/practice-final-frontend-build.log",
+        "bytes": 1117,
+        "sha256": "671f050d44ede2a011100646f09bd6379af8b26ed64f726fed68134381f6cc2a"
+      }
+    },
+    {
+      "name": "cross_service_http",
+      "passed": 4,
+      "deselected": 20,
+      "warnings": 4,
+      "seconds": 96.87,
+      "log": "runs/practice-final-http-integration.log",
+      "log_file": {
+        "path": "runs/practice-final-http-integration.log",
+        "bytes": 3139,
+        "sha256": "3b789c9dbca0a0b287f06555f6f5bef8d030ba735e981c2b28651863f296258f"
+      }
+    }
+  ],
+  "staff_tool_verification": {
+    "archive": "reports\\overhaul\\labeling-package\\staff-labeling-connected-hints-20261021-final.zip",
+    "archive_sha256": "10e8cc6a053e1c9e46d28d86384d097073dd310eeda8609a9c2912a819db408b",
+    "archive_entries": 108,
+    "manifest_files_verified": 106,
+    "extracted_connected_sources": 30,
+    "unreviewed_hint_frames": 11065,
+    "saved_annotations": 0,
+    "original_media_read": false,
+    "media_and_weights_included": false,
+    "football_validation": false,
+    "checks": [
+      {
+        "name": "unittest",
+        "log": "runs\\staff-labeler-final-frozen-unittest.log",
+        "log_sha256": "c99ae221a4a342c1f2b49fb995f72b7099bbcad426dcd628776719cdda37bc09",
+        "result": {
+          "tests": 77,
+          "passed": 76,
+          "skipped": 1,
+          "seconds": 43.907
+        }
+      },
+      {
+        "name": "server_pytest",
+        "log": "runs\\staff-labeler-final-proposals-server.log",
+        "log_sha256": "559ac9ca706c7ca7c592cec80843704f4dffd02803fa1eaa46f2690f93877bb6",
+        "result": {
+          "passed": 11,
+          "seconds": 6.23
+        }
+      },
+      {
+        "name": "javascript",
+        "log": "runs\\staff-labeler-final-proposals-js.log",
+        "log_sha256": "9fbf654d6f10b1a73e5fb3e390e0add121d033fce6bda9079682f52147f52fc0",
+        "result": {
+          "passed": 8,
+          "duration_ms": 792.857
+        }
+      },
+      {
+        "name": "browser",
+        "log": "runs\\staff-labeler-final-frozen-browser.log",
+        "log_sha256": "36d80f420ff485979eeb6643cbaf6e157079a82a2ee684aa92b6ef8ac9535ce0",
+        "result": {
+          "passed": 2,
+          "duration_ms": 14579.671
+        }
+      }
+    ],
+    "source_files": [
+      {
+        "path": "scripts\\build_labeling_bundle.py",
+        "sha256": "1a3a72df9394f55cce0ca03d454acdb4bf9303c70c95d6df97276c4d5e4a6e66"
+      },
+      {
+        "path": "tests_local\\test_labeling_bundle.py",
+        "sha256": "6d595b2d73e3afa38305eabba292fb7fb00a3acb9559db510323af6dc6f01784"
+      },
+      {
+        "path": "tools\\football-labeler\\README.md",
+        "sha256": "017f962835508bacf48d9f748e5983d932e2de0656856caf61363885919b8fc1"
+      },
+      {
+        "path": "reports\\overhaul\\staff-labeler-continuation.md",
+        "sha256": "bf3243d68d739875f38cdd826e347324e338c4489e32bd95f9958dc6da637b0b"
+      }
+    ],
+    "other_evidence": [
+      {
+        "path": "runs\\staff-labeler-final-frozen-bundle.log",
+        "sha256": "ac58321ecde44e9cb41fff3eae1fb588352e4f16b92c78e8d7c8ef97ffc63b5e"
+      },
+      {
+        "path": "runs\\staff-labeler-final-frozen-extraction.log",
+        "sha256": "254fd4ef3b16a1097709cb1942323c0ed5768dbdac2a0956a96f73c8c7642670"
+      },
+      {
+        "path": "runs\\staff-labeler-final-archive-inspection.py",
+        "sha256": "be24933c7dd18bfaeb49ff564b904ed8764a2374e95c9cd89e2cdeff1c392e82"
+      }
+    ],
+    "limits": [
+      "No original films read for packaging; no new generator identity stamped on historical proposals.",
+      "All hints unreviewed; no football benchmark/accuracy/approval claim.",
+      "One Windows symlink case skipped because this host does not permit symlink creation. The test is configured to run on CI hosts that permit it; no remote execution is claimed.",
+      "Fresh extraction/API inspection uses temporary draft folder; browser annotation flow uses generated protocol film, not actual staff truth."
+    ]
+  },
+  "staff_tool_verification_file": {
+    "path": "runs/staff-labeler-final-evidence.json",
+    "bytes": 3331,
+    "sha256": "1555bc15c09b28b1dd7ed0feeddd5632167d986741610adcf43fc12e17a52b91"
+  },
+  "linux_source": {
+    "manifest": {
+      "path": "runs/practice-ci-source/source-manifest.json",
+      "bytes": 107008,
+      "sha256": "fa996b3bbb7386c2e46aa96f948c2402250688c0f6647949edb1559d4a25f450"
+    },
+    "verification": {
+      "path": "runs/practice-ci-source/verification.json",
+      "bytes": 2244,
+      "sha256": "d08340838fcf99295c86efb19238c67ca2e47666be41c9d0fc5b267e6eb3b0f4"
+    },
+    "snapshot_files": 635,
+    "worker_drift_against_final_source": [],
+    "image_id": "sha256:202ec1b2394ee481c985dd1d1be9ba404d9ec37637a07efde94118bd157b8576",
+    "scope": "worker suite; later bundle tooling edits have separate tests"
+  },
+  "detection_handoff": {
+    "scope": "offline generic person proposals with unvalidated stripe referee candidates",
+    "sources": 30,
+    "native_frames": 11065,
+    "inference_frames": 11065,
+    "person_boxes": 146831,
+    "heuristic_referee_candidates": 16491,
+    "inventory": {
+      "path": "runs/practice-detection-review-20261021/inventory.json",
+      "bytes": 14892,
+      "sha256": "7a8cf97f556ccdea4a52a2aa58a5cac2a18480de81e8dd1f4167d1c1aefebf48"
+    },
+    "independent_validation": {
+      "path": "runs/reviewer-practice-proposal-validation.json",
+      "bytes": 10327,
+      "sha256": "54daae88e8816a41137f1e25c7fd9dbf0f7627446ffc69ca82ed747288b8b4bc"
+    },
+    "catalog": {
+      "path": "reports/overhaul/labeling-package/sources-content-verified.json",
+      "bytes": 32523,
+      "sha256": "996e52fab5db5e72bb05acc2b2f14d31d52374f54331375b919bb3ac6075a939"
+    },
+    "production_uploads_from_this_run": 0,
+    "reviewed_benchmark_labels_created": 0,
+    "weights_retrained_or_promoted": false,
+    "generator_snapshot_limit": "Actual inference preceded producer_source_sha256 capture; current CLI hash is not retroactively attributed to that run."
+  },
+  "important_limits": [
+    "Regression/protocol/browser fixtures do not prove real-football precision, recall, identity accuracy or staff acceptance.",
+    "All 30 sources' inference coverage is not full pipeline completion or production library inventory.",
+    "Protected production inventory remains unverified; observing the existing live browser was declined. No alternate credential access was used.",
+    "Hosted frontend/API public checks served merged 88fa8ae; separate processor remains d1f4317. New fixes remain local, uncommitted and undeployed.",
+    "Backend retained 9 warnings, including recurring asyncpg Connection._cancel never awaited and deprecations; cancellation origin remains unresolved.",
+    "One optional custom-joblib coefficient test skipped on Windows/Linux; four HTTP integrations ran separately.",
+    "Changed actor trajectories require explicit repair; exact binding holds preserve prior publication and expose a warning.",
+    "Full-plan specialist/products, actual reviewed labels and heldout models, full-game sustained/performance and compatible production staff journey remain open."
+  ],
+  "review": {
+    "agent": "/root/reviewer",
+    "source_scope": "independently reviewed bounded continuation",
+    "final_master_hash_review": "accepted",
+    "reviewed_at_utc": "2026-10-22T00:44:23.958250+00:00",
+    "reviewed_aggregate_sha256": "b681fce8aa1b8d27e98cca25b24de9d67fcf0492de26e61f021e2901d27b3d3a",
+    "verified_source_files": 68,
+    "verified_master_logs": 10,
+    "verified_linux_snapshot_files": 635,
+    "verified_current_worker_files": 360,
+    "later_nonworker_snapshot_drift": [
+      "tools/football-labeler/README.md"
+    ],
+    "independent_evidence": {
+      "path": "runs/reviewer-practice-final-master.json",
+      "bytes": 1020,
+      "sha256": "fb83a9c128f68f5a81c10394a715ae62975f4ba4e35e4818a74049993702daf4"
+    },
+    "independent_archive_evidence": {
+      "path": "runs/reviewer-labeler-final-archive.json",
+      "bytes": 1866,
+      "sha256": "5c1fab96334e831bbef80f5e9572545aa9254662caef435dc976baf34a8e93b0"
+    },
+    "acceptance_limit": "Bounded local source, regression and artifact bookkeeping only; full overhaul, model accuracy and compatible production acceptance remain incomplete."
+  }
+}

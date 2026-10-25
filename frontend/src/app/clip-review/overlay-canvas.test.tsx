@@ -42,6 +42,18 @@ function canvas(props: Partial<Parameters<typeof OverlayCanvas>[0]> = {}) {
 }
 
 describe("OverlayCanvas styles", () => {
+  it("keeps referee candidates distinct from roster players and hides player metrics", () => {
+    canvas({ overlayStyle: "analyst", tracklets: [{ ...track("a", 100), team_label: "official", provenance: { actor_kind: "official" } }], playerNamesById: new Map() });
+    expect(screen.getByRole("button", { name: /Select Referee candidate/ })).toBeTruthy();
+    expect(screen.getByTestId("overlay-tracklet-tag-a").textContent).toContain("Referee candidate");
+    expect(screen.queryByTestId("overlay-tracklet-metric-a")).toBeNull();
+  });
+  it.each(["sideline", "unknown"])("keeps explicit %s people out of roster labels and metric callouts", (kind) => {
+    canvas({ overlayStyle: "analyst", tracklets: [{ ...track("a", 100), player_id: "wrong-roster", provenance: { actor_kind: kind } }], playerNamesById: new Map([["wrong-roster", "Roster name"]]) });
+    expect(screen.getByTestId("overlay-tracklet-tag-a").textContent).not.toContain("Roster name");
+    expect(screen.queryByTestId("overlay-tracklet-metric-a")).toBeNull();
+    expect(screen.getByTestId("overlay-tracklet-tag-a").textContent).toContain(kind === "unknown" ? "Unknown person" : "Sideline candidate");
+  });
   it("analyst style draws every box, tag and callout", () => {
     canvas({ overlayStyle: "analyst" });
     expect(screen.getByTestId("overlay-tracklet-tag-a")).toBeTruthy();
@@ -51,7 +63,7 @@ describe("OverlayCanvas styles", () => {
   });
 
   it("clean style shows only a ring at each player's feet, and is the default", () => {
-    canvas();
+    canvas({ activeLayers: new Set(["tracks"]) });
     const ring = screen.getByTestId("overlay-tracklet-ring-a");
     // Bottom-centre of the box at frame 1: x 101..141, y 100..200.
     expect(Number(ring.getAttribute("cx"))).toBeCloseTo(121);
@@ -63,11 +75,11 @@ describe("OverlayCanvas styles", () => {
 
   it("clean style gives the pointed-at player full detail, and still selects", () => {
     const onSelect = vi.fn();
-    canvas({ overlayStyle: "clean", onSelectTracklet: onSelect });
+    canvas({ overlayStyle: "clean", onSelectTracklet: onSelect, activeLayers: new Set(["tracks"]) });
     const player = screen.getByTestId("overlay-tracklet-a");
     fireEvent.mouseEnter(player);
     expect(screen.getByTestId("overlay-tracklet-tag-a")).toBeTruthy();
-    expect(screen.getByTestId("overlay-tracklet-metric-a")).toBeTruthy();
+    expect(screen.queryByTestId("overlay-tracklet-metric-a")).toBeNull();
     expect(screen.queryByTestId("overlay-tracklet-tag-b")).toBeNull();
     fireEvent.mouseLeave(player);
     expect(screen.queryByTestId("overlay-tracklet-tag-a")).toBeNull();
@@ -76,8 +88,27 @@ describe("OverlayCanvas styles", () => {
   });
 
   it("clean style keeps the selected player detailed", () => {
-    canvas({ overlayStyle: "clean", selectedTrackletId: "b" });
+    canvas({ overlayStyle: "clean", selectedTrackletId: "b", activeLayers: new Set(["tracks"]) });
     expect(screen.getByTestId("overlay-tracklet-tag-b")).toBeTruthy();
+    expect(screen.queryByTestId("overlay-tracklet-tag-a")).toBeNull();
+  });
+
+  it("honors labels-only and metrics-only layers in clean style", () => {
+    const view = canvas({ overlayStyle: "clean", activeLayers: new Set(["labels"]) });
+    expect(screen.getByTestId("overlay-tracklet-tag-a")).toBeTruthy();
+    expect(screen.queryByTestId("overlay-tracklet-ring-a")).toBeNull();
+    view.unmount();
+    canvas({ overlayStyle: "clean", activeLayers: new Set(["metrics"]) });
+    expect(screen.getByTestId("overlay-tracklet-metric-a")).toBeTruthy();
+    expect(screen.queryByTestId("overlay-tracklet-ring-a")).toBeNull();
+  });
+
+  it("reveals clean detail for keyboard focus and hides it on blur", () => {
+    canvas({ activeLayers: new Set(["tracks"]) });
+    const player = screen.getByTestId("overlay-tracklet-a");
+    fireEvent.focus(player);
+    expect(screen.getByTestId("overlay-tracklet-tag-a")).toBeTruthy();
+    fireEvent.blur(player);
     expect(screen.queryByTestId("overlay-tracklet-tag-a")).toBeNull();
   });
 });

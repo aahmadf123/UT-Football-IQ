@@ -1,0 +1,21 @@
+# Staff person-kind replay before player analysis
+
+Worker source: `gpu-worker/pipeline/actor_kind_replay.py` and the narrow `accept("track")` hook in `pipeline/orchestrator.py`. Backend capture/publication and the effective snapshot producer are coordinated changes owned by the root agent, with a separate integration-test owner.
+
+The worker reads only `effective_annotations[clip_id].actor_kind_labels`. These are server-selected person-kind labels attached to current effective published tracks, rather than every historical human label. Human/manual records require an actual label ID, annotator, aware creation timestamp, explicit kind and server-captured actor binding. The latest created record for each current actor wins; tied distinct latest records abstain. Inherited records additionally require a single original binding reference, immediate parent UUID and the server-preserved root human kind-review UUID. Their current track UUID may differ from the original binding actor.
+
+Both fresh and cached track results combine player and non-player candidates for exact matching before re-identification, events, labels, pose or metrics consume them. Replay uses the existing full ordered native observation fingerprint and complete source/clip/window scope: full-media identity, independent registration fingerprint, frame/time, known shot (including numeric/string zero), visibility and boxes. No jersey, proximity, color, roster position or cross-view guess is used.
+
+Successful replay writes the explicit class and `provenance.actor_kind`, with `actor_classification.method="staff_review"`, the original human review label ID, the replayed current label ID, annotator and original→current actor lineage. Officials, sideline people and explicitly unknown people stay outside the player pool. A staff correction to player releases that exact track into the player pool. Explicit coherent unit evidence is retained as `unit_source="staff_review"`; a person-kind decision alone leaves the unit unknown. Non-player kinds clear roster, unit and observed-role attribution.
+
+An explicit roster ID is applied only after successful exact binding, from an actual human/manual label with valid label/annotator/player UUIDs. An inherited identity must instead come from the separately proven `actor_bindings.references[actor].manual_identity` record; the kind-review root is never substituted for the identity source. Explicit roster unassignment clears an older inherited claim. The worker calls the existing server identity-verification endpoint before re-identification; that endpoint independently rechecks the original manual label and exact observations. Kind alone creates no player identity.
+
+Any unresolved source, clock, observations, duplicate match, conflicting latest label or malformed authority holds all current actors in that clip outside player analysis. Without a unique match the worker cannot know which current person the unresolved staff decision concerns. `actor_kind_review_required` is retained on the track artifact and clip result for backend publication holds. Original annotations remain unchanged. Fragmentation or changed geometry therefore requests review; this is not fuzzy identity recovery.
+
+## Verification
+
+- 27 new focused replay cases passed, including both kind directions, explicit unit coherence, direct and inherited manual identities with different origin labels, explicit unassignment, source/clip/window/clock/shot/geometry/duplicate negatives, and real orchestration acceptance of fresh and cached track artifacts before player consumers. The identity test asserts that server verification occurs first.
+- Final combined worker scope: 139 passed in 25.16s (actor replay/bindings, orchestrator/reconciliation, field map and both renderer/native-window paths). Scoped Ruff passed.
+- Independent reviewer accepted the replay and manual-identity source boundary; their separate 72-case actor/render/native-window run passed in 8.67s.
+
+These are deterministic engineering/protocol fixtures. The new worker tests mock stage inference and server identity verification where appropriate; they do not prove detector accuracy or replace the separately owned actual API→snapshot→worker→publication integration trace. No model approval, football qualification, production write, commit, push or deployment is claimed.

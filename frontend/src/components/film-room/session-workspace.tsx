@@ -1,11 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Plus, Upload, ArrowRight, Link2, RefreshCw, Search, FolderOpen, Camera, ChevronLeft, CalendarDays } from "lucide-react";
 import { useAppState } from "@/lib/app-state";
-import { addSessionRecording, createSession, fetchClipsForVideo, fetchSession, fetchSessions, matchSessionPlays } from "@/lib/api";
-import type { ApiClip, ApiSession, SessionKind } from "@/lib/types";
+import { addSessionRecording, createSession, fetchClipsForVideo, fetchSession, fetchAllSessions, fetchAllVideos, matchSessionPlays } from "@/lib/api";
+import type { ApiClip, ApiSession, ApiVideo, SessionKind } from "@/lib/types";
 import { useUploadWidget } from "@/components/shared/upload-widget";
 import { LibraryView } from "@/app/library/library-view";
 import { Button } from "@/components/ui/button";
@@ -19,11 +19,23 @@ import { useWorkspaceContext } from "@/lib/workspace-context";
 import { friendlyMessage } from "@/lib/api-error";
 
 export function SessionWorkspace({ initialSessionId = "", onSelect }: { initialSessionId?: string; onSelect: (id: string) => void }) {
-  const { authToken, data, refreshData, currentRole } = useAppState();
+  const { authToken, refreshData, currentRole } = useAppState();
   const [sessions, setSessions] = useState<ApiSession[]>([]);
-  const [selectedId, setSelectedId] = useState(initialSessionId);
-  const [session, setSession] = useState<ApiSession | null>(null);
+  const [selection, setSelection] = useState({ input: initialSessionId, id: initialSessionId });
+  // A changed URL/prop wins immediately, before effects can fetch its rows.
+  const selectedId = selection.input === initialSessionId ? selection.id : initialSessionId;
+  const [loadedSession, setSession] = useState<ApiSession | null>(null);
+  const session = loadedSession?.id === selectedId ? loadedSession : null;
+  const selectedIdRef = useRef(selectedId);
+  const catalogRequest = useRef(0);
+  const sessionRequest = useRef(0);
+  const actionRequest = useRef(0);
+  const recordingRequest = useRef(0);
+  selectedIdRef.current = selectedId;
   const [loading, setLoading] = useState(true);
+  const [recordings, setRecordings] = useState<ApiVideo[]>([]);
+  const [recordingsLoading, setRecordingsLoading] = useState(true);
+  const [recordingsError, setRecordingsError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -40,56 +52,91 @@ export function SessionWorkspace({ initialSessionId = "", onSelect }: { initialS
   const matchedSessions = sessions.filter((item) => `${item.title} ${item.opponent_team ?? ""} ${item.session_kind ?? ""} ${item.recorded_at ?? ""}`.toLowerCase().includes(sessionQuery.trim().toLowerCase()));
   const visibleSessions = showAllSessions || sessionQuery.trim() ? matchedSessions : matchedSessions.slice(0, 6);
   const canEdit = currentRole === "admin" || currentRole === "analyst" || currentRole === "coach";
+  const memberIds = new Set(session?.recordings.map((recording) => recording.id));
+  const availableRecordings = recordings.filter((video) => !memberIds.has(video.id) && (!video.practice_session_id || video.practice_session_id === selectedId));
+  const alreadyGrouped = recordings.filter((video) => memberIds.has(video.id)).length;
+  const groupedElsewhere = recordings.length - alreadyGrouped - availableRecordings.length;
   const { widget, openFilePicker } = useUploadWidget({
     metadata: session ? { practice_session_id: session.id, session_kind: session.session_kind, library_role: session.library_role, opponent_team: session.opponent_team, recorded_at: session.recorded_at } : undefined,
     sessionTitle: session?.title,
   });
 
+  useEffect(() => {
+    setSelection((current) => current.input === initialSessionId ? current : { input: initialSessionId, id: initialSessionId });
+  }, [initialSessionId]);
+
   const loadSessions = useCallback(async () => {
+    const request = ++catalogRequest.current;
     setLoading(true);
     try {
-      setSessions(await fetchSessions(authToken));
-      setError(null);
+      const rows = await fetchAllSessions(authToken);
+      if (request === catalogRequest.current) { setSessions(rows); setError(null); }
     } catch (cause) {
-      setError(friendlyMessage(cause));
+      if (request === catalogRequest.current) setError(friendlyMessage(cause));
     } finally {
-      setLoading(false);
+      if (request === catalogRequest.current) setLoading(false);
     }
   }, [authToken]);
 
-  useEffect(() => { void loadSessions(); }, [loadSessions]);
+  useEffect(() => { void loadSessions(); return () => { ++catalogRequest.current; }; }, [loadSessions]);
+
+  const loadRecordings = useCallback(async () => {
+    const request = ++recordingRequest.current;
+    setRecordingsLoading(true);
+    setRecordingsError(null);
+    try {
+      const rows = await fetchAllVideos({}, authToken);
+      if (request === recordingRequest.current) setRecordings(rows);
+    } catch (cause) {
+      if (request === recordingRequest.current) setRecordingsError(friendlyMessage(cause));
+    } finally {
+      if (request === recordingRequest.current) setRecordingsLoading(false);
+    }
+  }, [authToken]);
 
   useEffect(() => {
-    if (!selectedId) { setSession(null); return; }
+    setRecordings([]);
+    if (canEdit) void loadRecordings();
+    return () => { ++recordingRequest.current; };
+  }, [canEdit, loadRecordings]);
+
+  useEffect(() => {
+    ++sessionRequest.current;
+    ++actionRequest.current;
+    setSession(null); setError(null); setAttachId(""); setCamera(""); setBusy(false);
+    if (!selectedId) return;
     let cancelled = false;
     const load = async () => {
+      const request = ++sessionRequest.current;
       try {
         const value = await fetchSession(selectedId, authToken);
-        if (!cancelled) { setSession(value); setError(null); }
+        if (!cancelled && request === sessionRequest.current) { setSession(value); setError(null); }
       } catch (cause) {
-        if (!cancelled) { setSession(null); setError(friendlyMessage(cause)); }
+        if (!cancelled && request === sessionRequest.current) { setSession(null); setError(friendlyMessage(cause)); }
       }
     };
     void load();
     const interval = setInterval(load, 5000);
-    return () => { cancelled = true; clearInterval(interval); };
+    return () => { cancelled = true; ++sessionRequest.current; ++actionRequest.current; clearInterval(interval); };
   }, [selectedId, authToken]);
 
-  function select(id: string) { setSelectedId(id); setSession(null); onSelect(id); }
+  function select(id: string) { setSelection({ input: initialSessionId, id }); setSession(null); onSelect(id); }
 
   async function saveSession(event: React.FormEvent) {
     event.preventDefault();
     setBusy(true);
     setError(null);
+    const request = ++actionRequest.current;
     try {
-      const created = await createSession({ title: title.trim(), session_kind: kind, library_role: libraryRole, ...(recordedDate ? { recorded_at: `${recordedDate}T12:00:00Z` } : {}), ...(opponent.trim() ? { opponent_team: opponent.trim() } : {}) }, authToken);
+      const created = await createSession({ title: title.trim(), session_kind: kind, library_role: libraryRole, ...(recordedDate ? { recorded_at: `${recordedDate}T12:00:00Z` } : {}), ...(kind === "game" && opponent.trim() ? { opponent_team: opponent.trim() } : {}) }, authToken);
       await loadSessions();
+      if (request !== actionRequest.current) return;
       select(created.id);
       setSession(created);
       setCreating(false);
       setTitle("");
-    } catch (cause) { setError(friendlyMessage(cause)); }
-    finally { setBusy(false); }
+    } catch (cause) { if (request === actionRequest.current) setError(friendlyMessage(cause)); }
+    finally { if (request === actionRequest.current) setBusy(false); }
   }
 
   async function attachRecording(event: React.FormEvent) {
@@ -97,12 +144,18 @@ export function SessionWorkspace({ initialSessionId = "", onSelect }: { initialS
     if (!session || !attachId) return;
     setBusy(true);
     setError(null);
+    const request = ++actionRequest.current;
+    const sessionId = session.id;
     try {
-      setSession(await addSessionRecording(session.id, { video_id: attachId, ...(camera.trim() ? { camera_label: camera.trim() } : {}) }, authToken));
+      const updated = await addSessionRecording(sessionId, { video_id: attachId, ...(camera.trim() ? { camera_label: camera.trim() } : {}) }, authToken);
+      if (request !== actionRequest.current || selectedIdRef.current !== sessionId) return;
+      ++sessionRequest.current;
+      setSession(updated);
       setAttachId(""); setCamera("");
+      void loadRecordings();
       await refreshData();
-    } catch (cause) { setError(friendlyMessage(cause)); }
-    finally { setBusy(false); }
+    } catch (cause) { if (request === actionRequest.current) setError(friendlyMessage(cause)); }
+    finally { if (request === actionRequest.current) setBusy(false); }
   }
 
   return (
@@ -122,9 +175,9 @@ export function SessionWorkspace({ initialSessionId = "", onSelect }: { initialS
           {creating ? <form onSubmit={saveSession} className="grid gap-4 rounded-lg border border-border-soft p-4 sm:grid-cols-2">
             <div><Label htmlFor="new-session-title">Session name</Label><Input id="new-session-title" required maxLength={160} value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Tuesday practice · team period" className="mt-2" /></div>
             <div><Label htmlFor="new-session-date">Recorded date</Label><Input id="new-session-date" type="date" value={recordedDate} onChange={(event) => setRecordedDate(event.target.value)} className="mt-2" /></div>
-            <div><Label htmlFor="new-session-kind">Session type</Label><NativeSelect id="new-session-kind" value={kind} onChange={(event) => setKind(event.target.value as SessionKind)} className="mt-2"><option value="practice">Practice</option><option value="scrimmage">Scrimmage</option><option value="game">Game</option></NativeSelect></div>
+            <div><Label htmlFor="new-session-kind">Session type</Label><NativeSelect id="new-session-kind" value={kind} onChange={(event) => { const value = event.target.value as SessionKind; setKind(value); if (value !== "game") setOpponent(""); }} className="mt-2"><option value="practice">Practice</option><option value="scrimmage">Scrimmage</option><option value="game">Game</option></NativeSelect></div>
             <div><Label htmlFor="new-session-role">Film belongs to</Label><NativeSelect id="new-session-role" value={libraryRole} onChange={(event) => setLibraryRole(event.target.value as "toledo" | "opponent")} className="mt-2"><option value="toledo">Toledo</option><option value="opponent">Opponent scouting</option></NativeSelect></div>
-            <div><Label htmlFor="new-session-opponent">Opponent, if applicable</Label><Input id="new-session-opponent" value={opponent} onChange={(event) => setOpponent(event.target.value)} className="mt-2" /></div>
+            {kind === "game" ? <div><Label htmlFor="new-session-opponent">Opponent, if applicable</Label><Input id="new-session-opponent" value={opponent} onChange={(event) => setOpponent(event.target.value)} className="mt-2" /></div> : null}
             <div className="flex items-end gap-2"><Button disabled={busy || !title.trim()}>{busy ? "Creating…" : "Create session"}</Button><Button type="button" variant="ghost" onClick={() => setCreating(false)}>Cancel</Button></div>
           </form> : null}
         </CardContent>
@@ -144,12 +197,21 @@ export function SessionWorkspace({ initialSessionId = "", onSelect }: { initialS
               <div className="flex flex-wrap items-center gap-3"><StatusBadge tone={toneForVideoStatus(recording.status)} dot>{recording.status}</StatusBadge><Button asChild size="sm"><Link href={`/film-room/?tab=review&sessionId=${session.id}&videoId=${recording.id}`}>Review plays <ArrowRight className="size-4" /></Link></Button><Button asChild variant="ghost" size="sm"><Link href={`/clip-review/?videoId=${recording.id}&sessionId=${session.id}`}>Full recording</Link></Button></div>
             </div>)}
             {canEdit ? <details className="rounded-lg border border-border-soft p-4"><summary className="cursor-pointer text-sm font-medium">Group a recording already in your library</summary><form onSubmit={attachRecording} className="mt-4 flex flex-wrap items-end gap-3">
-              <div className="min-w-52 flex-1"><Label htmlFor="session-attach-recording">Recording</Label><NativeSelect id="session-attach-recording" value={attachId} onChange={(event) => setAttachId(event.target.value)} className="mt-2"><option value="">Choose a recording</option>{data.videos.filter((video) => !video.practice_session_id || video.practice_session_id === session.id).filter((video) => !session.recordings.some((recording) => recording.id === video.id)).map((video) => <option key={video.id} value={video.id}>{video.filename}</option>)}</NativeSelect></div>
-              <div><Label htmlFor="session-camera-label">Camera name</Label><Input id="session-camera-label" value={camera} onChange={(event) => setCamera(event.target.value)} placeholder="Sideline, end zone, drone…" className="mt-2" /></div><Button disabled={!attachId || busy}>{busy ? "Grouping…" : "Add to session"}</Button>
-            </form></details> : null}
+              <div className="min-w-52 flex-1"><Label htmlFor="session-attach-recording">Recording</Label><NativeSelect id="session-attach-recording" value={attachId} onChange={(event) => setAttachId(event.target.value)} disabled={recordingsLoading || !!recordingsError} className="mt-2"><option value="">Choose a recording</option>{availableRecordings.map((video) => <option key={video.id} value={video.id}>{video.filename}</option>)}</NativeSelect></div>
+              <div><Label htmlFor="session-camera-label">Camera name</Label><Input id="session-camera-label" value={camera} onChange={(event) => setCamera(event.target.value)} placeholder="Sideline, end zone, drone…" className="mt-2" /></div><Button disabled={!availableRecordings.some((video) => video.id === attachId) || busy || recordingsLoading || !!recordingsError}>{busy ? "Grouping…" : "Add to session"}</Button>
+            </form>
+              <div className="mt-3 flex flex-col gap-2 text-xs text-muted-foreground" aria-live="polite">
+                {recordingsLoading ? <p role="status">Loading uploaded recordings…</p> : recordingsError ? <p role="alert">Uploaded recordings could not be loaded. {recordingsError}</p> : <>
+                  <p>{recordings.length} uploaded · {availableRecordings.length} available to add</p>
+                  <p>Already in this session: {alreadyGrouped}. Grouped in other sessions: {groupedElsewhere}. Only ungrouped recordings or recordings already assigned to this session can be added.</p>
+                  {availableRecordings.length === 0 ? <p>{recordings.length ? "All uploaded recordings are already grouped in this or another session." : "No uploaded recordings are available."} Use Add recordings to upload directly to this session.</p> : null}
+                </>}
+                <div className="flex flex-wrap items-center gap-3"><Button type="button" variant="ghost" size="sm" disabled={recordingsLoading} onClick={() => void loadRecordings()}>{recordingsError ? "Retry uploaded recordings" : "Refresh uploaded recordings"}</Button><Link className="underline underline-offset-2" href="/film-room/?tab=review">Review all uploaded recordings</Link></div>
+              </div>
+            </details> : null}
           </CardContent>
         </Card>
-        <SessionPlays session={session} onUpdate={setSession} canEdit={canEdit} />
+        <SessionPlays key={session.id} session={session} onUpdate={(updated) => { if (updated.id === selectedIdRef.current) { ++sessionRequest.current; setSession(updated); } }} canEdit={canEdit} />
       </> : <p role="status" className="text-sm text-muted-foreground">{error ? "Choose another session or retry the connection." : "Loading this session…"}</p>}
     </div>
   );
@@ -171,12 +233,16 @@ function SessionPlays({ session, onUpdate, canEdit }: { session: ApiSession; onU
 
   useEffect(() => {
     let cancelled = false;
+    let request = 0;
     setSelected([]);
     setExistingPlayId("");
     setClips([]);
-    const load = () => Promise.all(recordingIds.split(",").filter(Boolean).map((id) => fetchClipsForVideo(id, authToken)))
-      .then((items) => { if (!cancelled) { setClips(items.flat()); setError(null); } })
-      .catch((cause) => { if (!cancelled) setError(friendlyMessage(cause)); });
+    const load = () => {
+      const current = ++request;
+      return Promise.all(recordingIds.split(",").filter(Boolean).map((id) => fetchClipsForVideo(id, authToken)))
+        .then((items) => { if (!cancelled && current === request) { setClips(items.flat()); setError(null); } })
+        .catch((cause) => { if (!cancelled && current === request) setError(friendlyMessage(cause)); });
+    };
     void load();
     const interval = setInterval(load, 5000);
     return () => { cancelled = true; clearInterval(interval); };

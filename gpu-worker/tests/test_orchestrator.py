@@ -651,6 +651,7 @@ def test_annotation_identity_keeps_only_what_staff_change() -> None:
             "human_events": None,
             "removed_events": None,
             "human_labels": None,
+            "actor_kind_labels": None,
         },
         {
             "id": "b",
@@ -660,6 +661,7 @@ def test_annotation_identity_keeps_only_what_staff_change() -> None:
             "human_events": [{"event_type": "snap"}],
             "removed_events": None,
             "human_labels": None,
+            "actor_kind_labels": None,
         },
     ]
     removed = {**record, "removed_events": [{"id": "old", "provenance": {"state": "superseded"}}]}

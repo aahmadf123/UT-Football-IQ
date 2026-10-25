@@ -1,0 +1,108 @@
+{
+  "schema_version": 1,
+  "status": "passed_protocol_only",
+  "football_validation": false,
+  "video_id": "e242d134-f681-4980-9982-e344a1122b7f",
+  "source_sha256": "16fcd9e859784573f56544b3baea62e4116b377b505c13f0c284ac6d8b2b9b6e",
+  "runs": [
+    {
+      "job_id": "cf13b43b-d27c-47e6-a2d5-0d609779a2a0",
+      "kind": "player",
+      "held": false,
+      "player_consumer_counts": [
+        1,
+        1
+      ],
+      "snapshot_sources": [
+        "human"
+      ]
+    },
+    {
+      "job_id": "f2aac4bd-da55-4213-b43b-fd6988c99c7d",
+      "kind": "player",
+      "held": false,
+      "player_consumer_counts": [
+        1,
+        1
+      ],
+      "snapshot_sources": [
+        "human"
+      ]
+    },
+    {
+      "job_id": "aca8d85e-2c65-4781-a263-c8af9347dc42",
+      "kind": "player",
+      "held": false,
+      "player_consumer_counts": [
+        1,
+        1
+      ],
+      "snapshot_sources": [
+        "inherited_human"
+      ]
+    },
+    {
+      "job_id": "ba1be2f0-15da-43bd-8c9f-306f13111e5d",
+      "kind": "official",
+      "held": false,
+      "player_consumer_counts": [
+        0,
+        0
+      ],
+      "snapshot_sources": [
+        "human"
+      ]
+    },
+    {
+      "job_id": "287679fe-a311-444d-b75a-faa3bd0b64a8",
+      "kind": "unknown",
+      "held": true,
+      "player_consumer_counts": [
+        0,
+        0
+      ],
+      "snapshot_sources": [
+        "inherited_human"
+      ]
+    },
+    {
+      "job_id": "b307cbc6-59c0-418c-b7ad-71599857b3f3",
+      "kind": "unknown",
+      "held": true,
+      "player_consumer_counts": [
+        0,
+        0
+      ],
+      "snapshot_sources": [
+        "inherited_human"
+      ]
+    }
+  ],
+  "duration_seconds": 36.95,
+  "test_source": {
+    "path": "gpu-worker/tests/integration/test_actor_kind_http.py",
+    "sha256": "b8985797d2f38d302592230c146c341219fc83944b21630008ae590cd1086547",
+    "scope": "Current file remained unchanged after the recorded execution."
+  },
+  "execution_capture": {
+    "command": "pytest -m integration tests/integration/test_actor_kind_http.py -q --tb=short",
+    "pytest_result": "1 passed in 47.33s",
+    "pytest_total_seconds": 47.33,
+    "tool_session_id": 72739,
+    "note": "Captured result from the actual isolated run; not a new execution."
+  },
+  "test_seams": [
+    "manual protocol segmentation/candidate generation",
+    "ReID and metrics input observers"
+  ],
+  "actual_boundaries": [
+    "loopback HTTP authentication and worker runtime",
+    "source upload and native PTS/full content hash",
+    "live queue claim and lease",
+    "worker annotation snapshot",
+    "orchestrator actor-kind replay and manual identity persistence",
+    "fenced completion and publication",
+    "next staff corrections and current inherited labels",
+    "failed binding holds and actual overlay warnings"
+  ]
+}

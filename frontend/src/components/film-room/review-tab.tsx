@@ -11,12 +11,12 @@
  */
 
 import Link from "next/link";
-import { ArrowRight } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { ArrowRight, RefreshCw } from "lucide-react";
+import { useCallback, useMemo, useState } from "react";
 import { ClipStateBadges } from "@/components/clip-state-badge";
 import { useAppState } from "@/lib/app-state";
 import { useFetchState } from "@/lib/fetch-state";
-import { fetchClipsForVideo } from "@/lib/api";
+import { fetchAllVideos, fetchClipsForVideo } from "@/lib/api";
 import { POSSESSION_LABEL, SESSION_KIND_LABEL } from "@/lib/labels";
 import type { ApiClip, ApiVideo } from "@/lib/types";
 import { Button } from "@/components/ui/button";
@@ -26,41 +26,46 @@ import { NativeSelect } from "@/components/ui/native-select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 
-export function ReviewTab({ initialVideoId, sessionId }: { initialVideoId?: string; sessionId?: string }) {
-  const { data, authToken, apiStatus } = useAppState();
-  const videos = useMemo(() => sessionId ? data.videos.filter((video) => video.practice_session_id === sessionId) : data.videos, [data.videos, sessionId]);
-  const [selectedVideoId, setSelectedVideoId] = useState<string>(initialVideoId ?? "");
+export function ReviewTab({ initialVideoId, sessionId, onSessionChange }: { initialVideoId?: string; sessionId?: string; onSessionChange?: (id: string) => void }) {
+  const { authToken } = useAppState();
+  // The shared dashboard list has saved date/type filters. The recording
+  // picker owns a complete catalog with only its visible session scope.
+  const catalogKey = useMemo(() => ({ sessionId, authToken }), [sessionId, authToken]);
+  const catalogFetcher = useCallback(async () => ({
+    key: catalogKey,
+    videos: await fetchAllVideos(sessionId ? { practice_session_id: sessionId } : {}, authToken),
+  }), [catalogKey, sessionId, authToken]);
+  const { state: catalogState, reload: reloadCatalog } = useFetchState(catalogFetcher);
+  const catalogReady = catalogState.kind === "ready" && catalogState.data.key === catalogKey;
+  const videos = useMemo(() => catalogState.kind === "ready" && catalogState.data.key === catalogKey
+    ? [...catalogState.data.videos].sort((a, b) => (b.created_at ?? "").localeCompare(a.created_at ?? "")) : [], [catalogState, catalogKey]);
+  const selectionScope = JSON.stringify([sessionId ?? "", initialVideoId ?? ""]);
+  const [choice, setChoice] = useState({ scope: selectionScope, id: initialVideoId ?? "" });
+  // Reset the current choice on navigation so Back cannot resurrect an old
+  // manual choice belonging to an earlier visit to the same URL.
+  if (choice.scope !== selectionScope) setChoice({ scope: selectionScope, id: initialVideoId ?? "" });
+  const requestedId = choice.scope === selectionScope ? choice.id : initialVideoId ?? "";
+  const selectedVideo = requestedId ? videos.find((video) => video.id === requestedId)
+    : videos.find((video) => video.status === "ready") ?? videos[0];
+  if (choice.scope === selectionScope && !choice.id && selectedVideo) setChoice({ scope: selectionScope, id: selectedVideo.id });
+  const selectedVideoId = selectedVideo?.id ?? "";
+  const missingSelection = catalogReady && Boolean(requestedId) && !selectedVideo;
 
-  // Default to the most recently created processed video; fall back to the
-  // newest video of any status so the picker is never silently empty. A
-  // deep-linked video id is honored once the video list contains it.
-  useEffect(() => {
-    if (videos.length === 0) return;
-    if (selectedVideoId && videos.some((v) => v.id === selectedVideoId)) return;
-    const sorted = [...videos].sort(
-      (a, b) => (b.created_at ?? "").localeCompare(a.created_at ?? ""),
-    );
-    const preferred = sorted.find((v) => v.status === "ready") ?? sorted[0];
-    setSelectedVideoId(preferred?.id ?? "");
-  }, [videos, selectedVideoId]);
-
-  const selectedVideo = videos.find((v) => v.id === selectedVideoId);
-
-  const fetcher = useCallback(() => {
-    if (!selectedVideoId) return Promise.resolve<ApiClip[]>([]);
-    return fetchClipsForVideo(selectedVideoId, authToken);
+  const fetcher = useCallback(async () => {
+    const clips = selectedVideoId ? await fetchClipsForVideo(selectedVideoId, authToken) : [];
+    return { videoId: selectedVideoId, clips };
   }, [selectedVideoId, authToken]);
   const { state, reload } = useFetchState(fetcher);
 
   const clips = useMemo(() => {
-    if (state.kind !== "ready") return [];
-    return [...state.data].sort((a, b) => {
+    if (state.kind !== "ready" || state.data.videoId !== selectedVideoId) return [];
+    return [...state.data.clips].sort((a, b) => {
       const ap = a.play_number ?? Number.MAX_SAFE_INTEGER;
       const bp = b.play_number ?? Number.MAX_SAFE_INTEGER;
       if (ap !== bp) return ap - bp;
       return a.start_time - b.start_time;
     });
-  }, [state]);
+  }, [state, selectedVideoId]);
 
   return (
     <div className="flex flex-col gap-4">
@@ -73,23 +78,35 @@ export function ReviewTab({ initialVideoId, sessionId }: { initialVideoId?: stri
             <p className="mt-0.5 max-w-2xl text-xs text-muted-foreground">
               Choose a recording to review its plays, add tags, and correct tracking. Camera views can be matched in the session workspace.
             </p>
+            <p className="mt-2 text-xs text-muted-foreground" role="status" data-testid="recording-scope">
+              {catalogReady ? `${videos.length} recording${videos.length === 1 ? "" : "s"}` : catalogState.kind === "error" ? "Recording list unavailable" : catalogState.kind === "offline" ? "Library disconnected" : "Loading recordings…"}
+              {sessionId ? " in the selected session" : " · All uploaded recordings"}
+              {". Saved dashboard date and film-type filters do not limit this list."}
+            </p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {sessionId ? onSessionChange ? <Button variant="link" size="sm" onClick={() => onSessionChange("")}>Show all recordings</Button>
+                : <Button asChild variant="link" size="sm"><Link href="/film-room/?tab=review">Show all recordings</Link></Button> : null}
+              <Button variant="ghost" size="sm" onClick={() => void reloadCatalog()} disabled={catalogState.kind === "loading"}><RefreshCw className="size-3.5" /> Refresh recordings</Button>
+              <Button asChild variant="link" size="sm"><Link href={sessionId ? `/film-room/?tab=browse&sessionId=${encodeURIComponent(sessionId)}` : "/film-room/?tab=upload"}>Add recordings</Link></Button>
+            </div>
+            <p className="mt-1 max-w-2xl text-xs text-muted-foreground">Only film uploaded to this library appears here. Files on your computer and separate labeling proposals need to be uploaded first.</p>
           </div>
           <div className="flex min-w-64 flex-col gap-1">
             <Label
               htmlFor="review-video-picker"
               className="text-xs font-semibold text-muted-foreground"
             >
-              Video
+              Recording
             </Label>
             <NativeSelect
               id="review-video-picker"
               value={selectedVideoId}
-              onChange={(e) => setSelectedVideoId(e.target.value)}
+              onChange={(e) => setChoice({ scope: selectionScope, id: e.target.value })}
               aria-label="Video to review"
               data-testid="review-video-picker"
               disabled={videos.length === 0}
             >
-              {videos.length === 0 && <option value="">No videos yet</option>}
+              {!selectedVideoId && <option value="">{catalogReady ? videos.length ? "Choose a recording" : "No recordings in this scope" : catalogState.kind === "error" ? "Recording list unavailable" : catalogState.kind === "offline" ? "Library disconnected" : "Loading recordings…"}</option>}
               {videos.map((v) => (
                 <option key={v.id} value={v.id}>
                   {videoOptionLabel(v)}
@@ -100,6 +117,11 @@ export function ReviewTab({ initialVideoId, sessionId }: { initialVideoId?: stri
         </CardHeader>
       </Card>
 
+      {catalogState.kind === "error" ? <Alert variant="destructive" role="alert">
+        <AlertDescription>Recordings could not be loaded. {catalogState.message}</AlertDescription>
+        <Button variant="outline" size="sm" className="mt-2 w-fit" onClick={() => void reloadCatalog()}>Retry recordings</Button>
+      </Alert> : null}
+
       <Card>
         <CardHeader>
           <h2 className="text-base font-semibold">
@@ -107,17 +129,19 @@ export function ReviewTab({ initialVideoId, sessionId }: { initialVideoId?: stri
           </h2>
         </CardHeader>
         <CardContent>
-          {videos.length === 0 ? (
+          {!selectedVideoId ? (
             <p className="text-xs text-muted-foreground" data-testid="review-empty">
-              {apiStatus === "loading" || apiStatus === "idle"
+              {catalogState.kind === "error" ? "Recordings could not be loaded. Retry the recording list above."
+                : catalogState.kind === "offline" ? "Backend offline — connect your library to load recordings."
+                : !catalogReady
                 ? "Loading film…"
-                : apiStatus === "offline"
-                  ? "Backend offline — processed clips appear when the team server is connected."
-                  : "No film yet. Upload video from the Upload & processing tab; plays appear here after processing."}
+                : missingSelection ? sessionId ? "The requested recording is not available in this scope. Choose a recording above or show all recordings." : "The requested recording is not available in this library. Choose a recording above, or add it to the library."
+                : sessionId ? "No recordings in the selected session. Show all recordings or add film to this session."
+                : "No film yet. Add recordings to this library; plays appear here after processing."}
             </p>
           ) : (
             <>
-              {state.kind === "loading" && (
+              {(state.kind === "loading" || state.kind === "ready" && state.data.videoId !== selectedVideoId) && (
                 <div role="status" aria-busy="true" aria-label="Loading clips" className="flex flex-col gap-2">
                   <Skeleton className="h-12 w-full" />
                   <Skeleton className="h-12 w-full" />
@@ -136,7 +160,7 @@ export function ReviewTab({ initialVideoId, sessionId }: { initialVideoId?: stri
                   </Button>
                 </Alert>
               )}
-              {state.kind === "empty" && (
+              {state.kind === "ready" && state.data.videoId === selectedVideoId && clips.length === 0 && (
                 <p className="text-xs text-muted-foreground" data-testid="review-no-clips">
                   No clips processed for this video yet.
                   {selectedVideo?.status === "uploaded"
@@ -146,7 +170,7 @@ export function ReviewTab({ initialVideoId, sessionId }: { initialVideoId?: stri
                       : ""}
                 </p>
               )}
-              {state.kind === "ready" && (
+              {state.kind === "ready" && state.data.videoId === selectedVideoId && clips.length > 0 && (
                 <div className="flex flex-col gap-2">
                   {clips.map((clip) => (
                     <ReviewClipRow key={clip.id} clip={clip} sessionId={sessionId} />

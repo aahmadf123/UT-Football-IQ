@@ -51,6 +51,7 @@ const TEAM_COLORS: Record<string, string> = {
   // Game film labels sides of the ball rather than teams.
   offense: "var(--primary)",
   defense: "var(--status-info)",
+  official: "#e2e8f0",
   unknown: "var(--muted-foreground)",
 };
 
@@ -125,6 +126,7 @@ export function OverlayCanvas({
   const [savedStyle] = useOverlayStyle();
   const overlayStyle = overlayStyleProp ?? savedStyle;
   const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const [focusedId, setFocusedId] = useState<string | null>(null);
   const showTracks = activeLayers.has("tracks");
   const showEvents = activeLayers.has("events");
   const showLabels = activeLayers.has("labels");
@@ -177,8 +179,9 @@ export function OverlayCanvas({
             dimmed={Boolean(selectedTrackletId && selectedTrackletId !== t.id)}
             onSelect={onSelectTracklet}
             clean={overlayStyle === "clean"}
-            focused={selectedTrackletId === t.id || hoveredId === t.id}
+            focused={selectedTrackletId === t.id || hoveredId === t.id || focusedId === t.id}
             onHover={setHoveredId}
+            onFocusId={setFocusedId}
           />
         ))}
       {showEvents && (
@@ -215,6 +218,7 @@ function TrackletGlyph({
   clean = false,
   focused = false,
   onHover,
+  onFocusId,
 }: {
   tracklet: OverlayTracklet;
   // Position of the tracklet in the payload order — rendered as the ``T{n}``
@@ -240,6 +244,7 @@ function TrackletGlyph({
   clean?: boolean;
   focused?: boolean;
   onHover?: (trackletId: string | null) => void;
+  onFocusId?: (trackletId: string | null) => void;
 }) {
   const sample = activeTrackSample(tracklet, currentTimeSeconds, fps);
   if (!sample) return null;
@@ -270,7 +275,15 @@ function TrackletGlyph({
   if (sample.mode === "interpolated") trail.push(`${trail.length ? "L" : "M"} ${box.cx} ${box.cy}`);
 
   const tag = `T${index + 1}`;
-  const identity = playerName ?? tag;
+  const isOfficial = tracklet.provenance?.actor_kind === "official" || tracklet.team_label === "official";
+  const explicitKind = tracklet.provenance?.actor_kind;
+  const isSideline = explicitKind === "sideline" || tracklet.team_label === "sideline";
+  const nonPlayer = isOfficial || isSideline || explicitKind === "unknown";
+  const actorReview = tracklet.provenance?.actor_classification as Record<string, unknown> | undefined;
+  const staffOfficial = actorReview?.method === "staff_review" && actorReview?.validated === true;
+  const identity = isOfficial ? (staffOfficial ? "Referee" : "Referee candidate")
+    : isSideline ? (staffOfficial ? "Staff / sideline person" : "Sideline candidate")
+      : explicitKind === "unknown" ? "Unknown person" : playerName ?? tag;
   const confidencePct =
     tracklet.track_confidence != null ? `${Math.round(tracklet.track_confidence * 100)}%` : null;
   const labelText = confidencePct ? `${identity} · ${confidencePct}` : identity;
@@ -301,6 +314,8 @@ function TrackletGlyph({
       }}
       onMouseEnter={onHover ? () => onHover(tracklet.id) : undefined}
       onMouseLeave={onHover ? () => onHover(null) : undefined}
+      onFocus={onFocusId ? () => onFocusId(tracklet.id) : undefined}
+      onBlur={onFocusId ? () => onFocusId(null) : undefined}
       style={{ pointerEvents: "auto", cursor: onSelect ? "pointer" : "default" }}
       opacity={dimmed ? (clean ? 0.35 : 0.45) : 1}
     >
@@ -345,7 +360,7 @@ function TrackletGlyph({
           rx={2 * scale}
         />
       )}
-      {detailed && (showLabel || showBox) && (
+      {(detailed || showLabel) && (showLabel || showBox) && (
         <g>
         <rect
           x={box.x - 1 * scale}
@@ -370,7 +385,7 @@ function TrackletGlyph({
         </text>
         </g>
       )}
-      {detailed && metricText != null && (
+      {!nonPlayer && metricText != null && (
         <text
           data-testid={`overlay-tracklet-metric-${tracklet.id}`}
           x={box.x}

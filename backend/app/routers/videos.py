@@ -139,6 +139,8 @@ class VideoCreate(BaseModel):
 
     @model_validator(mode="after")
     def _opponent_required_for_game(self) -> "VideoCreate":
+        if self.session_kind in {SessionKind.practice, SessionKind.scrimmage}:
+            self.opponent_team = None
         if self.session_kind == SessionKind.game and not (
             self.opponent_team and self.opponent_team.strip()
         ):
@@ -249,7 +251,7 @@ async def list_videos(
     """List videos with Hudl-style filters; ``recorded_at`` newest first."""
     q = (
         select(Video)
-        .order_by(Video.recorded_at.desc().nullslast(), Video.created_at.desc())
+        .order_by(Video.recorded_at.desc().nullslast(), Video.created_at.desc(), Video.id)
         .limit(limit)
         .offset(offset)
     )
@@ -368,6 +370,18 @@ async def create_video(
         ).scalar_one_or_none()
         if session is None:
             raise HTTPException(404, "Session not found")
+        # The workspace owns recording context. A camera upload cannot turn
+        # one angle of our practice into an opponent game.
+        if session.session_kind is not None:
+            if body.session_kind is not None and body.session_kind != session.session_kind:
+                raise HTTPException(422, "Recording session type must match its session")
+            body.session_kind = session.session_kind
+        body.library_role = "opponent" if session.library_role == "opponent" else "toledo"
+        body.opponent_team = (
+            None
+            if body.session_kind in {SessionKind.practice, SessionKind.scrimmage}
+            else session.opponent_team
+        )
     else:
         session = FootballSession(
             id=uuid.uuid4(),

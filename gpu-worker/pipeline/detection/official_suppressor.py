@@ -271,8 +271,13 @@ def is_non_player(item: dict[str, Any]) -> bool:
     Reads ``class`` then ``role``; a missing class is treated as player so
     legacy detections/tracklets with no class field are never filtered.
     """
-    cls = item.get("class") or item.get("role")
-    return cls in NON_PLAYER_CLASSES
+    explicit_kinds = {"official", "sideline", "unknown"}
+    return (
+        item.get("class") in explicit_kinds
+        or (item.get("provenance") or {}).get("actor_kind") in explicit_kinds
+        or item.get("role") in NON_PLAYER_CLASSES
+        or item.get("team_label") in NON_PLAYER_CLASSES
+    )
 
 
 def filter_non_players(items: list[dict[str, Any]]) -> list[dict[str, Any]]:

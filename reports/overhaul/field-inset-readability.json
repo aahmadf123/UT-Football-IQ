@@ -1,0 +1,86 @@
+{
+  "base": "88fa8ae",
+  "ui_unit_tests": 32,
+  "worker_scoped_tests": 139,
+  "worker_scoped_seconds": 25.16,
+  "browser_tests": 3,
+  "browser_seconds": 28.1,
+  "browser_viewports": [
+    [
+      1440,
+      1000
+    ],
+    [
+      390,
+      844
+    ]
+  ],
+  "browser_source": "synthetic gray H264 timing fixture; no supplied-film actor observations",
+  "fixture_sha256": "6e5b6108252e00490be94b60bde3c1487584d11024973a0c86234b494040065b",
+  "fixture_frames": 60,
+  "fixture_seconds": 2,
+  "fixture_fps": 30,
+  "fixture_time_base": "1/15360",
+  "opaque_surface_rgb": [
+    11,
+    21,
+    32
+  ],
+  "overlay_generator_version": "pts-overlay-v7-solid-field-inset",
+  "images": [
+    {
+      "path": "runs\\field-inset-readability\\browser\\field-inset-practice-refer-31625-bration-remains-unavailable-chromium\\field-unavailable.png",
+      "sha256": "785d36c4ab6a1ecef6437ae7a030ddfa7e77c00010b1f732d3dd599d8d44e7b5"
+    },
+    {
+      "path": "runs\\field-inset-readability\\browser\\field-inset-practice-refer-31625-bration-remains-unavailable-chromium\\referee-inspector.png",
+      "sha256": "ce4e2af626c41489bfecd8683ef292a2854178ffd03759bb86eb34bcaded8b8e"
+    },
+    {
+      "path": "runs\\field-inset-readability\\browser\\field-inset-solid-field-in-53cff-nd-native-playhead-at-390px-chromium\\field-compact.png",
+      "sha256": "819116b2d32f170772d937ba71054f0307f99f290fae9f88af98480b6452459e"
+    },
+    {
+      "path": "runs\\field-inset-readability\\browser\\field-inset-solid-field-in-53cff-nd-native-playhead-at-390px-chromium\\field-expanded.png",
+      "sha256": "1c22eccc91778b230a40f253c8475307e03f3285bf6d513f456e1f6229f02d5c"
+    },
+    {
+      "path": "runs\\field-inset-readability\\browser\\field-inset-solid-field-in-53cff-nd-native-playhead-at-390px-chromium\\field-in-context.png",
+      "sha256": "8c5faa3d6e4cad70c6765bfb1a1a701a51ba9ca6ba08a1694c846b8562ca1881"
+    },
+    {
+      "path": "runs\\field-inset-readability\\browser\\field-inset-solid-field-in-c881f-d-native-playhead-at-1440px-chromium\\field-compact.png",
+      "sha256": "57f49bb95e7dd10a7df0d9307c73b2f05d15cc931fe168ff13038ebd1d92f4ee"
+    },
+    {
+      "path": "runs\\field-inset-readability\\browser\\field-inset-solid-field-in-c881f-d-native-playhead-at-1440px-chromium\\field-expanded.png",
+      "sha256": "df17f897ee9cffd84f9a63cc2fc8b7eb33c91d0732dbbc71ce51694594fa6e95"
+    },
+    {
+      "path": "runs\\field-inset-readability\\browser\\field-inset-solid-field-in-c881f-d-native-playhead-at-1440px-chromium\\field-in-context.png",
+      "sha256": "8f9a92026e22ff6f23dad693df8263edda3158faecfd967829f9bbee98520b6a"
+    }
+  ],
+  "render": {
+    "source_preview": "runs\\real-720-smoke-9a0dfe1a81\\overlay-1s.jpg",
+    "source_preview_sha256": "fc8a586dc0905ca47e9a30c155e6268d6eaba876564391c9668baa3a25d46936",
+    "source_unchanged": true,
+    "observations": [],
+    "calibration_qualified": false,
+    "scope": "Empty-schematic style comparison only; actual unsafe pipeline does not draw this map.",
+    "outputs": {
+      "before": {
+        "path": "runs\\field-inset-readability\\real-frame-empty-field-before.png",
+        "sha256": "b15dbd1e3f7b13d82b4dc6cc54f20a75b8f575c627451ad166514d8c6e735ec2"
+      },
+      "after": {
+        "path": "runs\\field-inset-readability\\real-frame-empty-field-after.png",
+        "sha256": "c559bfb1cf7283a3927bdc0fd866606e9f701fb582968ba4c5bdc4347cea72d3"
+      }
+    }
+  },
+  "production_write": false,
+  "model_inference": false,
+  "football_accuracy_claim": false,
+  "server_3128_stopped": true
+}

@@ -41,7 +41,7 @@ type CorrectionKind =
   | "event_tag";
 
 const KIND_OPTIONS: ReadonlyArray<{ value: CorrectionKind; label: string }> = [
-  { value: "player_identity", label: "Wrong team / jersey number" },
+  { value: "player_identity", label: "Player / referee / unit / jersey" },
   { value: "formation_tag", label: "Formation is wrong" },
   { value: "coverage_tag", label: "Coverage is wrong" },
   { value: "route_tag", label: "Route is wrong" },
@@ -145,6 +145,10 @@ export function CorrectionsPanel({ clipId, tracklets, selection, annotationRevis
   const [team, setTeam] = useState("");
   const [jersey, setJersey] = useState("");
   const [playerId, setPlayerId] = useState("");
+  const [actorKind, setActorKind] = useState("");
+  const selectedTrack = tracklets.find((track) => track.id === trackletId);
+  const effectiveActor = actorKind || selectedTrack?.provenance?.actor_kind || (["official", "sideline"].includes(selectedTrack?.team_label ?? "") ? selectedTrack?.team_label : undefined);
+  const nonPlayer = effectiveActor === "official" || effectiveActor === "sideline" || effectiveActor === "unknown";
 
   // Clicking a player box on the video jumps straight into "who is this?".
   // Depends on the selection object's identity, not just the tracklet id, so
@@ -154,6 +158,7 @@ export function CorrectionsPanel({ clipId, tracklets, selection, annotationRevis
     setOpen(true);
     setKind("player_identity");
     setTrackletId(selection.trackletId);
+    setActorKind(""); setPlayerId(""); setTeam(""); setJersey("");
     setStatus({ kind: "idle" });
   }, [selection]);
 
@@ -189,6 +194,7 @@ export function CorrectionsPanel({ clipId, tracklets, selection, annotationRevis
     setTeam("");
     setJersey("");
     setPlayerId("");
+    setActorKind("");
     setFormation("");
     setEventTime("");
     setPosition(EMPTY_POSITION);
@@ -207,19 +213,20 @@ export function CorrectionsPanel({ clipId, tracklets, selection, annotationRevis
       case "player_identity": {
         if (!trackletId) return null;
         const corrected: Record<string, unknown> = { tracklet_id: trackletId };
-        if (team) corrected.team = team;
-        const rosterPlayer = playerId ? data.players.find((p) => p.id === playerId) : undefined;
+        if (actorKind) corrected.actor_kind = actorKind;
+        if (team && !nonPlayer) corrected.team = team;
+        const rosterPlayer = playerId && !nonPlayer ? data.players.find((p) => p.id === playerId) : undefined;
         if (rosterPlayer) {
           // A roster pick is the strongest identity signal: carries the
           // player id (and their jersey, when numeric) for the re-ID loop.
           corrected.player_id = rosterPlayer.id;
           const rosterJersey = Number(rosterPlayer.jersey);
           if (Number.isFinite(rosterJersey)) corrected.jersey_number = rosterJersey;
-        } else if (jersey.trim() !== "" && Number.isInteger(Number(jersey)) && Number(jersey) >= 0 && Number(jersey) <= 99) {
+        } else if (!nonPlayer && jersey.trim() !== "" && Number.isInteger(Number(jersey)) && Number(jersey) >= 0 && Number(jersey) <= 99) {
           corrected.jersey_number = Number(jersey);
         }
         // Require an actual fix, not just a tracklet reference.
-        if (!("team" in corrected) && !("jersey_number" in corrected) && !("player_id" in corrected)) {
+        if (!("actor_kind" in corrected) && !("team" in corrected) && !("jersey_number" in corrected) && !("player_id" in corrected)) {
           return null;
         }
         const tracklet = tracklets.find((t) => t.id === trackletId);
@@ -450,7 +457,7 @@ export function CorrectionsPanel({ clipId, tracklets, selection, annotationRevis
                     id="correction-tracklet"
                     value={trackletId}
                     disabled={disabled}
-                    onChange={(e) => setTrackletId(e.target.value)}
+                    onChange={(e) => { setTrackletId(e.target.value); setActorKind(""); setPlayerId(""); setTeam(""); setJersey(""); }}
                   >
                     <option value="">Select a track…</option>
                     {tracklets.map((t, i) => (
@@ -463,12 +470,18 @@ export function CorrectionsPanel({ clipId, tracklets, selection, annotationRevis
                   </NativeSelect>
                 </Field>
               )}
+              <Field htmlFor="correction-person-kind" label="Person kind">
+                <NativeSelect id="correction-person-kind" value={actorKind} disabled={disabled} onChange={(event) => { setActorKind(event.target.value); setPlayerId(""); setTeam(""); setJersey(""); }}>
+                  <option value="">Leave unchanged</option><option value="player">Player</option><option value="official">Referee / official</option><option value="sideline">Staff / sideline person</option><option value="unknown">Unknown person</option>
+                </NativeSelect>
+                {nonPlayer && <p className="text-xs text-muted-foreground">Non-players are kept separate from roster identities and player analysis.</p>}
+              </Field>
               <Field htmlFor="correction-player" label="Correct player (roster)">
                 <NativeSelect
                   id="correction-player"
                   data-testid="correction-player-select"
                   value={playerId}
-                  disabled={disabled}
+                  disabled={disabled || nonPlayer}
                   onChange={(e) => setPlayerId(e.target.value)}
                 >
                   <option value="">Not on roster / unknown</option>
@@ -487,12 +500,15 @@ export function CorrectionsPanel({ clipId, tracklets, selection, annotationRevis
                 <NativeSelect
                   id="correction-team"
                   value={team}
-                  disabled={disabled}
+                  disabled={disabled || nonPlayer}
                   onChange={(e) => setTeam(e.target.value)}
                 >
                   <option value="">Leave unchanged</option>
-                  <option value="home">Home (us)</option>
-                  <option value="away">Away (opponent)</option>
+                  <option value="home">Jersey group 1</option>
+                  <option value="away">Jersey group 2</option>
+                  <option value="offense">Observed offense</option>
+                  <option value="defense">Observed defense</option>
+                  <option value="special_teams">Observed special teams</option>
                 </NativeSelect>
               </Field>
               {!playerId && (
@@ -503,7 +519,7 @@ export function CorrectionsPanel({ clipId, tracklets, selection, annotationRevis
                     min={0}
                     max={99}
                     value={jersey}
-                    disabled={disabled}
+                    disabled={disabled || nonPlayer}
                     onChange={(e) => setJersey(e.target.value)}
                   />
                 </Field>

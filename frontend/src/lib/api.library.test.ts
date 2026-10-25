@@ -16,6 +16,53 @@ async function freshImport() {
   return import("./api");
 }
 
+describe("complete recording catalog", () => {
+  test("paginates beyond 200 with filters and staff auth preserved", async () => {
+    const fetchMock = vi.fn(async (url: string) => ({ ok: true, status: 200,
+      json: async () => new URL(url).searchParams.get("offset") === "0"
+        ? Array.from({ length: 200 }, (_, index) => ({ id: `video-${index}` }))
+        : [{ id: "video-200" }],
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { fetchAllVideos } = await freshImport();
+    const result = await fetchAllVideos({ session_kind: "practice" }, "fixture-token");
+    expect(result).toHaveLength(201);
+    expect(fetchMock.mock.calls.map(([url]) => new URL(url).searchParams.get("offset"))).toEqual(["0", "200"]);
+    expect(fetchMock.mock.calls.every(([url]) => new URL(url).searchParams.get("session_kind") === "practice")).toBe(true);
+  });
+
+  test("fails a repeated full page instead of hanging or showing a truncated catalog", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, status: 200,
+      json: async () => Array.from({ length: 200 }, (_, index) => ({ id: `video-${index}` })),
+    })));
+    const { fetchAllVideos } = await freshImport();
+    await expect(fetchAllVideos()).rejects.toThrow("Recording pages repeated");
+  });
+});
+
+describe("complete session catalog", () => {
+  test("loads later session pages with staff authentication", async () => {
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      expect(init?.headers).toEqual({ Authorization: "Bearer fixture-token" });
+      return { ok: true, status: 200, json: async () => new URL(url).searchParams.get("offset") === "0"
+        ? Array.from({ length: 200 }, (_, index) => ({ id: `session-${index}` }))
+        : [{ id: "session-200" }] };
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const { fetchAllSessions } = await freshImport();
+    expect(await fetchAllSessions("fixture-token")).toHaveLength(201);
+    expect(fetchMock.mock.calls.map(([url]) => new URL(url).searchParams.get("offset"))).toEqual(["0", "200"]);
+  });
+
+  test("refuses a repeated full session page", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, status: 200,
+      json: async () => Array.from({ length: 200 }, (_, index) => ({ id: `session-${index}` })),
+    })));
+    const { fetchAllSessions } = await freshImport();
+    await expect(fetchAllSessions()).rejects.toThrow("Session pages repeated");
+  });
+});
+
 describe("fetchPracticeSessions", () => {
   test("encodes filters as query params", async () => {
     const sessions = [

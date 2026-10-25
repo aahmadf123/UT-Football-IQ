@@ -71,6 +71,7 @@ runs/
 # Local review screenshots and assembled staff archives are regenerable artifacts.
 /reports/overhaul/*.png
 /reports/overhaul/*.zip
+/reports/overhaul/labeling-package/*.zip
 
 # NFL Big Data Bowl (Issue #164) — raw Kaggle data + normalized artifacts are
 # OFFLINE-only and must never be committed. The synthetic sample under

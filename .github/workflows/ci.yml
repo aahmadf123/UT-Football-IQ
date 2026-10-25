@@ -208,7 +208,7 @@ jobs:
         run: npm test -- --run
 
       - name: Staff labeling tool core
-        run: node --test ../tools/football-labeler/annotations.test.mjs
+        run: node --test ../tools/football-labeler/annotations.test.mjs ../tools/football-labeler/connection.test.mjs
 
       - name: Build
         run: npm run build
@@ -224,11 +224,18 @@ jobs:
         os: [ubuntu-latest, windows-latest, macos-latest]
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
+      - name: Install reviewer test dependency
+        run: python -m pip install pytest==9.1.1
       - name: Verify private configuration and bounded process recovery
         run: python -m unittest discover -s tests_local -v
+      - name: Verify connected staff reviewer persistence
+        run: python -m pytest tests_local/test_labeler_server.py -q
 
   # ── Edge Worker: typecheck + workerd test suite ─────────────────────────
   # Runs inside workerd via vitest-pool-workers, not Node, so the R2, Range,
@@ -275,6 +282,10 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
       - uses: actions/setup-node@v7
         with:
           node-version: "22"
@@ -287,8 +298,17 @@ jobs:
       - name: Install Playwright browsers
         run: npm run e2e:install
 
+      - name: Install staff reviewer media tools
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+
       - name: Run Playwright E2E suite
         run: npm run e2e
+
+      - name: Verify delivered staff reviewer in Chromium
+        working-directory: .
+        env:
+          LABELER_TEST_PYTHON: python3
+        run: node --test tools/football-labeler/browser.test.mjs
 
       - name: Upload Playwright report on failure
         if: failure()

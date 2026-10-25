@@ -117,7 +117,8 @@ def run(
         "generator_version": OVERLAY_GENERATOR_VERSION,
         "field_minimap": {"enabled": analytics_safe, "max_interpolation_gap_seconds": 0.2,
                           "endpoint_freshness_seconds": 0, "coordinates": "calibrated_ncaa_yards",
-                          "corner": "bottom_right", "opacity": 0.35, "width_fraction": 0.22},
+                          "corner": "bottom_right", "opacity": 1, "width_fraction": 0.22,
+                          "surface": "solid_dark", "max_width_pixels": 200},
         "generation_id": generation,
         "duration_validation": validation,
         "source_start_frame": frame_start,
@@ -184,7 +185,9 @@ def _render_reduced(
     frame_tracks: dict[int, list[tuple[list[float], tuple[int, int, int], int]]] = {}
     field_positions: dict[int, list[dict[str, Any]]] = {}
     for i, t in enumerate(tracklets):
-        color = TRACK_COLORS[i % len(TRACK_COLORS)]
+        kind = (t.get("provenance") or {}).get("actor_kind") or t.get("class")
+        non_player = kind in {"official", "sideline", "unknown"} or t.get("team_label") in {"official", "sideline"}
+        color = (220, 220, 220) if non_player else TRACK_COLORS[i % len(TRACK_COLORS)]
         for pt in bounded_frame_observations(t, timeline, fps):
             fn = pt.get("frame_number", 0)
             bbox = pt.get("bbox")
@@ -196,7 +199,11 @@ def _render_reduced(
                     bbox[3] * scale,
                 ]
                 frame_tracks.setdefault(fn, []).append((scaled, color, i))
-                if analytics_safe and pt.get("field_x") is not None and pt.get("field_y") is not None:
+                is_non_player = (t.get("team_label") in {"official", "sideline"}
+                                 or t.get("class") in {"official", "sideline", "unknown"}
+                                 or (t.get("provenance") or {}).get("actor_kind") in {"official", "sideline", "unknown"})
+                if (analytics_safe and not is_non_player
+                        and pt.get("field_x") is not None and pt.get("field_y") is not None):
                     field_positions.setdefault(fn, []).append({**pt, "team_label": t.get("team_label", "unknown")})
 
     proxy_timeline = None
@@ -238,7 +245,10 @@ def _render_reduced(
             for bbox, color, tid in frame_tracks.get(frame_idx, []):
                 x1, y1, x2, y2 = [int(v) for v in bbox]
                 cv2.rectangle(frame, (x1, y1), (x2, y2), color, 1)
-                cv2.putText(frame, f"T{tid}", (x1, max(0, y1 - 3)), FONT, 0.3, color, 1)
+                actor = tracklets[tid]
+                kind = (actor.get("provenance") or {}).get("actor_kind") or actor.get("class")
+                tag = "Ref?" if kind == "official" or actor.get("team_label") == "official" else "Person" if kind in {"sideline", "unknown"} else f"T{tid}"
+                cv2.putText(frame, tag, (x1, max(0, y1 - 3)), FONT, 0.3, color, 1)
             if analytics_safe:
                 draw_field_minimap(frame, field_positions.get(frame_idx, []))
 

@@ -27,7 +27,7 @@ import type {
   OverlayLayerKey,
   OverlayTracklet,
 } from "@/lib/types";
-import { activeTrackPointIndex, trackingTimeSeconds } from "@/lib/tracking-time";
+import { activeTrackSample, trackingTimeSeconds } from "@/lib/tracking-time";
 import { POSSESSION_LABEL, SESSION_KIND_LABEL } from "@/lib/labels";
 import { CorrectionsPanel } from "./corrections-panel";
 import { ReviewMetadataPanel } from "./review-metadata-panel";
@@ -865,7 +865,7 @@ function ClipReviewReady({
         )}
         {sideTab === "players" && (
           <Timed clock={clock} everyMs={250}>
-            {(t) => <TrackingInspector tracklets={overlayPayload?.tracklets ?? []} playerNamesById={playerNamesById} selectedTrackletId={selection?.trackletId ?? null} currentTimeSeconds={trackTimeAt(toLocal(t))} fps={fps} onSelect={inspectTracklet} onClear={clearSelection} loading={overlayState.kind === "loading"} />}
+            {(t) => <TrackingInspector key={clip.id} video={video} tracklets={overlayPayload?.tracklets ?? []} playerNamesById={playerNamesById} selectedTrackletId={selection?.trackletId ?? null} currentTimeSeconds={trackTimeAt(toLocal(t))} fps={fps} onSelect={inspectTracklet} onReviewKind={selectTracklet} onClear={clearSelection} loading={overlayState.kind === "loading"} />}
           </Timed>
         )}
         {sideTab === "details" && (
@@ -1039,46 +1039,92 @@ const PlayQueue = memo(function PlayQueue({
   </nav>;
 });
 
-function TrackingInspector({ tracklets, playerNamesById, selectedTrackletId, currentTimeSeconds, fps, onSelect, onClear, loading }: {
+function officialTrack(track: OverlayTracklet): boolean {
+  return track.team_label === "official" || track.provenance?.actor_kind === "official";
+}
+
+function nonPlayerTrack(track: OverlayTracklet): boolean {
+  return officialTrack(track) || track.team_label === "sideline" || ["sideline", "unknown"].includes(String(track.provenance?.actor_kind));
+}
+
+function refereeLabel(track: OverlayTracklet): string {
+  const classification = track.provenance?.actor_classification;
+  const staffReviewed = classification && typeof classification === "object" && !Array.isArray(classification)
+    && (classification as Record<string, unknown>).method === "staff_review"
+    && (classification as Record<string, unknown>).validated === true;
+  const kind = officialTrack(track) ? "Referee" : track.team_label === "sideline" || track.provenance?.actor_kind === "sideline" ? "Staff / sideline person" : "Unknown person";
+  return staffReviewed ? `${kind} (staff reviewed)` : kind === "Unknown person" ? kind : `${kind} candidate`;
+}
+
+function trackUnit(track: OverlayTracklet): string | null {
+  const names: Record<string, string> = { offense: "Offense", defense: "Defense", special_teams: "Special teams" };
+  const units = new Set([track.team_label, track.side_of_ball].filter((value): value is string => typeof value === "string" && value in names));
+  return units.size > 1 ? "Unit labels conflict" : units.size === 1 ? names[[...units][0]] : null;
+}
+
+function TrackingInspector({ video, tracklets, playerNamesById, selectedTrackletId, currentTimeSeconds, fps, onSelect, onReviewKind, onClear, loading }: {
+  video: ApiVideo;
   tracklets: OverlayTracklet[];
   playerNamesById: ReadonlyMap<string, string>;
   selectedTrackletId: string | null;
   currentTimeSeconds: number;
   fps: number;
   onSelect: (id: string) => void;
+  onReviewKind: (id: string) => void;
   onClear: () => void;
   loading: boolean;
 }) {
   const [teamFilter, setTeamFilter] = useState("all");
   const selected = tracklets.find((track) => track.id === selectedTrackletId);
-  const currentIndex = selected ? activeTrackPointIndex(selected, currentTimeSeconds, fps) : -1;
-  const currentPoint = selected?.track_points[currentIndex];
+  const currentPoint = selected ? activeTrackSample(selected, currentTimeSeconds, fps)?.point : null;
   const selectedIndex = selected ? tracklets.indexOf(selected) : -1;
-  const playerName = selected?.player_id ? playerNamesById.get(selected.player_id) : null;
+  const selectedNonPlayer = selected ? nonPlayerTrack(selected) : false;
+  const playerName = !selectedNonPlayer && selected?.player_id ? playerNamesById.get(selected.player_id) : null;
+  const practice = video.session_kind === "practice" || video.session_kind === "scrimmage";
+  const groupLabel = (team: string | null) => {
+    if (team !== "home" && team !== "away") return "Team not assigned";
+    if (!practice) return team === "home" ? "Home group" : "Away group";
+    const owner = video.library_role === "toledo" ? "Our practice" : video.library_role === "opponent" ? "Opponent practice" : "Practice";
+    return `${owner} group ${team === "home" ? 1 : 2}`;
+  };
+  const describeTrack = (track: OverlayTracklet) => nonPlayerTrack(track) ? "Non-player" : trackUnit(track) ?? groupLabel(track.team_label);
+  const filters = [
+    { id: "all", label: "All", matches: (_track: OverlayTracklet) => true },
+    { id: "players", label: "Players", matches: (track: OverlayTracklet) => !nonPlayerTrack(track) },
+    ...["home", "away"].map((team) => ({ id: team, label: groupLabel(team), matches: (track: OverlayTracklet) => !nonPlayerTrack(track) && track.team_label === team })),
+    ...["Offense", "Defense", "Special teams"].map((unit) => ({ id: unit, label: unit, matches: (track: OverlayTracklet) => !nonPlayerTrack(track) && trackUnit(track) === unit })),
+    { id: "official", label: "Referees", matches: officialTrack },
+    { id: "sideline", label: "Sideline", matches: (track: OverlayTracklet) => !officialTrack(track) && (track.team_label === "sideline" || track.provenance?.actor_kind === "sideline") },
+    { id: "unknown-person", label: "Unknown people", matches: (track: OverlayTracklet) => !officialTrack(track) && track.provenance?.actor_kind === "unknown" },
+  ].filter((filter) => filter.id === "all" || filter.id === "players" || tracklets.some(filter.matches));
+  const activeFilter = filters.find((filter) => filter.id === teamFilter) ?? filters[0];
+  const visibleTracks = tracklets.filter(activeFilter.matches);
   return <Card className="gap-0 overflow-hidden border-border-soft py-0 shadow-none" data-testid="tracking-inspector">
-    <div className="flex items-center justify-between border-b border-border-soft px-4 py-3.5"><h3 className="flex items-center gap-2 text-sm font-semibold"><Crosshair className="size-4 text-primary" /> Player tracking</h3><span className="rounded-md bg-secondary px-2 py-0.5 font-mono text-xs text-muted-foreground">{tracklets.length}</span></div>
+    <div className="flex items-center justify-between border-b border-border-soft px-4 py-3.5"><h3 className="flex items-center gap-2 text-sm font-semibold"><Crosshair className="size-4 text-primary" /> Tracks in this clip</h3><span className="rounded-md bg-secondary px-2 py-0.5 font-mono text-xs text-muted-foreground">{tracklets.length}</span></div>
     <div className="p-4">
       {selected ? <div className="mb-4 rounded-lg border border-primary/25 bg-primary/5 p-3" data-testid="selected-player-inspector">
-        <div className="flex items-center justify-between gap-2"><p className="text-[0.6rem] font-semibold uppercase tracking-[0.16em] text-primary">Selected player · T{selectedIndex + 1}</p><button type="button" onClick={onClear} className="rounded px-1.5 py-1 text-[0.65rem] text-muted-foreground hover:bg-secondary hover:text-foreground" aria-label="Clear selected player">Clear</button></div>
-        <h4 className="mt-1 text-base font-semibold">{playerName ?? "Unassigned player"}</h4>
-        <p className="mt-1 text-xs text-muted-foreground">{selected.team_label === "home" ? "Toledo" : selected.team_label === "away" ? "Opponent" : "Team not assigned"}{selected.position_group ? ` · ${selected.position_group}` : ""}</p>
-        <div className="mt-3 grid grid-cols-2 gap-3 border-t border-primary/15 pt-3"><div><p className="text-[0.65rem] text-muted-foreground">Track confidence</p><p className="mt-1 font-mono text-sm">{selected.track_confidence != null ? `${Math.round(selected.track_confidence * 100)}%` : "Unverified"}</p></div><div><p className="text-[0.65rem] text-muted-foreground">Current frame</p><p className={cn("mt-1 text-xs font-medium", currentPoint?.bbox ? "text-status-ok" : "text-muted-foreground")}>{currentPoint?.bbox ? "Player visible" : "Outside track"}</p></div></div>
-        <p className="mt-3 text-[0.65rem] leading-relaxed text-muted-foreground">Use the correction form below to assign a jersey, team, or roster identity.</p>
-      </div> : <p className="mb-4 text-xs leading-relaxed text-muted-foreground">Select a player box on the film or a track below to inspect and correct its identity.</p>}
+        <div className="flex items-center justify-between gap-2"><p className="text-[0.6rem] font-semibold uppercase tracking-[0.16em] text-primary">Selected {selectedNonPlayer ? "non-player" : "player"} · T{selectedIndex + 1}</p><button type="button" onClick={onClear} className="rounded px-1.5 py-1 text-[0.65rem] text-muted-foreground hover:bg-secondary hover:text-foreground" aria-label="Clear selected track">Clear</button></div>
+        <h4 className="mt-1 text-base font-semibold">{selectedNonPlayer ? refereeLabel(selected) : playerName ?? "Unassigned player"}</h4>
+        <p className="mt-1 text-xs text-muted-foreground">{describeTrack(selected)}{!selectedNonPlayer && selected.position_group ? ` · ${selected.position_group}` : ""}</p>
+        <div className="mt-3 grid grid-cols-2 gap-3 border-t border-primary/15 pt-3"><div><p className="text-[0.65rem] text-muted-foreground">Track confidence</p><p className="mt-1 font-mono text-sm">{selected.track_confidence != null ? `${Math.round(selected.track_confidence * 100)}%` : "Unverified"}</p></div><div><p className="text-[0.65rem] text-muted-foreground">Current frame</p><p className={cn("mt-1 text-xs font-medium", currentPoint?.bbox ? "text-status-ok" : "text-muted-foreground")}>{currentPoint?.bbox ? selectedNonPlayer ? "Candidate visible" : "Player visible" : "Outside track"}</p></div></div>
+        <p className="mt-3 text-[0.65rem] leading-relaxed text-muted-foreground">{selectedNonPlayer ? "No player identity or performance metrics. Use the Tag panel to review this person's kind." : "Use the correction form below to assign a jersey, team, or roster identity."}</p>
+        {selectedNonPlayer && <button type="button" className="mt-2 min-h-8 rounded border border-border-soft px-2 text-xs hover:bg-secondary focus-visible:outline-2 focus-visible:outline-primary" onClick={() => onReviewKind(selected.id)}>Review person kind</button>}
+      </div> : <p className="mb-4 text-xs leading-relaxed text-muted-foreground">Select a box on the film or a track below to inspect it.</p>}
+      {practice && <p className="mb-3 text-[0.7rem] text-muted-foreground">Jersey groups do not identify offense or defense. Unit names appear only when supplied.</p>}
       {loading ? <p role="status" className="text-xs text-muted-foreground">Loading player tracks…</p> : tracklets.length ? <>
-        <div role="group" aria-label="Filter player tracks by team" className="mb-3 flex gap-1 rounded-md bg-background/40 p-1">{[{ id: "all", label: "All" }, { id: "home", label: "Toledo" }, { id: "away", label: "Opponent" }].map((filter) => <button key={filter.id} type="button" aria-pressed={teamFilter === filter.id} onClick={() => setTeamFilter(filter.id)} className={cn("min-h-8 flex-1 rounded px-2 text-[0.7rem] font-medium transition-colors", teamFilter === filter.id ? "bg-secondary text-foreground" : "text-muted-foreground hover:text-foreground")}>{filter.label}</button>)}</div>
-        <div className="max-h-60 space-y-1 overflow-y-auto" aria-label="Player track list">{tracklets.map((track, index) => {
-          if (teamFilter !== "all" && track.team_label !== teamFilter) return null;
-          const pointIndex = activeTrackPointIndex(track, currentTimeSeconds, fps);
-          const visible = pointIndex >= 0 && track.track_points[pointIndex]?.bbox != null;
-          const name = track.player_id ? playerNamesById.get(track.player_id) : null;
-          return <button key={track.id} type="button" onClick={() => onSelect(track.id)} aria-pressed={selectedTrackletId === track.id} aria-label={`Inspect ${name ?? `track T${index + 1}`}`} className={cn("flex w-full items-center gap-2.5 rounded-md border px-2.5 py-2 text-left transition-colors", selectedTrackletId === track.id ? "border-primary/35 bg-primary/10" : "border-transparent hover:border-border-soft hover:bg-secondary/50")}>
-            <span className={cn("flex size-8 shrink-0 items-center justify-center rounded-md border font-mono text-[0.65rem]", track.team_label === "home" ? "border-primary/20 bg-primary/5 text-primary" : track.team_label === "away" ? "border-status-info/25 bg-status-info/5 text-status-info" : "border-border-soft bg-secondary text-muted-foreground")}>T{index + 1}</span>
-            <span className="min-w-0 flex-1"><span className="block truncate text-xs font-medium">{name ?? "Unassigned player"}</span><span className="mt-0.5 block text-[0.6rem] text-muted-foreground">{track.team_label === "home" ? "Toledo" : track.team_label === "away" ? "Opponent" : "Team unknown"}{track.track_confidence != null ? ` · ${Math.round(track.track_confidence * 100)}%` : ""}</span></span>
+        <div role="group" aria-label="Filter tracks" className="mb-3 flex flex-wrap gap-1 rounded-md bg-background/40 p-1">{filters.map((filter) => <button key={filter.id} type="button" aria-pressed={activeFilter.id === filter.id} onClick={() => setTeamFilter(filter.id)} className={cn("min-h-8 grow rounded px-2 text-[0.7rem] font-medium transition-colors", activeFilter.id === filter.id ? "bg-secondary text-foreground" : "text-muted-foreground hover:text-foreground")}>{filter.label}</button>)}</div>
+        <div className="max-h-60 space-y-1 overflow-y-auto" aria-label="Track list">{tracklets.map((track, index) => {
+          if (!visibleTracks.includes(track)) return null;
+          const visible = activeTrackSample(track, currentTimeSeconds, fps)?.point.bbox != null;
+          const official = nonPlayerTrack(track);
+          const name = !official && track.player_id ? playerNamesById.get(track.player_id) : null;
+          return <button key={track.id} type="button" onClick={() => onSelect(track.id)} aria-pressed={selectedTrackletId === track.id} aria-label={`Inspect ${official ? `${refereeLabel(track).toLowerCase()} T${index + 1}` : name ?? `track T${index + 1}`}`} className={cn("flex w-full items-center gap-2.5 rounded-md border px-2.5 py-2 text-left transition-colors", selectedTrackletId === track.id ? "border-primary/35 bg-primary/10" : "border-transparent hover:border-border-soft hover:bg-secondary/50")}>
+            <span className={cn("flex size-8 shrink-0 items-center justify-center rounded-md border font-mono text-[0.65rem]", !official && track.team_label === "home" ? "border-primary/20 bg-primary/5 text-primary" : !official && track.team_label === "away" ? "border-status-info/25 bg-status-info/5 text-status-info" : "border-border-soft bg-secondary text-muted-foreground")}>{official ? officialTrack(track) ? "R" : "?" : `T${index + 1}`}</span>
+            <span className="min-w-0 flex-1"><span className="block truncate text-xs font-medium">{official ? refereeLabel(track) : name ?? "Unassigned player"}</span><span className="mt-0.5 block text-[0.6rem] text-muted-foreground">{describeTrack(track)}{track.track_confidence != null ? ` · ${Math.round(track.track_confidence * 100)}%` : ""}</span></span>
             <span className={cn("size-1.5 shrink-0 rounded-full", visible ? "bg-status-ok" : "bg-muted-foreground/25")} title={visible ? "Visible in this frame" : "Outside current frame"} />
           </button>;
         })}</div>
-        {teamFilter !== "all" && !tracklets.some((track) => track.team_label === teamFilter) ? <p className="py-3 text-xs text-muted-foreground">No tracks assigned to this team yet.</p> : null}
+        {teamFilter !== "all" && !visibleTracks.length ? <p className="py-3 text-xs text-muted-foreground">No tracks in this group.</p> : null}
       </> : <div className="rounded-lg border border-dashed border-border-soft px-3 py-4 text-center"><ScanLine className="mx-auto mb-2 size-6 text-muted-foreground/60" /><p className="text-xs font-medium">Tracking will appear here</p><p className="mt-1 text-[0.7rem] leading-relaxed text-muted-foreground">Process this film with a configured vision model to see player boxes and identities.</p></div>}
     </div>
   </Card>;
@@ -1531,8 +1577,7 @@ const FrameOverlay = memo(function FrameOverlay({
   const trackTime = trackTimeAt(localTime);
   const visibleCount = overlayPayload
     ? overlayPayload.tracklets.reduce((count, track) => {
-        const index = activeTrackPointIndex(track, trackTime, fps);
-        return index >= 0 && track.track_points[index]?.bbox != null ? count + 1 : count;
+        return activeTrackSample(track, trackTime, fps)?.point.bbox != null ? count + 1 : count;
       }, 0)
     : 0;
   return (

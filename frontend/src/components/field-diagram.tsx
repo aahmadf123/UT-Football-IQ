@@ -32,11 +32,14 @@ export function FieldDiagram({
   className,
   compact = false,
   quiet = false,
+  inset = false,
 }: {
   markers?: FieldMarker[];
   className?: string;
   compact?: boolean;
   quiet?: boolean;
+  /** Solid, restrained surface for small video overlays; other diagrams keep their palette. */
+  inset?: boolean;
 }) {
   const w = FIELD_LENGTH * PX_PER_YARD;
   const h = FIELD_WIDTH * PX_PER_YARD;
@@ -53,16 +56,16 @@ export function FieldDiagram({
       style={{ width: "100%", height: "auto", display: "block", borderRadius: 8 }}
     >
       {/* Turf */}
-      <rect x={0} y={0} width={w} height={h} fill="#1f6b3a" opacity={quiet ? 0.22 : 1} />
+      <rect x={0} y={0} width={w} height={h} fill={inset ? "#183c30" : "#1f6b3a"} opacity={inset ? 1 : quiet ? 0.22 : 1} />
       {/* End zones */}
-      <rect x={0} y={0} width={10 * PX_PER_YARD} height={h} fill="#15397f" opacity={quiet ? 0.2 : 0.85} />
+      <rect x={0} y={0} width={10 * PX_PER_YARD} height={h} fill={inset ? "#122a25" : "#15397f"} opacity={inset ? 1 : quiet ? 0.2 : 0.85} />
       <rect
         x={110 * PX_PER_YARD}
         y={0}
         width={10 * PX_PER_YARD}
         height={h}
-        fill="#15397f"
-        opacity={quiet ? 0.2 : 0.85}
+        fill={inset ? "#122a25" : "#15397f"}
+        opacity={inset ? 1 : quiet ? 0.2 : 0.85}
       />
       {/* Yard lines */}
       {yardLines.map((yard) => {
@@ -76,7 +79,7 @@ export function FieldDiagram({
             x2={x}
             y2={h}
             stroke="#ffffff"
-            strokeOpacity={quiet ? isGoal ? 0.5 : 0.23 : isGoal ? 0.95 : 0.55}
+            strokeOpacity={inset ? isGoal ? 0.9 : 0.4 : quiet ? isGoal ? 0.5 : 0.23 : isGoal ? 0.95 : 0.55}
             strokeWidth={isGoal ? 2 : 1}
           />
         );
@@ -85,7 +88,7 @@ export function FieldDiagram({
       {yardLines.map((yard) => {
         const x = yard * PX_PER_YARD;
         return (
-          <g key={`hash-${yard}`} stroke="#ffffff" strokeOpacity={quiet ? 0.24 : 0.7} strokeWidth={1}>
+          <g key={`hash-${yard}`} stroke="#ffffff" strokeOpacity={inset ? 0.65 : quiet ? 0.24 : 0.7} strokeWidth={1}>
             <line x1={x - 3} y1={20 * PX_PER_YARD} x2={x + 3} y2={20 * PX_PER_YARD} />
             <line x1={x - 3} y1={(FIELD_WIDTH - 20) * PX_PER_YARD} x2={x + 3} y2={(FIELD_WIDTH - 20) * PX_PER_YARD} />
           </g>
@@ -97,10 +100,10 @@ export function FieldDiagram({
           <circle
             cx={(m.x / 100) * (100 * PX_PER_YARD) + 10 * PX_PER_YARD}
             cy={(m.y / FIELD_WIDTH) * h}
-            r={compact ? 8 : 5}
+            r={compact ? inset ? 10 : 8 : 5}
             fill={m.color ?? "#ffd20a"}
             stroke="#0b1c3f"
-            strokeWidth={1}
+            strokeWidth={inset ? 3 : 1}
           />
           {m.label && (
             <text

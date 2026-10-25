@@ -11,8 +11,13 @@ recordings (25,300,873,296 bytes). The original unreviewed catalog is preserved.
 Verified bytes establish file identity; source categories, independent groups,
 football observations and reviewer assignments still need staff confirmation.
 
-Use the [local viewer launch and frame-index instructions](../../tools/football-labeler/README.md)
-to serve it on this computer; select the original films through its file picker.
+Double-click `tools/football-labeler/start-labeler.cmd` on the supplied workstation
+to open the connected practice reviewer on port 8042. It loads the verified
+catalog, opens originals locally, previews available unreviewed hints and saves
+revisioned drafts in `runs/staff-review-20261021`. Enter your reviewer ID, select
+a recording and mark one rep; no JSON import ceremony is needed. The older
+8030 server is not replaced. See the [local viewer instructions](../../tools/football-labeler/README.md)
+for another catalog, moved originals, save recovery and exact frame controls.
 
 The current register has 36 recordings: thirty practice extracts and six game
 files. The April 16 practice filenames propose **one session**, not thirty

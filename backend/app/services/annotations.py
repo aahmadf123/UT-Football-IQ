@@ -255,9 +255,58 @@ async def submit_correction(
             "tracklet_id": str(tracklet.id),
             "player_id": str(tracklet.player_id) if tracklet.player_id else None,
             "team": tracklet.team_label,
+            "actor_kind": (tracklet.provenance or {}).get("actor_kind", "unknown"),
         }
-        if not any(k in value for k in ("player_id", "team", "team_label", "jersey_number")):
+        if not any(
+            k in value for k in ("player_id", "team", "team_label", "jersey_number", "actor_kind")
+        ):
             raise HTTPException(422, detail="Identity correction requires player, team or jersey")
+        previous_kind = (tracklet.provenance or {}).get("actor_kind")
+        if not isinstance(previous_kind, str):
+            previous_kind = None
+        if previous_kind is None and tracklet.team_label in {"official", "sideline"}:
+            previous_kind = tracklet.team_label
+        actor_kind = value.get("actor_kind", previous_kind)
+        if "actor_kind" in value and (
+            not isinstance(actor_kind, str)
+            or actor_kind
+            not in {
+                "player",
+                "official",
+                "sideline",
+                "unknown",
+            }
+        ):
+            raise HTTPException(
+                422, detail="Person kind must be player, official, sideline or unknown"
+            )
+        if actor_kind in {"official", "sideline", "unknown"} and (
+            value.get("player_id") or "jersey_number" in value
+        ):
+            raise HTTPException(422, detail="A non-player cannot have a roster identity or jersey")
+        if "actor_kind" in value:
+            from app.services.actor_bindings import capture_actor_bindings
+
+            value["actor_bindings"] = await capture_actor_bindings(
+                db, clip, {"actor_id": str(tracklet.id)}
+            )
+            tracklet.provenance = {
+                **(tracklet.provenance or {}),
+                "actor_kind": actor_kind,
+                "actor_classification": {
+                    "method": "staff_review",
+                    "validated": True,
+                    "status": "reviewed",
+                    "reviewed_by": str(actor.id),
+                },
+            }
+            if actor_kind in {"official", "sideline", "unknown"}:
+                tracklet.player_id = None
+                tracklet.position_group = None
+                tracklet.side_of_ball = None
+                tracklet.team_label = actor_kind
+            elif tracklet.team_label in {"official", "sideline"}:
+                tracklet.team_label = "unknown"
         if "player_id" in value:
             player_id = _uuid(value["player_id"], "player_id") if value["player_id"] else None
             if (
@@ -271,13 +320,54 @@ async def submit_correction(
             tracklet.player_id = player_id
         team = value.get("team", value.get("team_label"))
         if team is not None:
-            if team not in ("home", "away", "unknown"):
-                raise HTTPException(422, detail="team must be home, away or unknown")
+            if team not in ("home", "away", "unknown", "offense", "defense", "special_teams"):
+                raise HTTPException(422, detail="Choose a jersey group or observed unit")
+            if actor_kind in {"official", "sideline", "unknown"}:
+                raise HTTPException(422, detail="A non-player cannot be assigned a player unit")
             tracklet.team_label = team
         if "jersey_number" in value:
             jersey = value["jersey_number"]
             if not isinstance(jersey, int) or isinstance(jersey, bool) or not 0 <= jersey <= 99:
                 raise HTTPException(422, detail="jersey_number must be an integer from 0 to 99")
+        if "player_id" not in value and actor_kind not in {"official", "sideline", "unknown"}:
+            from app.services.actor_bindings import verified_manual_identity
+
+            identity_proof = await verified_manual_identity(db, clip.id, tracklet)
+            if identity_proof is not None:
+                value["player_id"] = identity_proof["player_id"]
+        # An identity/team edit must not erase an earlier staff person-kind
+        # correction when apply_label replaces the effective identity row.
+        if "actor_kind" not in value:
+            prior_labels = (
+                (
+                    await db.execute(
+                        select(Label)
+                        .where(
+                            Label.tracklet_id == tracklet.id,
+                            Label.label_type == "player_identity",
+                            Label.source.in_(["human", "manual", "inherited_human"]),
+                            Label.annotated_by.is_not(None),
+                        )
+                        .order_by(Label.created_at, Label.id)
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            kinds = [
+                label
+                for label in prior_labels
+                if (label.label_value or {}).get("actor_kind")
+                in {"player", "official", "sideline", "unknown"}
+            ]
+            if kinds:
+                latest = kinds[-1].label_value
+                value["actor_kind"] = latest["actor_kind"]
+                from app.services.actor_bindings import capture_actor_bindings
+
+                value["actor_bindings"] = await capture_actor_bindings(
+                    db, clip, {"actor_id": str(tracklet.id)}
+                )
         await apply_label(
             db,
             clip,

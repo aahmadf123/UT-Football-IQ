@@ -38,6 +38,81 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 
+@pytest.mark.asyncio
+async def test_staff_referee_classification_is_reversible_and_cannot_receive_player_identity(
+    local_library,
+):
+    maker, actor_id, video_id = local_library
+    async with maker() as db:
+        actor = await db.get(User, actor_id)
+        clip = Clip(id=uuid.uuid4(), video_id=video_id, start_time=0, end_time=1)
+        db.add(clip)
+        await db.flush()
+        track = Tracklet(
+            id=uuid.uuid4(),
+            clip_id=clip.id,
+            start_frame=0,
+            end_frame=1,
+            team_label="unknown",
+            provenance={"source": "real", "actor_kind": "player"},
+        )
+        db.add(track)
+        await db.flush()
+        await submit_correction(
+            db,
+            actor=actor,
+            clip_id=clip.id,
+            correction_type=CorrectionType.player_identity,
+            corrected_value={"tracklet_id": str(track.id), "actor_kind": "official"},
+        )
+        assert track.player_id is None and track.team_label == "official"
+        assert track.provenance["actor_classification"]["method"] == "staff_review"
+        await db.commit()
+        from app.routers.tracklets import TrackletUpdate, update_tracklet
+
+        await update_tracklet(
+            track.id,
+            TrackletUpdate(
+                provenance={
+                    "actor_classification": {
+                        "method": "detection_official_candidate",
+                        "validated": False,
+                    },
+                }
+            ),
+            db,
+            actor,
+        )
+        assert track.provenance["actor_classification"]["method"] == "staff_review"
+        with pytest.raises(HTTPException) as rejected:
+            await update_tracklet(
+                track.id, TrackletUpdate(provenance={"actor_kind": "player"}), db, actor
+            )
+        assert rejected.value.status_code == 422
+        with pytest.raises(HTTPException) as error:
+            await submit_correction(
+                db,
+                actor=actor,
+                clip_id=clip.id,
+                correction_type=CorrectionType.player_identity,
+                corrected_value={"tracklet_id": str(track.id), "jersey_number": 7},
+            )
+        assert error.value.status_code == 422
+        await submit_correction(
+            db,
+            actor=actor,
+            clip_id=clip.id,
+            correction_type=CorrectionType.player_identity,
+            corrected_value={
+                "tracklet_id": str(track.id),
+                "actor_kind": "player",
+                "team": "defense",
+            },
+        )
+        assert track.team_label == "defense" and track.provenance["actor_kind"] == "player"
+        await db.commit()
+
+
 @pytest_asyncio.fixture
 async def local_library() -> AsyncGenerator[
     tuple[async_sessionmaker[AsyncSession], uuid.UUID, uuid.UUID], None
